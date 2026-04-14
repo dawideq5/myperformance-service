@@ -4,8 +4,25 @@ import { signIn } from "next-auth/react";
 import { BarChart3 } from "lucide-react";
 
 export default function LoginPage() {
-  const handleLogin = () => {
-    signIn("keycloak", { callbackUrl: "/dashboard" });
+  const handleLogin = async () => {
+    console.log("=== SIGNIN ATTEMPT ===");
+    try {
+      const result = await signIn("keycloak", {
+        callbackUrl: "/dashboard",
+        redirect: false,
+      });
+      console.log("signIn result:", result);
+
+      if (result?.ok && result?.url) {
+        console.log("Redirecting to:", result.url);
+        window.location.href = result.url;
+      } else if (result?.error) {
+        console.error("Signin error:", result.error);
+      }
+    } catch (error) {
+      console.error("Exception:", error);
+    }
+    console.log("====================");
   };
 
   return (
