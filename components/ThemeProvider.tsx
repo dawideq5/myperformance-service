@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState, useLayoutEffect } from "react";
 
 type Theme = "dark" | "light";
 
@@ -9,22 +9,33 @@ const ThemeContext = createContext<{
   toggleTheme: () => void;
 } | undefined>(undefined);
 
+const STORAGE_KEY = "theme";
+
+function getInitialTheme(): Theme {
+  if (typeof window === "undefined") return "dark";
+  const stored = localStorage.getItem(STORAGE_KEY) as Theme | null;
+  if (stored) return stored;
+  return "dark";
+}
+
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setTheme] = useState<Theme>("dark");
+  const [mounted, setMounted] = useState(false);
 
-  useEffect(() => {
-    const savedTheme = localStorage.getItem("theme") as Theme;
-    if (savedTheme) {
-      setTheme(savedTheme);
-      document.documentElement.classList.toggle("light", savedTheme === "light");
-    }
+  useLayoutEffect(() => {
+    const initial = getInitialTheme();
+    setTheme(initial);
+    document.documentElement.classList.remove("dark", "light");
+    document.documentElement.classList.add(initial);
+    setMounted(true);
   }, []);
 
   const toggleTheme = () => {
     const newTheme = theme === "dark" ? "light" : "dark";
     setTheme(newTheme);
-    localStorage.setItem("theme", newTheme);
-    document.documentElement.classList.toggle("light", newTheme === "light");
+    localStorage.setItem(STORAGE_KEY, newTheme);
+    document.documentElement.classList.remove("dark", "light");
+    document.documentElement.classList.add(newTheme);
   };
 
   return (

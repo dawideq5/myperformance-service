@@ -1,7 +1,9 @@
 import { getServerSession } from "next-auth/next";
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { 
-  ShieldCheck
+  ShieldCheck,
+  Settings
 } from "lucide-react";
 import { authOptions } from "@/app/auth";
 import { LogoutButton } from "@/components/LogoutButton";
@@ -28,6 +30,13 @@ export default async function DashboardPage() {
           </div>
 
           <div className="flex items-center gap-3">
+            <Link
+              href="/account"
+              className="p-3 rounded-xl text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-card)] transition-all duration-300"
+              title="Zarządzaj kontem"
+            >
+              <Settings className="w-5 h-5" />
+            </Link>
             <ThemeToggle />
             <LogoutButton idToken={session.idToken} />
           </div>
