@@ -1,14 +1,15 @@
-# Base image
-FROM node:20-alpine AS base
+# Base image - Node 22 LTS
+FROM node:22-alpine AS base
 
 # Install dependencies only when needed
 FROM base AS deps
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
-# Copy package files
+# Copy package files and install dependencies
 COPY package.json package-lock.json* ./
-RUN npm ci
+# Use npm install if package-lock.json doesn't exist, otherwise npm ci
+RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
 # Rebuild the source code only when needed
 FROM base AS builder
@@ -16,8 +17,9 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Disable telemetry during build
-ENV NEXT_TELEMETRY_DISABLED 1
+# Set build environment
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV NODE_ENV=production
 
 # Build the application
 RUN npm run build
