@@ -32,7 +32,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         // Get roles from realm_access and resource_access
         const roles = [
           ...(realmAccess.roles || []),
-          ...(resourceAccess[process.env.KEYCLOAK_CLIENT_ID]?.roles || [])
+          ...(resourceAccess[process.env.KEYCLOAK_CLIENT_ID!]?.roles || [])
         ];
         
         session.user.roles = roles;
