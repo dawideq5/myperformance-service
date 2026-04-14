@@ -1,79 +1,62 @@
 "use client";
 
 import { signIn } from "next-auth/react";
-import { BarChart3, AlertCircle } from "lucide-react";
+import { AlertCircle, ArrowRight } from "lucide-react";
 import { useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 
-export default function LoginPage() {
+function LoginContent() {
   const searchParams = useSearchParams();
   const error = searchParams.get("error");
 
   const handleLogin = async () => {
-    try {
-      console.log("Attempting to sign in with Keycloak...");
-      await signIn("keycloak", {
-        callbackUrl: "/dashboard",
-      });
-    } catch (error) {
-      console.error("Login error:", error);
-      alert("Wystąpił błąd podczas logowania. Sprawdź konsolę.");
-    }
+    await signIn("keycloak", { callbackUrl: "/dashboard" });
   };
-
-  const getErrorMessage = (error: string | null) => {
-    switch (error) {
-      case "OAuthCallback":
-        return "Błąd callback OAuth - NEXTAUTH_URL jest ustawione na localhost zamiast na produkcyjny URL";
-      case "OAuthSignin":
-        return "Błąd podczas inicjalizacji logowania OAuth";
-      case "OAuthAccountNotLinked":
-        return "To konto nie jest połączone z OAuth";
-      case "OAuthCreateAccount":
-        return "Błąd podczas tworzenia konta OAuth";
-      case "SessionRequired":
-        return "Wymagana sesja";
-      case "Configuration":
-        return "Błąd konfiguracji NextAuth";
-      default:
-        return error ? `Wystąpił błąd: ${error}` : null;
-    }
-  };
-
-  const errorMessage = getErrorMessage(error);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center">
-      <div className="max-w-md w-full mx-4">
-        <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-2xl p-8">
-          <div className="flex flex-col items-center mb-8">
-            <div className="bg-purple-600/20 rounded-full p-4 mb-4">
-              <BarChart3 className="w-12 h-12 text-purple-500" />
-            </div>
-            <h1 className="text-2xl font-bold text-white mb-2">MyPerformance</h1>
-            <p className="text-gray-400 text-center">Zaloguj się, aby uzyskać dostęp do dashboardu</p>
-          </div>
+    <div className="w-full max-w-[400px] px-6">
+      <div className="flex flex-col items-center text-center">
+        {/* Minimal Identity */}
+        <div className="mb-12">
+          <h1 className="text-3xl font-black tracking-tighter mb-2">MyPerformance</h1>
+          <div className="h-1 w-8 bg-indigo-600 mx-auto rounded-full" />
+        </div>
 
-          {errorMessage && (
-            <div className="mb-6 p-4 bg-red-900/20 border border-red-700 rounded-lg flex items-start gap-3">
-              <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
-              <p className="text-red-300 text-sm">{errorMessage}</p>
+        {/* Login Card */}
+        <div className="w-full bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-[2.5rem] p-10 shadow-xl shadow-black/5">
+          <h2 className="text-xl font-bold mb-2">Witaj z powrotem</h2>
+          <p className="text-sm text-[var(--text-muted)] font-medium mb-8">Zaloguj się bezpiecznie przez Keycloak</p>
+
+          {error && (
+            <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-2xl flex items-center gap-3">
+              <AlertCircle className="w-4 h-4 text-red-500" />
+              <p className="text-xs font-bold text-red-500">Błąd autoryzacji</p>
             </div>
           )}
 
           <button
             onClick={handleLogin}
-            className="w-full bg-purple-600 hover:bg-purple-700 text-white font-medium py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
+            className="w-full py-4 bg-indigo-600 text-white font-bold rounded-2xl hover:bg-indigo-700 transition-all flex items-center justify-center gap-3 group shadow-lg shadow-indigo-600/20 active:scale-[0.98]"
           >
-            Zaloguj przez Keycloak
+            <span>Kontynuuj</span>
+            <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
           </button>
-
-          <div className="mt-6 text-center">
-            <p className="text-gray-500 text-sm">
-              System zarządzania wydajnością
-            </p>
-          </div>
         </div>
+
+        <p className="mt-12 text-[10px] uppercase tracking-[0.2em] font-black text-[var(--text-muted)] opacity-50 font-sans">
+          Identity Management
+        </p>
       </div>
+    </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <div className="min-h-screen bg-[var(--bg-main)] text-[var(--text-main)] flex items-center justify-center transition-colors duration-500">
+      <Suspense fallback={<div className="font-bold text-xs tracking-widest opacity-20 uppercase animate-pulse">Inicjalizacja...</div>}>
+        <LoginContent />
+      </Suspense>
     </div>
   );
 }

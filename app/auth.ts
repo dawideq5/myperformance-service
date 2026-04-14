@@ -1,19 +1,14 @@
 import KeycloakProvider from "next-auth/providers/keycloak";
 
-console.log("=== AUTH CONFIG ===");
-console.log("KEYCLOAK_ISSUER:", process.env.KEYCLOAK_ISSUER);
-console.log("KEYCLOAK_URL:", process.env.KEYCLOAK_URL);
-console.log("KEYCLOAK_CLIENT_ID:", process.env.KEYCLOAK_CLIENT_ID);
-console.log("NEXTAUTH_URL:", process.env.NEXTAUTH_URL);
-console.log("NEXTAUTH_SECRET:", process.env.NEXTAUTH_SECRET ? "SET" : "NOT SET");
-console.log("==================");
+const keycloakIssuer = process.env.KEYCLOAK_ISSUER || 
+  (process.env.KEYCLOAK_URL ? `${process.env.KEYCLOAK_URL}/realms/MyPerformance` : undefined);
 
 export const authOptions = {
   providers: [
     KeycloakProvider({
       clientId: process.env.KEYCLOAK_CLIENT_ID!,
       clientSecret: process.env.KEYCLOAK_CLIENT_SECRET!,
-      issuer: process.env.KEYCLOAK_ISSUER || process.env.KEYCLOAK_URL!,
+      issuer: keycloakIssuer!,
     }),
   ],
   callbacks: {

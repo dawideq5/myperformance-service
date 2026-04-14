@@ -1,0 +1,210 @@
+
+> myperformance-dashboard@1.0.0 dev
+> next dev
+
+   ▲ Next.js 15.5.15
+   - Local:        http://localhost:3000
+   - Network:      http://192.168.1.11:3000
+   - Environments: .env
+
+ ✓ Starting...
+ ✓ Ready in 1309ms
+ ○ Compiling /api/auth/[...nextauth] ...
+ ✓ Compiled /api/auth/[...nextauth] in 614ms (513 modules)
+[next-auth][warn][DEBUG_ENABLED] 
+https://next-auth.js.org/warnings#debug_enabled
+ GET /api/auth/providers 200 in 869ms
+ GET /api/auth/csrf 200 in 6ms
+(node:50205) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+[next-auth][debug][CREATE_STATE] { value: '3UYL5WAgk-lpogYYSDTckF6fn0DJ4Xm5BgSiTENlspY', maxAge: 900 }
+[next-auth][debug][CREATE_PKCECODEVERIFIER] { value: 'MEYNon5wodDAlNZG_H8buFdenHUqwxvNi8h-Lnk4gGU', maxAge: 900 }
+[next-auth][debug][GET_AUTHORIZATION_URL] {
+  url: 'http://localhost:8080/realms/myperformance/protocol/openid-connect/auth?client_id=myperformance-app&scope=openid%20email%20profile&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A3000%2Fapi%2Fauth%2Fcallback%2Fkeycloak&state=3UYL5WAgk-lpogYYSDTckF6fn0DJ4Xm5BgSiTENlspY&code_challenge=S_mAaddUWJSjwLAROeAxtrUlFpbHM4InEPfy7LdmK3w&code_challenge_method=S256',
+  cookies: [
+    {
+      name: 'next-auth.state',
+      value: 'eyJhbGciOiJkaXIiLCJlbmMiOiJBMjU2R0NNIn0..3iGIfnpKnGU_mWhe.jxNjfgTVaE0rqCHNgFVU2_aPw7gAyL3daHerzUbAFxU6IM7zoiFY-bn7R3mue918iWjUi_bq5ENTIeiTICsSDhySYjV0dOq54GT3R8evbKfbO8rJPW4K5Bcer5IqevGVcH-J0sx_fR2KyadwjhU4-nLuH5m7zSAP4uljMYPYAQ_4BLrbfCI.zppOy9MbITgnDXNB9IpGpg',
+      options: [Object]
+    },
+    {
+      name: 'next-auth.pkce.code_verifier',
+      value: 'eyJhbGciOiJkaXIiLCJlbmMiOiJBMjU2R0NNIn0..l4sdZz93B9B3bzA6.yYDc16NyjK3xK3cDJSxC6ik-gABrDWHQDTsIfI2gU-_qXENDWsoUrdlajglwRnknfdfj8-uU-VtVzpkXXvpBuID0-K0mBCA8-trFNigLFT8dB7kLpbzzmqShVqP7Qc9qxxjLtCP9HXYUGgJifRjKe8TuvbJFELj4TkofyoF48EyT-8bFdXA.uRHVxBGROBfgc7tfE99RiA',
+      options: [Object]
+    }
+  ],
+  provider: {
+    id: 'keycloak',
+    name: 'Keycloak',
+    wellKnown: 'http://localhost:8080/realms/myperformance/.well-known/openid-configuration',
+    type: 'oauth',
+    authorization: { params: [Object] },
+    checks: [ 'pkce', 'state' ],
+    idToken: true,
+    profile: [Function: profile],
+    style: { logo: '/keycloak.svg', bg: '#fff', text: '#000' },
+    clientId: 'myperformance-app',
+    clientSecret: 'testsecret',
+    issuer: 'http://localhost:8080/realms/myperformance',
+    signinUrl: 'http://localhost:3000/api/auth/signin/keycloak',
+    callbackUrl: 'http://localhost:3000/api/auth/callback/keycloak'
+  }
+}
+ POST /api/auth/signin/keycloak 200 in 63ms
+ ○ Compiling / ...
+ ✓ Compiled / in 807ms (866 modules)
+ GET / 307 in 924ms
+ ✓ Compiled /dashboard in 134ms (885 modules)
+[next-auth][warn][DEBUG_ENABLED] 
+https://next-auth.js.org/warnings#debug_enabled
+ GET /dashboard 307 in 215ms
+ ✓ Compiled /login in 90ms (900 modules)
+ GET /login 200 in 177ms
+[next-auth][warn][DEBUG_ENABLED] 
+https://next-auth.js.org/warnings#debug_enabled
+[next-auth][debug][PROFILE_DATA] {
+  OAuthProfile: {
+    exp: 1776204152,
+    iat: 1776203853,
+    auth_time: 1776203852,
+    jti: 'b42af941-830c-4ed9-8be4-62147e44dd4f',
+    iss: 'http://localhost:8080/realms/myperformance',
+    aud: 'myperformance-app',
+    sub: 'c1cf29bf-2944-4101-9442-9870dfca9aee',
+    typ: 'ID',
+    azp: 'myperformance-app',
+    session_state: 'ef511b96-37bd-4f99-8055-6fd697516d78',
+    at_hash: 'uJ1ZbH6kaJDpd4tqEyirOw',
+    acr: '1',
+    sid: 'ef511b96-37bd-4f99-8055-6fd697516d78',
+    email_verified: false,
+    service_access: [
+      'default-roles-myperformance',
+      'app_user',
+      'offline_access',
+      'uma_authorization'
+    ],
+    roles: [
+      'default-roles-myperformance',
+      'app_user',
+      'offline_access',
+      'uma_authorization'
+    ],
+    name: 'Dawid Pałuska',
+    preferred_username: 'testuser',
+    given_name: 'Dawid',
+    family_name: 'Pałuska',
+    email: 'dawidtychy5@gmail.com'
+  }
+}
+[next-auth][debug][OAUTH_CALLBACK_RESPONSE] {
+  profile: {
+    id: 'c1cf29bf-2944-4101-9442-9870dfca9aee',
+    name: 'Dawid Pałuska',
+    email: 'dawidtychy5@gmail.com',
+    image: undefined
+  },
+  account: {
+    provider: 'keycloak',
+    type: 'oauth',
+    providerAccountId: 'c1cf29bf-2944-4101-9442-9870dfca9aee',
+    access_token: 'eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJydFhmbDhFaDQwUjN4NTJyV2xCWWZRUDBia21GYktDYWZqeTNDZS1VaWZ3In0.eyJleHAiOjE3NzYyMDQxNTIsImlhdCI6MTc3NjIwMzg1MiwiYXV0aF90aW1lIjoxNzc2MjAzODUyLCJqdGkiOiIzOTNjZDBhYy1lMWQ0LTQzNDItOTc5OC1hM2E2NGI4ZjNjZjgiLCJpc3MiOiJodHRwOi8vbG9jYWxob3N0OjgwODAvcmVhbG1zL215cGVyZm9ybWFuY2UiLCJhdWQiOiJhY2NvdW50Iiwic3ViIjoiYzFjZjI5YmYtMjk0NC00MTAxLTk0NDItOTg3MGRmY2E5YWVlIiwidHlwIjoiQmVhcmVyIiwiYXpwIjoibXlwZXJmb3JtYW5jZS1hcHAiLCJzZXNzaW9uX3N0YXRlIjoiZWY1MTFiOTYtMzdiZC00Zjk5LTgwNTUtNmZkNjk3NTE2ZDc4IiwiYWNyIjoiMSIsImFsbG93ZWQtb3JpZ2lucyI6WyJodHRwczovL2RpcmVjdHVzLm15cGVyZm9ybWFuY2UucGwiLCJodHRwczovL215cGVyZm9ybWFuY2UucGwiLCJodHRwOi8vbG9jYWxob3N0OjMwMDAiLCJodHRwOi8vbG9jYWxob3N0OjUxNzMiXSwicmVhbG1fYWNjZXNzIjp7InJvbGVzIjpbImRlZmF1bHQtcm9sZXMtbXlwZXJmb3JtYW5jZSIsImFwcF91c2VyIiwib2ZmbGluZV9hY2Nlc3MiLCJ1bWFfYXV0aG9yaXphdGlvbiJdfSwicmVzb3VyY2VfYWNjZXNzIjp7ImFjY291bnQiOnsicm9sZXMiOlsibWFuYWdlLWFjY291bnQiLCJtYW5hZ2UtYWNjb3VudC1saW5rcyIsInZpZXctcHJvZmlsZSJdfX0sInNjb3BlIjoib3BlbmlkIGVtYWlsIHByb2ZpbGUiLCJzaWQiOiJlZjUxMWI5Ni0zN2JkLTRmOTktODA1NS02ZmQ2OTc1MTZkNzgiLCJlbWFpbF92ZXJpZmllZCI6ZmFsc2UsInNlcnZpY2VfYWNjZXNzIjpbImRlZmF1bHQtcm9sZXMtbXlwZXJmb3JtYW5jZSIsImFwcF91c2VyIiwib2ZmbGluZV9hY2Nlc3MiLCJ1bWFfYXV0aG9yaXphdGlvbiJdLCJyb2xlcyI6WyJkZWZhdWx0LXJvbGVzLW15cGVyZm9ybWFuY2UiLCJhcHBfdXNlciIsIm9mZmxpbmVfYWNjZXNzIiwidW1hX2F1dGhvcml6YXRpb24iXSwibmFtZSI6IkRhd2lkIFBhxYJ1c2thIiwicHJlZmVycmVkX3VzZXJuYW1lIjoidGVzdHVzZXIiLCJnaXZlbl9uYW1lIjoiRGF3aWQiLCJmYW1pbHlfbmFtZSI6IlBhxYJ1c2thIiwiZW1haWwiOiJkYXdpZHR5Y2h5NUBnbWFpbC5jb20ifQ.ocUFQTfFvKGfAqvAdbZ9crxMRt2i-93kuK9h9xASmmrGF-qlWF6uKgupD84b2bfbUmZScJ_49iugcEbGJKpPa6trLSA1g6B_6HgLOtVN0KqkyZlzwJF8qJ25hlFL7eUZfXJaUaP90VALJucLOa1rQaHzLV9O0HCVpJ8jpXQjBhmKLXE0CwAOIXQoqQwVM5AIKwrJkN48wwiiSi6tFB2lxvDjScKzz-TNfiSyKtiioBoI-2uwuk1NS9PKZHZCzsthGcOxeR6VUFy9fzzdHsBcTv17uGDZQw5a14iqt5aOLpFuz-dOypW--ZLBcor3SQ1hnujkLn6XrNzODeXofUnbYQ',
+    expires_at: 1776204152,
+    refresh_expires_in: 1799,
+    refresh_token: 'eyJhbGciOiJIUzUxMiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICI1N2QyYzBiOC0xYWI3LTRjOTMtYTUyNy0zNWQwZjVjZjVlYmEifQ.eyJleHAiOjE3NzYyMDU2NTIsImlhdCI6MTc3NjIwMzg1MywianRpIjoiZTZkNTI5ZDUtMTJiMS00MjcyLThjNGYtYTNlZmU5NWI0YzBiIiwiaXNzIjoiaHR0cDovL2xvY2FsaG9zdDo4MDgwL3JlYWxtcy9teXBlcmZvcm1hbmNlIiwiYXVkIjoiaHR0cDovL2xvY2FsaG9zdDo4MDgwL3JlYWxtcy9teXBlcmZvcm1hbmNlIiwic3ViIjoiYzFjZjI5YmYtMjk0NC00MTAxLTk0NDItOTg3MGRmY2E5YWVlIiwidHlwIjoiUmVmcmVzaCIsImF6cCI6Im15cGVyZm9ybWFuY2UtYXBwIiwic2Vzc2lvbl9zdGF0ZSI6ImVmNTExYjk2LTM3YmQtNGY5OS04MDU1LTZmZDY5NzUxNmQ3OCIsInNjb3BlIjoib3BlbmlkIGVtYWlsIHByb2ZpbGUiLCJzaWQiOiJlZjUxMWI5Ni0zN2JkLTRmOTktODA1NS02ZmQ2OTc1MTZkNzgifQ.NVEYqbDE_nlBwFgqeSu6STsTIfmXeHhkkJDt52Nb_kzZT1Xs4Q2l4IJPGAG6_XYQIF4JiVciVp4UZ9jqZ5_Dvg',
+    token_type: 'Bearer',
+    id_token: 'eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJydFhmbDhFaDQwUjN4NTJyV2xCWWZRUDBia21GYktDYWZqeTNDZS1VaWZ3In0.eyJleHAiOjE3NzYyMDQxNTIsImlhdCI6MTc3NjIwMzg1MywiYXV0aF90aW1lIjoxNzc2MjAzODUyLCJqdGkiOiJiNDJhZjk0MS04MzBjLTRlZDktOGJlNC02MjE0N2U0NGRkNGYiLCJpc3MiOiJodHRwOi8vbG9jYWxob3N0OjgwODAvcmVhbG1zL215cGVyZm9ybWFuY2UiLCJhdWQiOiJteXBlcmZvcm1hbmNlLWFwcCIsInN1YiI6ImMxY2YyOWJmLTI5NDQtNDEwMS05NDQyLTk4NzBkZmNhOWFlZSIsInR5cCI6IklEIiwiYXpwIjoibXlwZXJmb3JtYW5jZS1hcHAiLCJzZXNzaW9uX3N0YXRlIjoiZWY1MTFiOTYtMzdiZC00Zjk5LTgwNTUtNmZkNjk3NTE2ZDc4IiwiYXRfaGFzaCI6InVKMVpiSDZrYUpEcGQ0dHFFeWlyT3ciLCJhY3IiOiIxIiwic2lkIjoiZWY1MTFiOTYtMzdiZC00Zjk5LTgwNTUtNmZkNjk3NTE2ZDc4IiwiZW1haWxfdmVyaWZpZWQiOmZhbHNlLCJzZXJ2aWNlX2FjY2VzcyI6WyJkZWZhdWx0LXJvbGVzLW15cGVyZm9ybWFuY2UiLCJhcHBfdXNlciIsIm9mZmxpbmVfYWNjZXNzIiwidW1hX2F1dGhvcml6YXRpb24iXSwicm9sZXMiOlsiZGVmYXVsdC1yb2xlcy1teXBlcmZvcm1hbmNlIiwiYXBwX3VzZXIiLCJvZmZsaW5lX2FjY2VzcyIsInVtYV9hdXRob3JpemF0aW9uIl0sIm5hbWUiOiJEYXdpZCBQYcWCdXNrYSIsInByZWZlcnJlZF91c2VybmFtZSI6InRlc3R1c2VyIiwiZ2l2ZW5fbmFtZSI6IkRhd2lkIiwiZmFtaWx5X25hbWUiOiJQYcWCdXNrYSIsImVtYWlsIjoiZGF3aWR0eWNoeTVAZ21haWwuY29tIn0.a-9NcZNLvojhbo4Aly5lo3ANw6mk4-EM0JJohBtVcOTtLXBnl9vA9mfmHT5w5eplXlfi9FVoNpnYriLFmckf-k5K9K71k3FAO1KHWubP7GmJTw4rSqMao5B2sW5NpC6gCIUuRnVxoEp_phrfvQ0ju4olyUt9Iv1QZGDiJ1mQFUOMpBlO6wl-xEo_F1rkQDDzyO--MeMrqCkqqdzD5coUrGHkK-f74_SJfBmAyQcL4P445LcDcnhsN6XPQmBSWkyOCB20O0pWWs82YlsbpgOfDp7a7zWN3NGqQp03Wg0OPbTxqoBpZyVFCmEN541HK1aij5csadobJUaV6thC5p-LLA',
+    'not-before-policy': 0,
+    session_state: 'ef511b96-37bd-4f99-8055-6fd697516d78',
+    scope: 'openid email profile'
+  },
+  OAuthProfile: {
+    exp: 1776204152,
+    iat: 1776203853,
+    auth_time: 1776203852,
+    jti: 'b42af941-830c-4ed9-8be4-62147e44dd4f',
+    iss: 'http://localhost:8080/realms/myperformance',
+    aud: 'myperformance-app',
+    sub: 'c1cf29bf-2944-4101-9442-9870dfca9aee',
+    typ: 'ID',
+    azp: 'myperformance-app',
+    session_state: 'ef511b96-37bd-4f99-8055-6fd697516d78',
+    at_hash: 'uJ1ZbH6kaJDpd4tqEyirOw',
+    acr: '1',
+    sid: 'ef511b96-37bd-4f99-8055-6fd697516d78',
+    email_verified: false,
+    service_access: [
+      'default-roles-myperformance',
+      'app_user',
+      'offline_access',
+      'uma_authorization'
+    ],
+    roles: [
+      'default-roles-myperformance',
+      'app_user',
+      'offline_access',
+      'uma_authorization'
+    ],
+    name: 'Dawid Pałuska',
+    preferred_username: 'testuser',
+    given_name: 'Dawid',
+    family_name: 'Pałuska',
+    email: 'dawidtychy5@gmail.com'
+  }
+}
+[next-auth][debug][CHUNKING_SESSION_COOKIE] {
+  message: 'Session cookie exceeds allowed 4096 bytes.',
+  emptyCookieSize: 163,
+  valueSize: 4815,
+  chunks: [ 4096, 1045 ]
+}
+Keycloak signIn event: {
+  user: {
+    id: 'c1cf29bf-2944-4101-9442-9870dfca9aee',
+    name: 'Dawid Pałuska',
+    email: 'dawidtychy5@gmail.com',
+    image: undefined
+  },
+  account: {
+    provider: 'keycloak',
+    type: 'oauth',
+    providerAccountId: 'c1cf29bf-2944-4101-9442-9870dfca9aee',
+    access_token: 'eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJydFhmbDhFaDQwUjN4NTJyV2xCWWZRUDBia21GYktDYWZqeTNDZS1VaWZ3In0.eyJleHAiOjE3NzYyMDQxNTIsImlhdCI6MTc3NjIwMzg1MiwiYXV0aF90aW1lIjoxNzc2MjAzODUyLCJqdGkiOiIzOTNjZDBhYy1lMWQ0LTQzNDItOTc5OC1hM2E2NGI4ZjNjZjgiLCJpc3MiOiJodHRwOi8vbG9jYWxob3N0OjgwODAvcmVhbG1zL215cGVyZm9ybWFuY2UiLCJhdWQiOiJhY2NvdW50Iiwic3ViIjoiYzFjZjI5YmYtMjk0NC00MTAxLTk0NDItOTg3MGRmY2E5YWVlIiwidHlwIjoiQmVhcmVyIiwiYXpwIjoibXlwZXJmb3JtYW5jZS1hcHAiLCJzZXNzaW9uX3N0YXRlIjoiZWY1MTFiOTYtMzdiZC00Zjk5LTgwNTUtNmZkNjk3NTE2ZDc4IiwiYWNyIjoiMSIsImFsbG93ZWQtb3JpZ2lucyI6WyJodHRwczovL2RpcmVjdHVzLm15cGVyZm9ybWFuY2UucGwiLCJodHRwczovL215cGVyZm9ybWFuY2UucGwiLCJodHRwOi8vbG9jYWxob3N0OjMwMDAiLCJodHRwOi8vbG9jYWxob3N0OjUxNzMiXSwicmVhbG1fYWNjZXNzIjp7InJvbGVzIjpbImRlZmF1bHQtcm9sZXMtbXlwZXJmb3JtYW5jZSIsImFwcF91c2VyIiwib2ZmbGluZV9hY2Nlc3MiLCJ1bWFfYXV0aG9yaXphdGlvbiJdfSwicmVzb3VyY2VfYWNjZXNzIjp7ImFjY291bnQiOnsicm9sZXMiOlsibWFuYWdlLWFjY291bnQiLCJtYW5hZ2UtYWNjb3VudC1saW5rcyIsInZpZXctcHJvZmlsZSJdfX0sInNjb3BlIjoib3BlbmlkIGVtYWlsIHByb2ZpbGUiLCJzaWQiOiJlZjUxMWI5Ni0zN2JkLTRmOTktODA1NS02ZmQ2OTc1MTZkNzgiLCJlbWFpbF92ZXJpZmllZCI6ZmFsc2UsInNlcnZpY2VfYWNjZXNzIjpbImRlZmF1bHQtcm9sZXMtbXlwZXJmb3JtYW5jZSIsImFwcF91c2VyIiwib2ZmbGluZV9hY2Nlc3MiLCJ1bWFfYXV0aG9yaXphdGlvbiJdLCJyb2xlcyI6WyJkZWZhdWx0LXJvbGVzLW15cGVyZm9ybWFuY2UiLCJhcHBfdXNlciIsIm9mZmxpbmVfYWNjZXNzIiwidW1hX2F1dGhvcml6YXRpb24iXSwibmFtZSI6IkRhd2lkIFBhxYJ1c2thIiwicHJlZmVycmVkX3VzZXJuYW1lIjoidGVzdHVzZXIiLCJnaXZlbl9uYW1lIjoiRGF3aWQiLCJmYW1pbHlfbmFtZSI6IlBhxYJ1c2thIiwiZW1haWwiOiJkYXdpZHR5Y2h5NUBnbWFpbC5jb20ifQ.ocUFQTfFvKGfAqvAdbZ9crxMRt2i-93kuK9h9xASmmrGF-qlWF6uKgupD84b2bfbUmZScJ_49iugcEbGJKpPa6trLSA1g6B_6HgLOtVN0KqkyZlzwJF8qJ25hlFL7eUZfXJaUaP90VALJucLOa1rQaHzLV9O0HCVpJ8jpXQjBhmKLXE0CwAOIXQoqQwVM5AIKwrJkN48wwiiSi6tFB2lxvDjScKzz-TNfiSyKtiioBoI-2uwuk1NS9PKZHZCzsthGcOxeR6VUFy9fzzdHsBcTv17uGDZQw5a14iqt5aOLpFuz-dOypW--ZLBcor3SQ1hnujkLn6XrNzODeXofUnbYQ',
+    expires_at: 1776204152,
+    refresh_expires_in: 1799,
+    refresh_token: 'eyJhbGciOiJIUzUxMiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICI1N2QyYzBiOC0xYWI3LTRjOTMtYTUyNy0zNWQwZjVjZjVlYmEifQ.eyJleHAiOjE3NzYyMDU2NTIsImlhdCI6MTc3NjIwMzg1MywianRpIjoiZTZkNTI5ZDUtMTJiMS00MjcyLThjNGYtYTNlZmU5NWI0YzBiIiwiaXNzIjoiaHR0cDovL2xvY2FsaG9zdDo4MDgwL3JlYWxtcy9teXBlcmZvcm1hbmNlIiwiYXVkIjoiaHR0cDovL2xvY2FsaG9zdDo4MDgwL3JlYWxtcy9teXBlcmZvcm1hbmNlIiwic3ViIjoiYzFjZjI5YmYtMjk0NC00MTAxLTk0NDItOTg3MGRmY2E5YWVlIiwidHlwIjoiUmVmcmVzaCIsImF6cCI6Im15cGVyZm9ybWFuY2UtYXBwIiwic2Vzc2lvbl9zdGF0ZSI6ImVmNTExYjk2LTM3YmQtNGY5OS04MDU1LTZmZDY5NzUxNmQ3OCIsInNjb3BlIjoib3BlbmlkIGVtYWlsIHByb2ZpbGUiLCJzaWQiOiJlZjUxMWI5Ni0zN2JkLTRmOTktODA1NS02ZmQ2OTc1MTZkNzgifQ.NVEYqbDE_nlBwFgqeSu6STsTIfmXeHhkkJDt52Nb_kzZT1Xs4Q2l4IJPGAG6_XYQIF4JiVciVp4UZ9jqZ5_Dvg',
+    token_type: 'Bearer',
+    id_token: 'eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJydFhmbDhFaDQwUjN4NTJyV2xCWWZRUDBia21GYktDYWZqeTNDZS1VaWZ3In0.eyJleHAiOjE3NzYyMDQxNTIsImlhdCI6MTc3NjIwMzg1MywiYXV0aF90aW1lIjoxNzc2MjAzODUyLCJqdGkiOiJiNDJhZjk0MS04MzBjLTRlZDktOGJlNC02MjE0N2U0NGRkNGYiLCJpc3MiOiJodHRwOi8vbG9jYWxob3N0OjgwODAvcmVhbG1zL215cGVyZm9ybWFuY2UiLCJhdWQiOiJteXBlcmZvcm1hbmNlLWFwcCIsInN1YiI6ImMxY2YyOWJmLTI5NDQtNDEwMS05NDQyLTk4NzBkZmNhOWFlZSIsInR5cCI6IklEIiwiYXpwIjoibXlwZXJmb3JtYW5jZS1hcHAiLCJzZXNzaW9uX3N0YXRlIjoiZWY1MTFiOTYtMzdiZC00Zjk5LTgwNTUtNmZkNjk3NTE2ZDc4IiwiYXRfaGFzaCI6InVKMVpiSDZrYUpEcGQ0dHFFeWlyT3ciLCJhY3IiOiIxIiwic2lkIjoiZWY1MTFiOTYtMzdiZC00Zjk5LTgwNTUtNmZkNjk3NTE2ZDc4IiwiZW1haWxfdmVyaWZpZWQiOmZhbHNlLCJzZXJ2aWNlX2FjY2VzcyI6WyJkZWZhdWx0LXJvbGVzLW15cGVyZm9ybWFuY2UiLCJhcHBfdXNlciIsIm9mZmxpbmVfYWNjZXNzIiwidW1hX2F1dGhvcml6YXRpb24iXSwicm9sZXMiOlsiZGVmYXVsdC1yb2xlcy1teXBlcmZvcm1hbmNlIiwiYXBwX3VzZXIiLCJvZmZsaW5lX2FjY2VzcyIsInVtYV9hdXRob3JpemF0aW9uIl0sIm5hbWUiOiJEYXdpZCBQYcWCdXNrYSIsInByZWZlcnJlZF91c2VybmFtZSI6InRlc3R1c2VyIiwiZ2l2ZW5fbmFtZSI6IkRhd2lkIiwiZmFtaWx5X25hbWUiOiJQYcWCdXNrYSIsImVtYWlsIjoiZGF3aWR0eWNoeTVAZ21haWwuY29tIn0.a-9NcZNLvojhbo4Aly5lo3ANw6mk4-EM0JJohBtVcOTtLXBnl9vA9mfmHT5w5eplXlfi9FVoNpnYriLFmckf-k5K9K71k3FAO1KHWubP7GmJTw4rSqMao5B2sW5NpC6gCIUuRnVxoEp_phrfvQ0ju4olyUt9Iv1QZGDiJ1mQFUOMpBlO6wl-xEo_F1rkQDDzyO--MeMrqCkqqdzD5coUrGHkK-f74_SJfBmAyQcL4P445LcDcnhsN6XPQmBSWkyOCB20O0pWWs82YlsbpgOfDp7a7zWN3NGqQp03Wg0OPbTxqoBpZyVFCmEN541HK1aij5csadobJUaV6thC5p-LLA',
+    'not-before-policy': 0,
+    session_state: 'ef511b96-37bd-4f99-8055-6fd697516d78',
+    scope: 'openid email profile'
+  },
+  profile: {
+    id: 'c1cf29bf-2944-4101-9442-9870dfca9aee',
+    name: 'Dawid Pałuska',
+    email: 'dawidtychy5@gmail.com',
+    image: undefined
+  },
+  isNewUser: undefined
+}
+ GET /api/auth/callback/keycloak?state=3UYL5WAgk-lpogYYSDTckF6fn0DJ4Xm5BgSiTENlspY&session_state=ef511b96-37bd-4f99-8055-6fd697516d78&iss=http%3A%2F%2Flocalhost%3A8080%2Frealms%2Fmyperformance&code=96c7f43d-dd92-4122-be9a-3f9aebecf404.ef511b96-37bd-4f99-8055-6fd697516d78.8180ffd1-c34d-41f7-a82c-c3f53eedefe7 302 in 80ms
+[next-auth][debug][CHUNKING_SESSION_COOKIE] {
+  message: 'Session cookie exceeds allowed 4096 bytes.',
+  emptyCookieSize: 163,
+  valueSize: 4815,
+  chunks: [ 4096, 1045 ]
+}
+ GET /dashboard 200 in 42ms
+[next-auth][debug][CHUNKING_SESSION_COOKIE] {
+  message: 'Session cookie exceeds allowed 4096 bytes.',
+  emptyCookieSize: 163,
+  valueSize: 4815,
+  chunks: [ 4096, 1045 ]
+}
+ GET /api/auth/session 200 in 12ms
+ GET / 307 in 45ms
+ GET /dashboard 307 in 32ms
+ GET /login 200 in 19ms
+ GET / 307 in 36ms
+ GET /dashboard 307 in 25ms
+ GET /login 200 in 20ms
