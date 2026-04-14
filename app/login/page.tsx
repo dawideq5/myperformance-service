@@ -1,7 +1,13 @@
-import { signIn } from "@/app/auth";
+"use client";
+
+import { signIn } from "next-auth/react";
 import { BarChart3 } from "lucide-react";
 
 export default function LoginPage() {
+  const handleLogin = () => {
+    signIn("keycloak", { callbackUrl: "/dashboard" });
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center">
       <div className="max-w-md w-full mx-4">
@@ -14,19 +20,12 @@ export default function LoginPage() {
             <p className="text-gray-400 text-center">Zaloguj się, aby uzyskać dostęp do dashboardu</p>
           </div>
 
-          <form
-            action={async () => {
-              "use server";
-              await signIn("keycloak");
-            }}
+          <button
+            onClick={handleLogin}
+            className="w-full bg-purple-600 hover:bg-purple-700 text-white font-medium py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
           >
-            <button
-              type="submit"
-              className="w-full bg-purple-600 hover:bg-purple-700 text-white font-medium py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
-            >
-              Zaloguj przez Keycloak
-            </button>
-          </form>
+            Zaloguj przez Keycloak
+          </button>
 
           <div className="mt-6 text-center">
             <p className="text-gray-500 text-sm">

@@ -1,4 +1,4 @@
-import { auth } from "@/app/auth";
+import { getServerSession } from "next-auth/next";
 import { redirect } from "next/navigation";
 import { RoleGuard } from "@/components/RoleGuard";
 import { AdminPanel } from "@/components/AdminPanel";
@@ -7,9 +7,10 @@ import { UserPanel } from "@/components/UserPanel";
 import { PerformanceChart } from "@/components/PerformanceChart";
 import { TasksChart } from "@/components/TasksChart";
 import { LogOut, BarChart3 } from "lucide-react";
+import { authOptions } from "@/app/auth";
 
 export default async function DashboardPage() {
-  const session = await auth();
+  const session = await getServerSession(authOptions);
 
   if (!session?.user) {
     redirect("/login");
