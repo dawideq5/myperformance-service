@@ -1,29 +1,45 @@
 "use client";
 
 import { signIn } from "next-auth/react";
-import { BarChart3 } from "lucide-react";
+import { BarChart3, AlertCircle } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 
 export default function LoginPage() {
-  const handleLogin = async () => {
-    console.log("=== SIGNIN ATTEMPT ===");
-    try {
-      const result = await signIn("keycloak", {
-        callbackUrl: "/dashboard",
-        redirect: false,
-      });
-      console.log("signIn result:", result);
+  const searchParams = useSearchParams();
+  const error = searchParams.get("error");
 
-      if (result?.ok && result?.url) {
-        console.log("Redirecting to:", result.url);
-        window.location.href = result.url;
-      } else if (result?.error) {
-        console.error("Signin error:", result.error);
-      }
+  const handleLogin = async () => {
+    try {
+      console.log("Attempting to sign in with Keycloak...");
+      await signIn("keycloak", {
+        callbackUrl: "/dashboard",
+      });
     } catch (error) {
-      console.error("Exception:", error);
+      console.error("Login error:", error);
+      alert("Wystąpił błąd podczas logowania. Sprawdź konsolę.");
     }
-    console.log("====================");
   };
+
+  const getErrorMessage = (error: string | null) => {
+    switch (error) {
+      case "OAuthCallback":
+        return "Błąd callback OAuth - NEXTAUTH_URL jest ustawione na localhost zamiast na produkcyjny URL";
+      case "OAuthSignin":
+        return "Błąd podczas inicjalizacji logowania OAuth";
+      case "OAuthAccountNotLinked":
+        return "To konto nie jest połączone z OAuth";
+      case "OAuthCreateAccount":
+        return "Błąd podczas tworzenia konta OAuth";
+      case "SessionRequired":
+        return "Wymagana sesja";
+      case "Configuration":
+        return "Błąd konfiguracji NextAuth";
+      default:
+        return error ? `Wystąpił błąd: ${error}` : null;
+    }
+  };
+
+  const errorMessage = getErrorMessage(error);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center">
@@ -36,6 +52,13 @@ export default function LoginPage() {
             <h1 className="text-2xl font-bold text-white mb-2">MyPerformance</h1>
             <p className="text-gray-400 text-center">Zaloguj się, aby uzyskać dostęp do dashboardu</p>
           </div>
+
+          {errorMessage && (
+            <div className="mb-6 p-4 bg-red-900/20 border border-red-700 rounded-lg flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+              <p className="text-red-300 text-sm">{errorMessage}</p>
+            </div>
+          )}
 
           <button
             onClick={handleLogin}

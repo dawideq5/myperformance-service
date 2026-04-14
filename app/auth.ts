@@ -1,25 +1,19 @@
-import NextAuth from "next-auth";
 import KeycloakProvider from "next-auth/providers/keycloak";
+
+console.log("=== AUTH CONFIG ===");
+console.log("KEYCLOAK_ISSUER:", process.env.KEYCLOAK_ISSUER);
+console.log("KEYCLOAK_URL:", process.env.KEYCLOAK_URL);
+console.log("KEYCLOAK_CLIENT_ID:", process.env.KEYCLOAK_CLIENT_ID);
+console.log("NEXTAUTH_URL:", process.env.NEXTAUTH_URL);
+console.log("NEXTAUTH_SECRET:", process.env.NEXTAUTH_SECRET ? "SET" : "NOT SET");
+console.log("==================");
 
 export const authOptions = {
   providers: [
     KeycloakProvider({
       clientId: process.env.KEYCLOAK_CLIENT_ID!,
       clientSecret: process.env.KEYCLOAK_CLIENT_SECRET!,
-      issuer: process.env.KEYCLOAK_URL!,
-      wellKnown: `${process.env.KEYCLOAK_URL!}/.well-known/openid-configuration`,
-      authorization: {
-        url: `${process.env.KEYCLOAK_URL!}/protocol/openid-connect/auth`,
-        params: { scope: "openid email profile" },
-      },
-      token: {
-        url: `${process.env.KEYCLOAK_URL!}/protocol/openid-connect/token`,
-      },
-      userinfo: {
-        url: `${process.env.KEYCLOAK_URL!}/protocol/openid-connect/userinfo`,
-      },
-      idToken: true,
-      checks: ["pkce", "state"],
+      issuer: process.env.KEYCLOAK_ISSUER || process.env.KEYCLOAK_URL!,
     }),
   ],
   callbacks: {
@@ -74,5 +68,4 @@ export const authOptions = {
   debug: process.env.NODE_ENV === 'development',
 };
 
-const handler = NextAuth(authOptions);
-export default handler;
+export default authOptions;
