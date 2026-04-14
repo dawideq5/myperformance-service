@@ -11,6 +11,11 @@ export const authOptions = {
       issuer: keycloakIssuer!,
     }),
   ],
+  secret: process.env.NEXTAUTH_SECRET,
+  session: {
+    strategy: "jwt" as const,
+    maxAge: 30 * 24 * 60 * 60, // 30 days
+  },
   callbacks: {
     async jwt({ token, account }: any) {
       if (account) {

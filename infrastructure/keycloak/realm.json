@@ -192,6 +192,20 @@
       "webOrigins": [
         "https://directus.myperformance.pl"
       ]
+    },
+    {
+      "clientId": "myperformance-service",
+      "name": "MyPerformance Service Account",
+      "description": "Service account for credential management (2FA, WebAuthn)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "bearerOnly": false,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "authorizationServicesEnabled": false
     }
   ]
 }
