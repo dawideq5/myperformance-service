@@ -138,38 +138,6 @@ export default function AccountPage() {
     }
   }, [forceLogout]);
 
-  useEffect(() => {
-    if (status === "unauthenticated") {
-      router.push("/login");
-      return;
-    }
-
-    if (sessionError) {
-      void forceLogout();
-      return;
-    }
-
-    if (accessToken) {
-      void fetchUserData();
-    }
-  }, [status, accessToken, sessionError, forceLogout, fetchUserData, router]);
-
-  useEffect(() => {
-    const onResume = () => {
-      if (document.visibilityState === "visible") {
-        void checkSessionActivity();
-      }
-    };
-
-    window.addEventListener("focus", onResume);
-    document.addEventListener("visibilitychange", onResume);
-
-    return () => {
-      window.removeEventListener("focus", onResume);
-      document.removeEventListener("visibilitychange", onResume);
-    };
-  }, [checkSessionActivity]);
-
   const fetchUserData = useCallback(async () => {
     try {
       setLoading(true);
@@ -209,6 +177,38 @@ export default function AccountPage() {
       setLoading(false);
     }
   }, [apiRequest, session]);
+
+  useEffect(() => {
+    if (status === "unauthenticated") {
+      router.push("/login");
+      return;
+    }
+
+    if (sessionError) {
+      void forceLogout();
+      return;
+    }
+
+    if (accessToken) {
+      void fetchUserData();
+    }
+  }, [status, accessToken, sessionError, forceLogout, fetchUserData, router]);
+
+  useEffect(() => {
+    const onResume = () => {
+      if (document.visibilityState === "visible") {
+        void checkSessionActivity();
+      }
+    };
+
+    window.addEventListener("focus", onResume);
+    document.addEventListener("visibilitychange", onResume);
+
+    return () => {
+      window.removeEventListener("focus", onResume);
+      document.removeEventListener("visibilitychange", onResume);
+    };
+  }, [checkSessionActivity]);
 
   const logoutSession = async (sessionId: string) => {
     try {
