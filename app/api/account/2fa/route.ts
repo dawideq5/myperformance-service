@@ -3,7 +3,13 @@ import { NextResponse } from "next/server";
 import { authOptions } from "@/app/auth";
 import * as OTPAuth from "otpauth";
 import QRCode from "qrcode";
-import { getServiceAccountToken, getUserIdFromToken } from "@/lib/keycloak-admin";
+import {
+  appendUserRequiredAction,
+  getServiceAccountToken,
+  getUserIdFromToken,
+  resolveRequiredActionAlias,
+} from "@/lib/keycloak-admin";
+import { getAccountUrl, getAdminUrl } from "@/lib/keycloak-config";
 
 // GET - Check 2FA status
 export async function GET() {
@@ -13,9 +19,8 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const keycloakUrl = process.env.KEYCLOAK_URL;
     const response = await fetch(
-      `${keycloakUrl}/realms/MyPerformance/account/credentials`,
+      getAccountUrl("/account/credentials"),
       {
         headers: {
           Authorization: `Bearer ${session.accessToken}`,
@@ -55,6 +60,24 @@ export async function POST(request: Request) {
 
     const body = await request.json();
     const { action, totpCode, secret } = body;
+
+    if (action === "prepare") {
+      const serviceToken = await getServiceAccountToken();
+      const userId = await getUserIdFromToken(session.accessToken);
+      const requiredActionAlias = await resolveRequiredActionAlias(serviceToken, [
+        "CONFIGURE_TOTP",
+      ]);
+
+      if (!requiredActionAlias) {
+        return NextResponse.json(
+          { error: "Brak wymaganej akcji CONFIGURE_TOTP w konfiguracji Keycloak" },
+          { status: 400 }
+        );
+      }
+
+      await appendUserRequiredAction(serviceToken, userId, requiredActionAlias);
+      return NextResponse.json({ success: true, requiredAction: requiredActionAlias });
+    }
 
     // Step 1: Generate new TOTP secret + QR code
     if (action === "generate") {
@@ -112,11 +135,10 @@ export async function POST(request: Request) {
       // Get service account token and user ID
       const serviceToken = await getServiceAccountToken();
       const userId = await getUserIdFromToken(session.accessToken);
-      const keycloakUrl = process.env.KEYCLOAK_URL;
 
       // Get current user representation
       const userRes = await fetch(
-        `${keycloakUrl}/admin/realms/MyPerformance/users/${userId}`,
+        getAdminUrl(`/users/${userId}`),
         {
           headers: {
             Authorization: `Bearer ${serviceToken}`,
@@ -149,7 +171,7 @@ export async function POST(request: Request) {
       };
 
       const updateRes = await fetch(
-        `${keycloakUrl}/admin/realms/MyPerformance/users/${userId}`,
+        getAdminUrl(`/users/${userId}`),
         {
           method: "PUT",
           headers: {
@@ -166,11 +188,8 @@ export async function POST(request: Request) {
         }
       );
 
-      console.log("[API /2fa POST verify] user update response:", updateRes.status);
-
       if (!updateRes.ok) {
         const errText = await updateRes.text();
-        console.error("[API /2fa POST verify] error:", errText);
         return NextResponse.json(
           { error: "Nie udało się zapisać konfiguracji 2FA." },
           { status: 500 }
@@ -198,9 +217,8 @@ export async function DELETE() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const keycloakUrl = process.env.KEYCLOAK_URL;
     const credsResponse = await fetch(
-      `${keycloakUrl}/realms/MyPerformance/account/credentials`,
+      getAccountUrl("/account/credentials"),
       {
         headers: {
           Authorization: `Bearer ${session.accessToken}`,
@@ -229,7 +247,7 @@ export async function DELETE() {
 
     // Try Account API first
     let deleteResponse = await fetch(
-      `${keycloakUrl}/realms/MyPerformance/account/credentials/${credentialId}`,
+      getAccountUrl(`/account/credentials/${credentialId}`),
       {
         method: "DELETE",
         headers: { Authorization: `Bearer ${session.accessToken}` },
@@ -238,12 +256,11 @@ export async function DELETE() {
 
     // If Account API fails, use Admin API
     if (!deleteResponse.ok) {
-      console.log("[API /2fa DELETE] Account API failed, trying Admin API");
       const adminToken = await getServiceAccountToken();
       const userId = await getUserIdFromToken(session.accessToken);
 
       deleteResponse = await fetch(
-        `${keycloakUrl}/admin/realms/MyPerformance/users/${userId}/credentials/${credentialId}`,
+        getAdminUrl(`/users/${userId}/credentials/${credentialId}`),
         {
           method: "DELETE",
           headers: { Authorization: `Bearer ${adminToken}` },
@@ -252,8 +269,6 @@ export async function DELETE() {
     }
 
     if (!deleteResponse.ok) {
-      const errorText = await deleteResponse.text();
-      console.error("[API /2fa DELETE] error:", errorText);
       return NextResponse.json(
         { error: "Nie udało się wyłączyć 2FA" },
         { status: deleteResponse.status }

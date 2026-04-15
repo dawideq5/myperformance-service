@@ -1,6 +1,7 @@
 import { getServerSession } from "next-auth/next";
 import { NextRequest, NextResponse } from "next/server";
 import { authOptions } from "@/app/auth";
+import { getAccountUrl } from "@/lib/keycloak-config";
 
 export async function DELETE(
   request: NextRequest,
@@ -14,11 +15,7 @@ export async function DELETE(
     }
 
     const { id } = await params;
-    const keycloakUrl = process.env.KEYCLOAK_URL;
-    const url = `${keycloakUrl}/realms/MyPerformance/account/sessions/${id}`;
-    console.log("[API /sessions DELETE]", url);
-    
-    const response = await fetch(url, {
+    const response = await fetch(getAccountUrl(`/account/sessions/${id}`), {
       method: "DELETE",
       headers: {
         Authorization: `Bearer ${session.accessToken}`,
@@ -26,11 +23,7 @@ export async function DELETE(
       },
     });
 
-    console.log("[API /sessions DELETE] keycloak response:", response.status);
-
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error("[API /sessions DELETE] error:", errorText);
       return NextResponse.json(
         { error: "Failed to logout session" },
         { status: response.status }

@@ -18,6 +18,29 @@
   "maxDeltaTimeSeconds": 43200,
   "failureFactor": 5,
   "defaultRoles": ["app_user"],
+  "requiredActions": [
+    {
+      "alias": "CONFIGURE_TOTP",
+      "name": "Configure OTP",
+      "enabled": true,
+      "defaultAction": false,
+      "priority": 10
+    },
+    {
+      "alias": "webauthn-register",
+      "name": "Webauthn Register",
+      "enabled": true,
+      "defaultAction": false,
+      "priority": 20
+    },
+    {
+      "alias": "webauthn-register-passwordless",
+      "name": "Webauthn Register Passwordless",
+      "enabled": true,
+      "defaultAction": false,
+      "priority": 30
+    }
+  ],
   "roles": {
     "realm": [
       {

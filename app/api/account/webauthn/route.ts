@@ -1,7 +1,13 @@
 import { getServerSession } from "next-auth/next";
 import { NextResponse } from "next/server";
 import { authOptions } from "@/app/auth";
-import { getServiceAccountToken, getUserIdFromToken } from "@/lib/keycloak-admin";
+import {
+  appendUserRequiredAction,
+  getServiceAccountToken,
+  getUserIdFromToken,
+  resolveRequiredActionAlias,
+} from "@/lib/keycloak-admin";
+import { getAccountUrl, getAdminUrl } from "@/lib/keycloak-config";
 
 // GET - List registered WebAuthn credentials
 export async function GET() {
@@ -11,9 +17,8 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const keycloakUrl = process.env.KEYCLOAK_URL;
     const response = await fetch(
-      `${keycloakUrl}/realms/MyPerformance/account/credentials`,
+      getAccountUrl("/account/credentials"),
       {
         headers: {
           Authorization: `Bearer ${session.accessToken}`,
@@ -55,14 +60,34 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { action } = body;
 
+    if (action === "prepare-passwordless") {
+      const serviceToken = await getServiceAccountToken();
+      const userId = await getUserIdFromToken(session.accessToken);
+      const requiredActionAlias = await resolveRequiredActionAlias(serviceToken, [
+        "webauthn-register-passwordless",
+        "WEBAUTHN_REGISTER_PASSWORDLESS",
+        "webauthn-register",
+        "WEBAUTHN_REGISTER",
+      ]);
+
+      if (!requiredActionAlias) {
+        return NextResponse.json(
+          { error: "Brak wymaganej akcji WebAuthn w konfiguracji Keycloak" },
+          { status: 400 }
+        );
+      }
+
+      await appendUserRequiredAction(serviceToken, userId, requiredActionAlias);
+      return NextResponse.json({ success: true, requiredAction: requiredActionAlias });
+    }
+
     // Step 1: Get registration options
     if (action === "get-options") {
       const userId = await getUserIdFromToken(session.accessToken);
 
       // Get user info from Account API (no admin token needed)
-      const keycloakUrl = process.env.KEYCLOAK_URL;
       const profileRes = await fetch(
-        `${keycloakUrl}/realms/MyPerformance/account`,
+        getAccountUrl("/account"),
         {
           headers: {
             Authorization: `Bearer ${session.accessToken}`,
@@ -122,14 +147,13 @@ export async function POST(request: Request) {
       }
 
       const userId = await getUserIdFromToken(session.accessToken);
-      const keycloakUrl = process.env.KEYCLOAK_URL;
 
       try {
         const serviceToken = await getServiceAccountToken();
 
         // Get current user representation
         const userRes = await fetch(
-          `${keycloakUrl}/admin/realms/MyPerformance/users/${userId}`,
+          getAdminUrl(`/users/${userId}`),
           {
             headers: {
               Authorization: `Bearer ${serviceToken}`,
@@ -162,7 +186,7 @@ export async function POST(request: Request) {
         };
 
         const updateRes = await fetch(
-          `${keycloakUrl}/admin/realms/MyPerformance/users/${userId}`,
+          getAdminUrl(`/users/${userId}`),
           {
             method: "PUT",
             headers: {
@@ -179,16 +203,22 @@ export async function POST(request: Request) {
           }
         );
 
-        console.log("[API /webauthn POST register] response:", updateRes.status);
-
         if (updateRes.ok || updateRes.status === 204) {
+          const requiredActionAlias = await resolveRequiredActionAlias(serviceToken, [
+            "webauthn-register-passwordless",
+            "WEBAUTHN_REGISTER_PASSWORDLESS",
+            "webauthn-register",
+            "WEBAUTHN_REGISTER",
+          ]);
+          if (requiredActionAlias) {
+            await appendUserRequiredAction(serviceToken, userId, requiredActionAlias);
+          }
           return NextResponse.json({ success: true });
         }
 
         const errText = await updateRes.text();
-        console.error("[API /webauthn POST register] error:", errText);
         return NextResponse.json(
-          { error: "Nie udało się zarejestrować klucza." },
+          { error: `Nie udało się zarejestrować klucza: ${errText}` },
           { status: 500 }
         );
       } catch (err) {
@@ -225,11 +255,9 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: "Missing credential ID" }, { status: 400 });
     }
 
-    const keycloakUrl = process.env.KEYCLOAK_URL;
-
     // Try Account API first
     let deleteResponse = await fetch(
-      `${keycloakUrl}/realms/MyPerformance/account/credentials/${credentialId}`,
+      getAccountUrl(`/account/credentials/${credentialId}`),
       {
         method: "DELETE",
         headers: { Authorization: `Bearer ${session.accessToken}` },
@@ -241,7 +269,7 @@ export async function DELETE(request: Request) {
       const userId = await getUserIdFromToken(session.accessToken);
 
       deleteResponse = await fetch(
-        `${keycloakUrl}/admin/realms/MyPerformance/users/${userId}/credentials/${credentialId}`,
+        getAdminUrl(`/users/${userId}/credentials/${credentialId}`),
         {
           method: "DELETE",
           headers: { Authorization: `Bearer ${adminToken}` },

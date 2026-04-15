@@ -1,12 +1,11 @@
-const KEYCLOAK_URL = process.env.KEYCLOAK_URL!;
-const REALM = "MyPerformance";
+import { getAccountUrl, getAdminUrl } from "@/lib/keycloak-config";
 
 export async function getServiceAccountToken(): Promise<string> {
   const clientId = process.env.KEYCLOAK_SERVICE_CLIENT_ID || process.env.KEYCLOAK_CLIENT_ID!;
   const clientSecret = process.env.KEYCLOAK_SERVICE_CLIENT_SECRET || process.env.KEYCLOAK_CLIENT_SECRET!;
 
   const response = await fetch(
-    `${KEYCLOAK_URL}/realms/${REALM}/protocol/openid-connect/token`,
+    `${getAccountUrl("/protocol/openid-connect/token")}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -30,7 +29,7 @@ export async function getServiceAccountToken(): Promise<string> {
 
 export async function getUserIdFromToken(accessToken: string): Promise<string> {
   const response = await fetch(
-    `${KEYCLOAK_URL}/realms/${REALM}/protocol/openid-connect/userinfo`,
+    `${getAccountUrl("/protocol/openid-connect/userinfo")}`,
     {
       headers: { Authorization: `Bearer ${accessToken}` },
     }
@@ -49,8 +48,7 @@ export async function adminRequest(
   adminToken: string,
   options: RequestInit = {}
 ) {
-  const url = `${KEYCLOAK_URL}/admin/realms/${REALM}${path}`;
-  console.log("[keycloak-admin]", options.method || "GET", url);
+  const url = `${getAdminUrl(path)}`;
 
   const response = await fetch(url, {
     ...options,
@@ -62,4 +60,51 @@ export async function adminRequest(
   });
 
   return response;
+}
+
+export async function appendUserRequiredAction(
+  adminToken: string,
+  userId: string,
+  requiredActionAlias: string
+) {
+  const userResponse = await adminRequest(`/users/${userId}`, adminToken);
+  if (!userResponse.ok) {
+    throw new Error("Unable to load user data for required action update");
+  }
+
+  const userData = await userResponse.json();
+  const requiredActions = new Set<string>(userData.requiredActions || []);
+  requiredActions.add(requiredActionAlias);
+
+  const updateResponse = await adminRequest(`/users/${userId}`, adminToken, {
+    method: "PUT",
+    body: JSON.stringify({
+      ...userData,
+      requiredActions: Array.from(requiredActions),
+    }),
+  });
+
+  if (!updateResponse.ok) {
+    const details = await updateResponse.text();
+    throw new Error(details || "Unable to update required actions");
+  }
+}
+
+export async function resolveRequiredActionAlias(
+  adminToken: string,
+  candidates: string[]
+) {
+  const response = await adminRequest("/authentication/required-actions", adminToken);
+  if (!response.ok) {
+    throw new Error("Unable to read required actions from Keycloak");
+  }
+
+  const providers: Array<{ alias?: string }> = await response.json();
+  const aliases = new Set(
+    providers
+      .map((provider) => provider.alias)
+      .filter((alias): alias is string => Boolean(alias))
+  );
+
+  return candidates.find((alias) => aliases.has(alias)) || null;
 }
