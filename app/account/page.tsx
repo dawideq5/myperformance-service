@@ -1,7 +1,7 @@
 "use client";
 
 import { useSession, signOut } from "next-auth/react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   User,
   Shield,
@@ -27,7 +27,6 @@ import {
   ExternalLink,
 } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { PhoneInput } from "@/components/PhoneInput";
 import { useTheme } from "@/components/ThemeProvider";
 import { getCanonicalLoginUrl } from "@/lib/app-url";
@@ -63,7 +62,6 @@ interface TwoFAStatus {
 
 export default function AccountPage() {
   const { data: session, status } = useSession();
-  const router = useRouter();
   const { theme, setTheme, isLoading: themeLoading } = useTheme();
   const [activeTab, setActiveTab] = useState<"profile" | "security" | "sessions">("profile");
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -103,26 +101,11 @@ export default function AccountPage() {
 
   const accessToken = (session as any)?.accessToken;
   const sessionError = (session as any)?.error;
+  const sessionDataLoadedRef = useRef(false);
 
   const forceLogout = useCallback(async () => {
     await signOut({ callbackUrl: getCanonicalLoginUrl() });
   }, []);
-
-  useEffect(() => {
-    if (status === "unauthenticated") {
-      router.push("/login");
-      return;
-    }
-
-    if (status === "authenticated" && (session as any)?.error === "RefreshTokenExpired") {
-      // SessionGuard in providers.tsx handles logout; just wait
-      return;
-    }
-
-    if (status === "authenticated" && accessToken) {
-      fetchUserData();
-    }
-  }, [status, accessToken]);
 
   const apiRequest = useCallback(
     async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -132,14 +115,9 @@ export default function AccountPage() {
         credentials: "same-origin",
       });
 
-      if (response.status === 401 || response.status === 403) {
-        await forceLogout();
-        throw new Error("SESSION_INACTIVE");
-      }
-
       return response;
     },
-    [forceLogout]
+    []
   );
 
   const checkSessionActivity = useCallback(async () => {
@@ -164,6 +142,11 @@ export default function AccountPage() {
       
       // Fetch user profile via local API
       const profileRes = await apiRequest("/api/account");
+      if (profileRes.status === 401 || profileRes.status === 403) {
+        setError("Sesja wygasła lub brak dostępu");
+        return;
+      }
+
       if (profileRes.ok) {
         const profileData = await profileRes.json();
         setProfile(profileData);
@@ -195,15 +178,14 @@ export default function AccountPage() {
       // Check session validity first
       const sessionCheckRes = await fetch("/api/account");
       if (sessionCheckRes.status === 401) {
-        // Session expired, logout immediately
-        signOut({ callbackUrl: getCanonicalLoginUrl(), redirect: true });
+        setError("Sesja wygasła lub brak dostępu");
         return;
       }
 
       // Fetch sessions via local API
       const sessionsRes = await fetch("/api/account/sessions");
       if (sessionsRes.status === 401) {
-        signOut({ callbackUrl: getCanonicalLoginUrl(), redirect: true });
+        setError("Sesja wygasła lub brak dostępu");
         return;
       }
       if (sessionsRes.ok) {
@@ -214,7 +196,7 @@ export default function AccountPage() {
       // Fetch 2FA status
       const twoFARes = await fetch("/api/account/2fa");
       if (twoFARes.status === 401) {
-        signOut({ callbackUrl: getCanonicalLoginUrl(), redirect: true });
+        setError("Sesja wygasła lub brak dostępu");
         return;
       }
       if (twoFARes.ok) {
@@ -225,7 +207,7 @@ export default function AccountPage() {
       // Fetch WebAuthn keys
       const webauthnRes = await fetch("/api/account/webauthn");
       if (webauthnRes.status === 401) {
-        signOut({ callbackUrl: getCanonicalLoginUrl(), redirect: true });
+        setError("Sesja wygasła lub brak dostępu");
         return;
       }
       if (webauthnRes.ok) {
@@ -240,20 +222,16 @@ export default function AccountPage() {
   }, [apiRequest, session]);
 
   useEffect(() => {
-    if (status === "unauthenticated") {
-      router.push("/login");
-      return;
-    }
-
     if (sessionError === "RefreshTokenExpired") {
       void forceLogout();
       return;
     }
 
-    if (accessToken) {
+    if (status === "authenticated" && accessToken && !sessionDataLoadedRef.current) {
+      sessionDataLoadedRef.current = true;
       void fetchUserData();
     }
-  }, [status, accessToken, sessionError, forceLogout, fetchUserData, router]);
+  }, [status, accessToken, sessionError, forceLogout, fetchUserData]);
 
   useEffect(() => {
     const onResume = () => {

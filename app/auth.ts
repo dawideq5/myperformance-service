@@ -191,7 +191,7 @@ function buildAuthOptions() {
       signIn: "/login",
       error: "/login",
     },
-    useSecureCookies: true,
+    useSecureCookies: process.env.NEXTAUTH_URL?.startsWith("https://") ?? false,
     debug: process.env.NODE_ENV === "development",
   };
 }
