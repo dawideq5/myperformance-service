@@ -70,6 +70,10 @@ function buildAuthOptions() {
     clientSecretPrefix: keycloakClientSecret.substring(0, 4) + "...",
   });
 
+  if (keycloakClientSecret.length !== 40) {
+    console.warn("[auth] WARNING: Client secret length is", keycloakClientSecret.length, "but Keycloak typically generates 40-char secrets. Check for whitespace or truncation in env var.");
+  }
+
   return {
     providers: [
       KeycloakProvider({
