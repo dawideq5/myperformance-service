@@ -99,10 +99,12 @@
       "secret": "ot0h8vUAQUJaTnbMyq0uNC0wcCt9Txg8",
       "redirectUris": [
         "https://myperformance.pl/*",
+        "https://www.myperformance.pl/*",
         "http://localhost:3000/*"
       ],
       "webOrigins": [
         "https://myperformance.pl",
+        "https://www.myperformance.pl",
         "http://localhost:3000"
       ],
       "defaultClientScopes": [

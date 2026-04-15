@@ -1,5 +1,6 @@
 import KeycloakProvider from "next-auth/providers/keycloak";
 import { getKeycloakIssuer } from "@/lib/keycloak-config";
+import { getCanonicalLoginUrl, normalizeAuthRedirect } from "@/lib/app-url";
 
 function getRequiredEnv(name: string) {
   const value = process.env[name]?.trim();
@@ -67,9 +68,7 @@ export const authOptions = {
   events: {
     async signOut({ token }: any) {
       if (token?.idToken) {
-        const redirectUri = encodeURIComponent(
-          process.env.NEXTAUTH_URL || "http://localhost:3000"
-        );
+        const redirectUri = encodeURIComponent(getCanonicalLoginUrl());
         const logoutUrl = `${keycloakIssuer}/protocol/openid-connect/logout?id_token_hint=${token.idToken}&post_logout_redirect_uri=${redirectUri}`;
         try {
           await fetch(logoutUrl, { method: "GET" });
@@ -161,6 +160,9 @@ export const authOptions = {
       }
 
       return session;
+    },
+    async redirect({ url, baseUrl }: any) {
+      return normalizeAuthRedirect(url, baseUrl);
     },
   },
   pages: {

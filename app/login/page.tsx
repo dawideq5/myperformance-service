@@ -4,13 +4,14 @@ import { signIn } from "next-auth/react";
 import { AlertCircle, ArrowRight } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
+import { getCanonicalDashboardUrl } from "@/lib/app-url";
 
 function LoginContent() {
   const searchParams = useSearchParams();
   const error = searchParams.get("error");
 
   const handleLogin = async () => {
-    await signIn("keycloak", { callbackUrl: "/dashboard" });
+    await signIn("keycloak", { callbackUrl: getCanonicalDashboardUrl() });
   };
 
   return (

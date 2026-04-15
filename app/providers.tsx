@@ -2,6 +2,7 @@
 
 import { SessionProvider, useSession, signOut } from "next-auth/react";
 import { ThemeProvider } from "@/components/ThemeProvider";
+import { getCanonicalLoginUrl } from "@/lib/app-url";
 import { getPublicKeycloakIssuer } from "@/lib/keycloak-config";
 import { useEffect } from "react";
 
@@ -13,7 +14,7 @@ function SessionGuard({ children }: { children: React.ReactNode }) {
     if ((session as any)?.error === "RefreshTokenExpired") {
       const keycloakUrl = getPublicKeycloakIssuer();
       const idToken = (session as any)?.idToken;
-      const redirectUri = encodeURIComponent(window.location.origin + "/login");
+      const redirectUri = encodeURIComponent(getCanonicalLoginUrl());
       const logoutUrl = idToken
         ? `${keycloakUrl}/protocol/openid-connect/logout?id_token_hint=${idToken}&post_logout_redirect_uri=${redirectUri}`
         : undefined;

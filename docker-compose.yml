@@ -16,7 +16,7 @@ services:
       - backend
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.dashboard.rule=Host(`myperformance.pl`)"
+      - "traefik.http.routers.dashboard.rule=Host(`myperformance.pl`) || Host(`www.myperformance.pl`)"
       - "traefik.http.routers.dashboard.entrypoints=websecure"
       - "traefik.http.routers.dashboard.tls.certresolver=letsencrypt"
       - "traefik.http.services.dashboard.loadbalancer.server.port=3000"

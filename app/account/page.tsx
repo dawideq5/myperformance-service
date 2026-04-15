@@ -30,6 +30,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { PhoneInput } from "@/components/PhoneInput";
 import { useTheme } from "@/components/ThemeProvider";
+import { getCanonicalLoginUrl } from "@/lib/app-url";
 import { getPublicKeycloakIssuer } from "@/lib/keycloak-config";
 
 interface KeycloakSession {
@@ -104,7 +105,7 @@ export default function AccountPage() {
   const sessionError = (session as any)?.error;
 
   const forceLogout = useCallback(async () => {
-    await signOut({ callbackUrl: "/login" });
+    await signOut({ callbackUrl: getCanonicalLoginUrl() });
   }, []);
 
   useEffect(() => {
@@ -195,14 +196,14 @@ export default function AccountPage() {
       const sessionCheckRes = await fetch("/api/account");
       if (sessionCheckRes.status === 401) {
         // Session expired, logout immediately
-        signOut({ callbackUrl: "/login", redirect: true });
+        signOut({ callbackUrl: getCanonicalLoginUrl(), redirect: true });
         return;
       }
 
       // Fetch sessions via local API
       const sessionsRes = await fetch("/api/account/sessions");
       if (sessionsRes.status === 401) {
-        signOut({ callbackUrl: "/login", redirect: true });
+        signOut({ callbackUrl: getCanonicalLoginUrl(), redirect: true });
         return;
       }
       if (sessionsRes.ok) {
@@ -213,7 +214,7 @@ export default function AccountPage() {
       // Fetch 2FA status
       const twoFARes = await fetch("/api/account/2fa");
       if (twoFARes.status === 401) {
-        signOut({ callbackUrl: "/login", redirect: true });
+        signOut({ callbackUrl: getCanonicalLoginUrl(), redirect: true });
         return;
       }
       if (twoFARes.ok) {
@@ -224,7 +225,7 @@ export default function AccountPage() {
       // Fetch WebAuthn keys
       const webauthnRes = await fetch("/api/account/webauthn");
       if (webauthnRes.status === 401) {
-        signOut({ callbackUrl: "/login", redirect: true });
+        signOut({ callbackUrl: getCanonicalLoginUrl(), redirect: true });
         return;
       }
       if (webauthnRes.ok) {
@@ -274,7 +275,7 @@ export default function AccountPage() {
     // Build Keycloak logout URL
     const keycloakUrl = getPublicKeycloakIssuer();
     const idToken = (session as any)?.idToken;
-    const redirectUri = encodeURIComponent(window.location.origin + '/login');
+    const redirectUri = encodeURIComponent(getCanonicalLoginUrl());
     
     const keycloakLogoutUrl = `${keycloakUrl}/protocol/openid-connect/logout?id_token_hint=${idToken}&post_logout_redirect_uri=${redirectUri}`;
     
@@ -339,12 +340,6 @@ export default function AccountPage() {
 
       const data = await res.json();
 
-      if (res.status === 401) {
-        // Session expired, logout immediately
-        signOut({ callbackUrl: "/login", redirect: true });
-        return;
-      }
-
       if (!res.ok) {
         setPasswordError(data.error || "Nie udało się zmienić hasła");
       } else {
@@ -366,11 +361,11 @@ export default function AccountPage() {
         method: "DELETE",
       });
       if (res.status === 401) {
-        signOut({ callbackUrl: "/login", redirect: true });
+        signOut({ callbackUrl: getCanonicalLoginUrl(), redirect: true });
         return;
       }
       if (res.ok) {
-        setWebauthnKeys(prev => prev.filter(k => k.id !== credentialId));
+        setWebauthnKeys((prev) => prev.filter((k) => k.id !== credentialId));
       }
     } catch (err) {
       console.error("Failed to delete WebAuthn key", err);
@@ -384,12 +379,14 @@ export default function AccountPage() {
       });
 
       if (res.status === 401) {
-        signOut({ callbackUrl: "/login", redirect: true });
+        signOut({ callbackUrl: getCanonicalLoginUrl(), redirect: true });
         return;
       }
 
       if (res.ok) {
-        setTwoFA(prev => prev ? { ...prev, enabled: false, configured: false } : null);
+        setTwoFA((prev) =>
+          prev ? { ...prev, enabled: false, configured: false } : null
+        );
       }
     } catch (err) {
       console.error("Failed to disable 2FA", err);
@@ -407,29 +404,27 @@ export default function AccountPage() {
       });
 
       if (res.status === 401) {
-        signOut({ callbackUrl: "/login", redirect: true });
+        signOut({ callbackUrl: getCanonicalLoginUrl(), redirect: true });
         return;
       }
 
       if (res.ok) {
         console.log("[UI setRequiredAction] POST OK, action:", action);
-        
-        // Set pending state immediately to show UI feedback
         if (action === "CONFIGURE_TOTP") setPending2FA(true);
         if (action === "WEBAUTHN_REGISTER") setPendingWebAuthn(true);
 
-        // Wait a bit for Keycloak to process the change
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await new Promise((resolve) => setTimeout(resolve, 1000));
 
-        // Refresh profile to verify the action was set
         const profileRes = await fetch("/api/account");
         if (profileRes.ok) {
           const profileData = await profileRes.json();
-          console.log("[UI setRequiredAction] profileData.requiredActions:", profileData.requiredActions);
+          console.log(
+            "[UI setRequiredAction] profileData.requiredActions:",
+            profileData.requiredActions
+          );
           setProfile(profileData);
 
           const requiredActions = profileData.requiredActions || [];
-          // Update pending states based on actual required actions
           setPending2FA(requiredActions.includes("CONFIGURE_TOTP"));
           setPendingWebAuthn(requiredActions.includes("WEBAUTHN_REGISTER"));
         } else {
@@ -437,7 +432,10 @@ export default function AccountPage() {
         }
       } else {
         const errorData = await res.json().catch(() => ({}));
-        alert(errorData.error || "Nie udało się ustawić konfiguracji. Spróbuj ponownie.");
+        alert(
+          errorData.error ||
+            "Nie udało się ustawić konfiguracji. Spróbuj ponownie."
+        );
       }
     } catch (err) {
       alert("Wystąpił błąd. Spróbuj ponownie.");
@@ -453,12 +451,11 @@ export default function AccountPage() {
       });
 
       if (res.status === 401) {
-        signOut({ callbackUrl: "/login", redirect: true });
+        signOut({ callbackUrl: getCanonicalLoginUrl(), redirect: true });
         return;
       }
 
       if (res.ok) {
-        // Update pending state
         if (action === "CONFIGURE_TOTP") setPending2FA(false);
         if (action === "WEBAUTHN_REGISTER") setPendingWebAuthn(false);
       } else {
@@ -501,7 +498,7 @@ export default function AccountPage() {
       });
 
       if (res.status === 401) {
-        signOut({ callbackUrl: "/login", redirect: true });
+        signOut({ callbackUrl: getCanonicalLoginUrl(), redirect: true });
         return;
       }
 
