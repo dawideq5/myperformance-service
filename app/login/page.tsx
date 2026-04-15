@@ -1,6 +1,7 @@
 "use client";
 
 import { AlertCircle, ArrowRight } from "lucide-react";
+import { signIn } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 function LoginContent() {
@@ -9,7 +10,7 @@ function LoginContent() {
 
   const handleLogin = async () => {
     try {
-      window.location.href = `/api/auth/signin/keycloak?callbackUrl=${encodeURIComponent("/dashboard")}`;
+      await signIn("keycloak", { callbackUrl: "/dashboard" });
     } catch (err) {
       console.error("[login] Unexpected signIn error:", err);
     }
