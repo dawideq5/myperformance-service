@@ -1,6 +1,6 @@
-import { getAccountUrl, getAdminUrl } from "@/lib/keycloak-config";
-const KEYCLOAK_URL = process.env.KEYCLOAK_URL!;
-export const REALM = "MyPerformance";
+import { getAccountUrl, getAdminUrl, getKeycloakRealm } from "@/lib/keycloak-config";
+
+export const REALM = getKeycloakRealm();
 
 const REQUIRED_ACTION_ALIAS_MAP: Record<string, string[]> = {
   CONFIGURE_TOTP: ["CONFIGURE_TOTP"],

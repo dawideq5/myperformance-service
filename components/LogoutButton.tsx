@@ -2,6 +2,7 @@
 
 import { signOut } from "next-auth/react";
 import { LogOut } from "lucide-react";
+import { getPublicKeycloakIssuer } from "@/lib/keycloak-config";
 
 interface LogoutButtonProps {
   idToken: string;
@@ -13,7 +14,7 @@ export function LogoutButton({ idToken }: LogoutButtonProps) {
     await signOut({ redirect: false });
 
     // 2. Redirect to Keycloak logout endpoint
-    const issuer = process.env.NEXT_PUBLIC_KEYCLOAK_ISSUER || "";
+    const issuer = getPublicKeycloakIssuer();
     const clientId = process.env.NEXT_PUBLIC_KEYCLOAK_CLIENT_ID || "";
     const postLogoutUri = window.location.origin + "/login";
 

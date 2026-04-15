@@ -10,7 +10,7 @@ function resolveRealm() {
     if (match?.[1]) return match[1];
   }
 
-  return "myperformance";
+  return "MyPerformance";
 }
 
 export function getKeycloakBaseUrl() {
@@ -27,6 +27,18 @@ export function getKeycloakRealm() {
 
 export function getKeycloakIssuer() {
   return `${getKeycloakBaseUrl()}/realms/${getKeycloakRealm()}`;
+}
+
+export function getPublicKeycloakIssuer() {
+  const issuer = process.env.NEXT_PUBLIC_KEYCLOAK_ISSUER?.trim();
+  if (issuer) return trimSlash(issuer);
+
+  const keycloakUrl = process.env.NEXT_PUBLIC_KEYCLOAK_URL?.trim();
+  if (!keycloakUrl) {
+    return "https://auth.myperformance.pl/realms/MyPerformance";
+  }
+
+  return `${trimSlash(keycloakUrl)}/realms/MyPerformance`;
 }
 
 export function getAccountUrl(path = "") {

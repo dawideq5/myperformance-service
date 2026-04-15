@@ -290,7 +290,6 @@ export async function PUT(request: Request) {
       );
     }
 
-    const keycloakUrl = process.env.KEYCLOAK_URL;
     const userId = await getUserIdFromToken(session.accessToken);
     const serviceToken = await getServiceAccountToken();
 
@@ -298,7 +297,7 @@ export async function PUT(request: Request) {
 
     // Use dedicated Keycloak endpoint for updating credential userLabel
     const updateRes = await fetch(
-      `${keycloakUrl}/admin/realms/MyPerformance/users/${userId}/credentials/${credentialId}/userLabel`,
+      getAdminUrl(`/users/${userId}/credentials/${credentialId}/userLabel`),
       {
         method: "PUT",
         headers: {

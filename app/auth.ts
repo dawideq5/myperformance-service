@@ -1,8 +1,7 @@
 import KeycloakProvider from "next-auth/providers/keycloak";
+import { getKeycloakIssuer } from "@/lib/keycloak-config";
 
-const KEYCLOAK_URL =
-  process.env.KEYCLOAK_URL || "https://auth.myperformance.pl";
-const keycloakIssuer = `${KEYCLOAK_URL}/realms/MyPerformance`;
+const keycloakIssuer = getKeycloakIssuer();
 
 async function refreshKeycloakToken(refreshToken: string): Promise<{
   accessToken: string;

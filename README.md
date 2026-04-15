@@ -19,11 +19,11 @@ cp .env.example .env
 ```
 
 Zmienne środowiskowe:
-- `NEXTAUTH_URL` - URL aplikacji (np. http://localhost:3000)
+- `NEXTAUTH_URL` - URL aplikacji (np. http://localhost:3000 lub https://myperformance.pl w produkcji)
 - `NEXTAUTH_SECRET` - Sekret dla NextAuth (wygeneruj bezpieczny klucz)
 - `KEYCLOAK_URL` - Bazowy URL Keycloak (np. https://keycloak.example.com)
-- `KEYCLOAK_REALM` - Nazwa realm (np. myperformance)
-- `KEYCLOAK_ISSUER` - Pełny issuer (opcjonalnie, np. https://keycloak.example.com/realms/myperformance)
+- `KEYCLOAK_REALM` - Nazwa realm (opcjonalnie; domyślnie `MyPerformance`)
+- `KEYCLOAK_ISSUER` - Pełny issuer (opcjonalnie, np. https://keycloak.example.com/realms/MyPerformance)
 - `KEYCLOAK_CLIENT_ID` - Client ID z Keycloak
 - `KEYCLOAK_CLIENT_SECRET` - Client Secret z Keycloak
 

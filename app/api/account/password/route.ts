@@ -2,6 +2,7 @@ import { getServerSession } from "next-auth/next";
 import { NextResponse } from "next/server";
 import { authOptions } from "@/app/auth";
 import { getServiceAccountToken, getUserIdFromToken } from "@/lib/keycloak-admin";
+import { getAccountUrl, getAdminUrl } from "@/lib/keycloak-config";
 
 export async function POST(request: Request) {
   try {
@@ -22,11 +23,9 @@ export async function POST(request: Request) {
       );
     }
 
-    const keycloakUrl = process.env.KEYCLOAK_URL;
-
     // Verify current password by attempting a token exchange
     const verifyResponse = await fetch(
-      `${keycloakUrl}/realms/MyPerformance/protocol/openid-connect/token`,
+      getAccountUrl("/protocol/openid-connect/token"),
       {
         method: "POST",
         headers: {
@@ -56,7 +55,7 @@ export async function POST(request: Request) {
     const userId = await getUserIdFromToken(session.accessToken);
     const serviceToken = await getServiceAccountToken();
 
-    const passwordUrl = `${keycloakUrl}/admin/realms/MyPerformance/users/${userId}/reset-password`;
+    const passwordUrl = getAdminUrl(`/users/${userId}/reset-password`);
     console.log("[API /password POST] changing password at:", passwordUrl);
 
     const passwordResponse = await fetch(passwordUrl, {

@@ -6,7 +6,7 @@ services:
     container_name: myperformance_dashboard
     restart: always
     environment:
-      - NEXTAUTH_URL=https://dashboard.myperformance.pl
+      - NEXTAUTH_URL=https://myperformance.pl
       - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
       - KEYCLOAK_URL=https://auth.myperformance.pl
       - KEYCLOAK_CLIENT_ID=dashboard-myperformance-pl
@@ -16,7 +16,7 @@ services:
       - backend
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.dashboard.rule=Host(`dashboard.myperformance.pl`)"
+      - "traefik.http.routers.dashboard.rule=Host(`myperformance.pl`)"
       - "traefik.http.routers.dashboard.entrypoints=websecure"
       - "traefik.http.routers.dashboard.tls.certresolver=letsencrypt"
       - "traefik.http.services.dashboard.loadbalancer.server.port=3000"

@@ -30,6 +30,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { PhoneInput } from "@/components/PhoneInput";
 import { useTheme } from "@/components/ThemeProvider";
+import { getPublicKeycloakIssuer } from "@/lib/keycloak-config";
 
 interface KeycloakSession {
   id: string;
@@ -271,11 +272,11 @@ export default function AccountPage() {
 
   const signOutWithKeycloak = async () => {
     // Build Keycloak logout URL
-    const keycloakUrl = process.env.NEXT_PUBLIC_KEYCLOAK_URL || 'https://auth.myperformance.pl';
+    const keycloakUrl = getPublicKeycloakIssuer();
     const idToken = (session as any)?.idToken;
     const redirectUri = encodeURIComponent(window.location.origin + '/login');
     
-    const keycloakLogoutUrl = `${keycloakUrl}/realms/MyPerformance/protocol/openid-connect/logout?id_token_hint=${idToken}&post_logout_redirect_uri=${redirectUri}`;
+    const keycloakLogoutUrl = `${keycloakUrl}/protocol/openid-connect/logout?id_token_hint=${idToken}&post_logout_redirect_uri=${redirectUri}`;
     
     // Sign out from NextAuth first (this will also trigger server-side Keycloak logout via events)
     await signOut({ redirect: false });

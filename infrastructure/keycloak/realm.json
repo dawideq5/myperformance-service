@@ -98,12 +98,10 @@
       "authorizationServicesEnabled": false,
       "secret": "ot0h8vUAQUJaTnbMyq0uNC0wcCt9Txg8",
       "redirectUris": [
-        "https://dashboard.myperformance.pl/*",
         "https://myperformance.pl/*",
         "http://localhost:3000/*"
       ],
       "webOrigins": [
-        "https://dashboard.myperformance.pl",
         "https://myperformance.pl",
         "http://localhost:3000"
       ],

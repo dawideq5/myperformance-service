@@ -6,6 +6,7 @@ import {
   getUserIdFromToken,
   normalizeRequiredActions,
 } from "@/lib/keycloak-admin";
+import { getAccountUrl, getAdminUrl } from "@/lib/keycloak-config";
 
 export async function GET() {
   try {
@@ -15,8 +16,7 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const keycloakUrl = process.env.KEYCLOAK_URL;
-    const response = await fetch(`${keycloakUrl}/realms/MyPerformance/account`, {
+    const response = await fetch(getAccountUrl("/account"), {
       headers: {
         Authorization: `Bearer ${session.accessToken}`,
         Accept: "application/json",
@@ -35,15 +35,12 @@ export async function GET() {
     try {
       const userId = await getUserIdFromToken(session.accessToken);
       const serviceToken = await getServiceAccountToken();
-      const adminResponse = await fetch(
-        `${keycloakUrl}/admin/realms/MyPerformance/users/${userId}`,
-        {
-          headers: {
-            Authorization: `Bearer ${serviceToken}`,
-            Accept: "application/json",
-          },
-        }
-      );
+      const adminResponse = await fetch(getAdminUrl(`/users/${userId}`), {
+        headers: {
+          Authorization: `Bearer ${serviceToken}`,
+          Accept: "application/json",
+        },
+      });
 
       if (adminResponse.ok) {
         const adminData = await adminResponse.json();
@@ -91,8 +88,7 @@ export async function PUT(request: Request) {
     const body = await request.json();
 
     // First get current profile to merge
-    const keycloakUrl = process.env.KEYCLOAK_URL;
-    const currentRes = await fetch(`${keycloakUrl}/realms/MyPerformance/account`, {
+    const currentRes = await fetch(getAccountUrl("/account"), {
       headers: {
         Authorization: `Bearer ${session.accessToken}`,
         Accept: "application/json",
@@ -118,7 +114,7 @@ export async function PUT(request: Request) {
       },
     };
 
-    const response = await fetch(`${keycloakUrl}/realms/MyPerformance/account`, {
+    const response = await fetch(getAccountUrl("/account"), {
       method: "POST",
       headers: {
         Authorization: `Bearer ${session.accessToken}`,
