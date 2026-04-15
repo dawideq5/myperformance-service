@@ -1,7 +1,42 @@
 import KeycloakProvider from "next-auth/providers/keycloak";
+import { getAccountUrl, getKeycloakIssuer } from "@/lib/keycloak-config";
 
-const keycloakIssuer = process.env.KEYCLOAK_ISSUER || 
-  (process.env.KEYCLOAK_URL ? `${process.env.KEYCLOAK_URL}/realms/MyPerformance` : undefined);
+const keycloakIssuer = process.env.KEYCLOAK_ISSUER || (process.env.KEYCLOAK_URL ? getKeycloakIssuer() : undefined);
+
+async function refreshAccessToken(token: any) {
+  try {
+    if (!token.refreshToken) {
+      return { ...token, error: "MissingRefreshToken" };
+    }
+
+    const response = await fetch(getAccountUrl("/protocol/openid-connect/token"), {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        client_id: process.env.KEYCLOAK_CLIENT_ID!,
+        client_secret: process.env.KEYCLOAK_CLIENT_SECRET!,
+        refresh_token: token.refreshToken,
+      }),
+    });
+
+    if (!response.ok) {
+      return { ...token, error: "RefreshAccessTokenError" };
+    }
+
+    const refreshedTokens = await response.json();
+    return {
+      ...token,
+      accessToken: refreshedTokens.access_token,
+      idToken: refreshedTokens.id_token ?? token.idToken,
+      refreshToken: refreshedTokens.refresh_token ?? token.refreshToken,
+      accessTokenExpires: Date.now() + refreshedTokens.expires_in * 1000,
+      error: undefined,
+    };
+  } catch {
+    return { ...token, error: "RefreshAccessTokenError" };
+  }
+}
 
 export const authOptions = {
   providers: [
@@ -21,12 +56,21 @@ export const authOptions = {
       if (account) {
         token.accessToken = account.access_token;
         token.idToken = account.id_token;
+        token.refreshToken = account.refresh_token;
+        token.accessTokenExpires = Date.now() + (account.expires_in || 0) * 1000;
+        token.error = undefined;
       }
+
+      if (token.accessTokenExpires && Date.now() >= token.accessTokenExpires) {
+        return refreshAccessToken(token);
+      }
+
       return token;
     },
     async session({ session, token }: any) {
       session.accessToken = token.accessToken;
       session.idToken = token.idToken;
+      session.error = token.error;
 
       // Extract roles from Keycloak token
       if (token.idToken) {
@@ -56,14 +100,6 @@ export const authOptions = {
   pages: {
     signIn: "/login",
     error: "/login",
-  },
-  events: {
-    async signIn({ user, account, profile, isNewUser }: any) {
-      console.log('Keycloak signIn event:', { user, account, profile, isNewUser });
-    },
-    async signOut({ token }: any) {
-      console.log('Keycloak signOut event:', { token });
-    },
   },
   debug: process.env.NODE_ENV === 'development',
 };

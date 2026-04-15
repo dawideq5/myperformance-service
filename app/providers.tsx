@@ -8,7 +8,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <SessionProvider
       basePath="/api/auth"
       refetchInterval={0}
-      refetchOnWindowFocus={false}
+      refetchOnWindowFocus
     >
       <ThemeProvider>
         {children}

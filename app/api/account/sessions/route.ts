@@ -1,33 +1,25 @@
 import { getServerSession } from "next-auth/next";
 import { NextResponse } from "next/server";
 import { authOptions } from "@/app/auth";
+import { getAccountUrl } from "@/lib/keycloak-config";
 
 export async function GET() {
   try {
     const session: any = await getServerSession(authOptions);
-    
-    console.log("[API /sessions GET] session exists:", !!session, "accessToken exists:", !!session?.accessToken);
-    
+
     if (!session?.accessToken) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const keycloakUrl = process.env.KEYCLOAK_URL;
-    const url = `${keycloakUrl}/realms/MyPerformance/account/sessions/devices`;
-    console.log("[API /sessions GET] fetching:", url);
-    
-    const response = await fetch(url, {
+    const response = await fetch(getAccountUrl("/account/sessions/devices"), {
       headers: {
         Authorization: `Bearer ${session.accessToken}`,
         Accept: "application/json",
       },
     });
 
-    console.log("[API /sessions GET] keycloak response:", response.status);
-
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("[API /sessions GET] keycloak error:", errorText);
       return NextResponse.json(
         { error: "Failed to fetch sessions", details: errorText },
         { status: response.status }
@@ -35,8 +27,7 @@ export async function GET() {
     }
 
     const data = await response.json();
-    console.log("[API /sessions GET] raw data:", JSON.stringify(data));
-    
+
     // Flatten device sessions into a simple list
     const flatSessions: any[] = [];
     if (Array.isArray(data)) {

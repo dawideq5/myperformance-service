@@ -1,7 +1,7 @@
 "use client";
 
-import { useSession } from "next-auth/react";
-import { useEffect, useState } from "react";
+import { signOut, useSession } from "next-auth/react";
+import { useCallback, useEffect, useState } from "react";
 import {
   User,
   Shield,
@@ -98,59 +98,121 @@ export default function AccountPage() {
   const [webauthnSuccess, setWebauthnSuccess] = useState(false);
 
   const accessToken = (session as any)?.accessToken;
+  const sessionError = (session as any)?.error;
+
+  const forceLogout = useCallback(async () => {
+    await signOut({ callbackUrl: "/login" });
+  }, []);
+
+  const apiRequest = useCallback(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      const response = await fetch(input, {
+        ...init,
+        cache: "no-store",
+        credentials: "same-origin",
+      });
+
+      if (response.status === 401 || response.status === 403) {
+        await forceLogout();
+        throw new Error("SESSION_INACTIVE");
+      }
+
+      return response;
+    },
+    [forceLogout]
+  );
+
+  const checkSessionActivity = useCallback(async () => {
+    try {
+      const response = await fetch("/api/auth/session", { cache: "no-store" });
+      if (!response.ok) {
+        await forceLogout();
+        return;
+      }
+      const currentSession = await response.json();
+      if (!currentSession?.expires) {
+        await forceLogout();
+      }
+    } catch {
+      await forceLogout();
+    }
+  }, [forceLogout]);
 
   useEffect(() => {
     if (status === "unauthenticated") {
       router.push("/login");
       return;
     }
-    
-    if (accessToken) {
-      fetchUserData();
-    }
-  }, [status, accessToken]);
 
-  const fetchUserData = async () => {
+    if (sessionError) {
+      void forceLogout();
+      return;
+    }
+
+    if (accessToken) {
+      void fetchUserData();
+    }
+  }, [status, accessToken, sessionError, forceLogout, fetchUserData, router]);
+
+  useEffect(() => {
+    const onResume = () => {
+      if (document.visibilityState === "visible") {
+        void checkSessionActivity();
+      }
+    };
+
+    window.addEventListener("focus", onResume);
+    document.addEventListener("visibilitychange", onResume);
+
+    return () => {
+      window.removeEventListener("focus", onResume);
+      document.removeEventListener("visibilitychange", onResume);
+    };
+  }, [checkSessionActivity]);
+
+  const fetchUserData = useCallback(async () => {
     try {
       setLoading(true);
       
       // Fetch user profile via local API
-      const profileRes = await fetch("/api/account");
+      const profileRes = await apiRequest("/api/account");
       if (profileRes.ok) {
         const profileData = await profileRes.json();
         setProfile(profileData);
       }
 
       // Fetch sessions via local API
-      const sessionsRes = await fetch("/api/account/sessions");
+      const sessionsRes = await apiRequest("/api/account/sessions");
       if (sessionsRes.ok) {
         const sessionsData = await sessionsRes.json();
         setSessions(sessionsData.map((s: any) => ({ ...s, current: s.id === (session as any)?.user?.sub })));
       }
 
       // Fetch 2FA status
-      const twoFARes = await fetch("/api/account/2fa");
+      const twoFARes = await apiRequest("/api/account/2fa");
       if (twoFARes.ok) {
         const twoFAData = await twoFARes.json();
         setTwoFA(twoFAData);
       }
 
       // Fetch WebAuthn keys
-      const webauthnRes = await fetch("/api/account/webauthn");
+      const webauthnRes = await apiRequest("/api/account/webauthn");
       if (webauthnRes.ok) {
         const webauthnData = await webauthnRes.json();
         setWebauthnKeys(webauthnData.keys || []);
       }
-    } catch (err) {
-      setError("Nie udało się pobrać danych");
+    } catch (err: any) {
+      if (err?.message !== "SESSION_INACTIVE") {
+        setError("Nie udało się pobrać danych");
+      }
     } finally {
       setLoading(false);
     }
-  };
+  }, [apiRequest, session]);
 
   const logoutSession = async (sessionId: string) => {
     try {
-      const res = await fetch(`/api/account/sessions/${sessionId}`, {
+      const res = await apiRequest(`/api/account/sessions/${sessionId}`, {
         method: "DELETE",
       });
       
@@ -185,6 +247,11 @@ export default function AccountPage() {
         body: JSON.stringify({ currentPassword, newPassword }),
       });
 
+      if (res.status === 401 || res.status === 403) {
+        await forceLogout();
+        return;
+      }
+
       const data = await res.json();
 
       if (!res.ok) {
@@ -207,7 +274,19 @@ export default function AccountPage() {
     setTwoFAError(null);
     setTwoFASuccess(false);
     try {
-      const res = await fetch("/api/account/2fa", {
+      const prepareRes = await apiRequest("/api/account/2fa", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "prepare" }),
+      });
+
+      if (!prepareRes.ok) {
+        const prepareData = await prepareRes.json();
+        setTwoFAError(prepareData.error || "Nie udało się przygotować konfiguracji 2FA");
+        return;
+      }
+
+      const res = await apiRequest("/api/account/2fa", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "generate" }),
@@ -232,7 +311,7 @@ export default function AccountPage() {
     setVerifying2FA(true);
     setTwoFAError(null);
     try {
-      const res = await fetch("/api/account/2fa", {
+      const res = await apiRequest("/api/account/2fa", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -261,7 +340,7 @@ export default function AccountPage() {
 
   const disable2FA = async () => {
     try {
-      const res = await fetch("/api/account/2fa", {
+      const res = await apiRequest("/api/account/2fa", {
         method: "DELETE",
       });
 
@@ -288,7 +367,19 @@ export default function AccountPage() {
     setWebauthnSuccess(false);
     try {
       // Step 1: Get registration options
-      const optionsRes = await fetch("/api/account/webauthn", {
+      const prepareRes = await apiRequest("/api/account/webauthn", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "prepare-passwordless" }),
+      });
+
+      if (!prepareRes.ok) {
+        const prepareData = await prepareRes.json();
+        setWebauthnError(prepareData.error || "Nie udało się przygotować akcji passwordless");
+        return;
+      }
+
+      const optionsRes = await apiRequest("/api/account/webauthn", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "get-options" }),
@@ -343,7 +434,7 @@ export default function AccountPage() {
       };
 
       // Step 3: Save credential to server
-      const registerRes = await fetch("/api/account/webauthn", {
+      const registerRes = await apiRequest("/api/account/webauthn", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -357,7 +448,7 @@ export default function AccountPage() {
         setWebauthnSuccess(true);
         setKeyLabel("");
         // Refresh keys
-        const keysRes = await fetch("/api/account/webauthn");
+        const keysRes = await apiRequest("/api/account/webauthn");
         if (keysRes.ok) {
           const keysData = await keysRes.json();
           setWebauthnKeys(keysData.keys || []);
@@ -379,7 +470,7 @@ export default function AccountPage() {
 
   const deleteWebAuthnKey = async (credentialId: string) => {
     try {
-      const res = await fetch(`/api/account/webauthn?id=${credentialId}`, {
+      const res = await apiRequest(`/api/account/webauthn?id=${credentialId}`, {
         method: "DELETE",
       });
       if (res.ok) {
@@ -404,7 +495,7 @@ export default function AccountPage() {
     setProfileSuccess(false);
     
     try {
-      const res = await fetch("/api/account", {
+      const res = await apiRequest("/api/account", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -467,8 +558,29 @@ export default function AccountPage() {
 
   if (status === "loading" || loading) {
     return (
-      <div className="min-h-screen bg-[var(--bg-main)] flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-[var(--accent)]" />
+      <div className="min-h-screen bg-[var(--bg-main)]">
+        <header className="border-b border-[var(--border-subtle)] bg-[var(--bg-header)]">
+          <div className="max-w-6xl mx-auto px-6 py-4">
+            <div className="h-8 w-72 rounded-lg bg-[var(--bg-card)] animate-pulse" />
+          </div>
+        </header>
+        <div className="max-w-6xl mx-auto px-6 py-8">
+          <div className="grid lg:grid-cols-4 gap-6">
+            <aside className="lg:col-span-1 space-y-2">
+              {Array.from({ length: 3 }).map((_, idx) => (
+                <div key={idx} className="h-12 rounded-xl bg-[var(--bg-card)] animate-pulse" />
+              ))}
+            </aside>
+            <main className="lg:col-span-3 space-y-4">
+              {Array.from({ length: 3 }).map((_, idx) => (
+                <div
+                  key={idx}
+                  className="h-40 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)] animate-pulse"
+                />
+              ))}
+            </main>
+          </div>
+        </div>
       </div>
     );
   }
@@ -485,7 +597,7 @@ export default function AccountPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[var(--bg-main)]">
+    <div className="min-h-screen bg-[var(--bg-main)] animate-fade-in">
       {/* Header */}
       <header className="border-b border-[var(--border-subtle)] bg-[var(--bg-header)]">
         <div className="max-w-6xl mx-auto px-6 py-4">
@@ -563,7 +675,7 @@ export default function AccountPage() {
           </aside>
 
           {/* Main Content */}
-          <main className="lg:col-span-3">
+          <main className="lg:col-span-3 animate-slide-up">
             {/* Profile Tab */}
             {activeTab === "profile" && (
               <div className="space-y-6">

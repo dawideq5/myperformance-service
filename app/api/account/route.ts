@@ -1,33 +1,25 @@
 import { getServerSession } from "next-auth/next";
 import { NextResponse } from "next/server";
 import { authOptions } from "@/app/auth";
+import { getAccountUrl } from "@/lib/keycloak-config";
 
 export async function GET() {
   try {
     const session: any = await getServerSession(authOptions);
-    
-    console.log("[API /account GET] session exists:", !!session, "accessToken exists:", !!session?.accessToken);
-    
+
     if (!session?.accessToken) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const keycloakUrl = process.env.KEYCLOAK_URL;
-    const url = `${keycloakUrl}/realms/MyPerformance/account`;
-    console.log("[API /account GET] fetching:", url);
-    
-    const response = await fetch(url, {
+    const response = await fetch(getAccountUrl("/account"), {
       headers: {
         Authorization: `Bearer ${session.accessToken}`,
         Accept: "application/json",
       },
     });
 
-    console.log("[API /account GET] keycloak response:", response.status);
-
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("[API /account GET] keycloak error:", errorText);
       return NextResponse.json(
         { error: "Failed to fetch profile", details: errorText },
         { status: response.status }
@@ -48,16 +40,15 @@ export async function GET() {
 export async function PUT(request: Request) {
   try {
     const session: any = await getServerSession(authOptions);
-    
+
     if (!session?.accessToken) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const body = await request.json();
-    const keycloakUrl = process.env.KEYCLOAK_URL;
 
     // First get current profile to merge
-    const currentRes = await fetch(`${keycloakUrl}/realms/MyPerformance/account`, {
+    const currentRes = await fetch(getAccountUrl("/account"), {
       headers: {
         Authorization: `Bearer ${session.accessToken}`,
         Accept: "application/json",
@@ -74,7 +65,7 @@ export async function PUT(request: Request) {
     const currentProfile = await currentRes.json();
     const updatedProfile = { ...currentProfile, ...body };
 
-    const response = await fetch(`${keycloakUrl}/realms/MyPerformance/account`, {
+    const response = await fetch(getAccountUrl("/account"), {
       method: "POST",
       headers: {
         Authorization: `Bearer ${session.accessToken}`,
@@ -84,11 +75,8 @@ export async function PUT(request: Request) {
       body: JSON.stringify(updatedProfile),
     });
 
-    console.log("[API /account PUT] keycloak response:", response.status);
-
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("[API /account PUT] keycloak error:", errorText);
       return NextResponse.json(
         { error: "Failed to update profile", details: errorText },
         { status: response.status }
