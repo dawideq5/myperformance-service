@@ -1,7 +1,18 @@
 import KeycloakProvider from "next-auth/providers/keycloak";
 import { getKeycloakIssuer } from "@/lib/keycloak-config";
 
+function getRequiredEnv(name: string) {
+  const value = process.env[name]?.trim();
+  if (!value) {
+    throw new Error(`${name} is not configured`);
+  }
+
+  return value;
+}
+
 const keycloakIssuer = getKeycloakIssuer();
+const keycloakClientId = getRequiredEnv("KEYCLOAK_CLIENT_ID");
+const keycloakClientSecret = getRequiredEnv("KEYCLOAK_CLIENT_SECRET");
 
 async function refreshKeycloakToken(refreshToken: string): Promise<{
   accessToken: string;
@@ -17,8 +28,8 @@ async function refreshKeycloakToken(refreshToken: string): Promise<{
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
           grant_type: "refresh_token",
-          client_id: process.env.KEYCLOAK_CLIENT_ID!,
-          client_secret: process.env.KEYCLOAK_CLIENT_SECRET!,
+          client_id: keycloakClientId,
+          client_secret: keycloakClientSecret,
           refresh_token: refreshToken,
         }),
       }
@@ -45,9 +56,12 @@ async function refreshKeycloakToken(refreshToken: string): Promise<{
 export const authOptions = {
   providers: [
     KeycloakProvider({
-      clientId: process.env.KEYCLOAK_CLIENT_ID!,
-      clientSecret: process.env.KEYCLOAK_CLIENT_SECRET!,
+      clientId: keycloakClientId,
+      clientSecret: keycloakClientSecret,
       issuer: keycloakIssuer,
+      client: {
+        token_endpoint_auth_method: "client_secret_post",
+      },
     }),
   ],
   events: {
@@ -135,7 +149,7 @@ export const authOptions = {
 
           const roles = [
             ...(realmAccess.roles || []),
-            ...(resourceAccess[process.env.KEYCLOAK_CLIENT_ID!]?.roles || []),
+            ...(resourceAccess[keycloakClientId]?.roles || []),
             ...(resourceAccess["realm-management"]?.roles || []),
           ];
 
