@@ -76,9 +76,6 @@ function buildAuthOptions() {
         clientId: keycloakClientId,
         clientSecret: keycloakClientSecret,
         issuer: keycloakIssuer,
-        client: {
-          token_endpoint_auth_method: "client_secret_post",
-        },
       }),
     ],
     secret: process.env.NEXTAUTH_SECRET,
