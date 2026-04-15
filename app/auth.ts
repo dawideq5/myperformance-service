@@ -63,6 +63,13 @@ function buildAuthOptions() {
   const keycloakClientId = getRequiredEnv("KEYCLOAK_CLIENT_ID");
   const keycloakClientSecret = getRequiredEnv("KEYCLOAK_CLIENT_SECRET");
 
+  console.log("[auth] Keycloak config:", {
+    issuer: keycloakIssuer,
+    clientId: keycloakClientId,
+    clientSecretLength: keycloakClientSecret.length,
+    clientSecretPrefix: keycloakClientSecret.substring(0, 4) + "...",
+  });
+
   return {
     providers: [
       KeycloakProvider({
