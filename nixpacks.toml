@@ -9,7 +9,7 @@ nixPkgs = []
 nodeVersion = "22"
 
 [phase.build]
-cmds = ["npm ci", "npm run build"]
+cmds = ["npm ci", "npm run build", "cp -r .next/static .next/standalone/.next/static", "mkdir -p .next/standalone/public && cp -r public/. .next/standalone/public/ 2>/dev/null || true"]
 
 [start]
 cmd = "HOSTNAME=0.0.0.0 node .next/standalone/server.js"
