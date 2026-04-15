@@ -2,9 +2,7 @@ import KeycloakProvider from "next-auth/providers/keycloak";
 
 const KEYCLOAK_URL =
   process.env.KEYCLOAK_URL || "https://auth.myperformance.pl";
-const REALM = "MyPerformance";
-const keycloakIssuer =
-  process.env.KEYCLOAK_ISSUER || `${KEYCLOAK_URL}/realms/${REALM}`;
+const keycloakIssuer = `${KEYCLOAK_URL}/realms/MyPerformance`;
 
 async function refreshKeycloakToken(refreshToken: string): Promise<{
   accessToken: string;
@@ -14,7 +12,7 @@ async function refreshKeycloakToken(refreshToken: string): Promise<{
 } | null> {
   try {
     const res = await fetch(
-      `${KEYCLOAK_URL}/realms/${REALM}/protocol/openid-connect/token`,
+      `${keycloakIssuer}/protocol/openid-connect/token`,
       {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -59,7 +57,7 @@ export const authOptions = {
         const redirectUri = encodeURIComponent(
           process.env.NEXTAUTH_URL || "http://localhost:3000"
         );
-        const logoutUrl = `${KEYCLOAK_URL}/realms/${REALM}/protocol/openid-connect/logout?id_token_hint=${token.idToken}&post_logout_redirect_uri=${redirectUri}`;
+        const logoutUrl = `${keycloakIssuer}/protocol/openid-connect/logout?id_token_hint=${token.idToken}&post_logout_redirect_uri=${redirectUri}`;
         try {
           await fetch(logoutUrl, { method: "GET" });
         } catch (err) {

@@ -64,27 +64,6 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { action } = body;
 
-    if (action === "prepare-passwordless") {
-      const serviceToken = await getServiceAccountToken();
-      const userId = await getUserIdFromToken(session.accessToken);
-      const requiredActionAlias = await resolveRequiredActionAlias(serviceToken, [
-        "webauthn-register-passwordless",
-        "WEBAUTHN_REGISTER_PASSWORDLESS",
-        "webauthn-register",
-        "WEBAUTHN_REGISTER",
-      ]);
-
-      if (!requiredActionAlias) {
-        return NextResponse.json(
-          { error: "Brak wymaganej akcji WebAuthn w konfiguracji Keycloak" },
-          { status: 400 }
-        );
-      }
-
-      await appendUserRequiredAction(serviceToken, userId, requiredActionAlias);
-      return NextResponse.json({ success: true, requiredAction: requiredActionAlias });
-    }
-
     // Step 1: Get registration options
     if (action === "get-options") {
       const userId = await getUserIdFromToken(session.accessToken);
@@ -189,6 +168,13 @@ export async function POST(request: Request) {
           (c: any) => c.type === "webauthn"
         );
 
+        if (webauthnCredentials.length >= 2) {
+          return NextResponse.json(
+            { error: "Możesz zarejestrować maksymalnie 2 klucze bezpieczeństwa" },
+            { status: 409 }
+          );
+        }
+
         const credentialIdBase64 = base64urlToBase64(credential.id);
         for (const existingCred of webauthnCredentials) {
           try {
@@ -253,8 +239,6 @@ export async function POST(request: Request) {
 
         if (updateRes.ok || updateRes.status === 204) {
           const requiredActionAlias = await resolveRequiredActionAlias(serviceToken, [
-            "webauthn-register-passwordless",
-            "WEBAUTHN_REGISTER_PASSWORDLESS",
             "webauthn-register",
             "WEBAUTHN_REGISTER",
           ]);
@@ -319,9 +303,9 @@ export async function PUT(request: Request) {
         method: "PUT",
         headers: {
           Authorization: `Bearer ${serviceToken}`,
-          "Content-Type": "application/json",
+          "Content-Type": "text/plain; charset=UTF-8",
         },
-        body: JSON.stringify(newName),
+        body: newName,
       }
     );
 

@@ -22,7 +22,6 @@ import {
   Copy,
   Check,
   X,
-  Fingerprint,
   Edit2,
   Info,
   ExternalLink,
@@ -95,16 +94,9 @@ export default function AccountPage() {
   const [twoFAError, setTwoFAError] = useState<string | null>(null);
   const [webauthnKeys, setWebauthnKeys] = useState<Array<{id: string; label: string; createdDate: number}>>([]);
 
-  // Passwordless state (admin only)
-  const [passwordlessEnabled, setPasswordlessEnabled] = useState(false);
-  const [passwordlessLoading, setPasswordlessLoading] = useState(false);
-  const [passwordlessError, setPasswordlessError] = useState<string | null>(null);
-  const [isAdmin, setIsAdmin] = useState(false);
-
   // Pending configuration states (required actions)
   const [pending2FA, setPending2FA] = useState(false);
   const [pendingWebAuthn, setPendingWebAuthn] = useState(false);
-  const [pendingPasswordless, setPendingPasswordless] = useState(false);
   const [configuringMethod, setConfiguringMethod] = useState<string | null>(null);
 
   const accessToken = (session as any)?.accessToken;
@@ -196,7 +188,6 @@ export default function AccountPage() {
         const requiredActions = profileData.requiredActions || [];
         setPending2FA(requiredActions.includes("CONFIGURE_TOTP"));
         setPendingWebAuthn(requiredActions.includes("WEBAUTHN_REGISTER"));
-        setPendingPasswordless(requiredActions.includes("WEBAUTHN_REGISTER_PASSWORDLESS"));
       }
 
       // Check session validity first
@@ -238,23 +229,6 @@ export default function AccountPage() {
       if (webauthnRes.ok) {
         const webauthnData = await webauthnRes.json();
         setWebauthnKeys(webauthnData.keys || []);
-      }
-
-      // Check if user is admin and fetch passwordless status
-      const userRoles = (session as any)?.user?.roles || [];
-      const admin = userRoles.includes("realm-admin") || userRoles.includes("admin");
-      setIsAdmin(admin);
-
-      if (admin) {
-        const passwordlessRes = await fetch("/api/account/passwordless");
-        if (passwordlessRes.status === 401) {
-          signOut({ callbackUrl: "/login", redirect: true });
-          return;
-        }
-        if (passwordlessRes.ok) {
-          const passwordlessData = await passwordlessRes.json();
-          setPasswordlessEnabled(passwordlessData.enabled);
-        }
       }
     } catch (err) {
       setError("Nie udało się pobrać danych");
@@ -421,39 +395,10 @@ export default function AccountPage() {
     }
   };
 
-  const togglePasswordless = async (enabled: boolean) => {
-    try {
-      setPasswordlessLoading(true);
-      setPasswordlessError(null);
-
-      const res = await fetch("/api/account/passwordless", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled }),
-      });
-
-      if (res.status === 401) {
-        signOut({ callbackUrl: "/login", redirect: true });
-        return;
-      }
-
-      if (res.ok) {
-        const data = await res.json();
-        setPasswordlessEnabled(data.enabled);
-      } else {
-        const errorData = await res.json();
-        setPasswordlessError(errorData.error || "Nie udało się zmienić konfiguracji");
-      }
-    } catch (err) {
-      setPasswordlessError("Wystąpił błąd podczas zmiany konfiguracji");
-    } finally {
-      setPasswordlessLoading(false);
-    }
-  };
-
   const setRequiredAction = async (action: string, methodName: string) => {
     try {
       setConfiguringMethod(methodName);
+
       const res = await fetch("/api/account/required-actions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -471,7 +416,6 @@ export default function AccountPage() {
         // Set pending state immediately to show UI feedback
         if (action === "CONFIGURE_TOTP") setPending2FA(true);
         if (action === "WEBAUTHN_REGISTER") setPendingWebAuthn(true);
-        if (action === "WEBAUTHN_REGISTER_PASSWORDLESS") setPendingPasswordless(true);
 
         // Wait a bit for Keycloak to process the change
         await new Promise(resolve => setTimeout(resolve, 1000));
@@ -487,7 +431,6 @@ export default function AccountPage() {
           // Update pending states based on actual required actions
           setPending2FA(requiredActions.includes("CONFIGURE_TOTP"));
           setPendingWebAuthn(requiredActions.includes("WEBAUTHN_REGISTER"));
-          setPendingPasswordless(requiredActions.includes("WEBAUTHN_REGISTER_PASSWORDLESS"));
         } else {
           console.error("[UI setRequiredAction] Failed to refresh profile");
         }
@@ -517,7 +460,6 @@ export default function AccountPage() {
         // Update pending state
         if (action === "CONFIGURE_TOTP") setPending2FA(false);
         if (action === "WEBAUTHN_REGISTER") setPendingWebAuthn(false);
-        if (action === "WEBAUTHN_REGISTER_PASSWORDLESS") setPendingPasswordless(false);
       } else {
         alert("Nie udało się anulować konfiguracji.");
       }
@@ -1062,7 +1004,7 @@ export default function AccountPage() {
                         </p>
                       </div>
                     </div>
-                    {webauthnKeys.length === 0 && !pendingWebAuthn && (
+                    {webauthnKeys.length < 2 && !pendingWebAuthn && (
                       <button
                         onClick={() => setRequiredAction("WEBAUTHN_REGISTER", "WebAuthn")}
                         disabled={configuringMethod === "WebAuthn"}
@@ -1073,8 +1015,13 @@ export default function AccountPage() {
                         ) : (
                           <ChevronRight className="w-4 h-4" />
                         )}
-                        Włącz
+                        {webauthnKeys.length === 0 ? "Włącz" : "Dodaj drugi klucz"}
                       </button>
+                    )}
+                    {webauthnKeys.length >= 2 && (
+                      <span className="text-xs text-[var(--text-muted)] px-3 py-1 bg-[var(--bg-main)] rounded-lg border border-[var(--border-subtle)]">
+                        Maks. 2 klucze
+                      </span>
                     )}
                     {pendingWebAuthn && (
                       <div className="flex items-center gap-2 text-sm text-blue-500">
@@ -1140,11 +1087,10 @@ export default function AccountPage() {
                                       });
 
                                       if (res.ok) {
-                                        // Refresh profile to update the UI
-                                        const profileRes = await fetch("/api/account");
-                                        if (profileRes.ok) {
-                                          const profileData = await profileRes.json();
-                                          setProfile(profileData);
+                                        const keysRes = await fetch("/api/account/webauthn");
+                                        if (keysRes.ok) {
+                                          const keysData = await keysRes.json();
+                                          setWebauthnKeys(keysData.keys || []);
                                         }
                                       } else {
                                         const errorData = await res.json().catch(() => ({}));
@@ -1175,127 +1121,6 @@ export default function AccountPage() {
                     </div>
                   )}
                 </div>
-
-                {/* Passwordless Section - Admin Only (System-wide toggle) */}
-                {isAdmin && (
-                  <div className="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-2xl p-6">
-                    <div className="flex items-center justify-between mb-4">
-                      <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 rounded-xl bg-purple-500/10 flex items-center justify-center">
-                          <Fingerprint className="w-6 h-6 text-purple-500" />
-                        </div>
-                        <div>
-                          <h2 className="text-lg font-semibold text-[var(--text-main)]">
-                            Logowanie bezhasłowe (Globalnie)
-                          </h2>
-                          <p className="text-sm text-[var(--text-muted)]">
-                            Dla całego systemu
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className={`text-sm font-medium ${passwordlessEnabled ? "text-green-500" : "text-[var(--text-muted)]"}`}>
-                          {passwordlessEnabled ? "Włączone" : "Wyłączone"}
-                        </span>
-                        <button
-                          onClick={() => togglePasswordless(!passwordlessEnabled)}
-                          disabled={passwordlessLoading}
-                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                            passwordlessEnabled ? "bg-purple-500" : "bg-[var(--border-subtle)]"
-                          } disabled:opacity-50`}
-                        >
-                          <span
-                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                              passwordlessEnabled ? "translate-x-6" : "translate-x-1"
-                            }`}
-                          />
-                        </button>
-                      </div>
-                    </div>
-
-                    {passwordlessError && (
-                      <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-xl flex items-center gap-2 text-sm text-red-500">
-                        <AlertCircle className="w-4 h-4" />
-                        {passwordlessError}
-                      </div>
-                    )}
-
-                    <div className="p-4 bg-[var(--bg-main)] rounded-xl border border-[var(--border-subtle)]">
-                      <p className="text-sm text-[var(--text-muted)] mb-2">
-                        <span className="text-[var(--text-main)] font-medium">Uwaga:</span> Włączenie logowania bezhasłowego zmienia domyślny flow uwierzytelniania dla całego systemu. Użytkownicy będą mogli logować się wyłącznie za pomocą klucza bezpieczeństwa (WebAuthn).
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {/* Passwordless Section - User Personal */}
-                {!isAdmin && (
-                  <div className="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-2xl p-6">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${pendingPasswordless ? "bg-blue-500/10" : "bg-purple-500/10"}`}>
-                          <Fingerprint className={`w-6 h-6 ${pendingPasswordless ? "text-blue-500" : "text-purple-500"}`} />
-                        </div>
-                        <div>
-                          <h2 className="text-lg font-semibold text-[var(--text-main)]">
-                            Logowanie bezhasłowe
-                          </h2>
-                          <p className="text-sm text-[var(--text-muted)]">
-                            {pendingPasswordless ? (
-                              <span className="text-blue-500">Oczekuje konfiguracji przy logowaniu</span>
-                            ) : (
-                              <span className="text-yellow-500">Nieskonfigurowane</span>
-                            )}
-                          </p>
-                        </div>
-                      </div>
-                      {!pendingPasswordless && (
-                        <button
-                          onClick={() => setRequiredAction("WEBAUTHN_REGISTER_PASSWORDLESS", "Passwordless")}
-                          disabled={configuringMethod === "Passwordless"}
-                          className="inline-flex items-center gap-2 px-4 py-2 bg-purple-500 text-white rounded-xl text-sm font-medium hover:bg-purple-600 transition-colors disabled:opacity-50"
-                        >
-                          {configuringMethod === "Passwordless" ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <ChevronRight className="w-4 h-4" />
-                          )}
-                          Włącz
-                        </button>
-                      )}
-                      {pendingPasswordless && (
-                        <div className="flex items-center gap-2 text-sm text-blue-500">
-                          <Clock className="w-4 h-4" />
-                          <span>Gotowe do konfiguracji</span>
-                        </div>
-                      )}
-                    </div>
-                    {pendingPasswordless && (
-                      <div className="mt-4 p-4 bg-blue-500/10 border border-blue-500/20 rounded-xl">
-                        <p className="text-sm text-blue-400 mb-3">
-                          Logowanie bezhasłowe zostanie skonfigurowane przy następnym logowaniu. 
-                          Wyloguj się i zaloguj ponownie, aby dokończyć konfigurację.
-                        </p>
-                        <div className="flex gap-3">
-                          <button
-                            onClick={() => signOutWithKeycloak()}
-                            className="inline-flex items-center gap-2 px-4 py-2 bg-purple-500 text-white rounded-lg text-sm font-medium hover:bg-purple-600 transition-colors"
-                          >
-                            <LogOut className="w-4 h-4" />
-                            Wyloguj się teraz
-                          </button>
-                          <button
-                            onClick={() => cancelRequiredAction("WEBAUTHN_REGISTER_PASSWORDLESS")}
-                            className="inline-flex items-center gap-2 px-4 py-2 border border-[var(--border-subtle)] text-[var(--text-muted)] rounded-lg text-sm font-medium hover:bg-[var(--bg-main)] transition-colors"
-                          >
-                            <X className="w-4 h-4" />
-                            Anuluj
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
 
                 {/* Password Change Section */}
                 <div className="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-2xl p-6">

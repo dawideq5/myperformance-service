@@ -2,6 +2,35 @@ import { getAccountUrl, getAdminUrl } from "@/lib/keycloak-config";
 const KEYCLOAK_URL = process.env.KEYCLOAK_URL!;
 export const REALM = "MyPerformance";
 
+const REQUIRED_ACTION_ALIAS_MAP: Record<string, string[]> = {
+  CONFIGURE_TOTP: ["CONFIGURE_TOTP"],
+  WEBAUTHN_REGISTER: ["WEBAUTHN_REGISTER", "webauthn-register"],
+};
+
+function getRequiredActionAliases(action: string) {
+  return REQUIRED_ACTION_ALIAS_MAP[action] || [action];
+}
+
+function canonicalizeRequiredAction(action: string) {
+  const normalized = action.toLowerCase();
+
+  if (normalized === "configure_totp") {
+    return "CONFIGURE_TOTP";
+  }
+
+  if (normalized === "webauthn-register") {
+    return "WEBAUTHN_REGISTER";
+  }
+
+  return action;
+}
+
+export function normalizeRequiredActions(requiredActions: string[] = []) {
+  return Array.from(
+    new Set(requiredActions.map((action) => canonicalizeRequiredAction(action)))
+  );
+}
+
 export async function getServiceAccountToken(): Promise<string> {
   // Prefer dedicated service client; fall back to dashboard client
   const clientId =
@@ -89,14 +118,47 @@ export async function appendUserRequiredAction(
   }
 
   const userData = await userResponse.json();
-  const requiredActions = new Set<string>(userData.requiredActions || []);
-  requiredActions.add(requiredActionAlias);
+  const targetCanonicalAction = canonicalizeRequiredAction(requiredActionAlias);
+  const requiredActions = (userData.requiredActions || []).filter(
+    (action: string) => canonicalizeRequiredAction(action) !== targetCanonicalAction
+  );
+  requiredActions.push(requiredActionAlias);
 
   const updateResponse = await adminRequest(`/users/${userId}`, adminToken, {
     method: "PUT",
     body: JSON.stringify({
       ...userData,
-      requiredActions: Array.from(requiredActions),
+      requiredActions: Array.from(new Set(requiredActions)),
+    }),
+  });
+
+  if (!updateResponse.ok) {
+    const details = await updateResponse.text();
+    throw new Error(details || "Unable to update required actions");
+  }
+}
+
+export async function removeUserRequiredAction(
+  adminToken: string,
+  userId: string,
+  requiredActionAlias: string
+) {
+  const userResponse = await adminRequest(`/users/${userId}`, adminToken);
+  if (!userResponse.ok) {
+    throw new Error("Unable to load user data for required action update");
+  }
+
+  const userData = await userResponse.json();
+  const targetCanonicalAction = canonicalizeRequiredAction(requiredActionAlias);
+  const requiredActions = (userData.requiredActions || []).filter(
+    (action: string) => canonicalizeRequiredAction(action) !== targetCanonicalAction
+  );
+
+  const updateResponse = await adminRequest(`/users/${userId}`, adminToken, {
+    method: "PUT",
+    body: JSON.stringify({
+      ...userData,
+      requiredActions,
     }),
   });
 
@@ -123,4 +185,8 @@ export async function resolveRequiredActionAlias(
   );
 
   return candidates.find((alias) => aliases.has(alias)) || null;
+}
+
+export function getRequiredActionAliasCandidates(action: string) {
+  return getRequiredActionAliases(action);
 }

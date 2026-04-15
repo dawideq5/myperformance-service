@@ -1,7 +1,11 @@
 import { getServerSession } from "next-auth/next";
 import { NextResponse } from "next/server";
 import { authOptions } from "@/app/auth";
-import { getServiceAccountToken, getUserIdFromToken } from "@/lib/keycloak-admin";
+import {
+  getServiceAccountToken,
+  getUserIdFromToken,
+  normalizeRequiredActions,
+} from "@/lib/keycloak-admin";
 
 export async function GET() {
   try {
@@ -43,8 +47,18 @@ export async function GET() {
 
       if (adminResponse.ok) {
         const adminData = await adminResponse.json();
-        console.log("[API /account GET] adminData.requiredActions:", adminData.requiredActions);
-        data.requiredActions = adminData.requiredActions || [];
+        const normalizedRequiredActions = normalizeRequiredActions(
+          adminData.requiredActions || []
+        );
+        console.log(
+          "[API /account GET] adminData.requiredActions:",
+          adminData.requiredActions
+        );
+        console.log(
+          "[API /account GET] normalized requiredActions:",
+          normalizedRequiredActions
+        );
+        data.requiredActions = normalizedRequiredActions;
       } else {
         const adminErrorText = await adminResponse.text();
         console.error("[API /account GET] admin fetch error:", adminErrorText);

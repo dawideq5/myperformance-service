@@ -18,29 +18,6 @@
   "maxDeltaTimeSeconds": 43200,
   "failureFactor": 5,
   "defaultRoles": ["app_user"],
-  "requiredActions": [
-    {
-      "alias": "CONFIGURE_TOTP",
-      "name": "Configure OTP",
-      "enabled": true,
-      "defaultAction": false,
-      "priority": 10
-    },
-    {
-      "alias": "webauthn-register",
-      "name": "Webauthn Register",
-      "enabled": true,
-      "defaultAction": false,
-      "priority": 20
-    },
-    {
-      "alias": "webauthn-register-passwordless",
-      "name": "Webauthn Register Passwordless",
-      "enabled": true,
-      "defaultAction": false,
-      "priority": 30
-    }
-  ],
   "roles": {
     "realm": [
       {
@@ -121,10 +98,12 @@
       "authorizationServicesEnabled": false,
       "secret": "ot0h8vUAQUJaTnbMyq0uNC0wcCt9Txg8",
       "redirectUris": [
+        "https://dashboard.myperformance.pl/*",
         "https://myperformance.pl/*",
         "http://localhost:3000/*"
       ],
       "webOrigins": [
+        "https://dashboard.myperformance.pl",
         "https://myperformance.pl",
         "http://localhost:3000"
       ],
@@ -323,63 +302,6 @@
           "userSetupAllowed": false
         }
       ]
-    },
-    {
-      "id": "browser-webauthn-passwordless",
-      "alias": "browser-webauthn-passwordless",
-      "description": "Passwordless authentication with WebAuthn",
-      "providerId": "basic-flow",
-      "topLevel": true,
-      "builtIn": false,
-      "authenticationExecutions": [
-        {
-          "authenticator": "auth-cookie",
-          "requirement": "ALTERNATIVE",
-          "priority": 1,
-          "autheticatorFlow": false,
-          "userSetupAllowed": false
-        },
-        {
-          "authenticator": "webauthn-passwordless-authenticator",
-          "requirement": "ALTERNATIVE",
-          "priority": 2,
-          "autheticatorFlow": false,
-          "userSetupAllowed": true
-        },
-        {
-          "authenticatorFlow": true,
-          "requirement": "ALTERNATIVE",
-          "priority": 3,
-          "autheticatorFlow": true,
-          "flowAlias": "browser-webauthn-passwordless-forms",
-          "userSetupAllowed": false
-        }
-      ]
-    },
-    {
-      "id": "browser-webauthn-passwordless-forms",
-      "alias": "browser-webauthn-passwordless-forms",
-      "description": "Fallback forms when passwordless fails",
-      "providerId": "basic-flow",
-      "topLevel": false,
-      "builtIn": false,
-      "authenticationExecutions": [
-        {
-          "authenticator": "auth-username-password-form",
-          "requirement": "REQUIRED",
-          "priority": 1,
-          "autheticatorFlow": false,
-          "userSetupAllowed": false
-        },
-        {
-          "authenticatorFlow": true,
-          "requirement": "REQUIRED",
-          "priority": 2,
-          "autheticatorFlow": true,
-          "flowAlias": "browser-webauthn-conditional-otp",
-          "userSetupAllowed": false
-        }
-      ]
     }
   ],
   "browserFlow": "browser-webauthn-conditional",
@@ -400,15 +322,6 @@
       "enabled": true,
       "defaultAction": false,
       "priority": 20,
-      "config": {}
-    },
-    {
-      "alias": "WEBAUTHN_REGISTER_PASSWORDLESS",
-      "name": "Webauthn Register Passwordless",
-      "providerId": "WEBAUTHN_REGISTER_PASSWORDLESS",
-      "enabled": true,
-      "defaultAction": false,
-      "priority": 30,
       "config": {}
     },
     {
