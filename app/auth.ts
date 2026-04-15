@@ -1,7 +1,6 @@
 import type { AuthOptions } from "next-auth";
 import KeycloakProvider from "next-auth/providers/keycloak";
 import { getKeycloakIssuer } from "@/lib/keycloak-config";
-import { getCanonicalLoginUrl, normalizeAuthRedirect } from "@/lib/app-url";
 
 function getRequiredEnv(name: string) {
   const value = process.env[name]?.trim();
@@ -82,19 +81,6 @@ function buildAuthOptions() {
         },
       }),
     ],
-    events: {
-      async signOut({ token }: any) {
-        if (token?.idToken) {
-          const redirectUri = encodeURIComponent(getCanonicalLoginUrl());
-          const logoutUrl = `${keycloakIssuer}/protocol/openid-connect/logout?id_token_hint=${token.idToken}&post_logout_redirect_uri=${redirectUri}`;
-          try {
-            await fetch(logoutUrl, { method: "GET" });
-          } catch (err) {
-            console.error("[auth] Keycloak logout failed:", err);
-          }
-        }
-      },
-    },
     secret: process.env.NEXTAUTH_SECRET,
     session: {
       strategy: "jwt" as const,
@@ -184,7 +170,20 @@ function buildAuthOptions() {
         return session;
       },
       async redirect({ url, baseUrl }: any) {
-        return normalizeAuthRedirect(url, baseUrl);
+        if (url.startsWith("/")) {
+          return `${baseUrl}${url}`;
+        }
+
+        try {
+          const target = new URL(url);
+          if (target.origin === baseUrl) {
+            return target.toString();
+          }
+        } catch {
+          return baseUrl;
+        }
+
+        return baseUrl;
       },
     },
     pages: {

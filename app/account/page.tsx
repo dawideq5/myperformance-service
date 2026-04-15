@@ -29,7 +29,6 @@ import {
 import Link from "next/link";
 import { PhoneInput } from "@/components/PhoneInput";
 import { useTheme } from "@/components/ThemeProvider";
-import { getCanonicalLoginUrl } from "@/lib/app-url";
 import { getPublicKeycloakIssuer } from "@/lib/keycloak-config";
 
 interface KeycloakSession {
@@ -104,7 +103,7 @@ export default function AccountPage() {
   const sessionDataLoadedRef = useRef(false);
 
   const forceLogout = useCallback(async () => {
-    await signOut({ callbackUrl: getCanonicalLoginUrl() });
+    await signOut({ callbackUrl: "/login" });
   }, []);
 
   const apiRequest = useCallback(
@@ -253,7 +252,7 @@ export default function AccountPage() {
     // Build Keycloak logout URL
     const keycloakUrl = getPublicKeycloakIssuer();
     const idToken = (session as any)?.idToken;
-    const redirectUri = encodeURIComponent(getCanonicalLoginUrl());
+    const redirectUri = encodeURIComponent(`${window.location.origin}/login`);
     
     const keycloakLogoutUrl = `${keycloakUrl}/protocol/openid-connect/logout?id_token_hint=${idToken}&post_logout_redirect_uri=${redirectUri}`;
     
@@ -339,7 +338,7 @@ export default function AccountPage() {
         method: "DELETE",
       });
       if (res.status === 401) {
-        signOut({ callbackUrl: getCanonicalLoginUrl(), redirect: true });
+        signOut({ callbackUrl: "/login", redirect: true });
         return;
       }
       if (res.ok) {
@@ -357,7 +356,7 @@ export default function AccountPage() {
       });
 
       if (res.status === 401) {
-        signOut({ callbackUrl: getCanonicalLoginUrl(), redirect: true });
+        signOut({ callbackUrl: "/login", redirect: true });
         return;
       }
 
@@ -382,7 +381,7 @@ export default function AccountPage() {
       });
 
       if (res.status === 401) {
-        signOut({ callbackUrl: getCanonicalLoginUrl(), redirect: true });
+        signOut({ callbackUrl: "/login", redirect: true });
         return;
       }
 
@@ -429,7 +428,7 @@ export default function AccountPage() {
       });
 
       if (res.status === 401) {
-        signOut({ callbackUrl: getCanonicalLoginUrl(), redirect: true });
+        signOut({ callbackUrl: "/login", redirect: true });
         return;
       }
 
@@ -476,7 +475,7 @@ export default function AccountPage() {
       });
 
       if (res.status === 401) {
-        signOut({ callbackUrl: getCanonicalLoginUrl(), redirect: true });
+        signOut({ callbackUrl: "/login", redirect: true });
         return;
       }
 

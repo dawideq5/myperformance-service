@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { authOptions } from "@/app/auth";
 import { LogoutButton } from "@/components/LogoutButton";
+export const dynamic = "force-dynamic";
 /**
  * FINAL ULTRA-CLEAN DASHBOARD
  */

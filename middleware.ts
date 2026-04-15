@@ -1,16 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getCanonicalAppUrl } from "@/lib/app-url";
+import { NextResponse } from "next/server";
 
-export default function middleware(request: NextRequest) {
-  const canonicalUrl = new URL(getCanonicalAppUrl());
-  const requestUrl = request.nextUrl.clone();
-
-  if (requestUrl.hostname === "www.myperformance.pl") {
-    requestUrl.protocol = canonicalUrl.protocol;
-    requestUrl.host = canonicalUrl.host;
-    return NextResponse.redirect(requestUrl, 308);
-  }
-
+export default function middleware() {
   return NextResponse.next();
 }
 
