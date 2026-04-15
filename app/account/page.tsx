@@ -245,7 +245,7 @@ export default function AccountPage() {
       return;
     }
 
-    if (sessionError) {
+    if (sessionError === "RefreshTokenExpired") {
       void forceLogout();
       return;
     }
