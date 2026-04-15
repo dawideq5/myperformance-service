@@ -207,6 +207,23 @@ export const authOptions: AuthOptions = new Proxy({} as AuthOptions, {
   get(_target, prop) {
     return (getAuthOptions() as any)[prop];
   },
+  has(_target, prop) {
+    return prop in getAuthOptions();
+  },
+  ownKeys() {
+    return Reflect.ownKeys(getAuthOptions());
+  },
+  getOwnPropertyDescriptor(_target, prop) {
+    const descriptor = Object.getOwnPropertyDescriptor(getAuthOptions(), prop);
+    if (descriptor) {
+      return {
+        ...descriptor,
+        configurable: true,
+      };
+    }
+
+    return descriptor;
+  },
 });
 
 export default authOptions;
