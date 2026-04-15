@@ -7,8 +7,6 @@ import {
 } from "lucide-react";
 import { authOptions } from "@/app/auth";
 import { LogoutButton } from "@/components/LogoutButton";
-import { ThemeToggle } from "@/components/ThemeToggle";
-
 /**
  * FINAL ULTRA-CLEAN DASHBOARD
  */
@@ -16,7 +14,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 export default async function DashboardPage() {
   const session = await getServerSession(authOptions);
 
-  if (!session?.user) {
+  if (!session?.user || (session as any).error === "RefreshTokenExpired") {
     redirect("/login");
   }
 
@@ -37,7 +35,6 @@ export default async function DashboardPage() {
             >
               <Settings className="w-5 h-5" />
             </Link>
-            <ThemeToggle />
             <LogoutButton idToken={session.idToken} />
           </div>
         </div>

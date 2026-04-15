@@ -1,8 +1,21 @@
 import { getAccountUrl, getAdminUrl } from "@/lib/keycloak-config";
+const KEYCLOAK_URL = process.env.KEYCLOAK_URL!;
+export const REALM = "MyPerformance";
 
 export async function getServiceAccountToken(): Promise<string> {
-  const clientId = process.env.KEYCLOAK_SERVICE_CLIENT_ID || process.env.KEYCLOAK_CLIENT_ID!;
-  const clientSecret = process.env.KEYCLOAK_SERVICE_CLIENT_SECRET || process.env.KEYCLOAK_CLIENT_SECRET!;
+  // Prefer dedicated service client; fall back to dashboard client
+  const clientId =
+    process.env.KEYCLOAK_SERVICE_CLIENT_ID ||
+    process.env.KEYCLOAK_CLIENT_ID!;
+  const clientSecret =
+    process.env.KEYCLOAK_SERVICE_CLIENT_SECRET ||
+    process.env.KEYCLOAK_CLIENT_SECRET!;
+
+  if (!clientId || !clientSecret) {
+    throw new Error(
+      "Missing KEYCLOAK_SERVICE_CLIENT_ID / KEYCLOAK_SERVICE_CLIENT_SECRET (or fallback KEYCLOAK_CLIENT_ID/SECRET)"
+    );
+  }
 
   const response = await fetch(
     `${getAccountUrl("/protocol/openid-connect/token")}`,
@@ -19,7 +32,10 @@ export async function getServiceAccountToken(): Promise<string> {
 
   if (!response.ok) {
     const err = await response.text();
-    console.error("[keycloak-admin] Failed to get service account token:", err);
+    console.error(
+      `[keycloak-admin] Failed to get service account token (client: ${clientId}):`,
+      err
+    );
     throw new Error(`Failed to get service account token: ${err}`);
   }
 

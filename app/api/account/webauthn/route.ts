@@ -36,11 +36,15 @@ export async function GET() {
       ? credentials.find((c: any) => c.type === "webauthn")
       : null;
 
-    const keys = (webauthnEntry?.userCredentialMetadatas || []).map((m: any) => ({
-      id: m.credential?.id,
-      label: m.credential?.userLabel || "Klucz bezpieczeństwa",
-      createdDate: m.credential?.createdDate,
-    }));
+    const keys = (webauthnEntry?.userCredentialMetadatas || []).map((m: any) => {
+      console.log("[API /webauthn GET] credential metadata:", JSON.stringify(m, null, 2));
+      return {
+        id: m.credential?.id,
+        credentialId: m.credential?.id, // Add explicit credentialId field
+        label: m.credential?.userLabel || "Klucz bezpieczeństwa",
+        createdDate: m.credential?.createdDate,
+      };
+    });
 
     return NextResponse.json({ keys, hasWebAuthn: keys.length > 0 });
   } catch (error) {
@@ -127,8 +131,11 @@ export async function POST(request: Request) {
         timeout: 60000,
         attestation: "none",
         authenticatorSelection: {
-          requireResidentKey: false,
-          userVerification: "preferred",
+          residentKey: "preferred",
+          userVerification: "required",
+        },
+        extensions: {
+          credProps: true,
         },
       };
 
@@ -171,15 +178,56 @@ export async function POST(request: Request) {
 
         const userData = await userRes.json();
 
+        // Convert base64url to base64 for Keycloak compatibility
+        const base64urlToBase64 = (base64url: string) => {
+          return base64url.replace(/-/g, '+').replace(/_/g, '/');
+        };
+
+        // Check for duplicate credential (same credentialId)
+        const existingCredentials = userData.credentials || [];
+        const webauthnCredentials = existingCredentials.filter(
+          (c: any) => c.type === "webauthn"
+        );
+
+        const credentialIdBase64 = base64urlToBase64(credential.id);
+        for (const existingCred of webauthnCredentials) {
+          try {
+            const credData = JSON.parse(existingCred.credentialData || "{}");
+            if (credData.credentialId === credentialIdBase64 || credData.credentialId === credential.id) {
+              return NextResponse.json(
+                { error: "Ten klucz bezpieczeństwa jest już zarejestrowany" },
+                { status: 409 }
+              );
+            }
+          } catch {}
+        }
+
+        // Decode attestation to get proper aaguid if available
+        let aaguid = "00000000-0000-0000-0000-000000000000";
+        try {
+          const attestationBytes = Uint8Array.from(atob(credential.attestationObject), c => c.charCodeAt(0));
+          // AAGUID is at offset 37-53 in authData within attestation
+          // This is simplified - in production use proper CBOR parsing
+          const authDataOffset = 37; // After RP ID hash
+          if (attestationBytes.length > authDataOffset + 16) {
+            const aaguidBytes = attestationBytes.slice(authDataOffset, authDataOffset + 16);
+            // Convert to UUID format
+            const hex = Array.from(aaguidBytes).map(b => b.toString(16).padStart(2, '0')).join('');
+            if (hex !== '00000000000000000000000000000000') {
+              aaguid = `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+            }
+          }
+        } catch {}
+
         // Add WebAuthn credential via PUT /users/{id}
         const webauthnCredential = {
           type: "webauthn",
           userLabel: label || "Klucz bezpieczeństwa",
           credentialData: JSON.stringify({
-            credentialId: credential.id,
+            credentialId: base64urlToBase64(credential.id),
             credentialPublicKey: credential.publicKey || "",
             counter: 0,
-            aaguid: "00000000-0000-0000-0000-000000000000",
+            aaguid: aaguid,
             attestationStatementFormat: "none",
           }),
           secretData: JSON.stringify({}),
@@ -233,6 +281,63 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid action" }, { status: 400 });
   } catch (error) {
     console.error("[API /webauthn POST] error:", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    );
+  }
+}
+
+// PUT - Rename a WebAuthn credential
+export async function PUT(request: Request) {
+  try {
+    const session: any = await getServerSession(authOptions);
+    if (!session?.accessToken) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const { credentialId, newName } = body;
+
+    if (!credentialId || !newName) {
+      return NextResponse.json(
+        { error: "Missing credentialId or newName" },
+        { status: 400 }
+      );
+    }
+
+    const keycloakUrl = process.env.KEYCLOAK_URL;
+    const userId = await getUserIdFromToken(session.accessToken);
+    const serviceToken = await getServiceAccountToken();
+
+    console.log("[API /webauthn PUT] renaming credential:", credentialId, "to:", newName);
+
+    // Use dedicated Keycloak endpoint for updating credential userLabel
+    const updateRes = await fetch(
+      `${keycloakUrl}/admin/realms/MyPerformance/users/${userId}/credentials/${credentialId}/userLabel`,
+      {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${serviceToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(newName),
+      }
+    );
+
+    if (!updateRes.ok) {
+      const errorText = await updateRes.text();
+      console.error("[API /webauthn PUT] error:", errorText);
+      return NextResponse.json(
+        { error: "Failed to update credential label", details: errorText },
+        { status: updateRes.status }
+      );
+    }
+
+    console.log("[API /webauthn PUT] successfully renamed credential");
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("[API /webauthn PUT] error:", error);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

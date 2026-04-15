@@ -1,45 +1,99 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, useLayoutEffect } from "react";
+import { useSession } from "next-auth/react";
 
 type Theme = "dark" | "light";
 
-const ThemeContext = createContext<{
+interface ThemeContextType {
   theme: Theme;
+  setTheme: (theme: Theme) => void;
   toggleTheme: () => void;
-} | undefined>(undefined);
+  isLoading: boolean;
+}
 
-const STORAGE_KEY = "theme";
+const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
-function getInitialTheme(): Theme {
+// Check if user prefers dark mode
+function getSystemPreference(): Theme {
   if (typeof window === "undefined") return "dark";
-  const stored = localStorage.getItem(STORAGE_KEY) as Theme | null;
-  if (stored) return stored;
-  return "dark";
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setTheme] = useState<Theme>("dark");
+  const { data: session, status } = useSession();
+  const [theme, setThemeState] = useState<Theme>("dark");
   const [mounted, setMounted] = useState(false);
 
-  useLayoutEffect(() => {
-    const initial = getInitialTheme();
-    setTheme(initial);
-    document.documentElement.classList.remove("dark", "light");
-    document.documentElement.classList.add(initial);
-    setMounted(true);
-  }, []);
+  // Get theme from Keycloak user attributes ( safely access )
+  const getThemeFromSession = (): Theme | null => {
+    // Access attributes safely from session user
+    const user = session?.user as any;
+    if (!user?.attributes) return null;
+    const darkModeAttr = user.attributes["dark-mode"];
+    if (darkModeAttr?.[0] === "Turned ON") return "dark";
+    if (darkModeAttr?.[0] === "Turned OFF") return "light";
+    return null;
+  };
 
-  const toggleTheme = () => {
-    const newTheme = theme === "dark" ? "light" : "dark";
-    setTheme(newTheme);
-    localStorage.setItem(STORAGE_KEY, newTheme);
+  // Apply theme to DOM
+  const applyTheme = (newTheme: Theme) => {
     document.documentElement.classList.remove("dark", "light");
     document.documentElement.classList.add(newTheme);
   };
 
+  // Initialize theme from session or system preference
+  useLayoutEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const sessionTheme = getThemeFromSession();
+    const initialTheme = sessionTheme ?? getSystemPreference();
+
+    setThemeState(initialTheme);
+    applyTheme(initialTheme);
+    setMounted(true);
+  }, [session]);
+
+  // Update theme when session changes
+  useEffect(() => {
+    if (status === "authenticated") {
+      const sessionTheme = getThemeFromSession();
+      if (sessionTheme && sessionTheme !== theme) {
+        setThemeState(sessionTheme);
+        applyTheme(sessionTheme);
+      }
+    }
+  }, [session, status]);
+
+  const setTheme = async (newTheme: Theme) => {
+    setThemeState(newTheme);
+    applyTheme(newTheme);
+
+    // Save to Keycloak if authenticated
+    if (status === "authenticated" && session?.accessToken) {
+      try {
+        await fetch("/api/account", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            attributes: {
+              "dark-mode": newTheme === "dark" ? ["Turned ON"] : ["Turned OFF"],
+            },
+          }),
+        });
+      } catch (err) {
+        console.error("Failed to save theme preference", err);
+      }
+    }
+  };
+
+  const toggleTheme = () => {
+    const newTheme = theme === "dark" ? "light" : "dark";
+    setTheme(newTheme);
+  };
+
   return (
-    <ThemeContext.Provider value={{ theme, toggleTheme }}>
+    <ThemeContext.Provider value={{ theme, setTheme, toggleTheme, isLoading: !mounted }}>
       {children}
     </ThemeContext.Provider>
   );

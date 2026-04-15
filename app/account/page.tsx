@@ -1,6 +1,6 @@
 "use client";
 
-import { signOut, useSession } from "next-auth/react";
+import { useSession, signOut } from "next-auth/react";
 import { useCallback, useEffect, useState } from "react";
 import {
   User,
@@ -21,10 +21,16 @@ import {
   EyeOff,
   Copy,
   Check,
-  X
+  X,
+  Fingerprint,
+  Edit2,
+  Info,
+  ExternalLink,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { PhoneInput } from "@/components/PhoneInput";
+import { useTheme } from "@/components/ThemeProvider";
 
 interface KeycloakSession {
   id: string;
@@ -43,6 +49,8 @@ interface UserProfile {
   firstName: string;
   lastName: string;
   emailVerified: boolean;
+  attributes?: Record<string, string[]>;
+  requiredActions?: string[];
 }
 
 interface TwoFAStatus {
@@ -55,7 +63,8 @@ interface TwoFAStatus {
 export default function AccountPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<"profile" | "security" | "sessions" | "setup-2fa" | "setup-key">("profile");
+  const { theme, setTheme, isLoading: themeLoading } = useTheme();
+  const [activeTab, setActiveTab] = useState<"profile" | "security" | "sessions">("profile");
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [sessions, setSessions] = useState<KeycloakSession[]>([]);
   const [twoFA, setTwoFA] = useState<TwoFAStatus | null>(null);
@@ -67,6 +76,8 @@ export default function AccountPage() {
   const [editFirstName, setEditFirstName] = useState("");
   const [editLastName, setEditLastName] = useState("");
   const [editEmail, setEditEmail] = useState("");
+  const [editPhoneNumber, setEditPhoneNumber] = useState("");
+  const [editPhonePrefix, setEditPhonePrefix] = useState("+48");
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileSuccess, setProfileSuccess] = useState(false);
 
@@ -80,22 +91,21 @@ export default function AccountPage() {
   const [passwordSuccess, setPasswordSuccess] = useState(false);
   const [changingPassword, setChangingPassword] = useState(false);
 
-  // 2FA state
-  const [totpCode, setTotpCode] = useState("");
-  const [settingUp2FA, setSettingUp2FA] = useState(false);
-  const [copiedSecret, setCopiedSecret] = useState(false);
-  const [qrCode, setQrCode] = useState<string | null>(null);
-  const [totpSecret, setTotpSecret] = useState<string | null>(null);
-  const [verifying2FA, setVerifying2FA] = useState(false);
+  // 2FA/WebAuthn state (for display only)
   const [twoFAError, setTwoFAError] = useState<string | null>(null);
-  const [twoFASuccess, setTwoFASuccess] = useState(false);
-
-  // WebAuthn state
   const [webauthnKeys, setWebauthnKeys] = useState<Array<{id: string; label: string; createdDate: number}>>([]);
-  const [registeringKey, setRegisteringKey] = useState(false);
-  const [keyLabel, setKeyLabel] = useState("");
-  const [webauthnError, setWebauthnError] = useState<string | null>(null);
-  const [webauthnSuccess, setWebauthnSuccess] = useState(false);
+
+  // Passwordless state (admin only)
+  const [passwordlessEnabled, setPasswordlessEnabled] = useState(false);
+  const [passwordlessLoading, setPasswordlessLoading] = useState(false);
+  const [passwordlessError, setPasswordlessError] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  // Pending configuration states (required actions)
+  const [pending2FA, setPending2FA] = useState(false);
+  const [pendingWebAuthn, setPendingWebAuthn] = useState(false);
+  const [pendingPasswordless, setPendingPasswordless] = useState(false);
+  const [configuringMethod, setConfiguringMethod] = useState<string | null>(null);
 
   const accessToken = (session as any)?.accessToken;
   const sessionError = (session as any)?.error;
@@ -103,6 +113,22 @@ export default function AccountPage() {
   const forceLogout = useCallback(async () => {
     await signOut({ callbackUrl: "/login" });
   }, []);
+
+  useEffect(() => {
+    if (status === "unauthenticated") {
+      router.push("/login");
+      return;
+    }
+
+    if (status === "authenticated" && (session as any)?.error === "RefreshTokenExpired") {
+      // SessionGuard in providers.tsx handles logout; just wait
+      return;
+    }
+
+    if (status === "authenticated" && accessToken) {
+      fetchUserData();
+    }
+  }, [status, accessToken]);
 
   const apiRequest = useCallback(
     async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -147,32 +173,91 @@ export default function AccountPage() {
       if (profileRes.ok) {
         const profileData = await profileRes.json();
         setProfile(profileData);
+
+        // Load user attributes
+        const userAttrs = profileData.attributes || {};
+
+        // Phone number - parse prefix and number
+        const fullPhone = userAttrs["phone-number"]?.[0] || "";
+        if (fullPhone.startsWith("+")) {
+          // Extract prefix (e.g., +48, +1, +44)
+          const match = fullPhone.match(/^\+(\d{1,3})/);
+          if (match) {
+            setEditPhonePrefix(`+${match[1]}`);
+            setEditPhoneNumber(fullPhone.substring(match[0].length).trim());
+          } else {
+            setEditPhoneNumber(fullPhone);
+          }
+        } else {
+          setEditPhoneNumber(fullPhone);
+        }
+
+        // Check for pending required actions
+        const requiredActions = profileData.requiredActions || [];
+        setPending2FA(requiredActions.includes("CONFIGURE_TOTP"));
+        setPendingWebAuthn(requiredActions.includes("WEBAUTHN_REGISTER"));
+        setPendingPasswordless(requiredActions.includes("WEBAUTHN_REGISTER_PASSWORDLESS"));
+      }
+
+      // Check session validity first
+      const sessionCheckRes = await fetch("/api/account");
+      if (sessionCheckRes.status === 401) {
+        // Session expired, logout immediately
+        signOut({ callbackUrl: "/login", redirect: true });
+        return;
       }
 
       // Fetch sessions via local API
-      const sessionsRes = await apiRequest("/api/account/sessions");
+      const sessionsRes = await fetch("/api/account/sessions");
+      if (sessionsRes.status === 401) {
+        signOut({ callbackUrl: "/login", redirect: true });
+        return;
+      }
       if (sessionsRes.ok) {
         const sessionsData = await sessionsRes.json();
         setSessions(sessionsData.map((s: any) => ({ ...s, current: s.id === (session as any)?.user?.sub })));
       }
 
       // Fetch 2FA status
-      const twoFARes = await apiRequest("/api/account/2fa");
+      const twoFARes = await fetch("/api/account/2fa");
+      if (twoFARes.status === 401) {
+        signOut({ callbackUrl: "/login", redirect: true });
+        return;
+      }
       if (twoFARes.ok) {
         const twoFAData = await twoFARes.json();
         setTwoFA(twoFAData);
       }
 
       // Fetch WebAuthn keys
-      const webauthnRes = await apiRequest("/api/account/webauthn");
+      const webauthnRes = await fetch("/api/account/webauthn");
+      if (webauthnRes.status === 401) {
+        signOut({ callbackUrl: "/login", redirect: true });
+        return;
+      }
       if (webauthnRes.ok) {
         const webauthnData = await webauthnRes.json();
         setWebauthnKeys(webauthnData.keys || []);
       }
-    } catch (err: any) {
-      if (err?.message !== "SESSION_INACTIVE") {
-        setError("Nie udało się pobrać danych");
+
+      // Check if user is admin and fetch passwordless status
+      const userRoles = (session as any)?.user?.roles || [];
+      const admin = userRoles.includes("realm-admin") || userRoles.includes("admin");
+      setIsAdmin(admin);
+
+      if (admin) {
+        const passwordlessRes = await fetch("/api/account/passwordless");
+        if (passwordlessRes.status === 401) {
+          signOut({ callbackUrl: "/login", redirect: true });
+          return;
+        }
+        if (passwordlessRes.ok) {
+          const passwordlessData = await passwordlessRes.json();
+          setPasswordlessEnabled(passwordlessData.enabled);
+        }
       }
+    } catch (err) {
+      setError("Nie udało się pobrać danych");
     } finally {
       setLoading(false);
     }
@@ -210,6 +295,21 @@ export default function AccountPage() {
     };
   }, [checkSessionActivity]);
 
+  const signOutWithKeycloak = async () => {
+    // Build Keycloak logout URL
+    const keycloakUrl = process.env.NEXT_PUBLIC_KEYCLOAK_URL || 'https://auth.myperformance.pl';
+    const idToken = (session as any)?.idToken;
+    const redirectUri = encodeURIComponent(window.location.origin + '/login');
+    
+    const keycloakLogoutUrl = `${keycloakUrl}/realms/MyPerformance/protocol/openid-connect/logout?id_token_hint=${idToken}&post_logout_redirect_uri=${redirectUri}`;
+    
+    // Sign out from NextAuth first (this will also trigger server-side Keycloak logout via events)
+    await signOut({ redirect: false });
+    
+    // Redirect to Keycloak logout to invalidate the session
+    window.location.href = keycloakLogoutUrl;
+  };
+
   const logoutSession = async (sessionId: string) => {
     try {
       const res = await apiRequest(`/api/account/sessions/${sessionId}`, {
@@ -217,6 +317,16 @@ export default function AccountPage() {
       });
       
       if (res.ok) {
+        // Check if this is the current session
+        const currentSessionId = (session as any)?.user?.sub;
+        const isCurrentSession = sessions.find(s => s.id === sessionId)?.current;
+        
+        if (isCurrentSession) {
+          // Immediate redirect to Keycloak logout
+          await signOutWithKeycloak();
+          return;
+        }
+        
         setSessions(sessions.filter(s => s.id !== sessionId));
       }
     } catch (err) {
@@ -254,6 +364,12 @@ export default function AccountPage() {
 
       const data = await res.json();
 
+      if (res.status === 401) {
+        // Session expired, logout immediately
+        signOut({ callbackUrl: "/login", redirect: true });
+        return;
+      }
+
       if (!res.ok) {
         setPasswordError(data.error || "Nie udało się zmienić hasła");
       } else {
@@ -269,72 +385,20 @@ export default function AccountPage() {
     }
   };
 
-  const generateQR = async () => {
-    setSettingUp2FA(true);
-    setTwoFAError(null);
-    setTwoFASuccess(false);
+  const deleteWebAuthnKey = async (credentialId: string) => {
     try {
-      const prepareRes = await apiRequest("/api/account/2fa", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "prepare" }),
+      const res = await fetch(`/api/account/webauthn?id=${credentialId}`, {
+        method: "DELETE",
       });
-
-      if (!prepareRes.ok) {
-        const prepareData = await prepareRes.json();
-        setTwoFAError(prepareData.error || "Nie udało się przygotować konfiguracji 2FA");
+      if (res.status === 401) {
+        signOut({ callbackUrl: "/login", redirect: true });
         return;
       }
-
-      const res = await apiRequest("/api/account/2fa", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "generate" }),
-      });
-
-      const data = await res.json();
       if (res.ok) {
-        setQrCode(data.qrCode);
-        setTotpSecret(data.secret);
-      } else {
-        setTwoFAError(data.error || "Nie udało się wygenerować kodu QR");
+        setWebauthnKeys(prev => prev.filter(k => k.id !== credentialId));
       }
     } catch (err) {
-      setTwoFAError("Wystąpił błąd podczas generowania kodu QR");
-    } finally {
-      setSettingUp2FA(false);
-    }
-  };
-
-  const verify2FA = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setVerifying2FA(true);
-    setTwoFAError(null);
-    try {
-      const res = await apiRequest("/api/account/2fa", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "verify",
-          totpCode,
-          secret: totpSecret,
-        }),
-      });
-
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setTwoFASuccess(true);
-        setTwoFA({ enabled: true, configured: true });
-        setQrCode(null);
-        setTotpSecret(null);
-        setTotpCode("");
-      } else {
-        setTwoFAError(data.error || "Nieprawidłowy kod weryfikacyjny");
-      }
-    } catch (err) {
-      setTwoFAError("Wystąpił błąd podczas weryfikacji");
-    } finally {
-      setVerifying2FA(false);
+      console.error("Failed to delete WebAuthn key", err);
     }
   };
 
@@ -344,140 +408,121 @@ export default function AccountPage() {
         method: "DELETE",
       });
 
+      if (res.status === 401) {
+        signOut({ callbackUrl: "/login", redirect: true });
+        return;
+      }
+
       if (res.ok) {
         setTwoFA(prev => prev ? { ...prev, enabled: false, configured: false } : null);
-        setTwoFASuccess(false);
       }
     } catch (err) {
       console.error("Failed to disable 2FA", err);
     }
   };
 
-  const copySecret = () => {
-    if (totpSecret) {
-      navigator.clipboard.writeText(totpSecret);
-      setCopiedSecret(true);
-      setTimeout(() => setCopiedSecret(false), 2000);
-    }
-  };
-
-  const registerWebAuthnKey = async () => {
-    setRegisteringKey(true);
-    setWebauthnError(null);
-    setWebauthnSuccess(false);
+  const togglePasswordless = async (enabled: boolean) => {
     try {
-      // Step 1: Get registration options
-      const prepareRes = await apiRequest("/api/account/webauthn", {
+      setPasswordlessLoading(true);
+      setPasswordlessError(null);
+
+      const res = await fetch("/api/account/passwordless", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "prepare-passwordless" }),
+        body: JSON.stringify({ enabled }),
       });
 
-      if (!prepareRes.ok) {
-        const prepareData = await prepareRes.json();
-        setWebauthnError(prepareData.error || "Nie udało się przygotować akcji passwordless");
+      if (res.status === 401) {
+        signOut({ callbackUrl: "/login", redirect: true });
         return;
       }
 
-      const optionsRes = await apiRequest("/api/account/webauthn", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "get-options" }),
-      });
-
-      if (!optionsRes.ok) {
-        setWebauthnError("Nie udało się pobrać opcji rejestracji");
-        return;
-      }
-
-      const { options } = await optionsRes.json();
-
-      // Decode base64url values for WebAuthn API
-      const challengeBytes = Uint8Array.from(atob(options.challenge.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
-      const userIdBytes = Uint8Array.from(atob(options.user.id.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
-
-      // Step 2: Call browser WebAuthn API
-      const credential = await navigator.credentials.create({
-        publicKey: {
-          challenge: challengeBytes,
-          rp: { name: options.rp.name, id: window.location.hostname },
-          user: {
-            id: userIdBytes,
-            name: options.user.name,
-            displayName: options.user.displayName,
-          },
-          pubKeyCredParams: options.pubKeyCredParams,
-          timeout: options.timeout,
-          attestation: options.attestation as AttestationConveyancePreference,
-          authenticatorSelection: {
-            ...options.authenticatorSelection,
-            authenticatorAttachment: undefined,
-            userVerification: "preferred" as UserVerificationRequirement,
-          },
-        },
-      }) as PublicKeyCredential;
-
-      if (!credential) {
-        setWebauthnError("Rejestracja klucza została anulowana");
-        return;
-      }
-
-      const attestationResponse = credential.response as AuthenticatorAttestationResponse;
-
-      // Encode credential data
-      const credentialData = {
-        id: credential.id,
-        rawId: btoa(String.fromCharCode(...new Uint8Array(credential.rawId))),
-        publicKey: btoa(String.fromCharCode(...new Uint8Array(attestationResponse.getPublicKey?.() || new ArrayBuffer(0)))),
-        attestationObject: btoa(String.fromCharCode(...new Uint8Array(attestationResponse.attestationObject))),
-        clientDataJSON: btoa(String.fromCharCode(...new Uint8Array(attestationResponse.clientDataJSON))),
-      };
-
-      // Step 3: Save credential to server
-      const registerRes = await apiRequest("/api/account/webauthn", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "register",
-          credential: credentialData,
-          label: keyLabel || "Klucz bezpieczeństwa",
-        }),
-      });
-
-      if (registerRes.ok) {
-        setWebauthnSuccess(true);
-        setKeyLabel("");
-        // Refresh keys
-        const keysRes = await apiRequest("/api/account/webauthn");
-        if (keysRes.ok) {
-          const keysData = await keysRes.json();
-          setWebauthnKeys(keysData.keys || []);
-        }
-      } else {
-        const data = await registerRes.json();
-        setWebauthnError(data.error || "Nie udało się zarejestrować klucza");
-      }
-    } catch (err: any) {
-      if (err.name === "NotAllowedError") {
-        setWebauthnError("Rejestracja klucza została anulowana lub odrzucona");
-      } else {
-        setWebauthnError("Wystąpił błąd podczas rejestracji klucza");
-      }
-    } finally {
-      setRegisteringKey(false);
-    }
-  };
-
-  const deleteWebAuthnKey = async (credentialId: string) => {
-    try {
-      const res = await apiRequest(`/api/account/webauthn?id=${credentialId}`, {
-        method: "DELETE",
-      });
       if (res.ok) {
-        setWebauthnKeys(prev => prev.filter(k => k.id !== credentialId));
+        const data = await res.json();
+        setPasswordlessEnabled(data.enabled);
+      } else {
+        const errorData = await res.json();
+        setPasswordlessError(errorData.error || "Nie udało się zmienić konfiguracji");
       }
     } catch (err) {
-      console.error("Failed to delete WebAuthn key", err);
+      setPasswordlessError("Wystąpił błąd podczas zmiany konfiguracji");
+    } finally {
+      setPasswordlessLoading(false);
+    }
+  };
+
+  const setRequiredAction = async (action: string, methodName: string) => {
+    try {
+      setConfiguringMethod(methodName);
+      const res = await fetch("/api/account/required-actions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+
+      if (res.status === 401) {
+        signOut({ callbackUrl: "/login", redirect: true });
+        return;
+      }
+
+      if (res.ok) {
+        console.log("[UI setRequiredAction] POST OK, action:", action);
+        
+        // Set pending state immediately to show UI feedback
+        if (action === "CONFIGURE_TOTP") setPending2FA(true);
+        if (action === "WEBAUTHN_REGISTER") setPendingWebAuthn(true);
+        if (action === "WEBAUTHN_REGISTER_PASSWORDLESS") setPendingPasswordless(true);
+
+        // Wait a bit for Keycloak to process the change
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        // Refresh profile to verify the action was set
+        const profileRes = await fetch("/api/account");
+        if (profileRes.ok) {
+          const profileData = await profileRes.json();
+          console.log("[UI setRequiredAction] profileData.requiredActions:", profileData.requiredActions);
+          setProfile(profileData);
+
+          const requiredActions = profileData.requiredActions || [];
+          // Update pending states based on actual required actions
+          setPending2FA(requiredActions.includes("CONFIGURE_TOTP"));
+          setPendingWebAuthn(requiredActions.includes("WEBAUTHN_REGISTER"));
+          setPendingPasswordless(requiredActions.includes("WEBAUTHN_REGISTER_PASSWORDLESS"));
+        } else {
+          console.error("[UI setRequiredAction] Failed to refresh profile");
+        }
+      } else {
+        const errorData = await res.json().catch(() => ({}));
+        alert(errorData.error || "Nie udało się ustawić konfiguracji. Spróbuj ponownie.");
+      }
+    } catch (err) {
+      alert("Wystąpił błąd. Spróbuj ponownie.");
+    } finally {
+      setConfiguringMethod(null);
+    }
+  };
+
+  const cancelRequiredAction = async (action: string) => {
+    try {
+      const res = await fetch(`/api/account/required-actions?action=${action}`, {
+        method: "DELETE",
+      });
+
+      if (res.status === 401) {
+        signOut({ callbackUrl: "/login", redirect: true });
+        return;
+      }
+
+      if (res.ok) {
+        // Update pending state
+        if (action === "CONFIGURE_TOTP") setPending2FA(false);
+        if (action === "WEBAUTHN_REGISTER") setPendingWebAuthn(false);
+        if (action === "WEBAUTHN_REGISTER_PASSWORDLESS") setPendingPasswordless(false);
+      } else {
+        alert("Nie udało się anulować konfiguracji.");
+      }
+    } catch (err) {
+      alert("Wystąpił błąd podczas anulowania.");
     }
   };
 
@@ -485,6 +530,7 @@ export default function AccountPage() {
     setEditFirstName(profile?.firstName || "");
     setEditLastName(profile?.lastName || "");
     setEditEmail(profile?.email || "");
+    // Phone already loaded in fetchUserData from attributes
     setEditingProfile(true);
     setProfileSuccess(false);
   };
@@ -493,24 +539,39 @@ export default function AccountPage() {
     e.preventDefault();
     setSavingProfile(true);
     setProfileSuccess(false);
-    
+
     try {
-      const res = await apiRequest("/api/account", {
+      // Combine prefix and phone number
+      const fullPhoneNumber = editPhoneNumber ? `${editPhonePrefix} ${editPhoneNumber}` : "";
+
+      const res = await fetch("/api/account", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           firstName: editFirstName,
           lastName: editLastName,
           email: editEmail,
+          attributes: {
+            "phone-number": fullPhoneNumber ? [fullPhoneNumber] : [],
+          },
         }),
       });
 
+      if (res.status === 401) {
+        signOut({ callbackUrl: "/login", redirect: true });
+        return;
+      }
+
       if (res.ok) {
-        setProfile(prev => prev ? { 
-          ...prev, 
-          firstName: editFirstName, 
+        setProfile(prev => prev ? {
+          ...prev,
+          firstName: editFirstName,
           lastName: editLastName,
-          email: editEmail 
+          email: editEmail,
+          attributes: {
+            ...(prev.attributes || {}),
+            "phone-number": fullPhoneNumber ? [fullPhoneNumber] : [],
+          }
         } : null);
         setProfileSuccess(true);
         setEditingProfile(false);
@@ -556,7 +617,12 @@ export default function AccountPage() {
     return `${minutes}min`;
   };
 
-  if (status === "loading" || loading) {
+  const hasValidSession =
+    status === "authenticated" &&
+    !!(session as any)?.accessToken &&
+    (session as any)?.error !== "RefreshTokenExpired";
+
+  if (status === "loading" || (status === "authenticated" && !hasValidSession) || (hasValidSession && loading)) {
     return (
       <div className="min-h-screen bg-[var(--bg-main)]">
         <header className="border-b border-[var(--border-subtle)] bg-[var(--bg-header)]">
@@ -583,6 +649,10 @@ export default function AccountPage() {
         </div>
       </div>
     );
+  }
+
+  if (!hasValidSession) {
+    return null;
   }
 
   if (error) {
@@ -738,6 +808,18 @@ export default function AccountPage() {
                           className="w-full px-4 py-3 bg-[var(--bg-main)] border border-[var(--border-subtle)] rounded-xl text-[var(--text-main)] focus:outline-none focus:border-[var(--accent)]"
                         />
                       </div>
+                      <div>
+                        <label className="block text-sm text-[var(--text-muted)] mb-2">
+                          Numer telefonu
+                        </label>
+                        <PhoneInput
+                          value={editPhoneNumber}
+                          prefix={editPhonePrefix}
+                          onChange={setEditPhoneNumber}
+                          onPrefixChange={setEditPhonePrefix}
+                          disabled={savingProfile}
+                        />
+                      </div>
                       <div className="flex gap-3 pt-2">
                         <button
                           type="submit"
@@ -794,8 +876,69 @@ export default function AccountPage() {
                           )}
                         </div>
                       </div>
+                      <div>
+                        <label className="block text-sm text-[var(--text-muted)] mb-2">
+                          Numer telefonu
+                        </label>
+                        <div className="flex items-center gap-2 px-4 py-3 bg-[var(--bg-main)] border border-[var(--border-subtle)] rounded-xl text-[var(--text-main)]">
+                          <Smartphone className="w-4 h-4 text-[var(--text-muted)]" />
+                          {profile?.attributes?.["phone-number"]?.[0] || "-"}
+                        </div>
+                      </div>
                     </div>
                   )}
+                </div>
+
+                {/* Theme Preferences Section */}
+                <div className="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-2xl p-6">
+                  <div className="flex items-center justify-between mb-6">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-xl bg-[var(--accent)]/10 flex items-center justify-center">
+                        <div className="w-6 h-6 rounded-full bg-gradient-to-br from-yellow-400 to-orange-500" />
+                      </div>
+                      <div>
+                        <h2 className="text-lg font-semibold text-[var(--text-main)]">
+                          Wygląd aplikacji
+                        </h2>
+                        <p className="text-sm text-[var(--text-muted)]">
+                          Preferencje motywu
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between p-4 bg-[var(--bg-main)] border border-[var(--border-subtle)] rounded-xl">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-lg bg-slate-700 flex items-center justify-center">
+                          <div className="w-5 h-5 rounded-full bg-gradient-to-br from-slate-600 to-slate-800" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-[var(--text-main)]">Tryb ciemny</p>
+                          <p className="text-xs text-[var(--text-muted)]">
+                            {theme === "dark" ? "Włączony" : "Wyłączony"}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+                        disabled={themeLoading}
+                        className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors ${
+                          theme === "dark" ? "bg-[var(--accent)]" : "bg-[var(--border-subtle)]"
+                        } disabled:opacity-50`}
+                      >
+                        <span
+                          className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+                            theme === "dark" ? "translate-x-6" : "translate-x-1"
+                          }`}
+                        />
+                      </button>
+                    </div>
+
+                    <p className="text-xs text-[var(--text-muted)]">
+                      Motyw jest zapisywany w Twoim profilu i stosowany przy każdym logowaniu.
+                    </p>
+                  </div>
                 </div>
               </div>
             )}
@@ -807,8 +950,8 @@ export default function AccountPage() {
                 <div className="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-2xl p-6">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
-                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${twoFA?.enabled ? "bg-green-500/10" : "bg-yellow-500/10"}`}>
-                        <Smartphone className={`w-6 h-6 ${twoFA?.enabled ? "text-green-500" : "text-yellow-500"}`} />
+                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${twoFA?.enabled ? "bg-green-500/10" : pending2FA ? "bg-blue-500/10" : "bg-yellow-500/10"}`}>
+                        <Smartphone className={`w-6 h-6 ${twoFA?.enabled ? "text-green-500" : pending2FA ? "text-blue-500" : "text-yellow-500"}`} />
                       </div>
                       <div>
                         <h2 className="text-lg font-semibold text-[var(--text-main)]">
@@ -817,47 +960,342 @@ export default function AccountPage() {
                         <p className="text-sm text-[var(--text-muted)]">
                           {twoFA?.enabled ? (
                             <span className="text-green-500">Skonfigurowana</span>
+                          ) : pending2FA ? (
+                            <span className="text-blue-500">Oczekuje konfiguracji przy logowaniu</span>
                           ) : (
                             <span className="text-yellow-500">Nieskonfigurowana</span>
                           )}
                         </p>
                       </div>
                     </div>
-                    <button
-                      onClick={() => setActiveTab("setup-2fa")}
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-[var(--accent)] text-white rounded-xl text-sm font-medium hover:bg-[var(--accent)]/90 transition-colors"
-                    >
-                      {twoFA?.enabled ? "Zarządzaj" : "Skonfiguruj"}
-                      <ChevronRight className="w-4 h-4" />
-                    </button>
+                    {!twoFA?.enabled && !pending2FA && (
+                      <button
+                        onClick={() => setRequiredAction("CONFIGURE_TOTP", "2FA")}
+                        disabled={configuringMethod === "2FA"}
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-[var(--accent)] text-white rounded-xl text-sm font-medium hover:bg-[var(--accent)]/90 transition-colors disabled:opacity-50"
+                      >
+                        {configuringMethod === "2FA" ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <ChevronRight className="w-4 h-4" />
+                        )}
+                        Włącz
+                      </button>
+                    )}
+                    {pending2FA && (
+                      <div className="flex items-center gap-2 text-sm text-blue-500">
+                        <Clock className="w-4 h-4" />
+                        <span>Gotowe do konfiguracji</span>
+                      </div>
+                    )}
                   </div>
+                  {pending2FA && (
+                    <div className="mt-4 p-4 bg-blue-500/10 border border-blue-500/20 rounded-xl">
+                      <p className="text-sm text-blue-400 mb-3">
+                        Aplikacja uwierzytelniająca zostanie skonfigurowana przy następnym logowaniu. 
+                        Wyloguj się i zaloguj ponownie, aby dokończyć konfigurację.
+                      </p>
+                      <div className="flex gap-3">
+                        <button
+                          onClick={() => signOutWithKeycloak()}
+                          className="inline-flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg text-sm font-medium hover:bg-blue-600 transition-colors"
+                        >
+                          <LogOut className="w-4 h-4" />
+                          Wyloguj się teraz
+                        </button>
+                        <button
+                          onClick={() => cancelRequiredAction("CONFIGURE_TOTP")}
+                          className="inline-flex items-center gap-2 px-4 py-2 border border-[var(--border-subtle)] text-[var(--text-muted)] rounded-lg text-sm font-medium hover:bg-[var(--bg-main)] transition-colors"
+                        >
+                          <X className="w-4 h-4" />
+                          Anuluj
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 2FA Details */}
+                  {twoFA?.enabled && (
+                    <div className="mt-6 p-4 bg-[var(--bg-main)] rounded-xl border border-[var(--border-subtle)]">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-3">
+                          <Shield className="w-5 h-5 text-green-500" />
+                          <div>
+                            <p className="text-sm font-medium text-[var(--text-main)]">Aplikacja uwierzytelniająca</p>
+                            <p className="text-xs text-[var(--text-muted)]">
+                              Status: Aktywna
+                            </p>
+                          </div>
+                        </div>
+                        <div className="p-2 text-[var(--text-muted)]">
+                          <Info className="w-4 h-4" />
+                        </div>
+                      </div>
+                      <div className="p-3 bg-blue-500/5 border border-blue-500/10 rounded-lg">
+                        <p className="text-xs text-blue-400">
+                          <strong>Informacja:</strong> W celu usunięcia aplikacji uwierzytelniającej skontaktuj się z administratorem systemu.
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Security Key Section */}
                 <div className="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-2xl p-6">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-xl bg-blue-500/10 flex items-center justify-center">
-                        <Key className="w-6 h-6 text-blue-500" />
+                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${webauthnKeys.length > 0 ? "bg-green-500/10" : pendingWebAuthn ? "bg-blue-500/10" : "bg-yellow-500/10"}`}>
+                        <Key className={`w-6 h-6 ${webauthnKeys.length > 0 ? "text-green-500" : pendingWebAuthn ? "text-blue-500" : "text-yellow-500"}`} />
                       </div>
                       <div>
                         <h2 className="text-lg font-semibold text-[var(--text-main)]">
                           Klucz bezpieczeństwa
                         </h2>
                         <p className="text-sm text-[var(--text-muted)]">
-                          WebAuthn / FIDO2
+                          {webauthnKeys.length > 0 ? (
+                            <span className="text-green-500">{webauthnKeys.length} klucz(y) skonfigurowany(ch)</span>
+                          ) : pendingWebAuthn ? (
+                            <span className="text-blue-500">Oczekuje konfiguracji przy logowaniu</span>
+                          ) : (
+                            <span className="text-yellow-500">Nieskonfigurowany</span>
+                          )}
                         </p>
                       </div>
                     </div>
-                    <button
-                      onClick={() => setActiveTab("setup-key")}
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-xl text-sm font-medium hover:bg-blue-600 transition-colors"
-                    >
-                      Skonfiguruj
-                      <ChevronRight className="w-4 h-4" />
-                    </button>
+                    {webauthnKeys.length === 0 && !pendingWebAuthn && (
+                      <button
+                        onClick={() => setRequiredAction("WEBAUTHN_REGISTER", "WebAuthn")}
+                        disabled={configuringMethod === "WebAuthn"}
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-xl text-sm font-medium hover:bg-blue-600 transition-colors disabled:opacity-50"
+                      >
+                        {configuringMethod === "WebAuthn" ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <ChevronRight className="w-4 h-4" />
+                        )}
+                        Włącz
+                      </button>
+                    )}
+                    {pendingWebAuthn && (
+                      <div className="flex items-center gap-2 text-sm text-blue-500">
+                        <Clock className="w-4 h-4" />
+                        <span>Gotowe do konfiguracji</span>
+                      </div>
+                    )}
                   </div>
+                  {pendingWebAuthn && (
+                    <div className="mt-4 p-4 bg-blue-500/10 border border-blue-500/20 rounded-xl">
+                      <p className="text-sm text-blue-400 mb-3">
+                        Klucz bezpieczeństwa zostanie skonfigurowany przy następnym logowaniu. 
+                        Wyloguj się i zaloguj ponownie, aby dokończyć konfigurację.
+                      </p>
+                      <div className="flex gap-3">
+                        <button
+                          onClick={() => signOutWithKeycloak()}
+                          className="inline-flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg text-sm font-medium hover:bg-blue-600 transition-colors"
+                        >
+                          <LogOut className="w-4 h-4" />
+                          Wyloguj się teraz
+                        </button>
+                        <button
+                          onClick={() => cancelRequiredAction("WEBAUTHN_REGISTER")}
+                          className="inline-flex items-center gap-2 px-4 py-2 border border-[var(--border-subtle)] text-[var(--text-muted)] rounded-lg text-sm font-medium hover:bg-[var(--bg-main)] transition-colors"
+                        >
+                          <X className="w-4 h-4" />
+                          Anuluj
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* WebAuthn Keys List */}
+                  {webauthnKeys.length > 0 && (
+                    <div className="mt-6 space-y-3">
+                      <h3 className="text-sm font-medium text-[var(--text-main)] mb-3">Zarejestrowane klucze</h3>
+                      {webauthnKeys.map((key: any) => (
+                        <div key={key.id} className="p-4 bg-[var(--bg-main)] rounded-xl border border-[var(--border-subtle)]">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <Key className="w-5 h-5 text-green-500" />
+                              <div>
+                                <p className="text-sm font-medium text-[var(--text-main)]">{key.label}</p>
+                                <p className="text-xs text-[var(--text-muted)]">
+                                  Dodano: {key.createdDate ? new Date(key.createdDate).toLocaleDateString('pl-PL') : 'Nieznana data'}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={async () => {
+                                  const newName = prompt("Wprowadź nową nazwę klucza:", key.label);
+                                  if (newName && newName.trim() && newName !== key.label) {
+                                    try {
+                                      const res = await fetch("/api/account/webauthn", {
+                                        method: "PUT",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({
+                                          credentialId: key.credentialId || key.id,
+                                          newName: newName.trim()
+                                        }),
+                                      });
+
+                                      if (res.ok) {
+                                        // Refresh profile to update the UI
+                                        const profileRes = await fetch("/api/account");
+                                        if (profileRes.ok) {
+                                          const profileData = await profileRes.json();
+                                          setProfile(profileData);
+                                        }
+                                      } else {
+                                        const errorData = await res.json().catch(() => ({}));
+                                        alert(errorData.error || "Nie udało się zmienić nazwy klucza");
+                                      }
+                                    } catch (err) {
+                                      alert("Wystąpił błąd podczas zmiany nazwy");
+                                    }
+                                  }
+                                }}
+                                className="p-2 text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-card)] rounded-lg transition-colors"
+                                title="Edytuj nazwę"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                              <div className="p-2 text-[var(--text-muted)]">
+                                <Info className="w-4 h-4" />
+                              </div>
+                            </div>
+                          </div>
+                          <div className="mt-3 p-3 bg-blue-500/5 border border-blue-500/10 rounded-lg">
+                            <p className="text-xs text-blue-400">
+                              <strong>Informacja:</strong> W celu usunięcia klucza bezpieczeństwa skontaktuj się z administratorem systemu.
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
+
+                {/* Passwordless Section - Admin Only (System-wide toggle) */}
+                {isAdmin && (
+                  <div className="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-2xl p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 rounded-xl bg-purple-500/10 flex items-center justify-center">
+                          <Fingerprint className="w-6 h-6 text-purple-500" />
+                        </div>
+                        <div>
+                          <h2 className="text-lg font-semibold text-[var(--text-main)]">
+                            Logowanie bezhasłowe (Globalnie)
+                          </h2>
+                          <p className="text-sm text-[var(--text-muted)]">
+                            Dla całego systemu
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className={`text-sm font-medium ${passwordlessEnabled ? "text-green-500" : "text-[var(--text-muted)]"}`}>
+                          {passwordlessEnabled ? "Włączone" : "Wyłączone"}
+                        </span>
+                        <button
+                          onClick={() => togglePasswordless(!passwordlessEnabled)}
+                          disabled={passwordlessLoading}
+                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                            passwordlessEnabled ? "bg-purple-500" : "bg-[var(--border-subtle)]"
+                          } disabled:opacity-50`}
+                        >
+                          <span
+                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                              passwordlessEnabled ? "translate-x-6" : "translate-x-1"
+                            }`}
+                          />
+                        </button>
+                      </div>
+                    </div>
+
+                    {passwordlessError && (
+                      <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-xl flex items-center gap-2 text-sm text-red-500">
+                        <AlertCircle className="w-4 h-4" />
+                        {passwordlessError}
+                      </div>
+                    )}
+
+                    <div className="p-4 bg-[var(--bg-main)] rounded-xl border border-[var(--border-subtle)]">
+                      <p className="text-sm text-[var(--text-muted)] mb-2">
+                        <span className="text-[var(--text-main)] font-medium">Uwaga:</span> Włączenie logowania bezhasłowego zmienia domyślny flow uwierzytelniania dla całego systemu. Użytkownicy będą mogli logować się wyłącznie za pomocą klucza bezpieczeństwa (WebAuthn).
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Passwordless Section - User Personal */}
+                {!isAdmin && (
+                  <div className="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-2xl p-6">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${pendingPasswordless ? "bg-blue-500/10" : "bg-purple-500/10"}`}>
+                          <Fingerprint className={`w-6 h-6 ${pendingPasswordless ? "text-blue-500" : "text-purple-500"}`} />
+                        </div>
+                        <div>
+                          <h2 className="text-lg font-semibold text-[var(--text-main)]">
+                            Logowanie bezhasłowe
+                          </h2>
+                          <p className="text-sm text-[var(--text-muted)]">
+                            {pendingPasswordless ? (
+                              <span className="text-blue-500">Oczekuje konfiguracji przy logowaniu</span>
+                            ) : (
+                              <span className="text-yellow-500">Nieskonfigurowane</span>
+                            )}
+                          </p>
+                        </div>
+                      </div>
+                      {!pendingPasswordless && (
+                        <button
+                          onClick={() => setRequiredAction("WEBAUTHN_REGISTER_PASSWORDLESS", "Passwordless")}
+                          disabled={configuringMethod === "Passwordless"}
+                          className="inline-flex items-center gap-2 px-4 py-2 bg-purple-500 text-white rounded-xl text-sm font-medium hover:bg-purple-600 transition-colors disabled:opacity-50"
+                        >
+                          {configuringMethod === "Passwordless" ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <ChevronRight className="w-4 h-4" />
+                          )}
+                          Włącz
+                        </button>
+                      )}
+                      {pendingPasswordless && (
+                        <div className="flex items-center gap-2 text-sm text-blue-500">
+                          <Clock className="w-4 h-4" />
+                          <span>Gotowe do konfiguracji</span>
+                        </div>
+                      )}
+                    </div>
+                    {pendingPasswordless && (
+                      <div className="mt-4 p-4 bg-blue-500/10 border border-blue-500/20 rounded-xl">
+                        <p className="text-sm text-blue-400 mb-3">
+                          Logowanie bezhasłowe zostanie skonfigurowane przy następnym logowaniu. 
+                          Wyloguj się i zaloguj ponownie, aby dokończyć konfigurację.
+                        </p>
+                        <div className="flex gap-3">
+                          <button
+                            onClick={() => signOutWithKeycloak()}
+                            className="inline-flex items-center gap-2 px-4 py-2 bg-purple-500 text-white rounded-lg text-sm font-medium hover:bg-purple-600 transition-colors"
+                          >
+                            <LogOut className="w-4 h-4" />
+                            Wyloguj się teraz
+                          </button>
+                          <button
+                            onClick={() => cancelRequiredAction("WEBAUTHN_REGISTER_PASSWORDLESS")}
+                            className="inline-flex items-center gap-2 px-4 py-2 border border-[var(--border-subtle)] text-[var(--text-muted)] rounded-lg text-sm font-medium hover:bg-[var(--bg-main)] transition-colors"
+                          >
+                            <X className="w-4 h-4" />
+                            Anuluj
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Password Change Section */}
                 <div className="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-2xl p-6">
@@ -1039,350 +1477,6 @@ export default function AccountPage() {
               </div>
             )}
 
-            {/* Setup 2FA View */}
-            {activeTab === "setup-2fa" && (
-              <div className="space-y-6">
-                <div className="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-2xl p-6">
-                  <button
-                    onClick={() => { setActiveTab("security"); setQrCode(null); setTotpSecret(null); setTotpCode(""); setTwoFAError(null); setTwoFASuccess(false); }}
-                    className="flex items-center gap-2 text-sm text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors mb-6"
-                  >
-                    <ArrowLeft className="w-4 h-4" />
-                    Powrót do bezpieczeństwa
-                  </button>
-
-                  <div className="flex items-center gap-4 mb-6">
-                    <div className={`w-14 h-14 rounded-xl flex items-center justify-center ${twoFA?.enabled ? "bg-green-500/10" : "bg-[var(--accent)]/10"}`}>
-                      <Smartphone className={`w-7 h-7 ${twoFA?.enabled ? "text-green-500" : "text-[var(--accent)]"}`} />
-                    </div>
-                    <div>
-                      <h2 className="text-xl font-bold text-[var(--text-main)]">
-                        Aplikacja uwierzytelniająca
-                      </h2>
-                      <p className="text-sm text-[var(--text-muted)]">
-                        Google Authenticator, Authy, Microsoft Authenticator
-                      </p>
-                    </div>
-                  </div>
-
-                  {twoFASuccess && (
-                    <div className="mb-4 p-3 bg-green-500/10 border border-green-500/30 rounded-xl flex items-center gap-2 text-sm text-green-500">
-                      <Check className="w-4 h-4" />
-                      Weryfikacja dwuetapowa została aktywowana
-                    </div>
-                  )}
-
-                  {twoFAError && (
-                    <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-xl flex items-center gap-2 text-sm text-red-500">
-                      <AlertCircle className="w-4 h-4" />
-                      {twoFAError}
-                    </div>
-                  )}
-
-                  {twoFA?.enabled ? (
-                    <div className="space-y-6">
-                      <div className="p-4 bg-green-500/10 border border-green-500/20 rounded-xl">
-                        <div className="flex items-center gap-3">
-                          <ShieldCheck className="w-6 h-6 text-green-500" />
-                          <div>
-                            <p className="text-sm font-medium text-green-500">Aktywna</p>
-                            <p className="text-xs text-[var(--text-muted)]">
-                              Twoje konto jest chronione weryfikacją dwuetapową (TOTP).
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="border-t border-[var(--border-subtle)] pt-6">
-                        <h3 className="text-sm font-semibold text-[var(--text-main)] mb-2">Wyłącz 2FA</h3>
-                        <p className="text-sm text-[var(--text-muted)] mb-4">
-                          Wyłączenie weryfikacji dwuetapowej obniży poziom bezpieczeństwa Twojego konta.
-                        </p>
-                        <button
-                          onClick={disable2FA}
-                          className="inline-flex items-center gap-2 px-4 py-2 border border-red-500/30 text-red-500 rounded-xl text-sm font-medium hover:bg-red-500/10 transition-colors"
-                        >
-                          <X className="w-4 h-4" />
-                          Wyłącz weryfikację dwuetapową
-                        </button>
-                      </div>
-                    </div>
-                  ) : !qrCode ? (
-                    <div className="space-y-6">
-                      <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-xl">
-                        <p className="text-sm text-yellow-600">
-                          Weryfikacja dwuetapowa nie jest jeszcze skonfigurowana.
-                        </p>
-                      </div>
-
-                      <div>
-                        <h3 className="text-base font-semibold text-[var(--text-main)] mb-4">
-                          Jak to działa?
-                        </h3>
-                        <ol className="space-y-4 text-sm text-[var(--text-muted)]">
-                          <li className="flex items-start gap-3">
-                            <span className="flex-shrink-0 w-7 h-7 rounded-full bg-[var(--accent)]/10 text-[var(--accent)] flex items-center justify-center text-xs font-bold">1</span>
-                            <span>Pobierz aplikację uwierzytelniającą (Google Authenticator, Authy, Microsoft Authenticator) na swój telefon.</span>
-                          </li>
-                          <li className="flex items-start gap-3">
-                            <span className="flex-shrink-0 w-7 h-7 rounded-full bg-[var(--accent)]/10 text-[var(--accent)] flex items-center justify-center text-xs font-bold">2</span>
-                            <span>Kliknij przycisk poniżej, zeskanuj kod QR w aplikacji.</span>
-                          </li>
-                          <li className="flex items-start gap-3">
-                            <span className="flex-shrink-0 w-7 h-7 rounded-full bg-[var(--accent)]/10 text-[var(--accent)] flex items-center justify-center text-xs font-bold">3</span>
-                            <span>Wpisz wygenerowany 6-cyfrowy kod weryfikacyjny, aby aktywować ochronę.</span>
-                          </li>
-                        </ol>
-                      </div>
-
-                      <button
-                        onClick={generateQR}
-                        disabled={settingUp2FA}
-                        className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 bg-[var(--accent)] text-white rounded-xl text-sm font-medium hover:bg-[var(--accent)]/90 transition-colors disabled:opacity-50"
-                      >
-                        {settingUp2FA ? <Loader2 className="w-5 h-5 animate-spin" /> : <Smartphone className="w-5 h-5" />}
-                        Wygeneruj kod QR
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="space-y-6">
-                      <div>
-                        <h3 className="text-base font-semibold text-[var(--text-main)] mb-2">
-                          Krok 1: Zeskanuj kod QR
-                        </h3>
-                        <p className="text-sm text-[var(--text-muted)] mb-4">
-                          Otwórz aplikację uwierzytelniającą na telefonie i zeskanuj poniższy kod QR.
-                        </p>
-                      </div>
-
-                      <div className="flex flex-col items-center gap-4">
-                        <div className="p-4 bg-white rounded-2xl shadow-lg">
-                          <img src={qrCode} alt="Kod QR do 2FA" className="w-56 h-56" />
-                        </div>
-
-                        <div className="w-full">
-                          <p className="text-xs text-[var(--text-muted)] text-center mb-2">
-                            Nie możesz zeskanować? Wpisz ręcznie:
-                          </p>
-                          <div className="flex items-center gap-2 p-3 bg-[var(--bg-main)] border border-[var(--border-subtle)] rounded-xl">
-                            <code className="flex-1 text-xs font-mono text-[var(--text-main)] break-all">
-                              {totpSecret}
-                            </code>
-                            <button
-                              onClick={copySecret}
-                              className="p-1.5 text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors flex-shrink-0"
-                              title="Kopiuj sekret"
-                            >
-                              {copiedSecret ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="border-t border-[var(--border-subtle)] pt-6">
-                        <h3 className="text-base font-semibold text-[var(--text-main)] mb-2">
-                          Krok 2: Wpisz kod weryfikacyjny
-                        </h3>
-                        <p className="text-sm text-[var(--text-muted)] mb-4">
-                          Wpisz 6-cyfrowy kod z aplikacji uwierzytelniającej, aby potwierdzić konfigurację.
-                        </p>
-
-                        <form onSubmit={verify2FA} className="space-y-4">
-                          <input
-                            type="text"
-                            value={totpCode}
-                            onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                            placeholder="000000"
-                            className="w-full px-4 py-3 bg-[var(--bg-main)] border border-[var(--border-subtle)] rounded-xl text-[var(--text-main)] text-center text-2xl font-mono tracking-[0.5em] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]"
-                            maxLength={6}
-                            autoFocus
-                          />
-
-                          <button
-                            type="submit"
-                            disabled={verifying2FA || totpCode.length !== 6}
-                            className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 bg-[var(--accent)] text-white rounded-xl text-sm font-medium hover:bg-[var(--accent)]/90 transition-colors disabled:opacity-50"
-                          >
-                            {verifying2FA ? <Loader2 className="w-5 h-5 animate-spin" /> : <ShieldCheck className="w-5 h-5" />}
-                            Aktywuj weryfikację dwuetapową
-                          </button>
-                        </form>
-                      </div>
-
-                      <button
-                        onClick={() => { setQrCode(null); setTotpSecret(null); setTotpCode(""); }}
-                        className="w-full text-sm text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors text-center"
-                      >
-                        Wygeneruj nowy kod QR
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Setup Security Key View */}
-            {activeTab === "setup-key" && (
-              <div className="space-y-6">
-                <div className="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-2xl p-6">
-                  <button
-                    onClick={() => { setActiveTab("security"); setWebauthnError(null); setWebauthnSuccess(false); }}
-                    className="flex items-center gap-2 text-sm text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors mb-6"
-                  >
-                    <ArrowLeft className="w-4 h-4" />
-                    Powrót do bezpieczeństwa
-                  </button>
-
-                  <div className="flex items-center gap-4 mb-6">
-                    <div className="w-14 h-14 rounded-xl bg-blue-500/10 flex items-center justify-center">
-                      <Key className="w-7 h-7 text-blue-500" />
-                    </div>
-                    <div>
-                      <h2 className="text-xl font-bold text-[var(--text-main)]">
-                        Klucz bezpieczeństwa
-                      </h2>
-                      <p className="text-sm text-[var(--text-muted)]">
-                        WebAuthn / FIDO2 / Biometria
-                      </p>
-                    </div>
-                  </div>
-
-                  {webauthnSuccess && (
-                    <div className="mb-4 p-3 bg-green-500/10 border border-green-500/30 rounded-xl flex items-center gap-2 text-sm text-green-500">
-                      <Check className="w-4 h-4" />
-                      Klucz bezpieczeństwa został zarejestrowany
-                    </div>
-                  )}
-
-                  {webauthnError && (
-                    <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-xl flex items-center gap-2 text-sm text-red-500">
-                      <AlertCircle className="w-4 h-4" />
-                      {webauthnError}
-                    </div>
-                  )}
-
-                  <div className="space-y-6">
-                    {/* Registered keys */}
-                    {webauthnKeys.length > 0 && (
-                      <div>
-                        <h3 className="text-base font-semibold text-[var(--text-main)] mb-3">
-                          Zarejestrowane klucze
-                        </h3>
-                        <div className="space-y-2">
-                          {webauthnKeys.map((key) => (
-                            <div key={key.id} className="flex items-center justify-between p-3 bg-[var(--bg-main)] border border-[var(--border-subtle)] rounded-xl">
-                              <div className="flex items-center gap-3">
-                                <Key className="w-5 h-5 text-blue-500" />
-                                <div>
-                                  <p className="text-sm font-medium text-[var(--text-main)]">{key.label}</p>
-                                  {key.createdDate && (
-                                    <p className="text-xs text-[var(--text-muted)]">
-                                      Dodano: {formatDate(key.createdDate / 1000)}
-                                    </p>
-                                  )}
-                                </div>
-                              </div>
-                              <button
-                                onClick={() => deleteWebAuthnKey(key.id)}
-                                className="p-2 text-red-500 hover:bg-red-500/10 rounded-lg transition-colors"
-                                title="Usuń klucz"
-                              >
-                                <X className="w-4 h-4" />
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="p-4 bg-blue-500/10 border border-blue-500/20 rounded-xl">
-                      <p className="text-sm text-blue-400">
-                        Klucze bezpieczeństwa (YubiKey, Touch ID, Face ID, Windows Hello) zapewniają najwyższy poziom ochrony konta.
-                      </p>
-                    </div>
-
-                    <div>
-                      <h3 className="text-base font-semibold text-[var(--text-main)] mb-4">
-                        Dodaj nowy klucz
-                      </h3>
-
-                      <div className="space-y-4">
-                        <div>
-                          <label className="block text-sm text-[var(--text-muted)] mb-2">
-                            Nazwa klucza (opcjonalna)
-                          </label>
-                          <input
-                            type="text"
-                            value={keyLabel}
-                            onChange={(e) => setKeyLabel(e.target.value)}
-                            placeholder="np. YubiKey 5, MacBook Touch ID"
-                            className="w-full px-4 py-3 bg-[var(--bg-main)] border border-[var(--border-subtle)] rounded-xl text-[var(--text-main)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-blue-500"
-                          />
-                        </div>
-
-                        <button
-                          onClick={registerWebAuthnKey}
-                          disabled={registeringKey}
-                          className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 bg-blue-500 text-white rounded-xl text-sm font-medium hover:bg-blue-600 transition-colors disabled:opacity-50"
-                        >
-                          {registeringKey ? <Loader2 className="w-5 h-5 animate-spin" /> : <Key className="w-5 h-5" />}
-                          Zarejestruj klucz bezpieczeństwa
-                        </button>
-
-                        <p className="text-xs text-[var(--text-muted)] text-center">
-                          Po kliknięciu przycisku przeglądarka wyświetli dialog rejestracji klucza.
-                          Podłącz klucz USB lub użyj biometrii urządzenia.
-                        </p>
-                      </div>
-                    </div>
-
-                    <div>
-                      <h3 className="text-sm font-semibold text-[var(--text-main)] mb-3">
-                        Obsługiwane urządzenia
-                      </h3>
-                      <div className="grid sm:grid-cols-2 gap-3">
-                        <div className="flex items-center gap-3 p-3 bg-[var(--bg-main)] border border-[var(--border-subtle)] rounded-xl">
-                          <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
-                            <Key className="w-4 h-4 text-blue-500" />
-                          </div>
-                          <div>
-                            <p className="text-sm font-medium text-[var(--text-main)]">YubiKey</p>
-                            <p className="text-xs text-[var(--text-muted)]">USB / NFC</p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3 p-3 bg-[var(--bg-main)] border border-[var(--border-subtle)] rounded-xl">
-                          <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
-                            <Shield className="w-4 h-4 text-blue-500" />
-                          </div>
-                          <div>
-                            <p className="text-sm font-medium text-[var(--text-main)]">Titan Key</p>
-                            <p className="text-xs text-[var(--text-muted)]">USB / Bluetooth</p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3 p-3 bg-[var(--bg-main)] border border-[var(--border-subtle)] rounded-xl">
-                          <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
-                            <Smartphone className="w-4 h-4 text-blue-500" />
-                          </div>
-                          <div>
-                            <p className="text-sm font-medium text-[var(--text-main)]">Touch ID / Face ID</p>
-                            <p className="text-xs text-[var(--text-muted)]">Biometria Apple</p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3 p-3 bg-[var(--bg-main)] border border-[var(--border-subtle)] rounded-xl">
-                          <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
-                            <ShieldCheck className="w-4 h-4 text-blue-500" />
-                          </div>
-                          <div>
-                            <p className="text-sm font-medium text-[var(--text-main)]">Windows Hello</p>
-                            <p className="text-xs text-[var(--text-muted)]">PIN / Biometria</p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
           </main>
         </div>
       </div>

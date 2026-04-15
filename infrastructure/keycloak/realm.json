@@ -1,5 +1,5 @@
 {
-  "realm": "myperformance",
+  "realm": "MyPerformance",
   "enabled": true,
   "displayName": "MyPerformance",
   "displayNameHtml": "<div class=\"kc-logo-text\"><span>MyPerformance</span></div>",
@@ -107,29 +107,26 @@
   ],
   "clients": [
     {
-      "clientId": "myperformance-app",
-      "name": "MyPerformance Application",
-      "description": "Main application client for MyPerformance",
+      "clientId": "dashboard-myperformance-pl",
+      "name": "MyPerformance Dashboard",
+      "description": "Main dashboard client for MyPerformance (Next.js app)",
       "enabled": true,
       "protocol": "openid-connect",
       "publicClient": false,
       "bearerOnly": false,
       "standardFlowEnabled": true,
       "implicitFlowEnabled": false,
-      "directAccessGrantsEnabled": true,
-      "serviceAccountsEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
       "authorizationServicesEnabled": false,
+      "secret": "ot0h8vUAQUJaTnbMyq0uNC0wcCt9Txg8",
       "redirectUris": [
         "https://myperformance.pl/*",
-        "https://directus.myperformance.pl/*",
-        "http://localhost:3000/*",
-        "http://localhost:5173/*"
+        "http://localhost:3000/*"
       ],
       "webOrigins": [
         "https://myperformance.pl",
-        "https://directus.myperformance.pl",
-        "http://localhost:3000",
-        "http://localhost:5173"
+        "http://localhost:3000"
       ],
       "defaultClientScopes": [
         "web-origins",
@@ -138,9 +135,17 @@
         "roles",
         "email"
       ],
+      "serviceAccountClientRoles": {
+        "realm-management": [
+          "manage-users",
+          "view-users",
+          "query-users",
+          "manage-realm"
+        ]
+      },
       "protocolMappers": [
         {
-          "name": "roles",
+          "name": "realm-roles",
           "protocol": "openid-connect",
           "protocolMapper": "oidc-usermodel-realm-role-mapper",
           "consentRequired": false,
@@ -149,22 +154,7 @@
             "userinfo.token.claim": "true",
             "id.token.claim": "true",
             "access.token.claim": "true",
-            "claim.name": "roles",
-            "jsonType.label": "String"
-          }
-        },
-        {
-          "name": "service_access",
-          "protocol": "openid-connect",
-          "protocolMapper": "oidc-usermodel-realm-role-mapper",
-          "consentRequired": false,
-          "config": {
-            "multivalued": "true",
-            "userinfo.token.claim": "true",
-            "id.token.claim": "true",
-            "access.token.claim": "true",
-            "claim.name": "service_access",
-            "claim.role.prefix": "access_service_",
+            "claim.name": "realm_access.roles",
             "jsonType.label": "String"
           }
         },
@@ -228,7 +218,328 @@
       "implicitFlowEnabled": false,
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": true,
-      "authorizationServicesEnabled": false
+      "authorizationServicesEnabled": false,
+      "clientRoles": {
+        "realm-management": [
+          "manage-users",
+          "view-users",
+          "query-users"
+        ]
+      }
     }
-  ]
+  ],
+  "authenticationFlows": [
+    {
+      "id": "browser-webauthn-conditional",
+      "alias": "browser-webauthn-conditional",
+      "description": "Browser flow with WebAuthn as second factor when user has key configured",
+      "providerId": "basic-flow",
+      "topLevel": true,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "auth-cookie",
+          "requirement": "ALTERNATIVE",
+          "priority": 1,
+          "autheticatorFlow": false,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticator": "auth-spnego",
+          "requirement": "DISABLED",
+          "priority": 2,
+          "autheticatorFlow": false,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticator": "identity-provider-redirector",
+          "requirement": "ALTERNATIVE",
+          "priority": 3,
+          "autheticatorFlow": false,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticatorFlow": true,
+          "requirement": "ALTERNATIVE",
+          "priority": 4,
+          "autheticatorFlow": true,
+          "flowAlias": "browser-webauthn-conditional-forms",
+          "userSetupAllowed": false
+        }
+      ]
+    },
+    {
+      "id": "browser-webauthn-conditional-forms",
+      "alias": "browser-webauthn-conditional-forms",
+      "description": "Username, password, OTP and WebAuthn forms",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "auth-username-password-form",
+          "requirement": "REQUIRED",
+          "priority": 1,
+          "autheticatorFlow": false,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticatorFlow": true,
+          "requirement": "REQUIRED",
+          "priority": 2,
+          "autheticatorFlow": true,
+          "flowAlias": "browser-webauthn-conditional-otp",
+          "userSetupAllowed": false
+        }
+      ]
+    },
+    {
+      "id": "browser-webauthn-conditional-otp",
+      "alias": "browser-webauthn-conditional-otp",
+      "description": "WebAuthn or OTP conditional flow",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "conditional-user-configured",
+          "requirement": "REQUIRED",
+          "priority": 1,
+          "autheticatorFlow": false,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticator": "webauthn-authenticator",
+          "requirement": "ALTERNATIVE",
+          "priority": 2,
+          "autheticatorFlow": false,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticator": "otp-form",
+          "requirement": "ALTERNATIVE",
+          "priority": 3,
+          "autheticatorFlow": false,
+          "userSetupAllowed": false
+        }
+      ]
+    },
+    {
+      "id": "browser-webauthn-passwordless",
+      "alias": "browser-webauthn-passwordless",
+      "description": "Passwordless authentication with WebAuthn",
+      "providerId": "basic-flow",
+      "topLevel": true,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "auth-cookie",
+          "requirement": "ALTERNATIVE",
+          "priority": 1,
+          "autheticatorFlow": false,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticator": "webauthn-passwordless-authenticator",
+          "requirement": "ALTERNATIVE",
+          "priority": 2,
+          "autheticatorFlow": false,
+          "userSetupAllowed": true
+        },
+        {
+          "authenticatorFlow": true,
+          "requirement": "ALTERNATIVE",
+          "priority": 3,
+          "autheticatorFlow": true,
+          "flowAlias": "browser-webauthn-passwordless-forms",
+          "userSetupAllowed": false
+        }
+      ]
+    },
+    {
+      "id": "browser-webauthn-passwordless-forms",
+      "alias": "browser-webauthn-passwordless-forms",
+      "description": "Fallback forms when passwordless fails",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "auth-username-password-form",
+          "requirement": "REQUIRED",
+          "priority": 1,
+          "autheticatorFlow": false,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticatorFlow": true,
+          "requirement": "REQUIRED",
+          "priority": 2,
+          "autheticatorFlow": true,
+          "flowAlias": "browser-webauthn-conditional-otp",
+          "userSetupAllowed": false
+        }
+      ]
+    }
+  ],
+  "browserFlow": "browser-webauthn-conditional",
+  "requiredActions": [
+    {
+      "alias": "CONFIGURE_TOTP",
+      "name": "Configure OTP",
+      "providerId": "CONFIGURE_TOTP",
+      "enabled": true,
+      "defaultAction": false,
+      "priority": 10,
+      "config": {}
+    },
+    {
+      "alias": "WEBAUTHN_REGISTER",
+      "name": "Webauthn Register",
+      "providerId": "WEBAUTHN_REGISTER",
+      "enabled": true,
+      "defaultAction": false,
+      "priority": 20,
+      "config": {}
+    },
+    {
+      "alias": "WEBAUTHN_REGISTER_PASSWORDLESS",
+      "name": "Webauthn Register Passwordless",
+      "providerId": "WEBAUTHN_REGISTER_PASSWORDLESS",
+      "enabled": true,
+      "defaultAction": false,
+      "priority": 30,
+      "config": {}
+    },
+    {
+      "alias": "UPDATE_PASSWORD",
+      "name": "Update Password",
+      "providerId": "UPDATE_PASSWORD",
+      "enabled": true,
+      "defaultAction": false,
+      "priority": 40,
+      "config": {}
+    },
+    {
+      "alias": "VERIFY_EMAIL",
+      "name": "Verify Email",
+      "providerId": "VERIFY_EMAIL",
+      "enabled": true,
+      "defaultAction": false,
+      "priority": 50,
+      "config": {}
+    },
+    {
+      "alias": "UPDATE_PROFILE",
+      "name": "Update Profile",
+      "providerId": "UPDATE_PROFILE",
+      "enabled": true,
+      "defaultAction": false,
+      "priority": 60,
+      "config": {}
+    }
+  ],
+  "userProfile": {
+    "attributes": [
+      {
+        "name": "firstName",
+        "displayName": "${firstName}",
+        "validations": {
+          "length": {
+            "max": 255
+          },
+          "person-name-prohibited-characters": {}
+        },
+        "annotations": {},
+        "permissions": {
+          "view": ["user", "admin"],
+          "edit": ["user", "admin"]
+        }
+      },
+      {
+        "name": "lastName",
+        "displayName": "${lastName}",
+        "validations": {
+          "length": {
+            "max": 255
+          },
+          "person-name-prohibited-characters": {}
+        },
+        "annotations": {},
+        "permissions": {
+          "view": ["user", "admin"],
+          "edit": ["user", "admin"]
+        }
+      },
+      {
+        "name": "email",
+        "displayName": "${email}",
+        "validations": {
+          "email": {},
+          "length": {
+            "max": 255
+          }
+        },
+        "annotations": {},
+        "permissions": {
+          "view": ["user", "admin"],
+          "edit": ["user", "admin"]
+        }
+      },
+      {
+        "name": "phone-number",
+        "displayName": "Numer telefonu",
+        "validations": {
+          "length": {
+            "max": 20
+          }
+        },
+        "annotations": {
+          "inputType": "tel",
+          "inputTypePrefix": "select-country-code"
+        },
+        "permissions": {
+          "view": ["user", "admin"],
+          "edit": ["user", "admin"]
+        }
+      },
+      {
+        "name": "dark-mode",
+        "displayName": "Tryb ciemny",
+        "validations": {
+          "options": {
+            "options": ["Turned ON", "Turned OFF"]
+          }
+        },
+        "annotations": {
+          "inputType": "select",
+          "inputTypeOptions": "Turned ON,Turned OFF"
+        },
+        "permissions": {
+          "view": ["user", "admin"],
+          "edit": ["user", "admin"]
+        }
+      }
+    ],
+    "groups": [
+      {
+        "name": "user-metadata",
+        "displayHeader": "Dane użytkownika",
+        "displayDescription": "Podstawowe informacje o użytkowniku",
+        "annotations": {}
+      },
+      {
+        "name": "contact-info",
+        "displayHeader": "Dane kontaktowe",
+        "displayDescription": "Informacje kontaktowe użytkownika",
+        "annotations": {}
+      },
+      {
+        "name": "preferences",
+        "displayHeader": "Preferencje",
+        "displayDescription": "Ustawienia i preferencje użytkownika",
+        "annotations": {}
+      }
+    ]
+  }
 }

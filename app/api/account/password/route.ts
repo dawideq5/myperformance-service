@@ -1,12 +1,13 @@
 import { getServerSession } from "next-auth/next";
 import { NextResponse } from "next/server";
 import { authOptions } from "@/app/auth";
-import { getAccountUrl } from "@/lib/keycloak-config";
+import { getServiceAccountToken, getUserIdFromToken } from "@/lib/keycloak-admin";
 
 export async function POST(request: Request) {
   try {
     const session: any = await getServerSession(authOptions);
 
+    console.log("[API /password POST] session exists:", !!session, "accessToken exists:", !!session?.accessToken);
     if (!session?.accessToken) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -21,18 +22,53 @@ export async function POST(request: Request) {
       );
     }
 
-    // Use Keycloak Account API to change password
-    const passwordResponse = await fetch(getAccountUrl("/account/credentials/password"), {
-      method: "POST",
+    const keycloakUrl = process.env.KEYCLOAK_URL;
+
+    // Verify current password by attempting a token exchange
+    const verifyResponse = await fetch(
+      `${keycloakUrl}/realms/MyPerformance/protocol/openid-connect/token`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          grant_type: "password",
+          client_id: process.env.KEYCLOAK_CLIENT_ID!,
+          client_secret: process.env.KEYCLOAK_CLIENT_SECRET!,
+          username: session.user?.email || "",
+          password: currentPassword,
+          scope: "openid",
+        }),
+      }
+    );
+
+    console.log("[API /password POST] verify password response:", verifyResponse.status);
+
+    if (!verifyResponse.ok) {
+      return NextResponse.json(
+        { error: "Aktualne hasło jest nieprawidłowe" },
+        { status: 401 }
+      );
+    }
+
+    // Use Keycloak Admin REST API to change password
+    const userId = await getUserIdFromToken(session.accessToken);
+    const serviceToken = await getServiceAccountToken();
+
+    const passwordUrl = `${keycloakUrl}/admin/realms/MyPerformance/users/${userId}/reset-password`;
+    console.log("[API /password POST] changing password at:", passwordUrl);
+
+    const passwordResponse = await fetch(passwordUrl, {
+      method: "PUT",
       headers: {
-        Authorization: `Bearer ${session.accessToken}`,
+        Authorization: `Bearer ${serviceToken}`,
         "Content-Type": "application/json",
-        Accept: "application/json",
       },
       body: JSON.stringify({
-        currentPassword,
-        newPassword,
-        confirmation: newPassword,
+        type: "password",
+        value: newPassword,
+        temporary: false,
       }),
     });
 

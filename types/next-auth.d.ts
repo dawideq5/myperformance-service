@@ -11,7 +11,7 @@ declare module "next-auth" {
     };
     accessToken?: string;
     idToken?: string;
-    error?: string;
+    error?: "RefreshTokenExpired" | string;
   }
 
   interface User {
@@ -25,9 +25,9 @@ declare module "next-auth" {
 declare module "next-auth/jwt" {
   interface JWT {
     accessToken?: string;
-    idToken?: string;
     refreshToken?: string;
-    accessTokenExpires?: number;
-    error?: string;
+    idToken?: string;
+    expiresAt?: number;
+    keycloakError?: boolean;
   }
 }

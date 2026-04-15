@@ -1,7 +1,7 @@
 import { getServerSession } from "next-auth/next";
 import { NextResponse } from "next/server";
 import { authOptions } from "@/app/auth";
-import { getAccountUrl } from "@/lib/keycloak-config";
+import { getServiceAccountToken, getUserIdFromToken } from "@/lib/keycloak-admin";
 
 export async function GET() {
   try {
@@ -11,7 +11,8 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const response = await fetch(getAccountUrl("/account"), {
+    const keycloakUrl = process.env.KEYCLOAK_URL;
+    const response = await fetch(`${keycloakUrl}/realms/MyPerformance/account`, {
       headers: {
         Authorization: `Bearer ${session.accessToken}`,
         Accept: "application/json",
@@ -27,6 +28,34 @@ export async function GET() {
     }
 
     const data = await response.json();
+    try {
+      const userId = await getUserIdFromToken(session.accessToken);
+      const serviceToken = await getServiceAccountToken();
+      const adminResponse = await fetch(
+        `${keycloakUrl}/admin/realms/MyPerformance/users/${userId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${serviceToken}`,
+            Accept: "application/json",
+          },
+        }
+      );
+
+      if (adminResponse.ok) {
+        const adminData = await adminResponse.json();
+        console.log("[API /account GET] adminData.requiredActions:", adminData.requiredActions);
+        data.requiredActions = adminData.requiredActions || [];
+      } else {
+        const adminErrorText = await adminResponse.text();
+        console.error("[API /account GET] admin fetch error:", adminErrorText);
+        data.requiredActions = [];
+      }
+      console.log("[API /account GET] final merged requiredActions:", data.requiredActions);
+    } catch (adminError) {
+      console.error("[API /account GET] admin merge error:", adminError);
+      data.requiredActions = [];
+    }
+
     return NextResponse.json(data);
   } catch (error) {
     console.error("[API /account GET] error:", error);
@@ -48,7 +77,8 @@ export async function PUT(request: Request) {
     const body = await request.json();
 
     // First get current profile to merge
-    const currentRes = await fetch(getAccountUrl("/account"), {
+    const keycloakUrl = process.env.KEYCLOAK_URL;
+    const currentRes = await fetch(`${keycloakUrl}/realms/MyPerformance/account`, {
       headers: {
         Authorization: `Bearer ${session.accessToken}`,
         Accept: "application/json",
@@ -63,9 +93,18 @@ export async function PUT(request: Request) {
     }
 
     const currentProfile = await currentRes.json();
-    const updatedProfile = { ...currentProfile, ...body };
 
-    const response = await fetch(getAccountUrl("/account"), {
+    // Merge attributes properly
+    const updatedProfile = {
+      ...currentProfile,
+      ...body,
+      attributes: {
+        ...(currentProfile.attributes || {}),
+        ...(body.attributes || {}),
+      },
+    };
+
+    const response = await fetch(`${keycloakUrl}/realms/MyPerformance/account`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${session.accessToken}`,
