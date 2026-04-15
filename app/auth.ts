@@ -1,3 +1,4 @@
+import type { AuthOptions } from "next-auth";
 import KeycloakProvider from "next-auth/providers/keycloak";
 import { getKeycloakIssuer } from "@/lib/keycloak-config";
 import { getCanonicalLoginUrl, normalizeAuthRedirect } from "@/lib/app-url";
@@ -193,7 +194,7 @@ export function getAuthOptions() {
   return _authOptions;
 }
 
-export const authOptions = new Proxy({} as any, {
+export const authOptions: AuthOptions = new Proxy({} as AuthOptions, {
   get(_target, prop) {
     return (getAuthOptions() as any)[prop];
   },
