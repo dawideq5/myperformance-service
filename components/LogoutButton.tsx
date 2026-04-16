@@ -2,23 +2,14 @@
 
 import { signOut } from "next-auth/react";
 import { LogOut } from "lucide-react";
-import { getPublicKeycloakIssuer } from "@/lib/keycloak-config";
-import { getPublicLogoutRedirectUrl } from "@/lib/app-url";
 
 export function LogoutButton() {
   const handleLogout = async () => {
     // 1. Clear NextAuth session
     await signOut({ redirect: false });
 
-    // 2. Redirect to Keycloak logout endpoint
-    const issuer = getPublicKeycloakIssuer();
-    const clientId = process.env.NEXT_PUBLIC_KEYCLOAK_CLIENT_ID || "";
-    const postLogoutUri = getPublicLogoutRedirectUrl();
-
-    // URL format for Keycloak logout (OIDC)
-    const logoutUrl = `${issuer}/protocol/openid-connect/logout?post_logout_redirect_uri=${encodeURIComponent(postLogoutUri)}&client_id=${encodeURIComponent(clientId)}`;
-
-    window.location.href = logoutUrl;
+    // 2. Redirect through the server-side logout endpoint
+    window.location.href = "/api/auth/logout";
   };
 
   return (
