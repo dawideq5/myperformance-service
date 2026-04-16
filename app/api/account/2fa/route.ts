@@ -3,13 +3,8 @@ import { NextResponse } from "next/server";
 import { authOptions } from "@/app/auth";
 import * as OTPAuth from "otpauth";
 import QRCode from "qrcode";
-import {
-  appendUserRequiredAction,
-  getServiceAccountToken,
-  getUserIdFromToken,
-  resolveRequiredActionAlias,
-} from "@/lib/keycloak-admin";
-import { getAccountUrl, getAdminUrl } from "@/lib/keycloak-config";
+
+import { keycloak } from "@/lib/keycloak";
 
 // GET - Check 2FA status
 export async function GET() {
@@ -20,7 +15,7 @@ export async function GET() {
     }
 
     const response = await fetch(
-      getAccountUrl("/account/credentials"),
+      keycloak.getAccountUrl("/account/credentials"),
       {
         headers: {
           Authorization: `Bearer ${session.accessToken}`,
@@ -62,9 +57,9 @@ export async function POST(request: Request) {
     const { action, totpCode, secret } = body;
 
     if (action === "prepare") {
-      const serviceToken = await getServiceAccountToken();
-      const userId = await getUserIdFromToken(session.accessToken);
-      const requiredActionAlias = await resolveRequiredActionAlias(serviceToken, [
+      const serviceToken = await keycloak.getServiceAccountToken();
+      const userId = await keycloak.getUserIdFromToken(session.accessToken);
+      const requiredActionAlias = await keycloak.resolveRequiredActionAlias(serviceToken, [
         "CONFIGURE_TOTP",
       ]);
 
@@ -75,7 +70,7 @@ export async function POST(request: Request) {
         );
       }
 
-      await appendUserRequiredAction(serviceToken, userId, requiredActionAlias);
+      await keycloak.appendUserRequiredAction(serviceToken, userId, requiredActionAlias);
       return NextResponse.json({ success: true, requiredAction: requiredActionAlias });
     }
 
@@ -133,12 +128,12 @@ export async function POST(request: Request) {
       }
 
       // Get service account token and user ID
-      const serviceToken = await getServiceAccountToken();
-      const userId = await getUserIdFromToken(session.accessToken);
+      const serviceToken = await keycloak.getServiceAccountToken();
+      const userId = await keycloak.getUserIdFromToken(session.accessToken);
 
       // Get current user representation
       const userRes = await fetch(
-        getAdminUrl(`/users/${userId}`),
+        keycloak.getAdminUrl(`/users/${userId}`),
         {
           headers: {
             Authorization: `Bearer ${serviceToken}`,
@@ -171,7 +166,7 @@ export async function POST(request: Request) {
       };
 
       const updateRes = await fetch(
-        getAdminUrl(`/users/${userId}`),
+        keycloak.getAdminUrl(`/users/${userId}`),
         {
           method: "PUT",
           headers: {
@@ -218,7 +213,7 @@ export async function DELETE() {
     }
 
     const credsResponse = await fetch(
-      getAccountUrl("/account/credentials"),
+      keycloak.getAccountUrl("/account/credentials"),
       {
         headers: {
           Authorization: `Bearer ${session.accessToken}`,
@@ -247,7 +242,7 @@ export async function DELETE() {
 
     // Try Account API first
     let deleteResponse = await fetch(
-      getAccountUrl(`/account/credentials/${credentialId}`),
+      keycloak.getAccountUrl(`/account/credentials/${credentialId}`),
       {
         method: "DELETE",
         headers: { Authorization: `Bearer ${session.accessToken}` },
@@ -256,11 +251,11 @@ export async function DELETE() {
 
     // If Account API fails, use Admin API
     if (!deleteResponse.ok) {
-      const adminToken = await getServiceAccountToken();
-      const userId = await getUserIdFromToken(session.accessToken);
+      const adminToken = await keycloak.getServiceAccountToken();
+      const userId = await keycloak.getUserIdFromToken(session.accessToken);
 
       deleteResponse = await fetch(
-        getAdminUrl(`/users/${userId}/credentials/${credentialId}`),
+        keycloak.getAdminUrl(`/users/${userId}/credentials/${credentialId}`),
         {
           method: "DELETE",
           headers: { Authorization: `Bearer ${adminToken}` },

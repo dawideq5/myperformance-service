@@ -1,8 +1,7 @@
 import { getServerSession } from "next-auth/next";
 import { NextResponse } from "next/server";
 import { authOptions } from "@/app/auth";
-import { getServiceAccountToken, getUserIdFromToken } from "@/lib/keycloak-admin";
-import { getAccountUrl, getAdminUrl } from "@/lib/keycloak-config";
+import { keycloak } from "@/lib/keycloak";
 
 export async function POST(request: Request) {
   try {
@@ -25,7 +24,7 @@ export async function POST(request: Request) {
 
     // Verify current password by attempting a token exchange
     const verifyResponse = await fetch(
-      getAccountUrl("/protocol/openid-connect/token"),
+      keycloak.getAccountUrl("/protocol/openid-connect/token"),
       {
         method: "POST",
         headers: {
@@ -52,10 +51,10 @@ export async function POST(request: Request) {
     }
 
     // Use Keycloak Admin REST API to change password
-    const userId = await getUserIdFromToken(session.accessToken);
-    const serviceToken = await getServiceAccountToken();
+    const userId = await keycloak.getUserIdFromToken(session.accessToken);
+    const serviceToken = await keycloak.getServiceAccountToken();
 
-    const passwordUrl = getAdminUrl(`/users/${userId}/reset-password`);
+    const passwordUrl = keycloak.getAdminUrl(`/users/${userId}/reset-password`);
     console.log("[API /password POST] changing password at:", passwordUrl);
 
     const passwordResponse = await fetch(passwordUrl, {

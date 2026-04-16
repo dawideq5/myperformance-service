@@ -1,13 +1,8 @@
 import { getServerSession } from "next-auth/next";
 import { NextResponse } from "next/server";
 import { authOptions } from "@/app/auth";
-import {
-  appendUserRequiredAction,
-  getServiceAccountToken,
-  getUserIdFromToken,
-  resolveRequiredActionAlias,
-} from "@/lib/keycloak-admin";
-import { getAccountUrl, getAdminUrl } from "@/lib/keycloak-config";
+
+import { keycloak } from "@/lib/keycloak";
 
 // GET - List registered WebAuthn credentials
 export async function GET() {
@@ -18,7 +13,7 @@ export async function GET() {
     }
 
     const response = await fetch(
-      getAccountUrl("/account/credentials"),
+      keycloak.getAccountUrl("/account/credentials"),
       {
         headers: {
           Authorization: `Bearer ${session.accessToken}`,
@@ -66,11 +61,11 @@ export async function POST(request: Request) {
 
     // Step 1: Get registration options
     if (action === "get-options") {
-      const userId = await getUserIdFromToken(session.accessToken);
+      const userId = await keycloak.getUserIdFromToken(session.accessToken);
 
       // Get user info from Account API (no admin token needed)
       const profileRes = await fetch(
-        getAccountUrl("/account"),
+        keycloak.getAccountUrl("/account"),
         {
           headers: {
             Authorization: `Bearer ${session.accessToken}`,
@@ -132,14 +127,14 @@ export async function POST(request: Request) {
         );
       }
 
-      const userId = await getUserIdFromToken(session.accessToken);
+      const userId = await keycloak.getUserIdFromToken(session.accessToken);
 
       try {
-        const serviceToken = await getServiceAccountToken();
+        const serviceToken = await keycloak.getServiceAccountToken();
 
         // Get current user representation
         const userRes = await fetch(
-          getAdminUrl(`/users/${userId}`),
+          keycloak.getAdminUrl(`/users/${userId}`),
           {
             headers: {
               Authorization: `Bearer ${serviceToken}`,
@@ -220,7 +215,7 @@ export async function POST(request: Request) {
         };
 
         const updateRes = await fetch(
-          getAdminUrl(`/users/${userId}`),
+          keycloak.getAdminUrl(`/users/${userId}`),
           {
             method: "PUT",
             headers: {
@@ -238,12 +233,12 @@ export async function POST(request: Request) {
         );
 
         if (updateRes.ok || updateRes.status === 204) {
-          const requiredActionAlias = await resolveRequiredActionAlias(serviceToken, [
+          const requiredActionAlias = await keycloak.resolveRequiredActionAlias(serviceToken, [
             "webauthn-register",
             "WEBAUTHN_REGISTER",
           ]);
           if (requiredActionAlias) {
-            await appendUserRequiredAction(serviceToken, userId, requiredActionAlias);
+            await keycloak.appendUserRequiredAction(serviceToken, userId, requiredActionAlias);
           }
           return NextResponse.json({ success: true });
         }
@@ -290,14 +285,14 @@ export async function PUT(request: Request) {
       );
     }
 
-    const userId = await getUserIdFromToken(session.accessToken);
-    const serviceToken = await getServiceAccountToken();
+    const userId = await keycloak.getUserIdFromToken(session.accessToken);
+    const serviceToken = await keycloak.getServiceAccountToken();
 
     console.log("[API /webauthn PUT] renaming credential:", credentialId, "to:", newName);
 
     // Use dedicated Keycloak endpoint for updating credential userLabel
     const updateRes = await fetch(
-      getAdminUrl(`/users/${userId}/credentials/${credentialId}/userLabel`),
+      keycloak.getAdminUrl(`/users/${userId}/credentials/${credentialId}/userLabel`),
       {
         method: "PUT",
         headers: {
@@ -345,7 +340,7 @@ export async function DELETE(request: Request) {
 
     // Try Account API first
     let deleteResponse = await fetch(
-      getAccountUrl(`/account/credentials/${credentialId}`),
+      keycloak.getAccountUrl(`/account/credentials/${credentialId}`),
       {
         method: "DELETE",
         headers: { Authorization: `Bearer ${session.accessToken}` },
@@ -353,11 +348,11 @@ export async function DELETE(request: Request) {
     );
 
     if (!deleteResponse.ok) {
-      const adminToken = await getServiceAccountToken();
-      const userId = await getUserIdFromToken(session.accessToken);
+      const adminToken = await keycloak.getServiceAccountToken();
+      const userId = await keycloak.getUserIdFromToken(session.accessToken);
 
       deleteResponse = await fetch(
-        getAdminUrl(`/users/${userId}/credentials/${credentialId}`),
+        keycloak.getAdminUrl(`/users/${userId}/credentials/${credentialId}`),
         {
           method: "DELETE",
           headers: { Authorization: `Bearer ${adminToken}` },

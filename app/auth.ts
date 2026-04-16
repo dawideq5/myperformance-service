@@ -1,6 +1,6 @@
 import type { AuthOptions } from "next-auth";
 import KeycloakProvider from "next-auth/providers/keycloak";
-import { getKeycloakIssuer, getAccountUrl } from "@/lib/keycloak-config";
+import { keycloak } from "@/lib/keycloak";
 
 function getRequiredEnv(name: string) {
   const value = process.env[name]?.trim();
@@ -58,7 +58,7 @@ async function refreshKeycloakToken(
 let _authOptions: ReturnType<typeof buildAuthOptions> | null = null;
 
 function buildAuthOptions() {
-  const keycloakIssuer = getKeycloakIssuer();
+  const keycloakIssuer = keycloak.getIssuer();
   const keycloakClientId = getRequiredEnv("KEYCLOAK_CLIENT_ID");
   const keycloakClientSecret = getRequiredEnv("KEYCLOAK_CLIENT_SECRET");
 
@@ -93,6 +93,7 @@ function buildAuthOptions() {
           token.accessToken = account.access_token;
           token.refreshToken = account.refresh_token;
           token.idToken = account.id_token;
+          token.sid = account.session_state;
           token.expiresAt =
             Math.floor(Date.now() / 1000) + (account.expires_in ?? 300);
           token.keycloakError = false;
@@ -100,7 +101,9 @@ function buildAuthOptions() {
         }
 
         // Token still valid
-        const bufferSec = 30;
+        const bufferSec = 60;
+
+
         if (
           token.expiresAt &&
           Date.now() / 1000 < token.expiresAt - bufferSec
@@ -170,7 +173,7 @@ function buildAuthOptions() {
         // Fetch user attributes from Keycloak Account API
         if (token.accessToken) {
           try {
-            const accountRes = await fetch(getAccountUrl("/account"), {
+            const accountRes = await fetch(keycloak.getAccountUrl("/account"), {
               headers: {
                 Authorization: `Bearer ${token.accessToken}`,
                 Accept: "application/json",
