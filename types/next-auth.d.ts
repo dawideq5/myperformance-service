@@ -8,6 +8,8 @@ declare module "next-auth" {
       email?: string | null;
       image?: string | null;
       roles?: string[];
+      attributes?: Record<string, string[]>;
+      emailVerified?: boolean;
     };
     accessToken?: string;
     idToken?: string;
@@ -19,6 +21,8 @@ declare module "next-auth" {
     name?: string | null;
     email?: string | null;
     image?: string | null;
+    attributes?: Record<string, string[]>;
+    emailVerified?: boolean;
   }
 }
 
@@ -29,5 +33,8 @@ declare module "next-auth/jwt" {
     idToken?: string;
     expiresAt?: number;
     keycloakError?: boolean;
+    userAttributes?: Record<string, string[]>;
+    emailVerified?: boolean;
+    sid?: string;
   }
 }

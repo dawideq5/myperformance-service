@@ -325,6 +325,152 @@ export class KeycloakService {
 
     return candidates.find((alias) => aliases.has(alias)) || null;
   }
+
+  /**
+   * Triggers Keycloak to immediately send an action email to the user
+   * (verify email, update password, etc.). Unlike adding a required action
+   * to the user record, this sends the email right away.
+   */
+  public async executeActionsEmail(
+    adminToken: string,
+    userId: string,
+    actions: string[],
+    options: { lifespan?: number; clientId?: string; redirectUri?: string } = {}
+  ) {
+    const params = new URLSearchParams();
+    if (options.lifespan) params.set("lifespan", String(options.lifespan));
+    if (options.clientId) params.set("client_id", options.clientId);
+    if (options.redirectUri) params.set("redirect_uri", options.redirectUri);
+
+    const query = params.toString();
+    const path = `/users/${userId}/execute-actions-email${query ? `?${query}` : ""}`;
+
+    const response = await this.adminRequest(path, adminToken, {
+      method: "PUT",
+      body: JSON.stringify(actions),
+    });
+
+    if (!response.ok) {
+      const details = await response.text();
+      throw new Error(details || "Unable to trigger execute-actions-email");
+    }
+  }
+
+  /**
+   * Sets emailVerified flag on a user record via Admin API.
+   * Also removes VERIFY_EMAIL from required actions if present when verified=true.
+   */
+  public async setEmailVerified(
+    adminToken: string,
+    userId: string,
+    verified: boolean
+  ) {
+    const userResponse = await this.adminRequest(`/users/${userId}`, adminToken);
+    if (!userResponse.ok) {
+      throw new Error("Unable to load user data for email verification update");
+    }
+
+    const userData = await userResponse.json();
+    const requiredActions = verified
+      ? (userData.requiredActions || []).filter(
+          (action: string) =>
+            this.canonicalizeRequiredAction(action) !== "VERIFY_EMAIL"
+        )
+      : userData.requiredActions;
+
+    const updateResponse = await this.adminRequest(`/users/${userId}`, adminToken, {
+      method: "PUT",
+      body: JSON.stringify({
+        ...userData,
+        emailVerified: verified,
+        requiredActions,
+      }),
+    });
+
+    if (!updateResponse.ok) {
+      const details = await updateResponse.text();
+      throw new Error(details || "Unable to update emailVerified flag");
+    }
+  }
+
+  /**
+   * Removes a federated identity (e.g., Google) from a user.
+   */
+  public async removeFederatedIdentity(
+    adminToken: string,
+    userId: string,
+    provider: string
+  ) {
+    const response = await this.adminRequest(
+      `/users/${userId}/federated-identity/${provider}`,
+      adminToken,
+      { method: "DELETE" }
+    );
+
+    if (!response.ok && response.status !== 404) {
+      const details = await response.text();
+      throw new Error(details || `Unable to remove federated identity ${provider}`);
+    }
+  }
+
+  /**
+   * Retrieves tokens stored by Keycloak for an external IdP (broker token endpoint).
+   * Requires `storeToken=true` and `addReadTokenRoleOnCreate=true` on the IdP,
+   * plus the user must have `broker/read-token` role (auto-granted on IdP first login).
+   */
+  public async getBrokerTokens(
+    userAccessToken: string,
+    provider: string
+  ): Promise<Record<string, any>> {
+    const url = this.getAccountUrl(`/broker/${provider}/token`);
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${userAccessToken}` },
+    });
+
+    if (!response.ok) {
+      const details = await response.text();
+      throw new Error(
+        `Failed to retrieve broker tokens for ${provider}: ${response.status} ${details}`
+      );
+    }
+
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      return response.json();
+    }
+
+    const text = await response.text();
+    return Object.fromEntries(new URLSearchParams(text));
+  }
+
+  /**
+   * Fetches Google user info using a Google access token.
+   */
+  public async getGoogleUserInfo(
+    googleAccessToken: string
+  ): Promise<{
+    sub: string;
+    email: string;
+    email_verified: boolean;
+    name?: string;
+    picture?: string;
+  }> {
+    const response = await fetch(
+      "https://openidconnect.googleapis.com/v1/userinfo",
+      {
+        headers: { Authorization: `Bearer ${googleAccessToken}` },
+      }
+    );
+
+    if (!response.ok) {
+      const details = await response.text();
+      throw new Error(
+        `Failed to fetch Google userinfo: ${response.status} ${details}`
+      );
+    }
+
+    return response.json();
+  }
 }
 
 export const keycloak = KeycloakService.getInstance();

@@ -55,20 +55,32 @@ async function refreshKeycloakToken(
   }
 }
 
+/** Fetches user attributes from Keycloak Account API and caches them in the JWT token. */
+async function hydrateTokenAttributes(token: any): Promise<void> {
+  if (!token.accessToken) return;
+  try {
+    const res = await fetch(keycloak.getAccountUrl("/account"), {
+      headers: {
+        Authorization: `Bearer ${token.accessToken}`,
+        Accept: "application/json",
+      },
+    });
+    if (res.ok) {
+      const data = await res.json();
+      token.userAttributes = data.attributes || {};
+      token.emailVerified = data.emailVerified ?? false;
+    }
+  } catch {
+    // Non-fatal — stale attributes will be used until next refresh
+  }
+}
+
 let _authOptions: ReturnType<typeof buildAuthOptions> | null = null;
 
 function buildAuthOptions() {
   const keycloakIssuer = keycloak.getIssuer();
   const keycloakClientId = getRequiredEnv("KEYCLOAK_CLIENT_ID");
   const keycloakClientSecret = getRequiredEnv("KEYCLOAK_CLIENT_SECRET");
-
-  console.log("[auth] Keycloak config:", {
-    issuer: keycloakIssuer,
-    clientId: keycloakClientId,
-    clientSecretLength: keycloakClientSecret.length,
-    clientSecretPrefix: keycloakClientSecret.substring(0, 4) + "...",
-  });
-
 
   return {
     providers: [
@@ -79,16 +91,22 @@ function buildAuthOptions() {
         client: {
           token_endpoint_auth_method: "client_secret_post",
         },
+        authorization: {
+          params: {
+            // Standard OIDC scopes only
+            scope: "openid profile email",
+          },
+        },
       }),
     ],
     secret: process.env.NEXTAUTH_SECRET,
     session: {
       strategy: "jwt" as const,
-      maxAge: 8 * 60 * 60, // 8 hours – tighter than Keycloak session
+      maxAge: 8 * 60 * 60,
     },
     callbacks: {
-      async jwt({ token, account }: any) {
-        // First login — store tokens
+      async jwt({ token, account, trigger }: any) {
+        // First login — store tokens and fetch initial user attributes
         if (account) {
           token.accessToken = account.access_token;
           token.refreshToken = account.refresh_token;
@@ -97,13 +115,18 @@ function buildAuthOptions() {
           token.expiresAt =
             Math.floor(Date.now() / 1000) + (account.expires_in ?? 300);
           token.keycloakError = false;
+          await hydrateTokenAttributes(token);
           return token;
         }
 
-        // Token still valid
+        // Client called update() — re-fetch attributes with current token
+        if (trigger === "update") {
+          await hydrateTokenAttributes(token);
+          return token;
+        }
+
+        // Token still valid — return cached
         const bufferSec = 60;
-
-
         if (
           token.expiresAt &&
           Date.now() / 1000 < token.expiresAt - bufferSec
@@ -111,7 +134,7 @@ function buildAuthOptions() {
           return token;
         }
 
-        // Token expired — try refresh
+        // Token expired — refresh
         if (token.refreshToken) {
           const refreshed = await refreshKeycloakToken(
             token.refreshToken,
@@ -125,18 +148,17 @@ function buildAuthOptions() {
             token.idToken = refreshed.idToken;
             token.expiresAt = refreshed.expiresAt;
             token.keycloakError = false;
+            await hydrateTokenAttributes(token);
             return token;
           }
         }
 
-        // Refresh failed — mark session as invalid
         console.warn("[auth] Keycloak refresh failed — session invalidated");
         token.keycloakError = true;
         return token;
       },
 
       async session({ session, token }: any) {
-        // Propagate error so client can force logout
         if (token.keycloakError) {
           session.error = "RefreshTokenExpired";
           return session;
@@ -146,52 +168,31 @@ function buildAuthOptions() {
         session.idToken = token.idToken;
         session.error = token.error;
 
-        // Extract roles from access token (more up-to-date than idToken)
+        // Extract roles from access token — no network call needed
         const rawToken: string = token.accessToken || token.idToken || "";
         if (rawToken) {
           try {
-            const base64Payload = rawToken.split(".")[1];
-            const payload = JSON.parse(
-              Buffer.from(base64Payload, "base64").toString("utf-8")
-            );
+            const payload = keycloak.decodeTokenPayload(rawToken);
             const realmAccess = payload.realm_access || {};
             const resourceAccess = payload.resource_access || {};
 
-            const roles = [
+            session.user.roles = [
               ...(realmAccess.roles || []),
               ...(resourceAccess[keycloakClientId]?.roles || []),
               ...(resourceAccess["realm-management"]?.roles || []),
             ];
-
-            session.user.roles = roles;
-          } catch (error) {
-            console.error("[auth] Failed to parse Keycloak token:", error);
+          } catch {
             session.user.roles = [];
           }
         }
 
-        // Fetch user attributes from Keycloak Account API
-        if (token.accessToken) {
-          try {
-            const accountRes = await fetch(keycloak.getAccountUrl("/account"), {
-              headers: {
-                Authorization: `Bearer ${token.accessToken}`,
-                Accept: "application/json",
-              },
-            });
-
-            if (accountRes.ok) {
-              const accountData = await accountRes.json();
-              session.user.attributes = accountData.attributes || {};
-            }
-          } catch (error) {
-            console.error("[auth] Failed to fetch user attributes:", error);
-            session.user.attributes = {};
-          }
-        }
+        // User attributes from JWT cache — no network call on every session read
+        session.user.attributes = token.userAttributes || {};
+        session.user.emailVerified = token.emailVerified ?? false;
 
         return session;
       },
+
       async redirect({ url, baseUrl }: any) {
         if (url.startsWith("/")) {
           return `${baseUrl}${url}`;

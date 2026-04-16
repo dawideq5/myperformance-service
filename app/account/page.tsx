@@ -65,7 +65,7 @@ interface TwoFAStatus {
 }
 
 export default function AccountPage() {
-  const { data: session, status } = useSession();
+  const { data: session, status, update } = useSession();
   const { theme, setTheme, isLoading: themeLoading } = useTheme();
   const [activeTab, setActiveTab] = useState<"profile" | "security" | "sessions" | "integrations">("profile");
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -110,6 +110,10 @@ export default function AccountPage() {
   const [connectingGoogle, setConnectingGoogle] = useState(false);
   const [googleError, setGoogleError] = useState<string | null>(null);
   const [googleSuccess, setGoogleSuccess] = useState<string | null>(null);
+  const [googleModalOpen, setGoogleModalOpen] = useState(false);
+  const [googleFeatureEmail, setGoogleFeatureEmail] = useState(true);
+  const [googleFeatureCalendar, setGoogleFeatureCalendar] = useState(true);
+  const [googleFeatureGmail, setGoogleFeatureGmail] = useState(true);
 
   const accessToken = (session as any)?.accessToken;
   const sessionError = (session as any)?.error;
@@ -136,13 +140,57 @@ export default function AccountPage() {
     return null;
   }, []);
 
-  // Connect Google account
-  const connectGoogle = async () => {
+  // Open feature selection modal before triggering Keycloak AIA flow
+  const connectGoogle = () => {
+    console.log("[connectGoogle] Opening modal...");
+    setGoogleError(null);
+    setGoogleSuccess(null);
+    setGoogleFeatureEmail(true);
+    setGoogleFeatureCalendar(true);
+    setGoogleFeatureGmail(true);
+    setGoogleModalOpen(true);
+  };
+
+  // After user confirms features in the modal, persist selection then start
+  // Keycloak 26.3+ AIA idp_link:google flow.
+  const submitGoogleLink = async () => {
+    console.log("[submitGoogleLink] Starting...");
+    const features: string[] = [];
+    if (googleFeatureEmail) features.push("email_verification");
+    if (googleFeatureCalendar) features.push("calendar");
+    if (googleFeatureGmail) features.push("gmail_labels");
+
+    console.log("[submitGoogleLink] Selected features:", features);
+
+    if (features.length === 0) {
+      setGoogleError("Zaznacz przynajmniej jedną funkcję.");
+      return;
+    }
+
     try {
       setConnectingGoogle(true);
       setGoogleError(null);
-      setGoogleSuccess(null);
-      console.log("[Google Connect UI] Session roles:", (session as any)?.user?.roles || []);
+
+      console.log("[submitGoogleLink] Calling /api/integrations/google/connect...");
+      const saveRes = await fetch("/api/integrations/google/connect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ features }),
+      });
+      console.log("[submitGoogleLink] Connect response status:", saveRes.status);
+
+      if (!saveRes.ok) {
+        const errData = await saveRes.json().catch(() => ({}));
+        console.error("[submitGoogleLink] Connect failed:", errData);
+        throw new Error(errData.error || "Nie udało się zapisać wyboru funkcji");
+      }
+
+      const saveData = await saveRes.json();
+      console.log("[submitGoogleLink] Connect success:", saveData);
+
+      setGoogleModalOpen(false);
+
+      console.log("[submitGoogleLink] Starting signIn with kc_action...");
       await signIn(
         "keycloak",
         {
@@ -153,9 +201,9 @@ export default function AccountPage() {
           kc_action: "idp_link:google",
         }
       );
-    } catch (err) {
-      console.error("Failed to connect Google", err);
-      alert("Wystąpił błąd podczas łączenia konta Google");
+    } catch (err: any) {
+      console.error("[submitGoogleLink] Failed to connect Google", err);
+      setGoogleError(err?.message || "Wystąpił błąd podczas łączenia konta Google");
       setConnectingGoogle(false);
     }
   };
@@ -324,6 +372,21 @@ export default function AccountPage() {
     }
   }, [status, accessToken, sessionError, forceLogout, fetchUserData]);
 
+  // Refresh session when user returns to window (e.g., after email verification)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible" && status === "authenticated") {
+        // Refresh session to pick up email verification changes
+        void update();
+        // Also refresh user data
+        void fetchUserData();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [status, update, fetchUserData]);
+
   // Handle Google OAuth callback query parameters
   useEffect(() => {
     const handleGoogleRedirect = async () => {
@@ -336,6 +399,53 @@ export default function AccountPage() {
         if (statusData?.connected) {
           setGoogleSuccess("Konto Google zostało pomyślnie powiązane.");
           setGoogleError(null);
+
+          try {
+            const provResp = await fetch("/api/integrations/google/provision", {
+              method: "POST",
+            });
+            const result = await provResp.json().catch(() => ({}));
+            console.log("[Google Provision] Status:", provResp.status, "Result:", result);
+
+            if (provResp.status === 409 && result?.error === "email_mismatch") {
+              setGoogleSuccess(null);
+              setGoogleError(
+                result?.message ||
+                  "Email konta Google nie zgadza się z emailem w MyPerformance. Połączenie zostało anulowane."
+              );
+              await fetchGoogleStatus();
+            } else if (provResp.ok) {
+              const parts: string[] = ["Konto Google powiązane."];
+              if (result?.emailVerified?.ok) {
+                parts.push("Email został potwierdzony jako zweryfikowany.");
+              }
+              if (result?.calendar?.ok) {
+                parts.push("Utworzono wydarzenie w kalendarzu.");
+              } else if (result?.calendar?.error) {
+                parts.push("Nie udało się utworzyć wydarzenia w kalendarzu.");
+              }
+              if (result?.gmail?.ok) {
+                parts.push(
+                  result.gmail.alreadyExists
+                    ? "Folder Gmail już istniał."
+                    : "Utworzono folder w Gmail."
+                );
+              } else if (result?.gmail?.error) {
+                parts.push("Nie udało się utworzyć folderu Gmail.");
+              }
+              setGoogleSuccess(parts.join(" "));
+              // Refresh profile since emailVerified might have changed
+              void fetchUserData();
+            } else {
+              console.error(
+                "[Google Provision] Request failed:",
+                provResp.status,
+                result
+              );
+            }
+          } catch (provErr) {
+            console.error("[Google Provision] Exception:", provErr);
+          }
         } else {
           setGoogleSuccess(null);
           setGoogleError("link_not_completed");
@@ -1700,6 +1810,109 @@ export default function AccountPage() {
             )}
 
           </main>
+
+          {/* Google Feature Selection Modal */}
+          {googleModalOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+              <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setGoogleModalOpen(false)} />
+              <div className="relative w-full max-w-md bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-2xl p-6 shadow-2xl">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-lg font-semibold text-[var(--text-main)]">
+                    Wybierz funkcje integracji Google
+                  </h3>
+                  <button
+                    onClick={() => setGoogleModalOpen(false)}
+                    className="p-2 text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="space-y-4 mb-6">
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={googleFeatureEmail}
+                      onChange={(e) => setGoogleFeatureEmail(e.target.checked)}
+                      className="mt-1 w-4 h-4 rounded border-[var(--border-subtle)] bg-[var(--bg-main)] text-[var(--accent)] focus:ring-[var(--accent)]"
+                    />
+                    <div>
+                      <span className="block text-sm font-medium text-[var(--text-main)]">
+                        Weryfikacja email
+                      </span>
+                      <span className="block text-xs text-[var(--text-muted)] mt-1">
+                        Potwierdź swój email przez Google (automatycznie oznacza email jako zweryfikowany)
+                      </span>
+                    </div>
+                  </label>
+
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={googleFeatureCalendar}
+                      onChange={(e) => setGoogleFeatureCalendar(e.target.checked)}
+                      className="mt-1 w-4 h-4 rounded border-[var(--border-subtle)] bg-[var(--bg-main)] text-[var(--accent)] focus:ring-[var(--accent)]"
+                    />
+                    <div>
+                      <span className="block text-sm font-medium text-[var(--text-main)]">
+                        Kalendarz Google
+                      </span>
+                      <span className="block text-xs text-[var(--text-muted)] mt-1">
+                        Twórz wydarzenia w Twoim kalendarzu (np. potwierdzenia połączenia)
+                      </span>
+                    </div>
+                  </label>
+
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={googleFeatureGmail}
+                      onChange={(e) => setGoogleFeatureGmail(e.target.checked)}
+                      className="mt-1 w-4 h-4 rounded border-[var(--border-subtle)] bg-[var(--bg-main)] text-[var(--accent)] focus:ring-[var(--accent)]"
+                    />
+                    <div>
+                      <span className="block text-sm font-medium text-[var(--text-main)]">
+                        Foldery Gmail
+                      </span>
+                      <span className="block text-xs text-[var(--text-muted)] mt-1">
+                        Twórz etykiety/foldery w Gmail (np. "MyPerformance")
+                      </span>
+                    </div>
+                  </label>
+                </div>
+
+                <div className="bg-[var(--bg-main)] border border-[var(--border-subtle)] rounded-lg p-3 mb-6">
+                  <p className="text-xs text-[var(--text-muted)]">
+                    <Info className="w-3 h-3 inline mr-1" />
+                    Google poprosi o wszystkie te uprawnienia na ekranie zgody. Możesz odznaczyć te, których nie chcesz udzielić.
+                  </p>
+                </div>
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setGoogleModalOpen(false)}
+                    className="flex-1 px-4 py-2 border border-[var(--border-subtle)] text-[var(--text-muted)] rounded-xl text-sm font-medium hover:text-[var(--text-main)] transition-colors"
+                  >
+                    Anuluj
+                  </button>
+                  <button
+                    onClick={submitGoogleLink}
+                    disabled={connectingGoogle}
+                    className="flex-1 px-4 py-2 bg-[var(--accent)] text-white rounded-xl text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {connectingGoogle ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Łączenie...
+                      </>
+                    ) : (
+                      "Połącz"
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -37,7 +37,6 @@ export async function POST() {
     );
 
     if (googleIdentity) {
-      // Delete the federated identity link
       const deleteResponse = await keycloak.adminRequest(
         `/users/${userId}/federated-identity/google`,
         serviceToken,
@@ -50,6 +49,22 @@ export async function POST() {
           { error: "Failed to remove federated identity" },
           { status: 500 }
         );
+      }
+
+      // Clear Google-related user attributes
+      const userResp = await keycloak.adminRequest(`/users/${userId}`, serviceToken);
+      if (userResp.ok) {
+        const userData = await userResp.json();
+        const attrs = { ...(userData.attributes || {}) };
+        delete attrs.google_connected;
+        delete attrs.google_connected_at;
+        delete attrs.google_scopes;
+        delete attrs.google_features_requested;
+        delete attrs.google_features_requested_at;
+        await keycloak.adminRequest(`/users/${userId}`, serviceToken, {
+          method: "PUT",
+          body: JSON.stringify({ ...userData, attributes: attrs }),
+        });
       }
     }
 

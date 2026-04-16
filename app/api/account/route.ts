@@ -12,7 +12,10 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const response = await fetch(keycloak.getAccountUrl("/account"), {
+    // Use UserInfo endpoint (standard OIDC) + JWT token for attributes
+    const userInfoUrl = `${keycloak.getIssuer()}/protocol/openid-connect/userinfo`;
+
+    const response = await fetch(userInfoUrl, {
       headers: {
         Authorization: `Bearer ${session.accessToken}`,
         Accept: "application/json",
@@ -28,42 +31,28 @@ export async function GET() {
     }
 
     const data = await response.json();
-    try {
-      const userId = await keycloak.getUserIdFromToken(session.accessToken);
-      const serviceToken = await keycloak.getServiceAccountToken();
-      const adminResponse = await fetch(keycloak.getAdminUrl(`/users/${userId}`), {
-        headers: {
-          Authorization: `Bearer ${serviceToken}`,
-          Accept: "application/json",
-        },
-      });
 
-      if (adminResponse.ok) {
-        const adminData = await adminResponse.json();
-        const normalizedRequiredActions = keycloak.normalizeRequiredActions(
-          adminData.requiredActions || []
-        );
-        console.log(
-          "[API /account GET] adminData.requiredActions:",
-          adminData.requiredActions
-        );
-        console.log(
-          "[API /account GET] normalized requiredActions:",
-          normalizedRequiredActions
-        );
-        data.requiredActions = normalizedRequiredActions;
-      } else {
-        const adminErrorText = await adminResponse.text();
-        console.error("[API /account GET] admin fetch error:", adminErrorText);
-        data.requiredActions = [];
-      }
-      console.log("[API /account GET] final merged requiredActions:", data.requiredActions);
-    } catch (adminError) {
-      console.error("[API /account GET] admin merge error:", adminError);
-      data.requiredActions = [];
-    }
+    // Extract additional fields from JWT token (standard OIDC approach)
+    const tokenPayload = keycloak.decodeTokenPayload(session.accessToken);
 
-    return NextResponse.json(data);
+    // Merge UserInfo with JWT token data including custom claims (e.g., phone_number)
+    const mergedData = {
+      ...data,
+      username: tokenPayload.preferred_username || data.preferred_username,
+      firstName: tokenPayload.given_name || data.given_name,
+      lastName: tokenPayload.family_name || data.family_name,
+      emailVerified: tokenPayload.email_verified || data.email_verified,
+      // Custom claims from protocol mappers (e.g., phone_number)
+      attributes: {
+        "phone-number": tokenPayload.phone_number ? [tokenPayload.phone_number] : [],
+      },
+    };
+
+    // In standard OIDC, required actions should be in the token as a custom claim
+    // For now, return empty array - they should be added via Keycloak protocol mappers
+    mergedData.requiredActions = [];
+
+    return NextResponse.json(mergedData);
   } catch (error) {
     console.error("[API /account GET] error:", error);
     return NextResponse.json(
@@ -82,70 +71,80 @@ export async function PUT(request: Request) {
     }
 
     const body = await request.json();
+    const { firstName, lastName, email, attributes } = body;
 
-    // If updating attributes, use Admin API
-    if (body.attributes) {
-      try {
-        const userId = await keycloak.getUserIdFromToken(session.accessToken);
-        const serviceToken = await keycloak.getServiceAccountToken();
-        await keycloak.updateUserAttributes(serviceToken, userId, body.attributes);
-      } catch (adminError) {
-        console.error("[API /account PUT] Admin API error:", adminError);
-        // Fall back to Account API if Admin API fails
-      }
-    }
-
-    // First get current profile to merge
-    const currentRes = await fetch(keycloak.getAccountUrl("/account"), {
+    // Step 1: Get current profile via Account API (no admin token needed)
+    const currentProfileRes = await fetch(keycloak.getAccountUrl("/account"), {
       headers: {
         Authorization: `Bearer ${session.accessToken}`,
         Accept: "application/json",
       },
     });
 
-    if (!currentRes.ok) {
+    if (!currentProfileRes.ok) {
+      const errorText = await currentProfileRes.text();
       return NextResponse.json(
-        { error: "Failed to fetch current profile" },
-        { status: currentRes.status }
+        { error: "Failed to fetch current profile", details: errorText },
+        { status: currentProfileRes.status }
       );
     }
 
-    const currentProfile = await currentRes.json();
+    const currentProfile = await currentProfileRes.json();
+    const isEmailChanged = email && email !== currentProfile.email;
 
-    // Check if email is being changed - if so, reset verification status
-    const isEmailChanged = body.email && body.email !== currentProfile.email;
+    // Step 2: Update profile via Account REST API (user-scoped, no admin rights needed)
+    // This follows enterprise security principle: users update their own data
+    const accountUpdateBody: Record<string, any> = {};
+    if (firstName !== undefined) accountUpdateBody.firstName = firstName;
+    if (lastName !== undefined) accountUpdateBody.lastName = lastName;
+    if (email !== undefined) accountUpdateBody.email = email;
 
-    // Merge attributes properly
-    const updatedProfile = {
-      ...currentProfile,
-      ...body,
-      attributes: {
-        ...(currentProfile.attributes || {}),
-        ...(body.attributes || {}),
-      },
-      // Reset email verification if email changed
-      ...(isEmailChanged && { emailVerified: false }),
+    // Build merged attributes
+    const mergedAttributes = {
+      ...(currentProfile.attributes || {}),
+      ...(attributes || {}),
     };
+    accountUpdateBody.attributes = mergedAttributes;
 
-    const response = await fetch(keycloak.getAccountUrl("/account"), {
+    const updateRes = await fetch(keycloak.getAccountUrl("/account"), {
       method: "POST",
       headers: {
         Authorization: `Bearer ${session.accessToken}`,
         "Content-Type": "application/json",
-        Accept: "application/json",
       },
-      body: JSON.stringify(updatedProfile),
+      body: JSON.stringify(accountUpdateBody),
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
+    if (!updateRes.ok) {
+      const errorText = await updateRes.text();
       return NextResponse.json(
         { error: "Failed to update profile", details: errorText },
-        { status: response.status }
+        { status: updateRes.status }
       );
     }
 
-    return NextResponse.json({ success: true });
+    // Step 3: Handle email change side effects (requires Admin API for federated identity)
+    let googleDisconnected = false;
+    if (isEmailChanged) {
+      try {
+        const userId = keycloak.extractUserIdFromToken(session.accessToken);
+        const serviceToken = await keycloak.getServiceAccountToken();
+
+        await keycloak.removeFederatedIdentity(serviceToken, userId, "google");
+        await keycloak.updateUserAttributes(serviceToken, userId, {
+          google_features_requested: [],
+        });
+        googleDisconnected = true;
+      } catch (disconnectErr) {
+        console.error(
+          "[API /account PUT] Failed to disconnect Google after email change:",
+          disconnectErr
+        );
+        // Non-fatal: profile was updated successfully
+      }
+    }
+
+    return NextResponse.json({ success: true, googleDisconnected });
   } catch (error) {
     console.error("[API /account PUT] error:", error);
     return NextResponse.json(

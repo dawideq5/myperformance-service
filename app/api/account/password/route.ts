@@ -1,28 +1,51 @@
 import { getServerSession } from "next-auth/next";
-import { NextResponse } from "next/server";
 import { authOptions } from "@/app/auth";
 import { keycloak } from "@/lib/keycloak";
+import {
+  ApiError,
+  createSuccessResponse,
+  handleApiError,
+  validateRequestBody,
+} from "@/lib/api-utils";
 
+interface PasswordChangeRequest extends Record<string, unknown> {
+  currentPassword: string;
+  newPassword: string;
+}
+
+const MIN_PASSWORD_LENGTH = 8;
+
+/**
+ * POST /api/account/password
+ *
+ * Changes user password with verification of current password.
+ * Uses OAuth2 Resource Owner Password Credentials for verification
+ * and Keycloak Admin API for password update.
+ */
 export async function POST(request: Request) {
   try {
-    const session: any = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions);
 
-    console.log("[API /password POST] session exists:", !!session, "accessToken exists:", !!session?.accessToken);
     if (!session?.accessToken) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      throw ApiError.unauthorized();
     }
 
     const body = await request.json();
+
+    if (!validateRequestBody<PasswordChangeRequest>(body, ["currentPassword", "newPassword"])) {
+      throw ApiError.badRequest("Brakuje wymaganych pól: currentPassword, newPassword");
+    }
+
     const { currentPassword, newPassword } = body;
 
-    if (!currentPassword || !newPassword) {
-      return NextResponse.json(
-        { error: "Brakuje wymaganych pól" },
-        { status: 400 }
+    // Validate password strength
+    if (newPassword.length < MIN_PASSWORD_LENGTH) {
+      throw ApiError.badRequest(
+        `Hasło musi mieć co najmniej ${MIN_PASSWORD_LENGTH} znaków`
       );
     }
 
-    // Verify current password by attempting a token exchange
+    // Step 1: Verify current password via Resource Owner Password Credentials Grant
     const verifyResponse = await fetch(
       keycloak.getAccountUrl("/protocol/openid-connect/token"),
       {
@@ -32,8 +55,8 @@ export async function POST(request: Request) {
         },
         body: new URLSearchParams({
           grant_type: "password",
-          client_id: process.env.KEYCLOAK_CLIENT_ID!,
-          client_secret: process.env.KEYCLOAK_CLIENT_SECRET!,
+          client_id: process.env.KEYCLOAK_CLIENT_ID?.trim() || "",
+          client_secret: process.env.KEYCLOAK_CLIENT_SECRET?.trim() || "",
           username: session.user?.email || "",
           password: currentPassword,
           scope: "openid",
@@ -41,21 +64,15 @@ export async function POST(request: Request) {
       }
     );
 
-    console.log("[API /password POST] verify password response:", verifyResponse.status);
-
     if (!verifyResponse.ok) {
-      return NextResponse.json(
-        { error: "Aktualne hasło jest nieprawidłowe" },
-        { status: 401 }
-      );
+      throw ApiError.unauthorized("Aktualne hasło jest nieprawidłowe");
     }
 
-    // Use Keycloak Admin REST API to change password
-    const userId = await keycloak.getUserIdFromToken(session.accessToken);
+    // Step 2: Update password via Admin API (required for password changes)
+    const userId = keycloak.extractUserIdFromToken(session.accessToken);
     const serviceToken = await keycloak.getServiceAccountToken();
 
     const passwordUrl = keycloak.getAdminUrl(`/users/${userId}/reset-password`);
-    console.log("[API /password POST] changing password at:", passwordUrl);
 
     const passwordResponse = await fetch(passwordUrl, {
       method: "PUT",
@@ -71,19 +88,17 @@ export async function POST(request: Request) {
     });
 
     if (!passwordResponse.ok) {
-      const errorData = await passwordResponse.text();
-      return NextResponse.json(
-        { error: "Nie udało się zmienić hasła", details: errorData },
-        { status: passwordResponse.status }
+      const errorText = await passwordResponse.text();
+      throw new ApiError(
+        "INTERNAL_ERROR",
+        "Nie udało się zmienić hasła",
+        passwordResponse.status,
+        process.env.NODE_ENV === "development" ? errorText : undefined
       );
     }
 
-    return NextResponse.json({ success: true });
+    return createSuccessResponse({ success: true });
   } catch (error) {
-    console.error("[API /password POST] error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return handleApiError(error);
   }
 }

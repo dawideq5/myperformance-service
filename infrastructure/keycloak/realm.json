@@ -225,12 +225,13 @@
       "linkOnly": false,
       "hideOnLogin": true,
       "config": {
-        "syncMode": "LEGACY",
+        "syncMode": "FORCE",
         "clientId": "${GOOGLE_IDP_CLIENT_ID}",
         "clientSecret": "${GOOGLE_IDP_CLIENT_SECRET}",
-        "defaultScope": "openid profile email",
+        "defaultScope": "openid profile email https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/gmail.labels",
+        "prompt": "consent",
         "userIp": "false",
-        "offlineAccess": "false"
+        "offlineAccess": "true"
       }
     }
   ],

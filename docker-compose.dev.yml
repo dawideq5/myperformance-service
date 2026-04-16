@@ -18,7 +18,7 @@ services:
         condition: service_healthy
 
   keycloak:
-    image: quay.io/keycloak/keycloak:24.0.0
+    image: quay.io/keycloak/keycloak:26.3.5
     container_name: myperformance_keycloak_dev
     command: start-dev --import-realm
     env_file:

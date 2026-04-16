@@ -1,13 +1,28 @@
 import { getServerSession } from "next-auth/next";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { authOptions } from "@/app/auth";
 import { keycloak } from "@/lib/keycloak";
 
+const ALLOWED_FEATURES = new Set([
+  "email_verification",
+  "calendar",
+  "gmail_labels",
+]);
+
 /**
  * POST /api/integrations/google/connect
- * Initiates Google OAuth connection via Keycloak Identity Provider
+ *
+ * Persists the user's chosen integration features (calendar, gmail, email
+ * verification) as a Keycloak user attribute before the browser is redirected
+ * to the Google consent screen. The actual OAuth flow is driven on the client
+ * side via NextAuth signIn with kc_action=idp_link:google (Keycloak 26.3+ AIA).
+ *
+ * Body: { features: string[] }
+ *   - email_verification: confirm and mark email as verified
+ *   - calendar: create calendar events on user's behalf
+ *   - gmail_labels: create / manage labels in user's Gmail
  */
-export async function POST() {
+export async function POST(request: NextRequest) {
   try {
     const session: any = await getServerSession(authOptions);
 
@@ -15,58 +30,35 @@ export async function POST() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const userId = await keycloak.getUserIdFromToken(session.accessToken);
-    const serviceToken = await keycloak.getServiceAccountToken();
+    const body = await request.json().catch(() => ({}));
+    console.log("[Google Connect] Request body:", JSON.stringify(body));
+    const rawFeatures: unknown = body?.features;
+    const features = Array.isArray(rawFeatures)
+      ? rawFeatures
+          .filter((feature): feature is string => typeof feature === "string")
+          .filter((feature) => ALLOWED_FEATURES.has(feature))
+      : [];
 
-    // Get user data to check if already linked
-    const identitiesResponse = await keycloak.adminRequest(
-      `/users/${userId}/federated-identity`,
-      serviceToken
-    );
-    if (!identitiesResponse.ok) {
+    console.log("[Google Connect] Filtered features:", features);
+
+    if (features.length === 0) {
       return NextResponse.json(
-        { error: "Failed to fetch user data" },
-        { status: 500 }
-      );
-    }
-
-    const federatedIdentities = await identitiesResponse.json();
-
-    // Check if Google is already linked
-    const googleLinked = federatedIdentities.some(
-      (identity: any) => identity.identityProvider === "google"
-    );
-
-    if (googleLinked) {
-      return NextResponse.json(
-        { error: "Google account already connected" },
+        { error: "At least one feature must be selected" },
         { status: 400 }
       );
     }
 
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-    const redirectUri = `${baseUrl}/account?tab=integrations&google_linking=1`;
-    const { url, nonce, hash, sessionState, clientId } = keycloak.getBrokerLinkUrl(
-      "google",
-      session.accessToken,
-      redirectUri,
-      process.env.KEYCLOAK_CLIENT_ID?.trim()
-    );
+    const userId = await keycloak.getUserIdFromToken(session.accessToken);
+    const serviceToken = await keycloak.getServiceAccountToken();
 
-    console.log("[Google Connect] Broker link params:", {
-      userId,
-      provider: "google",
-      redirectUri,
-      clientId,
-      sessionState,
-      nonce,
-      hash,
-      url,
+    console.log("[Google Connect] Saving features for user:", userId, features);
+    await keycloak.updateUserAttributes(serviceToken, userId, {
+      google_features_requested: features,
+      google_features_requested_at: [new Date().toISOString()],
     });
 
-    return NextResponse.json({
-      authorizationUrl: url,
-    });
+    console.log("[Google Connect] Features saved successfully");
+    return NextResponse.json({ success: true, features });
   } catch (error) {
     console.error("[Google Connect] Error:", error);
     return NextResponse.json(
