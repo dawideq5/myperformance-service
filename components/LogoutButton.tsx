@@ -3,6 +3,7 @@
 import { signOut } from "next-auth/react";
 import { LogOut } from "lucide-react";
 import { getPublicKeycloakIssuer } from "@/lib/keycloak-config";
+import { getPublicLogoutRedirectUrl } from "@/lib/app-url";
 
 export function LogoutButton() {
   const handleLogout = async () => {
@@ -12,11 +13,10 @@ export function LogoutButton() {
     // 2. Redirect to Keycloak logout endpoint
     const issuer = getPublicKeycloakIssuer();
     const clientId = process.env.NEXT_PUBLIC_KEYCLOAK_CLIENT_ID || "";
-    const postLogoutUri = `${window.location.origin}/login`;
+    const postLogoutUri = getPublicLogoutRedirectUrl();
 
     // URL format for Keycloak logout (OIDC)
-    // Note: id_token_hint is optional and can cause errors if expired/invalid
-    const logoutUrl = `${issuer}/protocol/openid-connect/logout?post_logout_redirect_uri=${encodeURIComponent(postLogoutUri)}&client_id=${clientId}`;
+    const logoutUrl = `${issuer}/protocol/openid-connect/logout?post_logout_redirect_uri=${encodeURIComponent(postLogoutUri)}&client_id=${encodeURIComponent(clientId)}`;
 
     window.location.href = logoutUrl;
   };

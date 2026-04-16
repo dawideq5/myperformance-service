@@ -31,6 +31,7 @@ import { PhoneInput } from "@/components/PhoneInput";
 import { useTheme } from "@/components/ThemeProvider";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { getPublicKeycloakIssuer } from "@/lib/keycloak-config";
+import { getPublicLogoutRedirectUrl } from "@/lib/app-url";
 
 interface KeycloakSession {
   id: string;
@@ -252,10 +253,9 @@ export default function AccountPage() {
   const signOutWithKeycloak = async () => {
     // Build Keycloak logout URL
     const keycloakUrl = getPublicKeycloakIssuer();
-    const idToken = (session as any)?.idToken;
-    const redirectUri = encodeURIComponent(`${window.location.origin}/login`);
-    
-    const keycloakLogoutUrl = `${keycloakUrl}/protocol/openid-connect/logout?id_token_hint=${idToken}&post_logout_redirect_uri=${redirectUri}`;
+    const redirectUri = encodeURIComponent(getPublicLogoutRedirectUrl());
+
+    const keycloakLogoutUrl = `${keycloakUrl}/protocol/openid-connect/logout?post_logout_redirect_uri=${redirectUri}`;
     
     // Sign out from NextAuth first (this will also trigger server-side Keycloak logout via events)
     await signOut({ redirect: false });
