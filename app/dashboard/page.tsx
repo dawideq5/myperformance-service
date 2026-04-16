@@ -36,7 +36,7 @@ export default async function DashboardPage() {
             >
               <Settings className="w-5 h-5" />
             </Link>
-            <LogoutButton idToken={session.idToken ?? ""} />
+            <LogoutButton />
           </div>
         </div>
       </nav>
