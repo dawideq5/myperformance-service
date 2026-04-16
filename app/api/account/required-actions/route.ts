@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const userId = keycloak.extractUserIdFromToken(session.accessToken);
+    const userId = await keycloak.getUserIdFromToken(session.accessToken);
     const serviceToken = await keycloak.getServiceAccountToken();
 
     const requiredActionAlias = await keycloak.resolveRequiredActionAlias(
@@ -120,7 +120,7 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    const userId = keycloak.extractUserIdFromToken(session.accessToken);
+    const userId = await keycloak.getUserIdFromToken(session.accessToken);
     const serviceToken = await keycloak.getServiceAccountToken();
 
     const requiredActionAlias = await keycloak.resolveRequiredActionAlias(

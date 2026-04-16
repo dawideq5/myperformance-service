@@ -127,7 +127,7 @@ export async function PUT(request: Request) {
     let googleDisconnected = false;
     if (isEmailChanged) {
       try {
-        const userId = keycloak.extractUserIdFromToken(session.accessToken);
+        const userId = await keycloak.getUserIdFromToken(session.accessToken);
         const serviceToken = await keycloak.getServiceAccountToken();
 
         await keycloak.removeFederatedIdentity(serviceToken, userId, "google");
