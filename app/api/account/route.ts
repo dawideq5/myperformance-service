@@ -5,6 +5,7 @@ import {
   getServiceAccountToken,
   getUserIdFromToken,
   normalizeRequiredActions,
+  updateUserAttributes,
 } from "@/lib/keycloak-admin";
 import { getAccountUrl, getAdminUrl } from "@/lib/keycloak-config";
 
@@ -86,6 +87,18 @@ export async function PUT(request: Request) {
     }
 
     const body = await request.json();
+
+    // If updating attributes, use Admin API
+    if (body.attributes) {
+      try {
+        const userId = await getUserIdFromToken(session.accessToken);
+        const serviceToken = await getServiceAccountToken();
+        await updateUserAttributes(serviceToken, userId, body.attributes);
+      } catch (adminError) {
+        console.error("[API /account PUT] Admin API error:", adminError);
+        // Fall back to Account API if Admin API fails
+      }
+    }
 
     // First get current profile to merge
     const currentRes = await fetch(getAccountUrl("/account"), {

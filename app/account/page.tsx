@@ -29,6 +29,7 @@ import {
 import Link from "next/link";
 import { PhoneInput } from "@/components/PhoneInput";
 import { useTheme } from "@/components/ThemeProvider";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { getPublicKeycloakIssuer } from "@/lib/keycloak-config";
 
 interface KeycloakSession {
@@ -809,47 +810,25 @@ export default function AccountPage() {
                 {/* Theme Preferences Section */}
                 <div className="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-2xl p-6">
                   <div className="flex items-center justify-between mb-6">
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-xl bg-[var(--accent)]/10 flex items-center justify-center">
-                        <div className="w-6 h-6 rounded-full bg-gradient-to-br from-yellow-400 to-orange-500" />
-                      </div>
-                      <div>
-                        <h2 className="text-lg font-semibold text-[var(--text-main)]">
-                          Wygląd aplikacji
-                        </h2>
-                        <p className="text-sm text-[var(--text-muted)]">
-                          Preferencje motywu
-                        </p>
-                      </div>
+                    <div>
+                      <h2 className="text-lg font-semibold text-[var(--text-main)]">
+                        Wygląd aplikacji
+                      </h2>
+                      <p className="text-sm text-[var(--text-muted)]">
+                        Preferencje motywu
+                      </p>
                     </div>
                   </div>
 
                   <div className="space-y-4">
                     <div className="flex items-center justify-between p-4 bg-[var(--bg-main)] border border-[var(--border-subtle)] rounded-xl">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-lg bg-slate-700 flex items-center justify-center">
-                          <div className="w-5 h-5 rounded-full bg-gradient-to-br from-slate-600 to-slate-800" />
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium text-[var(--text-main)]">Tryb ciemny</p>
-                          <p className="text-xs text-[var(--text-muted)]">
-                            {theme === "dark" ? "Włączony" : "Wyłączony"}
-                          </p>
-                        </div>
+                      <div>
+                        <p className="text-sm font-medium text-[var(--text-main)]">Tryb ciemny</p>
+                        <p className="text-xs text-[var(--text-muted)]">
+                          {theme === "dark" ? "Włączony" : "Wyłączony"}
+                        </p>
                       </div>
-                      <button
-                        onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-                        disabled={themeLoading}
-                        className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors ${
-                          theme === "dark" ? "bg-[var(--accent)]" : "bg-[var(--border-subtle)]"
-                        } disabled:opacity-50`}
-                      >
-                        <span
-                          className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
-                            theme === "dark" ? "translate-x-6" : "translate-x-1"
-                          }`}
-                        />
-                      </button>
+                      <ThemeToggle />
                     </div>
 
                     <p className="text-xs text-[var(--text-muted)]">

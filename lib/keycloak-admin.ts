@@ -190,3 +190,31 @@ export async function resolveRequiredActionAlias(
 export function getRequiredActionAliasCandidates(action: string) {
   return getRequiredActionAliases(action);
 }
+
+export async function updateUserAttributes(
+  adminToken: string,
+  userId: string,
+  attributes: Record<string, string[]>
+) {
+  const userResponse = await adminRequest(`/users/${userId}`, adminToken);
+  if (!userResponse.ok) {
+    throw new Error("Unable to load user data for attribute update");
+  }
+
+  const userData = await userResponse.json();
+  const updateResponse = await adminRequest(`/users/${userId}`, adminToken, {
+    method: "PUT",
+    body: JSON.stringify({
+      ...userData,
+      attributes: {
+        ...(userData.attributes || {}),
+        ...attributes,
+      },
+    }),
+  });
+
+  if (!updateResponse.ok) {
+    const details = await updateResponse.text();
+    throw new Error(details || "Unable to update user attributes");
+  }
+}

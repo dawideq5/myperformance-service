@@ -7,16 +7,22 @@ export function ThemeToggle() {
   const { theme, toggleTheme } = useTheme();
 
   return (
-    <button
-      onClick={toggleTheme}
-      className="p-3 glass rounded-2xl text-gray-400 hover:text-accent transition-all duration-300"
-      aria-label="Toggle theme"
-    >
-      {theme === "dark" ? (
-        <Sun className="w-5 h-5" />
-      ) : (
-        <Moon className="w-5 h-5" />
-      )}
-    </button>
+    <label className="switch">
+      <input
+        type="checkbox"
+        className="input"
+        checked={theme === "dark"}
+        onChange={toggleTheme}
+        aria-label="Toggle theme"
+      />
+      <span className="slider">
+        <span className="sun">
+          <Sun />
+        </span>
+        <span className="moon">
+          <Moon />
+        </span>
+      </span>
+    </label>
   );
 }

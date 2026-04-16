@@ -1,6 +1,6 @@
 import type { AuthOptions } from "next-auth";
 import KeycloakProvider from "next-auth/providers/keycloak";
-import { getKeycloakIssuer } from "@/lib/keycloak-config";
+import { getKeycloakIssuer, getAccountUrl } from "@/lib/keycloak-config";
 
 function getRequiredEnv(name: string) {
   const value = process.env[name]?.trim();
@@ -76,6 +76,9 @@ function buildAuthOptions() {
         clientId: keycloakClientId,
         clientSecret: keycloakClientSecret,
         issuer: keycloakIssuer,
+        client: {
+          token_endpoint_auth_method: "client_secret_post",
+        },
       }),
     ],
     secret: process.env.NEXTAUTH_SECRET,
@@ -161,6 +164,26 @@ function buildAuthOptions() {
           } catch (error) {
             console.error("[auth] Failed to parse Keycloak token:", error);
             session.user.roles = [];
+          }
+        }
+
+        // Fetch user attributes from Keycloak Account API
+        if (token.accessToken) {
+          try {
+            const accountRes = await fetch(getAccountUrl("/account"), {
+              headers: {
+                Authorization: `Bearer ${token.accessToken}`,
+                Accept: "application/json",
+              },
+            });
+
+            if (accountRes.ok) {
+              const accountData = await accountRes.json();
+              session.user.attributes = accountData.attributes || {};
+            }
+          } catch (error) {
+            console.error("[auth] Failed to fetch user attributes:", error);
+            session.user.attributes = {};
           }
         }
 
