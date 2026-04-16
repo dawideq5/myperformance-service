@@ -1,13 +1,8 @@
 import { getServerSession } from "next-auth/next";
 import { NextResponse } from "next/server";
 import { authOptions } from "@/app/auth";
-import {
-  getServiceAccountToken,
-  getUserIdFromToken,
-  normalizeRequiredActions,
-  updateUserAttributes,
-} from "@/lib/keycloak-admin";
-import { getAccountUrl, getAdminUrl } from "@/lib/keycloak-config";
+
+import { keycloak } from "@/lib/keycloak";
 
 export async function GET() {
   try {
@@ -17,7 +12,7 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const response = await fetch(getAccountUrl("/account"), {
+    const response = await fetch(keycloak.getAccountUrl("/account"), {
       headers: {
         Authorization: `Bearer ${session.accessToken}`,
         Accept: "application/json",
@@ -34,9 +29,9 @@ export async function GET() {
 
     const data = await response.json();
     try {
-      const userId = await getUserIdFromToken(session.accessToken);
-      const serviceToken = await getServiceAccountToken();
-      const adminResponse = await fetch(getAdminUrl(`/users/${userId}`), {
+      const userId = await keycloak.getUserIdFromToken(session.accessToken);
+      const serviceToken = await keycloak.getServiceAccountToken();
+      const adminResponse = await fetch(keycloak.getAdminUrl(`/users/${userId}`), {
         headers: {
           Authorization: `Bearer ${serviceToken}`,
           Accept: "application/json",
@@ -45,7 +40,7 @@ export async function GET() {
 
       if (adminResponse.ok) {
         const adminData = await adminResponse.json();
-        const normalizedRequiredActions = normalizeRequiredActions(
+        const normalizedRequiredActions = keycloak.normalizeRequiredActions(
           adminData.requiredActions || []
         );
         console.log(
@@ -91,9 +86,9 @@ export async function PUT(request: Request) {
     // If updating attributes, use Admin API
     if (body.attributes) {
       try {
-        const userId = await getUserIdFromToken(session.accessToken);
-        const serviceToken = await getServiceAccountToken();
-        await updateUserAttributes(serviceToken, userId, body.attributes);
+        const userId = await keycloak.getUserIdFromToken(session.accessToken);
+        const serviceToken = await keycloak.getServiceAccountToken();
+        await keycloak.updateUserAttributes(serviceToken, userId, body.attributes);
       } catch (adminError) {
         console.error("[API /account PUT] Admin API error:", adminError);
         // Fall back to Account API if Admin API fails
@@ -101,7 +96,7 @@ export async function PUT(request: Request) {
     }
 
     // First get current profile to merge
-    const currentRes = await fetch(getAccountUrl("/account"), {
+    const currentRes = await fetch(keycloak.getAccountUrl("/account"), {
       headers: {
         Authorization: `Bearer ${session.accessToken}`,
         Accept: "application/json",
@@ -127,7 +122,7 @@ export async function PUT(request: Request) {
       },
     };
 
-    const response = await fetch(getAccountUrl("/account"), {
+    const response = await fetch(keycloak.getAccountUrl("/account"), {
       method: "POST",
       headers: {
         Authorization: `Bearer ${session.accessToken}`,

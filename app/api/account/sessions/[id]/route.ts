@@ -1,7 +1,7 @@
 import { getServerSession } from "next-auth/next";
 import { NextRequest, NextResponse } from "next/server";
 import { authOptions } from "@/app/auth";
-import { getAccountUrl } from "@/lib/keycloak-config";
+import { keycloak } from "@/lib/keycloak";
 
 export async function DELETE(
   request: NextRequest,
@@ -15,7 +15,7 @@ export async function DELETE(
     }
 
     const { id } = await params;
-    const response = await fetch(getAccountUrl(`/account/sessions/${id}`), {
+    const response = await fetch(keycloak.getAccountUrl(`/account/sessions/${id}`), {
       method: "DELETE",
       headers: {
         Authorization: `Bearer ${session.accessToken}`,

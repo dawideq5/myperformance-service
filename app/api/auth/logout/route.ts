@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getPublicLogoutRedirectUrl } from "@/lib/app-url";
-import { getKeycloakIssuer } from "@/lib/keycloak-config";
+import { keycloak } from "@/lib/keycloak";
 
 function getRequiredEnv(name: string) {
   const value = process.env[name]?.trim();
@@ -12,7 +12,7 @@ function getRequiredEnv(name: string) {
 }
 
 export async function GET() {
-  const issuer = getKeycloakIssuer();
+  const issuer = keycloak.getIssuer();
   const clientId = getRequiredEnv("KEYCLOAK_CLIENT_ID");
   const logoutUrl = new URL(`${issuer}/protocol/openid-connect/logout`);
 

@@ -1,9 +1,59 @@
+import { withAuth } from "next-auth/middleware";
 import { NextResponse } from "next/server";
+import { keycloak } from "./lib/keycloak";
 
-export default function middleware() {
-  return NextResponse.next();
-}
+export default withAuth(
+  async function middleware(req) {
+    const token = req.nextauth.token;
+
+    // We protect specific paths
+    const pathname = req.nextUrl.pathname;
+    const isProtected = pathname.startsWith("/dashboard") || pathname.startsWith("/account") || pathname.startsWith("/api/account");
+
+    if (isProtected) {
+      if (!token || !token.accessToken) {
+        return NextResponse.redirect(new URL("/login", req.url));
+      }
+
+      // Check if token was marked with keycloakError in jwt callback
+      if (token.keycloakError) {
+        return NextResponse.redirect(new URL("/login?error=SessionExpired", req.url));
+      }
+
+      // STRICT VALIDATION IN MIDDLEWARE: Ping Keycloak userinfo
+      // This is safe since it runs on navigation/API request, verifying true state
+      try {
+        const userInfoResponse = await fetch(
+          keycloak.getAccountUrl("/protocol/openid-connect/userinfo"),
+          {
+            headers: { Authorization: `Bearer ${token.accessToken}` },
+          }
+        );
+        if (!userInfoResponse.ok) {
+          console.warn("[middleware] Keycloak session invalid (userinfo failed)");
+          return NextResponse.redirect(new URL("/api/auth/logout", req.url));
+        }
+      } catch (e) {
+        console.error("[middleware] Keycloak userinfo check failed", e);
+        // Do not block on network failure if Keycloak is temporarily down, unless desired
+      }
+    }
+
+    return NextResponse.next();
+  },
+  {
+    callbacks: {
+      authorized: ({ req, token }) => {
+        return true;
+      },
+    },
+    pages: {
+      signIn: "/login",
+    }
+  }
+);
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  // We want to run middleware on our protected app routes
+  matcher: ["/dashboard/:path*", "/account/:path*", "/api/account/:path*"],
 };

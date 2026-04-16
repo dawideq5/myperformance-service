@@ -1,14 +1,7 @@
 import { getServerSession } from "next-auth/next";
 import { NextRequest, NextResponse } from "next/server";
 import { authOptions } from "@/app/auth";
-import {
-  appendUserRequiredAction,
-  getRequiredActionAliasCandidates,
-  getServiceAccountToken,
-  getUserIdFromToken,
-  removeUserRequiredAction,
-  resolveRequiredActionAlias,
-} from "@/lib/keycloak-admin";
+import { keycloak } from "@/lib/keycloak";
 
 // POST - Set required action for user (enables configuration at next login)
 export async function POST(request: NextRequest) {
@@ -25,13 +18,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Missing action" }, { status: 400 });
     }
 
-    const userId = await getUserIdFromToken(session.accessToken);
-    const serviceToken = await getServiceAccountToken();
+    const userId = await keycloak.getUserIdFromToken(session.accessToken);
+    const serviceToken = await keycloak.getServiceAccountToken();
 
-    const requiredActionAlias = await resolveRequiredActionAlias(
-      serviceToken,
-      getRequiredActionAliasCandidates(action)
-    );
+    const requiredActionAlias = await keycloak.resolveRequiredActionAlias(serviceToken, keycloak.getRequiredActionAliases(action));
 
     if (!requiredActionAlias) {
       return NextResponse.json(
@@ -43,7 +33,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    await appendUserRequiredAction(serviceToken, userId, requiredActionAlias);
+    await keycloak.appendUserRequiredAction(serviceToken, userId, requiredActionAlias);
 
     return NextResponse.json({
       success: true,
@@ -75,13 +65,10 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "Missing action" }, { status: 400 });
     }
 
-    const userId = await getUserIdFromToken(session.accessToken);
-    const serviceToken = await getServiceAccountToken();
+    const userId = await keycloak.getUserIdFromToken(session.accessToken);
+    const serviceToken = await keycloak.getServiceAccountToken();
 
-    const requiredActionAlias = await resolveRequiredActionAlias(
-      serviceToken,
-      getRequiredActionAliasCandidates(action)
-    );
+    const requiredActionAlias = await keycloak.resolveRequiredActionAlias(serviceToken, keycloak.getRequiredActionAliases(action));
 
     if (!requiredActionAlias) {
       return NextResponse.json(
@@ -93,7 +80,7 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    await removeUserRequiredAction(serviceToken, userId, requiredActionAlias);
+    await keycloak.removeUserRequiredAction(serviceToken, userId, requiredActionAlias);
 
     return NextResponse.json({ success: true, action: requiredActionAlias, requestedAction: action });
   } catch (error) {

@@ -1,7 +1,7 @@
 import { getServerSession } from "next-auth/next";
 import { NextResponse } from "next/server";
 import { authOptions } from "@/app/auth";
-import { getAccountUrl } from "@/lib/keycloak-config";
+import { keycloak } from "@/lib/keycloak";
 
 export async function GET() {
   try {
@@ -11,7 +11,7 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const response = await fetch(getAccountUrl("/account/sessions/devices"), {
+    const response = await fetch(keycloak.getAccountUrl("/account/sessions/devices"), {
       headers: {
         Authorization: `Bearer ${session.accessToken}`,
         Accept: "application/json",
