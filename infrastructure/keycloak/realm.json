@@ -102,10 +102,9 @@
         "https://www.myperformance.pl/*",
         "http://localhost:3000/*"
       ],
-      "postLogoutRedirectUris": [
-        "https://myperformance.pl/",
-        "http://localhost:3000/"
-      ],
+      "attributes": {
+        "post.logout.redirect.uris": "https://myperformance.pl/ http://localhost:3000/"
+      },
       "webOrigins": [
         "https://myperformance.pl",
         "https://www.myperformance.pl",
