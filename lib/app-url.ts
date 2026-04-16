@@ -1,4 +1,4 @@
-const DEFAULT_PUBLIC_APP_URL = "https://myperformance.pl";
+const DEFAULT_PUBLIC_APP_URL = "http://localhost:3000";
 
 const trimSlash = (value: string) => value.replace(/\/+$/, "");
 
