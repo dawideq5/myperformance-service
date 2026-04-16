@@ -1,3 +1,5 @@
+import { createHash, randomUUID } from "crypto";
+
 export class KeycloakService {
   private static instance: KeycloakService;
 
@@ -72,6 +74,54 @@ export class KeycloakService {
 
   public getAdminUrl(path = "") {
     return `${this.getBaseUrl()}/admin/realms/${this.getRealm()}${path}`;
+  }
+
+  public decodeTokenPayload(token: string) {
+    const [, payload] = token.split(".");
+
+    if (!payload) {
+      throw new Error("Invalid JWT payload");
+    }
+
+    return JSON.parse(Buffer.from(payload, "base64url").toString("utf-8"));
+  }
+
+  public getBrokerLinkUrl(
+    provider: string,
+    accessToken: string,
+    redirectUri: string,
+    clientId?: string
+  ) {
+    const payload = this.decodeTokenPayload(accessToken);
+    const issuedFor = clientId || payload.azp || payload.client_id;
+    const sessionState = payload.session_state || payload.sid;
+
+    if (!issuedFor) {
+      throw new Error("Missing Keycloak client id in token payload");
+    }
+
+    if (!sessionState) {
+      throw new Error("Missing Keycloak session state in token payload");
+    }
+
+    const nonce = randomUUID();
+    const hash = createHash("sha256")
+      .update(`${nonce}${sessionState}${issuedFor}${provider}`, "utf-8")
+      .digest("base64url");
+
+    const linkUrl = new URL(`${this.getPublicIssuer()}/broker/${provider}/link`);
+    linkUrl.searchParams.set("client_id", issuedFor);
+    linkUrl.searchParams.set("redirect_uri", redirectUri);
+    linkUrl.searchParams.set("nonce", nonce);
+    linkUrl.searchParams.set("hash", hash);
+
+    return {
+      url: linkUrl.toString(),
+      nonce,
+      hash,
+      sessionState,
+      clientId: issuedFor,
+    };
   }
 
   // Admin APIs
@@ -150,6 +200,7 @@ export class KeycloakService {
   private REQUIRED_ACTION_ALIAS_MAP: Record<string, string[]> = {
     CONFIGURE_TOTP: ["CONFIGURE_TOTP"],
     WEBAUTHN_REGISTER: ["WEBAUTHN_REGISTER", "webauthn-register"],
+    VERIFY_EMAIL: ["VERIFY_EMAIL", "verify-email"],
   };
 
   public getRequiredActionAliases(action: string) {
@@ -160,6 +211,7 @@ export class KeycloakService {
     const normalized = action.toLowerCase();
     if (normalized === "configure_totp") return "CONFIGURE_TOTP";
     if (normalized === "webauthn-register") return "WEBAUTHN_REGISTER";
+    if (normalized === "verify-email") return "VERIFY_EMAIL";
     return action;
   }
 

@@ -100,7 +100,10 @@
       "redirectUris": [
         "https://myperformance.pl/*",
         "https://www.myperformance.pl/*",
-        "http://localhost:3000/*"
+        "http://localhost:3000/*",
+        "http://localhost:3000/api/integrations/google/callback",
+        "https://myperformance.pl/api/integrations/google/callback",
+        "https://www.myperformance.pl/api/integrations/google/callback"
       ],
       "attributes": {
         "post.logout.redirect.uris": "https://myperformance.pl/ http://localhost:3000/"
@@ -207,6 +210,27 @@
           "view-users",
           "query-users"
         ]
+      }
+    }
+  ],
+  "identityProviders": [
+    {
+      "alias": "google",
+      "displayName": "Google",
+      "providerId": "google",
+      "enabled": true,
+      "trustEmail": true,
+      "storeToken": true,
+      "addReadTokenRoleOnCreate": true,
+      "linkOnly": false,
+      "hideOnLogin": true,
+      "config": {
+        "syncMode": "LEGACY",
+        "clientId": "${GOOGLE_IDP_CLIENT_ID}",
+        "clientSecret": "${GOOGLE_IDP_CLIENT_SECRET}",
+        "defaultScope": "openid profile email",
+        "userIp": "false",
+        "offlineAccess": "false"
       }
     }
   ],
@@ -457,5 +481,22 @@
         "annotations": {}
       }
     ]
-  }
+  },
+  "eventsEnabled": true,
+  "eventsListeners": ["jboss-logging", "webhook"],
+  "enabledEventTypes": [
+    "VERIFY_EMAIL",
+    "UPDATE_EMAIL",
+    "REGISTER",
+    "LOGIN",
+    "LOGOUT",
+    "UPDATE_PASSWORD",
+    "IDENTITY_PROVIDER_LOGIN",
+    "IDENTITY_PROVIDER_LOGIN_ERROR",
+    "FEDERATED_IDENTITY_LINK",
+    "FEDERATED_IDENTITY_LINK_ERROR",
+    "REMOVE_FEDERATED_IDENTITY",
+    "REMOVE_FEDERATED_IDENTITY_ERROR"
+  ],
+  "eventsExpiration": 86400
 }

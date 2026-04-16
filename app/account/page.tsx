@@ -1,6 +1,6 @@
 "use client";
 
-import { useSession, signOut } from "next-auth/react";
+import { useSession, signIn, signOut } from "next-auth/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   User,
@@ -25,6 +25,12 @@ import {
   Edit2,
   Info,
   ExternalLink,
+  Plug,
+  Calendar,
+  Tag,
+  Settings,
+  Shield as ShieldIcon,
+  CheckCircle2,
 } from "lucide-react";
 import Link from "next/link";
 import { PhoneInput } from "@/components/PhoneInput";
@@ -61,7 +67,7 @@ interface TwoFAStatus {
 export default function AccountPage() {
   const { data: session, status } = useSession();
   const { theme, setTheme, isLoading: themeLoading } = useTheme();
-  const [activeTab, setActiveTab] = useState<"profile" | "security" | "sessions">("profile");
+  const [activeTab, setActiveTab] = useState<"profile" | "security" | "sessions" | "integrations">("profile");
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [sessions, setSessions] = useState<KeycloakSession[]>([]);
   const [twoFA, setTwoFA] = useState<TwoFAStatus | null>(null);
@@ -95,7 +101,15 @@ export default function AccountPage() {
   // Pending configuration states (required actions)
   const [pending2FA, setPending2FA] = useState(false);
   const [pendingWebAuthn, setPendingWebAuthn] = useState(false);
+  const [pendingEmailVerify, setPendingEmailVerify] = useState(false);
   const [configuringMethod, setConfiguringMethod] = useState<string | null>(null);
+
+  // Google integration state
+  const [googleConnected, setGoogleConnected] = useState(false);
+  const [googleScopes, setGoogleScopes] = useState<string[]>([]);
+  const [connectingGoogle, setConnectingGoogle] = useState(false);
+  const [googleError, setGoogleError] = useState<string | null>(null);
+  const [googleSuccess, setGoogleSuccess] = useState<string | null>(null);
 
   const accessToken = (session as any)?.accessToken;
   const sessionError = (session as any)?.error;
@@ -104,6 +118,81 @@ export default function AccountPage() {
   const forceLogout = useCallback(async () => {
     await signOut({ callbackUrl: "/login" });
   }, []);
+
+  // Fetch Google integration status
+  const fetchGoogleStatus = useCallback(async () => {
+    try {
+      const res = await fetch("/api/integrations/google/status");
+      if (res.ok) {
+        const data = await res.json();
+        setGoogleConnected(data.connected);
+        setGoogleScopes(data.scopes || []);
+        return data;
+      }
+    } catch (err) {
+      console.error("Failed to fetch Google status", err);
+    }
+
+    return null;
+  }, []);
+
+  // Connect Google account
+  const connectGoogle = async () => {
+    try {
+      setConnectingGoogle(true);
+      setGoogleError(null);
+      setGoogleSuccess(null);
+      console.log("[Google Connect UI] Session roles:", (session as any)?.user?.roles || []);
+      await signIn(
+        "keycloak",
+        {
+          callbackUrl: "/account?tab=integrations&google_linking=1",
+          redirect: true,
+        },
+        {
+          kc_action: "idp_link:google",
+        }
+      );
+    } catch (err) {
+      console.error("Failed to connect Google", err);
+      alert("Wystąpił błąd podczas łączenia konta Google");
+      setConnectingGoogle(false);
+    }
+  };
+
+  // Disconnect Google account
+  const disconnectGoogle = async () => {
+    if (!confirm("Czy na pewno chcesz odłączyć konto Google?")) {
+      return;
+    }
+
+    try {
+      setConnectingGoogle(true);
+      const res = await fetch("/api/integrations/google/disconnect", {
+        method: "POST",
+      });
+
+      if (res.status === 401) {
+        signOut({ callbackUrl: "/login", redirect: true });
+        return;
+      }
+
+      if (res.ok) {
+        setGoogleConnected(false);
+        setGoogleScopes([]);
+        setGoogleSuccess(null);
+        setGoogleError(null);
+      } else {
+        const errorData = await res.json().catch(() => ({}));
+        alert(errorData.error || "Nie udało się odłączyć konta Google");
+      }
+    } catch (err) {
+      console.error("Failed to disconnect Google", err);
+      alert("Wystąpił błąd podczas odłączania konta Google");
+    } finally {
+      setConnectingGoogle(false);
+    }
+  };
 
   const apiRequest = useCallback(
     async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -171,7 +260,11 @@ export default function AccountPage() {
         const requiredActions = profileData.requiredActions || [];
         setPending2FA(requiredActions.includes("CONFIGURE_TOTP"));
         setPendingWebAuthn(requiredActions.includes("WEBAUTHN_REGISTER"));
+        setPendingEmailVerify(requiredActions.includes("VERIFY_EMAIL"));
       }
+
+      // Fetch Google integration status
+      await fetchGoogleStatus();
 
       // Check session validity first
       const sessionCheckRes = await fetch("/api/account");
@@ -217,7 +310,7 @@ export default function AccountPage() {
     } finally {
       setLoading(false);
     }
-  }, [apiRequest, session]);
+  }, [apiRequest, fetchGoogleStatus, session]);
 
   useEffect(() => {
     if (sessionError === "RefreshTokenExpired") {
@@ -230,6 +323,43 @@ export default function AccountPage() {
       void fetchUserData();
     }
   }, [status, accessToken, sessionError, forceLogout, fetchUserData]);
+
+  // Handle Google OAuth callback query parameters
+  useEffect(() => {
+    const handleGoogleRedirect = async () => {
+      const url = new URL(window.location.href);
+      const googleLinking = url.searchParams.get("google_linking");
+      const error = url.searchParams.get("error");
+
+      if (googleLinking === "1") {
+        const statusData = await fetchGoogleStatus();
+        if (statusData?.connected) {
+          setGoogleSuccess("Konto Google zostało pomyślnie powiązane.");
+          setGoogleError(null);
+        } else {
+          setGoogleSuccess(null);
+          setGoogleError("link_not_completed");
+        }
+
+        url.searchParams.delete("google_linking");
+        window.history.replaceState({}, "", url.toString());
+      } else if (error) {
+        setGoogleSuccess(null);
+        setGoogleError(error);
+        url.searchParams.delete("error");
+        window.history.replaceState({}, "", url.toString());
+      }
+
+      const tab = url.searchParams.get("tab");
+      if (tab === "integrations") {
+        setActiveTab("integrations");
+        url.searchParams.delete("tab");
+        window.history.replaceState({}, "", url.toString());
+      }
+    };
+
+    void handleGoogleRedirect();
+  }, [fetchGoogleStatus]);
 
   useEffect(() => {
     const onResume = () => {
@@ -381,6 +511,7 @@ export default function AccountPage() {
         console.log("[UI setRequiredAction] POST OK, action:", action);
         if (action === "CONFIGURE_TOTP") setPending2FA(true);
         if (action === "WEBAUTHN_REGISTER") setPendingWebAuthn(true);
+        if (action === "VERIFY_EMAIL") setPendingEmailVerify(true);
 
         await new Promise((resolve) => setTimeout(resolve, 1000));
 
@@ -427,6 +558,7 @@ export default function AccountPage() {
       if (res.ok) {
         if (action === "CONFIGURE_TOTP") setPending2FA(false);
         if (action === "WEBAUTHN_REGISTER") setPendingWebAuthn(false);
+        if (action === "VERIFY_EMAIL") setPendingEmailVerify(false);
       } else {
         alert("Nie udało się anulować konfiguracji.");
       }
@@ -650,6 +782,20 @@ export default function AccountPage() {
                   </span>
                 )}
               </button>
+              <button
+                onClick={() => setActiveTab("integrations")}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
+                  activeTab === "integrations"
+                    ? "bg-[var(--accent)]/10 text-[var(--accent)]"
+                    : "text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-card)]"
+                }`}
+              >
+                <Plug className="w-5 h-5" />
+                <span>Integracje</span>
+                {googleConnected && (
+                  <span className="ml-auto w-2 h-2 bg-green-500 rounded-full" />
+                )}
+              </button>
             </nav>
           </aside>
 
@@ -797,6 +943,76 @@ export default function AccountPage() {
                     </div>
                   )}
                 </div>
+
+                {/* Email Verification Section */}
+                {(!profile?.emailVerified || pendingEmailVerify) && (
+                  <div className="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-2xl p-6">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${profile?.emailVerified ? "bg-green-500/10" : pendingEmailVerify ? "bg-blue-500/10" : "bg-yellow-500/10"}`}>
+                          <Mail className={`w-6 h-6 ${profile?.emailVerified ? "text-green-500" : pendingEmailVerify ? "text-blue-500" : "text-yellow-500"}`} />
+                        </div>
+                        <div>
+                          <h2 className="text-lg font-semibold text-[var(--text-main)]">
+                            Weryfikacja adresu email
+                          </h2>
+                          <p className="text-sm text-[var(--text-muted)]">
+                            {profile?.emailVerified ? (
+                              <span className="text-green-500">Zweryfikowany</span>
+                            ) : pendingEmailVerify ? (
+                              <span className="text-blue-500">Link weryfikacyjny wysłany</span>
+                            ) : (
+                              <span className="text-yellow-500">Wymaga weryfikacji</span>
+                            )}
+                          </p>
+                        </div>
+                      </div>
+                      {!profile?.emailVerified && !pendingEmailVerify && (
+                        <button
+                          onClick={() => setRequiredAction("VERIFY_EMAIL", "EmailVerify")}
+                          disabled={configuringMethod === "EmailVerify"}
+                          className="inline-flex items-center gap-2 px-4 py-2 bg-[var(--accent)] text-white rounded-xl text-sm font-medium hover:bg-[var(--accent)]/90 transition-colors disabled:opacity-50"
+                        >
+                          {configuringMethod === "EmailVerify" ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <ChevronRight className="w-4 h-4" />
+                          )}
+                          Zweryfikuj
+                        </button>
+                      )}
+                      {pendingEmailVerify && (
+                        <div className="flex items-center gap-2 text-sm text-blue-500">
+                          <Clock className="w-4 h-4" />
+                          <span>Oczekuje na weryfikację</span>
+                        </div>
+                      )}
+                    </div>
+                    {pendingEmailVerify && (
+                      <div className="mt-4 p-4 bg-blue-500/10 border border-blue-500/20 rounded-xl">
+                        <p className="text-sm text-blue-400 mb-3">
+                          Na Twój adres email został wysłany link weryfikacyjny. Kliknij w link zawarty w wiadomości, aby potwierdzić własność adresu email.
+                        </p>
+                        <div className="flex gap-3">
+                          <button
+                            onClick={() => cancelRequiredAction("VERIFY_EMAIL")}
+                            className="inline-flex items-center gap-2 px-4 py-2 border border-[var(--border-subtle)] text-[var(--text-muted)] rounded-lg text-sm font-medium hover:bg-[var(--bg-main)] transition-colors"
+                          >
+                            <X className="w-4 h-4" />
+                            Anuluj
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    {!profile?.emailVerified && !pendingEmailVerify && (
+                      <div className="mt-4 p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-xl">
+                        <p className="text-sm text-yellow-400">
+                          <strong>Uwaga:</strong> Niezweryfikowany adres email może ograniczać dostęp do niektórych funkcji systemu. Kliknij przycisk &quot;Zweryfikuj&quot;, aby otrzymać link weryfikacyjny.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Theme Preferences Section */}
                 <div className="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-2xl p-6">
@@ -1243,6 +1459,242 @@ export default function AccountPage() {
                       })
                     )}
                   </div>
+                </div>
+              </div>
+            )}
+
+            {/* Integrations Tab */}
+            {activeTab === "integrations" && (
+              <div className="space-y-6">
+                {/* Google Integration Section */}
+                <div className="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-2xl p-6">
+                  <div className="flex items-center justify-between mb-6">
+                    <div className="flex items-center gap-4">
+                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${googleConnected ? "bg-green-500/10" : "bg-[var(--accent)]/10"}`}>
+                        <Globe className={`w-6 h-6 ${googleConnected ? "text-green-500" : "text-[var(--accent)]"}`} />
+                      </div>
+                      <div>
+                        <h2 className="text-lg font-semibold text-[var(--text-main)]">
+                          Konto Google
+                        </h2>
+                        <p className="text-sm text-[var(--text-muted)]">
+                          {googleConnected ? (
+                            <span className="text-green-500">Połączone</span>
+                          ) : (
+                            "Niepołączone"
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                    {!googleConnected ? (
+                      <button
+                        onClick={connectGoogle}
+                        disabled={connectingGoogle}
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-[var(--accent)] text-white rounded-xl text-sm font-medium hover:bg-[var(--accent)]/90 transition-colors disabled:opacity-50"
+                      >
+                        {connectingGoogle ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <ChevronRight className="w-4 h-4" />
+                        )}
+                        Połącz
+                      </button>
+                    ) : (
+                      <button
+                        onClick={disconnectGoogle}
+                        disabled={connectingGoogle}
+                        className="inline-flex items-center gap-2 px-4 py-2 border border-red-500/30 text-red-500 rounded-xl text-sm font-medium hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                      >
+                        {connectingGoogle ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <X className="w-4 h-4" />
+                        )}
+                        Odłącz
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Error display */}
+                  {googleError && (
+                    <div className="mb-4 p-4 bg-red-500/10 border border-red-500/20 rounded-xl">
+                      <div className="flex items-center gap-2 text-red-500 mb-2">
+                        <AlertCircle className="w-5 h-5" />
+                        <span className="font-medium">Błąd połączenia</span>
+                      </div>
+                      <p className="text-sm text-[var(--text-muted)]">
+                        {googleError === "access_denied" && "Odmówiono dostępu. Spróbuj ponownie lub skontaktuj się z administratorem."}
+                        {googleError === "link_not_completed" && "Keycloak nie potwierdził powiązania konta Google. Spróbuj ponownie."}
+                        {googleError === "internal_error" && "Wystąpił wewnętrzny błąd. Spróbuj ponownie później."}
+                        {!["access_denied", "link_not_completed", "internal_error"].includes(googleError) && `Błąd: ${googleError}`}
+                      </p>
+                    </div>
+                  )}
+
+                  {googleSuccess && (
+                    <div className="mb-4 p-4 bg-green-500/10 border border-green-500/20 rounded-xl">
+                      <div className="flex items-center gap-2 text-green-500 mb-2">
+                        <CheckCircle2 className="w-5 h-5" />
+                        <span className="font-medium">Połączenie zakończone powodzeniem</span>
+                      </div>
+                      <p className="text-sm text-[var(--text-muted)]">{googleSuccess}</p>
+                    </div>
+                  )}
+
+                  {/* Connection Status Info */}
+                  {googleConnected && (
+                    <div className="mb-4 p-4 bg-green-500/10 border border-green-500/20 rounded-xl">
+                      <div className="flex items-center gap-2 text-green-500 mb-2">
+                        <CheckCircle2 className="w-5 h-5" />
+                        <span className="font-medium">Konto Google jest połączone</span>
+                      </div>
+                      <p className="text-sm text-[var(--text-muted)]">
+                        Twoje konto Google zostało pomyślnie powiązane z systemem MyPerformance. System ma dostęp do wybranych funkcji w celu automatyzacji pracy.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Permissions Info Card */}
+                  <div className="space-y-4">
+                    <h3 className="text-sm font-medium text-[var(--text-main)]">
+                      Dostępne uprawnienia i funkcje
+                    </h3>
+
+                    {/* Email Verification */}
+                    <div className="p-4 bg-[var(--bg-main)] border border-[var(--border-subtle)] rounded-xl">
+                      <div className="flex items-start gap-3">
+                        <div className="w-10 h-10 rounded-lg bg-green-500/10 flex items-center justify-center flex-shrink-0">
+                          <ShieldCheck className="w-5 h-5 text-green-500" />
+                        </div>
+                        <div className="flex-1">
+                          <h4 className="text-sm font-medium text-[var(--text-main)]">
+                            Weryfikacja adresu email
+                          </h4>
+                          <p className="text-xs text-[var(--text-muted)] mt-1">
+                            Potwierdzanie, że Twoje konto w systemie MyPerformance jest powiązane ze zweryfikowaną tożsamością Google.
+                          </p>
+                          <div className="mt-2 flex items-center gap-2">
+                            <span className="inline-flex items-center gap-1 text-xs text-green-500">
+                              <CheckCircle2 className="w-3 h-3" />
+                              Dostępne
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Calendar Access */}
+                    <div className="p-4 bg-[var(--bg-main)] border border-[var(--border-subtle)] rounded-xl">
+                      <div className="flex items-start gap-3">
+                        <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center flex-shrink-0">
+                          <Calendar className="w-5 h-5 text-blue-500" />
+                        </div>
+                        <div className="flex-1">
+                          <h4 className="text-sm font-medium text-[var(--text-main)]">
+                            Kalendarz Google
+                          </h4>
+                          <p className="text-xs text-[var(--text-muted)] mt-1">
+                            Tworzenie wydarzeń, spotkań i przypomnień w Twoim kalendarzu na wyraźne polecenie lub w wyniku akcji w systemie.
+                          </p>
+                          <div className="mt-2 flex items-center gap-2">
+                            <span className="inline-flex items-center gap-1 text-xs text-green-500">
+                              <CheckCircle2 className="w-3 h-3" />
+                              Dostępne
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Gmail Labels & Filters */}
+                    <div className="p-4 bg-[var(--bg-main)] border border-[var(--border-subtle)] rounded-xl">
+                      <div className="flex items-start gap-3">
+                        <div className="w-10 h-10 rounded-lg bg-purple-500/10 flex items-center justify-center flex-shrink-0">
+                          <Tag className="w-5 h-5 text-purple-500" />
+                        </div>
+                        <div className="flex-1">
+                          <h4 className="text-sm font-medium text-[var(--text-main)]">
+                            Organizacja skrzynki Gmail
+                          </h4>
+                          <p className="text-xs text-[var(--text-muted)] mt-1">
+                            Tworzenie etykiety &quot;MyPerformance&quot; i ustawianie filtrów kierujących wiadomości z domeny @myperformance.pl.
+                          </p>
+                          <div className="mt-2 flex items-center gap-2">
+                            <span className="inline-flex items-center gap-1 text-xs text-green-500">
+                              <CheckCircle2 className="w-3 h-3" />
+                              Dostępne
+                            </span>
+                          </div>
+                          <div className="mt-2 p-2 bg-yellow-500/5 border border-yellow-500/10 rounded-lg">
+                            <p className="text-xs text-yellow-400">
+                              <strong>Ważne:</strong> System NIE ma dostępu do treści wiadomości email. Może jedynie zarządzać strukturą folderów i regułami.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* What We DON'T Have Access To */}
+                  <div className="mt-6 p-4 bg-[var(--bg-main)] border border-[var(--border-subtle)] rounded-xl">
+                    <h3 className="text-sm font-medium text-[var(--text-main)] mb-3 flex items-center gap-2">
+                      <ShieldIcon className="w-4 h-4 text-[var(--accent)]" />
+                      Czego NIE może robić system
+                    </h3>
+                    <ul className="space-y-2 text-sm text-[var(--text-muted)]">
+                      <li className="flex items-start gap-2">
+                        <X className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                        <span>Przeglądać lub czytać Twoje wiadomości email</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <X className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                        <span>Wysyłać wiadomości w Twoim imieniu</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <X className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                        <span>Usuwać plików z Dysku Google</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <X className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                        <span>Przeglądać Twoje pliki na Dysku</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <X className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                        <span>Modyfikować ustawień konta Google poza uprawnieniami</span>
+                      </li>
+                    </ul>
+                  </div>
+
+                  {/* Privacy & Security Note */}
+                  <div className="mt-6 p-4 bg-blue-500/5 border border-blue-500/10 rounded-xl">
+                    <div className="flex items-start gap-3">
+                      <Info className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <h4 className="text-sm font-medium text-blue-400 mb-1">
+                          Bezpieczeństwo i prywatność
+                        </h4>
+                        <p className="text-xs text-[var(--text-muted)]">
+                          System działa na zasadzie <strong>zasady najmniejszego przywileju</strong> – ma dostęp wyłącznie do funkcji, które są niezbędne do działania.
+                          Wszystkie operacje są transparentne i wykonywane wyłącznie na Twoje wyraźne polecenie lub w wyniku akcji w systemie MyPerformance.
+                          Dostęp możesz w każdej chwili odwołać klikając przycisk &quot;Odłącz&quot;.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Troubleshooting */}
+                  {googleConnected && (
+                    <div className="mt-4 p-4 bg-[var(--bg-main)] border border-[var(--border-subtle)] rounded-xl">
+                      <h4 className="text-sm font-medium text-[var(--text-main)] mb-2 flex items-center gap-2">
+                        <Settings className="w-4 h-4" />
+                        Problemy z połączeniem?
+                      </h4>
+                      <p className="text-xs text-[var(--text-muted)]">
+                        Jeśli operacja się nie powiedzie (np. token wygasł lub odłączyłeś aplikację w ustawieniach Google),
+                        odłącz i ponownie połącz konto Google używając przycisku powyżej.
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
             )}

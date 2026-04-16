@@ -112,6 +112,9 @@ export async function PUT(request: Request) {
 
     const currentProfile = await currentRes.json();
 
+    // Check if email is being changed - if so, reset verification status
+    const isEmailChanged = body.email && body.email !== currentProfile.email;
+
     // Merge attributes properly
     const updatedProfile = {
       ...currentProfile,
@@ -120,6 +123,8 @@ export async function PUT(request: Request) {
         ...(currentProfile.attributes || {}),
         ...(body.attributes || {}),
       },
+      // Reset email verification if email changed
+      ...(isEmailChanged && { emailVerified: false }),
     };
 
     const response = await fetch(keycloak.getAccountUrl("/account"), {
