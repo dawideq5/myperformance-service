@@ -69,7 +69,7 @@ export async function POST(request: Request) {
     }
 
     // Step 2: Update password via Admin API (required for password changes)
-    const userId = keycloak.extractUserIdFromToken(session.accessToken);
+    const userId = await keycloak.getUserIdFromToken(session.accessToken);
     const serviceToken = await keycloak.getServiceAccountToken();
 
     const passwordUrl = keycloak.getAdminUrl(`/users/${userId}/reset-password`);

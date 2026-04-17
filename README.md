@@ -1,6 +1,6 @@
 # MyPerformance Dashboard
 
-Dashboard aplikacji MyPerformance zbudowany na Next.js 14 z App Router.
+Dashboard aplikacji MyPerformance zbudowany na Next.js (App Router).
 
 ## Funkcjonalności
 
@@ -19,18 +19,18 @@ cp .env.example .env
 ```
 
 Zmienne środowiskowe:
-- `NEXTAUTH_URL` - URL aplikacji (np. http://localhost:3000 lub https://myperformance.pl w produkcji)
+- `NEXTAUTH_URL` - URL aplikacji (np. http://localhost:3000)
 - `NEXTAUTH_SECRET` - Sekret dla NextAuth (wygeneruj bezpieczny klucz)
-- `KEYCLOAK_URL` - Bazowy URL Keycloak (np. https://keycloak.example.com)
+- `KEYCLOAK_URL` - Bazowy URL Keycloak (np. http://localhost:8080)
 - `KEYCLOAK_REALM` - Nazwa realm (opcjonalnie; domyślnie `MyPerformance`)
-- `KEYCLOAK_ISSUER` - Pełny issuer (opcjonalnie, np. https://keycloak.example.com/realms/MyPerformance)
+- `KEYCLOAK_ISSUER` - Pełny issuer (opcjonalnie, np. http://localhost:8080/realms/MyPerformance)
 - `KEYCLOAK_CLIENT_ID` - Client ID z Keycloak
 - `KEYCLOAK_CLIENT_SECRET` - Client Secret z Keycloak
 
 ## Instalacja
 
 ```bash
-npm install
+npm ci
 ```
 
 ## Uruchomienie lokalne
@@ -50,6 +50,8 @@ npm run build
 ## Docker
 
 Obraz zoptymalizowany pod Coolify z wykorzystaniem multi-stage build:
+
+Uwaga: przed importem `infrastructure/keycloak/realm.json` ustaw docelowe wartości placeholderów (np. `REPLACE_WITH_CLIENT_SECRET`, `${APP_URL}`, `${GOOGLE_IDP_CLIENT_ID}`) zgodnie z Twoim środowiskiem.
 
 ```bash
 docker build -t myperformance-dashboard .

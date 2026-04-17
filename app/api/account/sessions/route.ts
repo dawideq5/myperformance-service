@@ -48,7 +48,7 @@ export async function GET() {
 
     // If Account API returns 401 (expected without 'account' scope), fall back to Admin API
     if (response.status === 401) {
-      const userId = keycloak.extractUserIdFromToken(session.accessToken);
+      const userId = await keycloak.getUserIdFromToken(session.accessToken);
       const adminToken = await keycloak.getServiceAccountToken();
 
       response = await fetchWithTimeout(

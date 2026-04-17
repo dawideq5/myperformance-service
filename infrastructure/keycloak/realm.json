@@ -64,24 +64,7 @@
       }
     ]
   },
-  "users": [
-    {
-      "username": "admin",
-      "email": "admin@example.com",
-      "firstName": "Admin",
-      "lastName": "User",
-      "enabled": true,
-      "emailVerified": true,
-      "credentials": [
-        {
-          "type": "password",
-          "value": "admin",
-          "temporary": false
-        }
-      ],
-      "realmRoles": ["app_user", "admin"]
-    }
-  ],
+  "users": [],
   "clients": [
     {
       "clientId": "dashboard-myperformance-pl",
@@ -96,21 +79,18 @@
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": true,
       "authorizationServicesEnabled": false,
-      "secret": "ot0h8vUAQUJaTnbMyq0uNC0wcCt9Txg8",
+      "secret": "REPLACE_WITH_CLIENT_SECRET",
       "redirectUris": [
-        "https://myperformance.pl/*",
-        "https://www.myperformance.pl/*",
+        "${APP_URL}/*",
+        "${APP_URL}/api/integrations/google/callback",
         "http://localhost:3000/*",
-        "http://localhost:3000/api/integrations/google/callback",
-        "https://myperformance.pl/api/integrations/google/callback",
-        "https://www.myperformance.pl/api/integrations/google/callback"
+        "http://localhost:3000/api/integrations/google/callback"
       ],
       "attributes": {
-        "post.logout.redirect.uris": "https://myperformance.pl/ http://localhost:3000/"
+        "post.logout.redirect.uris": "${APP_URL}/ http://localhost:3000/"
       },
       "webOrigins": [
-        "https://myperformance.pl",
-        "https://www.myperformance.pl",
+        "${APP_URL}",
         "http://localhost:3000"
       ],
       "defaultClientScopes": [
