@@ -9,7 +9,7 @@ function SessionGuard({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (status === "loading") return;
-    if ((session as any)?.error === "RefreshTokenExpired") {
+    if (session?.error === "RefreshTokenExpired") {
       signOut({ redirect: false }).then(() => {
         window.location.href = "/api/auth/logout";
       });

@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 export default async function DashboardPage() {
   const session = await getServerSession(authOptions);
 
-  if (!session?.user || (session as any).error === "RefreshTokenExpired") {
+  if (!session?.user || session.error === "RefreshTokenExpired") {
     redirect("/login");
   }
 

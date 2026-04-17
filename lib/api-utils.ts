@@ -1,3 +1,4 @@
+import type { Session } from "next-auth";
 import { NextResponse } from "next/server";
 
 export type ApiErrorCode =
@@ -143,6 +144,18 @@ export async function fetchWithTimeout(
     return response;
   } finally {
     clearTimeout(timeoutId);
+  }
+}
+
+/**
+ * Throws ApiError.unauthorized() if session is missing or has no accessToken.
+ * Use at the top of every API route handler instead of repeating the check inline.
+ */
+export function requireSession(
+  session: Session | null | undefined
+): asserts session is Session & { accessToken: string } {
+  if (!session || !(session as any).accessToken) {
+    throw ApiError.unauthorized();
   }
 }
 

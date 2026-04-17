@@ -1,6 +1,6 @@
-const DEFAULT_PUBLIC_APP_URL = "http://localhost:3000";
+import { trimSlash } from "@/lib/utils";
 
-const trimSlash = (value: string) => value.replace(/\/+$/, "");
+const DEFAULT_PUBLIC_APP_URL = "http://localhost:3000";
 
 export function getPublicAppUrl() {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL?.trim();
