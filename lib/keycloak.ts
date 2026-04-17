@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "crypto";
+import { DEFAULT_KEYCLOAK_REALM } from "@/lib/keycloak-constants";
 
 export class KeycloakService {
   private static instance: KeycloakService;
@@ -31,7 +32,7 @@ export class KeycloakService {
       if (match?.[1]) return match[1];
     }
 
-    return "MyPerformance";
+    return DEFAULT_KEYCLOAK_REALM;
   }
 
   public getBaseUrl() {
@@ -62,10 +63,10 @@ export class KeycloakService {
 
     const keycloakUrl = process.env.NEXT_PUBLIC_KEYCLOAK_URL?.trim();
     if (!keycloakUrl) {
-      return "https://auth.myperformance.pl/realms/MyPerformance";
+      return `http://localhost:8080/realms/${DEFAULT_KEYCLOAK_REALM}`;
     }
 
-    return `${this.trimSlash(keycloakUrl)}/realms/MyPerformance`;
+    return `${this.trimSlash(keycloakUrl)}/realms/${DEFAULT_KEYCLOAK_REALM}`;
   }
 
   public getAccountUrl(path = "") {

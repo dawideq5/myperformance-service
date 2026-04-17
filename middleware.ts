@@ -1,8 +1,8 @@
 import { withAuth } from "next-auth/middleware";
 import { NextResponse } from "next/server";
+import { DEFAULT_KEYCLOAK_REALM } from "@/lib/keycloak-constants";
 
 const trimSlash = (value: string) => value.replace(/\/+$/, "");
-const DEFAULT_KEYCLOAK_REALM = "MyPerformance";
 
 const getIssuerForMiddleware = () => {
   const explicitIssuer = process.env.KEYCLOAK_ISSUER?.trim();
@@ -37,17 +37,20 @@ export default withAuth(
       // This is safe since it runs on navigation/API request, verifying true state
       try {
         const issuer = getIssuerForMiddleware();
-        if (issuer) {
-          const userInfoResponse = await fetch(
-            `${issuer}/protocol/openid-connect/userinfo`,
-            {
-              headers: { Authorization: `Bearer ${token.accessToken}` },
-            }
-          );
-          if (!userInfoResponse.ok) {
-            console.warn("[middleware] Keycloak session invalid (userinfo failed)");
-            return NextResponse.redirect(new URL("/api/auth/logout", req.url));
+        if (!issuer) {
+          console.warn("[middleware] Missing Keycloak issuer configuration");
+          return NextResponse.redirect(new URL("/login?error=Configuration", req.url));
+        }
+
+        const userInfoResponse = await fetch(
+          `${issuer}/protocol/openid-connect/userinfo`,
+          {
+            headers: { Authorization: `Bearer ${token.accessToken}` },
           }
+        );
+        if (!userInfoResponse.ok) {
+          console.warn("[middleware] Keycloak session invalid (userinfo failed)");
+          return NextResponse.redirect(new URL("/api/auth/logout", req.url));
         }
       } catch (e) {
         console.error("[middleware] Keycloak userinfo check failed", e);
