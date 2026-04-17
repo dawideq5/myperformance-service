@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "crypto";
 import { DEFAULT_KEYCLOAK_REALM } from "@/lib/keycloak-constants";
+import { trimSlash } from "@/lib/utils";
 
 export class KeycloakService {
   private static instance: KeycloakService;
@@ -13,13 +14,9 @@ export class KeycloakService {
     return KeycloakService.instance;
   }
 
-  private trimSlash(value: string) {
-    return value.replace(/\/+$/, "");
-  }
-
   public getConfiguredIssuer() {
     const issuer = process.env.KEYCLOAK_ISSUER?.trim();
-    return issuer ? this.trimSlash(issuer) : "";
+    return issuer ? trimSlash(issuer) : "";
   }
 
   public getRealm() {
@@ -38,13 +35,13 @@ export class KeycloakService {
   public getBaseUrl() {
     const keycloakUrl = process.env.KEYCLOAK_URL?.trim();
     if (keycloakUrl) {
-      return this.trimSlash(keycloakUrl);
+      return trimSlash(keycloakUrl);
     }
 
     const issuer = this.getConfiguredIssuer();
     if (issuer) {
       const match = issuer.match(/^(https?:\/\/.+?)\/realms\/[^/]+$/i);
-      if (match?.[1]) return this.trimSlash(match[1]);
+      if (match?.[1]) return trimSlash(match[1]);
     }
 
     throw new Error("KEYCLOAK_URL or KEYCLOAK_ISSUER is not configured");
@@ -59,14 +56,14 @@ export class KeycloakService {
 
   public getPublicIssuer() {
     const issuer = process.env.NEXT_PUBLIC_KEYCLOAK_ISSUER?.trim();
-    if (issuer) return this.trimSlash(issuer);
+    if (issuer) return trimSlash(issuer);
 
     const keycloakUrl = process.env.NEXT_PUBLIC_KEYCLOAK_URL?.trim();
     if (!keycloakUrl) {
       return `http://localhost:8080/realms/${DEFAULT_KEYCLOAK_REALM}`;
     }
 
-    return `${this.trimSlash(keycloakUrl)}/realms/${DEFAULT_KEYCLOAK_REALM}`;
+    return `${trimSlash(keycloakUrl)}/realms/${DEFAULT_KEYCLOAK_REALM}`;
   }
 
   public getAccountUrl(path = "") {

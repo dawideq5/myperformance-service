@@ -22,16 +22,6 @@ html.light {
   --accent: #4f46e5;
 }
 
-html.dark {
-  --bg-main: #0a0a0f;
-  --bg-card: #12121a;
-  --bg-header: #0f0f16;
-  --border-subtle: #1e1e2e;
-  --text-main: #f1f1f4;
-  --text-muted: #6b6b7b;
-  --accent: #6366f1;
-}
-
 body {
   color: var(--text-main);
   background-color: var(--bg-main);
@@ -41,33 +31,36 @@ body {
 }
 
 @keyframes fade-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
 @keyframes slide-up {
-  from {
-    opacity: 0;
-    transform: translateY(12px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes tab-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes rotate {
+  0%   { transform: rotate(0); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes tilt {
+  0%   { transform: rotate(0deg); }
+  25%  { transform: rotate(-10deg); }
+  75%  { transform: rotate(10deg); }
+  100% { transform: rotate(0deg); }
 }
 
 @layer utilities {
-  .animate-fade-in {
-    animation: fade-in 0.25s ease-out;
-  }
-
-  .animate-slide-up {
-    animation: slide-up 0.3s ease-out;
-  }
+  .animate-fade-in  { animation: fade-in 0.25s ease-out; }
+  .animate-slide-up { animation: slide-up 0.3s ease-out; }
+  .animate-tab-in   { animation: tab-in 0.2s ease-out; }
 }
 
 @layer base {
@@ -94,10 +87,7 @@ body {
 .slider {
   position: absolute;
   cursor: pointer;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  top: 0; left: 0; right: 0; bottom: 0;
   background-color: #73C0FC;
   transition: .4s;
   border-radius: 30px;
@@ -118,67 +108,22 @@ body {
 
 .sun svg {
   position: absolute;
-  top: 6px;
-  left: 36px;
+  top: 6px; left: 36px;
   z-index: 1;
-  width: 24px;
-  height: 24px;
+  width: 24px; height: 24px;
 }
 
 .moon svg {
   fill: #73C0FC;
   position: absolute;
-  top: 5px;
-  left: 5px;
+  top: 5px; left: 5px;
   z-index: 1;
-  width: 24px;
-  height: 24px;
+  width: 24px; height: 24px;
 }
 
-.switch:hover .sun svg {
-  animation: rotate 15s linear infinite;
-}
+.switch:hover .sun svg  { animation: rotate 15s linear infinite; }
+.switch:hover .moon svg { animation: tilt 5s linear infinite; }
 
-@keyframes rotate {
-  0% {
-    transform: rotate(0);
-  }
-
-  100% {
-    transform: rotate(360deg);
-  }
-}
-
-.switch:hover .moon svg {
-  animation: tilt 5s linear infinite;
-}
-
-@keyframes tilt {
-  0% {
-    transform: rotate(0deg);
-  }
-
-  25% {
-    transform: rotate(-10deg);
-  }
-
-  75% {
-    transform: rotate(10deg);
-  }
-
-  100% {
-    transform: rotate(0deg);
-  }
-}
-
-.input:checked + .slider {
-  background-color: #183153;
-}
-
-.input:focus + .slider {
-  box-shadow: 0 0 1px #183153;
-}
-
-.input:checked + .slider:before {
-  transform: translateX(30px);
-}
+.input:checked + .slider { background-color: #183153; }
+.input:focus  + .slider  { box-shadow: 0 0 1px #183153; }
+.input:checked + .slider:before { transform: translateX(30px); }

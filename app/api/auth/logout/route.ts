@@ -1,15 +1,7 @@
 import { NextResponse } from "next/server";
 import { getPublicLogoutRedirectUrl } from "@/lib/app-url";
 import { keycloak } from "@/lib/keycloak";
-
-function getRequiredEnv(name: string) {
-  const value = process.env[name]?.trim();
-  if (!value) {
-    throw new Error(`${name} is not configured`);
-  }
-
-  return value;
-}
+import { getRequiredEnv } from "@/lib/env";
 
 export async function GET() {
   const issuer = keycloak.getIssuer();

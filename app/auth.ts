@@ -1,15 +1,8 @@
 import type { AuthOptions } from "next-auth";
 import KeycloakProvider from "next-auth/providers/keycloak";
 import { keycloak } from "@/lib/keycloak";
-
-function getRequiredEnv(name: string) {
-  const value = process.env[name]?.trim();
-  if (!value) {
-    throw new Error(`${name} is not configured`);
-  }
-
-  return value;
-}
+import { getRequiredEnv } from "@/lib/env";
+import { SESSION_MAX_AGE_SECONDS } from "@/lib/constants";
 
 async function refreshKeycloakToken(
   refreshToken: string,
@@ -93,7 +86,6 @@ function buildAuthOptions() {
         },
         authorization: {
           params: {
-            // Standard OIDC scopes only
             scope: "openid profile email",
           },
         },
@@ -102,7 +94,7 @@ function buildAuthOptions() {
     secret: process.env.NEXTAUTH_SECRET,
     session: {
       strategy: "jwt" as const,
-      maxAge: 8 * 60 * 60,
+      maxAge: SESSION_MAX_AGE_SECONDS,
     },
     callbacks: {
       async jwt({ token, account, trigger }: any) {
@@ -239,12 +231,8 @@ export const authOptions: AuthOptions = new Proxy({} as AuthOptions, {
   getOwnPropertyDescriptor(_target, prop) {
     const descriptor = Object.getOwnPropertyDescriptor(getAuthOptions(), prop);
     if (descriptor) {
-      return {
-        ...descriptor,
-        configurable: true,
-      };
+      return { ...descriptor, configurable: true };
     }
-
     return descriptor;
   },
 });
