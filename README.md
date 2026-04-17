@@ -54,6 +54,8 @@ Obraz zoptymalizowany pod Coolify z wykorzystaniem multi-stage build:
 ```bash
 docker build -t myperformance-dashboard .
 docker run -p 3000:3000 --env-file .env myperformance-dashboard
+
+> Uwaga: przed importem `infrastructure/keycloak/realm.json` ustaw docelowe wartości placeholderów (np. `REPLACE_WITH_CLIENT_SECRET`, `${APP_URL}`, `${GOOGLE_IDP_CLIENT_ID}`) zgodnie z Twoim środowiskiem.
 ```
 
 ## Struktura projektu

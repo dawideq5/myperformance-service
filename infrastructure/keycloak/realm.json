@@ -79,7 +79,7 @@
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": true,
       "authorizationServicesEnabled": false,
-      "secret": "${KEYCLOAK_CLIENT_SECRET}",
+      "secret": "REPLACE_WITH_CLIENT_SECRET",
       "redirectUris": [
         "${APP_URL}/*",
         "${APP_URL}/api/integrations/google/callback",

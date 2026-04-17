@@ -2,13 +2,14 @@ import { withAuth } from "next-auth/middleware";
 import { NextResponse } from "next/server";
 
 const trimSlash = (value: string) => value.replace(/\/+$/, "");
+const DEFAULT_KEYCLOAK_REALM = "MyPerformance";
 
 const getIssuerForMiddleware = () => {
   const explicitIssuer = process.env.KEYCLOAK_ISSUER?.trim();
   if (explicitIssuer) return trimSlash(explicitIssuer);
 
   const keycloakUrl = process.env.KEYCLOAK_URL?.trim();
-  const realm = process.env.KEYCLOAK_REALM?.trim() || "MyPerformance";
+  const realm = process.env.KEYCLOAK_REALM?.trim() || DEFAULT_KEYCLOAK_REALM;
   if (!keycloakUrl) return null;
 
   return `${trimSlash(keycloakUrl)}/realms/${realm}`;
