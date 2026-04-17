@@ -14,32 +14,86 @@ export async function GET() {
     const session = await getServerSession(authOptions);
     requireSession(session);
 
-    const userInfoUrl = `${keycloak.getIssuer()}/protocol/openid-connect/userinfo`;
-    const response = await fetch(userInfoUrl, {
+    const accessToken = (session as any).accessToken as string;
+
+    // Try Keycloak Account API first for full profile with attributes
+    const accountUrl = keycloak.getAccountUrl("/account");
+    let response = await fetch(accountUrl, {
       headers: {
-        Authorization: `Bearer ${(session as any).accessToken}`,
+        Authorization: `Bearer ${accessToken}`,
         Accept: "application/json",
       },
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new ApiError("SERVICE_UNAVAILABLE", "Failed to fetch profile", response.status, errorText);
+    let data: any;
+
+    if (response.ok) {
+      // Account API succeeded - use it
+      data = await response.json();
+      console.log("[account GET] Using Keycloak Account API");
+    } else {
+      // Account API failed (requires 'account' scope), fallback to userinfo
+      console.warn("[account GET] Account API failed, falling back to userinfo:", response.status);
+      const userInfoUrl = `${keycloak.getIssuer()}/protocol/openid-connect/userinfo`;
+      response = await fetch(userInfoUrl, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new ApiError("SERVICE_UNAVAILABLE", "Failed to fetch profile", response.status, errorText);
+      }
+
+      data = await response.json();
     }
 
-    const data = await response.json();
-    const tokenPayload = keycloak.decodeTokenPayload((session as any).accessToken);
+    console.log("[account GET] Profile data:", JSON.stringify(data, null, 2));
+
+    const tokenPayload = keycloak.decodeTokenPayload(accessToken);
+
+    // Extract phone number from attributes if available (Account API) or token (userinfo)
+    const phoneNumber = data.attributes?.["phone-number"]?.[0] || 
+                        data.attributes?.["phoneNumber"]?.[0] || 
+                        tokenPayload.phone_number ||
+                        data.phoneNumber || 
+                        "";
+
+    // Fetch required actions via Admin API if not available
+    let requiredActions = data.requiredActions || [];
+    if (!requiredActions || requiredActions.length === 0) {
+      try {
+        const userId = await keycloak.getUserIdFromToken(accessToken);
+        const adminToken = await keycloak.getServiceAccountToken();
+        const userResponse = await fetch(keycloak.getAdminUrl(`/users/${userId}`), {
+          headers: {
+            Authorization: `Bearer ${adminToken}`,
+            Accept: "application/json",
+          },
+        });
+        if (userResponse.ok) {
+          const userData = await userResponse.json();
+          requiredActions = userData.requiredActions || [];
+        }
+      } catch (e) {
+        console.warn("[account GET] Failed to fetch required actions:", e);
+      }
+    }
 
     const mergedData = {
-      ...data,
-      username: tokenPayload.preferred_username || data.preferred_username,
-      firstName: tokenPayload.given_name || data.given_name,
-      lastName: tokenPayload.family_name || data.family_name,
-      emailVerified: tokenPayload.email_verified || data.email_verified,
+      id: data.id || tokenPayload.sub,
+      username: data.username || data.preferred_username || tokenPayload.preferred_username,
+      firstName: data.firstName || data.first_name || data.given_name || tokenPayload.given_name,
+      lastName: data.lastName || data.last_name || data.family_name || tokenPayload.family_name,
+      email: data.email || tokenPayload.email,
+      emailVerified: data.emailVerified || data.email_verified || tokenPayload.email_verified,
       attributes: {
-        "phone-number": tokenPayload.phone_number ? [tokenPayload.phone_number] : [],
+        "phone-number": phoneNumber ? [phoneNumber] : [],
+        ...(data.attributes || {}),
       },
-      requiredActions: [],
+      requiredActions: requiredActions,
     };
 
     return createSuccessResponse(mergedData);
@@ -57,47 +111,69 @@ export async function PUT(request: Request) {
     const body = await request.json();
     const { firstName, lastName, email, attributes } = body;
 
-    const currentProfileRes = await fetch(keycloak.getAccountUrl("/account"), {
+    console.log("[account PUT] Request body:", { firstName, lastName, email, attributes });
+    console.log("[account PUT] AccessToken exists:", !!accessToken);
+
+    // Use Keycloak Admin API for profile updates since Account API requires 'account' scope
+    const userId = await keycloak.getUserIdFromToken(accessToken);
+    const adminToken = await keycloak.getServiceAccountToken();
+
+    console.log("[account PUT] User ID:", userId);
+
+    // Fetch current user data via Admin API
+    const userRes = await fetch(keycloak.getAdminUrl(`/users/${userId}`), {
       headers: {
-        Authorization: `Bearer ${accessToken}`,
+        Authorization: `Bearer ${adminToken}`,
         Accept: "application/json",
       },
     });
 
-    if (!currentProfileRes.ok) {
-      const errorText = await currentProfileRes.text();
+    if (!userRes.ok) {
+      const errorText = await userRes.text();
+      console.error("[account PUT] Failed to fetch current user:", errorText);
       throw new ApiError(
         "SERVICE_UNAVAILABLE",
-        "Failed to fetch current profile",
-        currentProfileRes.status,
+        "Failed to fetch current user",
+        userRes.status,
         errorText
       );
     }
 
-    const currentProfile = await currentProfileRes.json();
-    const isEmailChanged = email && email !== currentProfile.email;
+    const currentUser = await userRes.json();
+    console.log("[account PUT] Current user data:", JSON.stringify(currentUser, null, 2));
 
-    const accountUpdateBody: Record<string, any> = {};
-    if (firstName !== undefined) accountUpdateBody.firstName = firstName;
-    if (lastName !== undefined) accountUpdateBody.lastName = lastName;
-    if (email !== undefined) accountUpdateBody.email = email;
+    const isEmailChanged = email && email !== currentUser.email;
+    console.log("[account PUT] Email changed:", isEmailChanged);
 
-    accountUpdateBody.attributes = {
-      ...(currentProfile.attributes || {}),
+    // Build update body for Admin API
+    const updateBody: Record<string, any> = {};
+    if (firstName !== undefined) updateBody.firstName = firstName;
+    if (lastName !== undefined) updateBody.lastName = lastName;
+    if (email !== undefined) updateBody.email = email;
+
+    // Merge attributes
+    updateBody.attributes = {
+      ...(currentUser.attributes || {}),
       ...(attributes || {}),
     };
 
-    const updateRes = await fetch(keycloak.getAccountUrl("/account"), {
-      method: "POST",
+    console.log("[account PUT] Update body:", updateBody);
+
+    // Update user via Admin API
+    const updateRes = await fetch(keycloak.getAdminUrl(`/users/${userId}`), {
+      method: "PUT",
       headers: {
-        Authorization: `Bearer ${accessToken}`,
+        Authorization: `Bearer ${adminToken}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(accountUpdateBody),
+      body: JSON.stringify(updateBody),
     });
+
+    console.log("[account PUT] Update response status:", updateRes.status);
 
     if (!updateRes.ok) {
       const errorText = await updateRes.text();
+      console.error("[account PUT] Failed to update user:", errorText);
       throw new ApiError(
         "BAD_REQUEST",
         "Failed to update profile",

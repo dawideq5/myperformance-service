@@ -85,6 +85,7 @@ export default function AccountPage() {
   const fetchUserData = useCallback(async () => {
     try {
       setLoading(true);
+      console.log("[fetchUserData] Starting fetch, accessToken exists:", !!accessToken);
 
       const [profileRes, sessionsRes, twoFARes, webauthnRes] = await Promise.all([
         apiRequest("/api/account"),
@@ -92,6 +93,13 @@ export default function AccountPage() {
         fetch("/api/account/2fa"),
         fetch("/api/account/webauthn"),
       ]);
+
+      console.log("[fetchUserData] Responses:", {
+        profileStatus: profileRes.status,
+        sessionsStatus: sessionsRes.status,
+        twoFAStatus: twoFARes.status,
+        webauthnStatus: webauthnRes.status,
+      });
 
       if (profileRes.status === 401 || profileRes.status === 403) {
         setError("Sesja wygasła lub brak dostępu");
@@ -123,8 +131,9 @@ export default function AccountPage() {
       }
 
       if (sessionsRes.ok) {
-        const sessionsData = await sessionsRes.json();
-        setSessions(sessionsData.map((s: any) => ({ ...s, current: s.id === (session as any)?.user?.sub })));
+        const sessionsResponse = await sessionsRes.json();
+        const sessionsData = sessionsResponse.data ?? sessionsResponse;
+        setSessions(Array.isArray(sessionsData) ? sessionsData.map((s: any) => ({ ...s, current: s.id === (session as any)?.user?.sub })) : []);
       }
 
       if (twoFARes.ok) {
@@ -137,12 +146,14 @@ export default function AccountPage() {
       }
 
       await fetchGoogleStatus();
-    } catch {
+      console.log("[fetchUserData] Completed successfully");
+    } catch (err) {
+      console.error("[fetchUserData] Error:", err);
       setError("Nie udało się pobrać danych");
     } finally {
       setLoading(false);
     }
-  }, [apiRequest, fetchGoogleStatus, session]);
+  }, [apiRequest, fetchGoogleStatus, session, accessToken]);
 
   const checkSessionActivity = useCallback(async () => {
     try {

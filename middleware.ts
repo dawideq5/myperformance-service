@@ -5,6 +5,8 @@ import { DEFAULT_KEYCLOAK_REALM } from "@/lib/keycloak-constants";
 import { trimSlash } from "@/lib/utils";
 import { MIDDLEWARE_USERINFO_CACHE_TTL_MS } from "@/lib/constants";
 
+export const runtime = "nodejs";
+
 // In-memory cache: token hash → { valid, expiresAt }
 // Avoids a Keycloak userinfo round-trip on every single request.
 const userinfoCache = new Map<string, { valid: boolean; expiresAt: number }>();

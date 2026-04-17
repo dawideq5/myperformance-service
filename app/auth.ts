@@ -96,6 +96,17 @@ function buildAuthOptions() {
       strategy: "jwt" as const,
       maxAge: SESSION_MAX_AGE_SECONDS,
     },
+    cookies: {
+      sessionToken: {
+        name: `next-auth.session-token`,
+        options: {
+          httpOnly: true,
+          sameSite: "lax",
+          path: "/",
+          secure: process.env.NODE_ENV === "production",
+        },
+      },
+    },
     callbacks: {
       async jwt({ token, account, trigger }: any) {
         // First login — store tokens and fetch initial user attributes
@@ -107,7 +118,9 @@ function buildAuthOptions() {
           token.expiresAt =
             Math.floor(Date.now() / 1000) + (account.expires_in ?? 300);
           token.keycloakError = false;
-          await hydrateTokenAttributes(token);
+          // Don't store userAttributes in JWT to reduce cookie size
+          // token.userAttributes = {};
+          // token.emailVerified = false;
           return token;
         }
 
@@ -176,11 +189,14 @@ function buildAuthOptions() {
           } catch {
             session.user.roles = [];
           }
+        } else {
+          session.user.roles = [];
         }
 
-        // User attributes from JWT cache — no network call on every session read
-        session.user.attributes = token.userAttributes || {};
-        session.user.emailVerified = token.emailVerified ?? false;
+        // Don't store userAttributes in session to reduce cookie size
+        // They will be fetched from account API when needed
+        session.user.attributes = {};
+        session.user.emailVerified = false;
 
         return session;
       },
