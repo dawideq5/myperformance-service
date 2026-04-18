@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
 import { keycloak } from "@/lib/keycloak";
@@ -35,58 +37,89 @@ export async function GET() {
       throw ApiError.unauthorized();
     }
 
-    console.log("[sessions] Fetching user sessions...");
+    console.log("[sessions] Fetching user sessions via Account API...");
 
-    // Use Keycloak Admin API for user sessions
-    // Note: Admin API does not provide browser/OS info, only basic session data
-    const userId = await keycloak.getUserIdFromToken(session.accessToken);
-    console.log("[sessions] User ID:", userId);
-
-    const adminToken = await keycloak.getServiceAccountToken();
-    console.log("[sessions] Got admin token");
-
-    const response = await fetchWithTimeout(
-      keycloak.getAdminUrl(`/users/${userId}/sessions`),
+    // Try Keycloak Account API first to get rich session info (browser, OS, device)
+    const accountUrl = keycloak.getAccountUrl("/account/sessions");
+    let response = await fetchWithTimeout(
+      accountUrl,
       {
         headers: {
-          Authorization: `Bearer ${adminToken}`,
+          Authorization: `Bearer ${session.accessToken}`,
           Accept: "application/json",
         },
       },
-      10000 // 10s timeout
+      10000
     );
 
-    console.log("[sessions] Admin API response status:", response.status);
+    let sessions = [];
+    let source = "Account API";
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("[sessions] Admin API error:", errorText);
-      throw new ApiError(
-        "SERVICE_UNAVAILABLE",
-        "Failed to fetch sessions",
-        response.status,
-        errorText
+    if (response.ok) {
+      sessions = await response.json();
+    } else {
+      // Fallback to Admin API if Account API fails (e.g. missing scopes)
+      source = "Admin API (Fallback)";
+      console.warn(`[sessions] Account API failed (Status: ${response.status}), falling back to Admin API...`);
+      const userId = await keycloak.getUserIdFromToken(session.accessToken);
+      const adminToken = await keycloak.getServiceAccountToken();
+      
+      response = await fetchWithTimeout(
+        keycloak.getAdminUrl(`/users/${userId}/sessions`),
+        {
+          headers: {
+            Authorization: `Bearer ${adminToken}`,
+            Accept: "application/json",
+          },
+        },
+        10000
       );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new ApiError("SERVICE_UNAVAILABLE", "Failed to fetch sessions", response.status, errorText);
+      }
+      sessions = await response.json();
     }
 
-    const sessions = await response.json();
-    console.log("[sessions] Keycloak Admin API response:", JSON.stringify(sessions, null, 2));
+    const sid = (session as any)?.user?.sid || (session as any)?.user?.session_id;
+    console.log(`[sessions] Found session ID from token: ${sid}`);
 
-    // Transform Admin API format to SessionInfo format
-    const flatSessions: SessionInfo[] = sessions.map((s: any) => ({
-      id: s.id,
-      ipAddress: s.ipAddress || "Unknown",
-      started: s.start || 0,
-      lastAccess: s.lastAccess || 0,
-      expires: s.lastAccess ? s.lastAccess + 28800000 : 0, // Approximate: 8h session
-      browser: `Session from ${s.ipAddress || "Unknown IP"}`,
-      os: "Unknown",
-      device: "Unknown",
-      current: false, // Cannot determine from Admin API
-    }));
+    const flatSessions: SessionInfo[] = sessions.map((s: any) => {
+      // Keycloak timestamps can be in ms (e.g. 1713436000000) or s (e.g. 1713436000)
+      const toSec = (ts: any) => {
+        if (!ts) return 0;
+        const n = Number(ts);
+        if (isNaN(n)) return 0;
+        // If it's larger than 10^11, it's definitely milliseconds
+        return n > 100000000000 ? Math.floor(n / 1000) : n;
+      };
+
+      const lastAccess = toSec(s.lastAccess);
+      const started = toSec(s.start || s.started);
+      
+      // Calculate expires: either from API or lastAccess + 10 hours (36000 seconds)
+      let expires = toSec(s.expires);
+      if (!expires && lastAccess) {
+        expires = lastAccess + 36000;
+      }
+
+      const isCurrent = s.id === sid;
+
+      return {
+        id: s.id,
+        ipAddress: s.ipAddress || "Unknown",
+        started,
+        lastAccess,
+        expires,
+        browser: s.browser || (s.ipAddress ? `Session from ${s.ipAddress}` : "Unknown Browser"),
+        os: s.os || "Unknown OS",
+        device: s.device || "Unknown Device",
+        current: isCurrent,
+      };
+    });
 
     console.log("[sessions] Transformed sessions:", JSON.stringify(flatSessions, null, 2));
-
     return createSuccessResponse(flatSessions);
   } catch (error) {
     console.error("[sessions] Error:", error);

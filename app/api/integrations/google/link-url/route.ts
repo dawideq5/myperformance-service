@@ -40,6 +40,7 @@ export async function GET() {
     // Generate state that includes the final redirect info
     const stateData = Buffer.from(JSON.stringify({
       finalRedirect: `${appUrl}/account?tab=integrations&google_linking=1`,
+      timestamp: Date.now(),
       nonce: crypto.randomUUID(),
     })).toString("base64url");
     authUrl.searchParams.set("state", stateData);

@@ -13,12 +13,16 @@ services:
     environment:
       - NODE_ENV=development
       - NEXT_TELEMETRY_DISABLED=1
+      - KEYCLOAK_URL=http://keycloak:8080
+      - KEYCLOAK_ISSUER=http://keycloak:8080/realms/MyPerformance
+      - NEXT_PUBLIC_KEYCLOAK_URL=http://localhost:8080
+    extra_hosts:
+      - "localhost:host-gateway"
     depends_on:
-      keycloak:
-        condition: service_healthy
+      - keycloak
 
   keycloak:
-    image: quay.io/keycloak/keycloak:26.3.5
+    image: quay.io/keycloak/keycloak:26.6.1
     container_name: myperformance_keycloak_dev
     command: start-dev --import-realm
     env_file:
@@ -30,21 +34,17 @@ services:
       - KC_DB_URL=jdbc:postgresql://postgres-keycloak:5432/keycloak
       - KC_DB_USERNAME=keycloak
       - KC_DB_PASSWORD=keycloak
+      - KC_HOSTNAME=localhost
       - KC_HOSTNAME_STRICT=false
       - KC_HTTP_ENABLED=true
       - KC_IMPORT_STRATEGY=OVERWRITE_EXISTING
+      - KC_HEALTH_ENABLED=true
     ports:
       - "8080:8080"
     volumes:
       - ./infrastructure/keycloak/realm.json:/opt/keycloak/data/import/realm.json:ro
     depends_on:
-      postgres-keycloak:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/health/live || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      - postgres-keycloak
 
   postgres-keycloak:
     image: postgres:15-alpine

@@ -233,13 +233,7 @@ export async function POST(request: Request) {
         );
 
         if (updateRes.ok || updateRes.status === 204) {
-          const requiredActionAlias = await keycloak.resolveRequiredActionAlias(serviceToken, [
-            "webauthn-register",
-            "WEBAUTHN_REGISTER",
-          ]);
-          if (requiredActionAlias) {
-            await keycloak.appendUserRequiredAction(serviceToken, userId, requiredActionAlias);
-          }
+          // Success! We don't need to add a required action because we just manually added the credential.
           return NextResponse.json({ success: true });
         }
 

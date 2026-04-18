@@ -21,11 +21,20 @@ function getSessionProgress(startedSec: number, expiresSec: number): number {
 }
 
 function formatTimeRemaining(expiresSec: number): string {
+  if (!expiresSec) return "N/A";
+  
+  // Robustness: Handle both seconds and milliseconds
+  // If expiresSec is in the future but very far (e.g. > 100 years), it's likely ms
+  const realExpiresSec = expiresSec > 10000000000 ? Math.floor(expiresSec / 1000) : expiresSec;
+  
   const now = Math.floor(Date.now() / 1000);
-  const remaining = expiresSec - now;
+  const remaining = realExpiresSec - now;
+  
   if (remaining <= 0) return "Wygasła";
   const hours = Math.floor(remaining / 3600);
   const minutes = Math.floor((remaining % 3600) / 60);
+  
+  if (hours > 100000) return "Bez limitu"; // Sanity check for very long sessions
   if (hours > 0) return `${hours}h ${minutes}min`;
   return `${minutes}min`;
 }

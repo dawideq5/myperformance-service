@@ -133,7 +133,7 @@ export default function AccountPage() {
       if (sessionsRes.ok) {
         const sessionsResponse = await sessionsRes.json();
         const sessionsData = sessionsResponse.data ?? sessionsResponse;
-        setSessions(Array.isArray(sessionsData) ? sessionsData.map((s: any) => ({ ...s, current: s.id === (session as any)?.user?.sub })) : []);
+        setSessions(Array.isArray(sessionsData) ? sessionsData.map((s: any) => ({ ...s, current: s.id === (session as any)?.user?.sid })) : []);
       }
 
       if (twoFARes.ok) {

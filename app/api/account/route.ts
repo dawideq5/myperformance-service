@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
 import { keycloak } from "@/lib/keycloak";
@@ -33,7 +35,8 @@ export async function GET() {
       console.log("[account GET] Using Keycloak Account API");
     } else {
       // Account API failed (requires 'account' scope), fallback to userinfo
-      console.warn("[account GET] Account API failed, falling back to userinfo:", response.status);
+      const errorText = await response.text().catch(() => "N/A");
+      console.warn(`[account GET] Account API failed (status: ${response.status}), falling back to userinfo. Error: ${errorText}`);
       const userInfoUrl = `${keycloak.getIssuer()}/protocol/openid-connect/userinfo`;
       response = await fetch(userInfoUrl, {
         headers: {
@@ -130,7 +133,7 @@ export async function PUT(request: Request) {
 
     if (!userRes.ok) {
       const errorText = await userRes.text();
-      console.error("[account PUT] Failed to fetch current user:", errorText);
+      console.error(`[account PUT] Failed to fetch current user from Admin API (URL: ${keycloak.getAdminUrl(`/users/${userId}`)}):`, errorText);
       throw new ApiError(
         "SERVICE_UNAVAILABLE",
         "Failed to fetch current user",

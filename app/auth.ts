@@ -80,7 +80,8 @@ function buildAuthOptions() {
       KeycloakProvider({
         clientId: keycloakClientId,
         clientSecret: keycloakClientSecret,
-        issuer: keycloakIssuer,
+        issuer: keycloak.getPublicIssuer(),
+        wellKnown: `${keycloak.getIssuer()}/.well-known/openid-configuration`,
         client: {
           token_endpoint_auth_method: "client_secret_post",
         },
@@ -193,10 +194,9 @@ function buildAuthOptions() {
           session.user.roles = [];
         }
 
-        // Don't store userAttributes in session to reduce cookie size
-        // They will be fetched from account API when needed
-        session.user.attributes = {};
-        session.user.emailVerified = false;
+        session.user.sid = token.sid;
+        session.user.id = token.sub;
+        session.user.session_id = token.sid;
 
         return session;
       },
