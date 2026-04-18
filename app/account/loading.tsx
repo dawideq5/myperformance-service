@@ -1,41 +1,40 @@
-import { Loader2 } from "lucide-react";
+import { PageShell, Skeleton } from "@/components/ui";
 
 export default function AccountLoading() {
   return (
-    <div className="min-h-screen bg-[var(--bg-main)] text-[var(--text-main)] font-sans">
-      <nav className="fixed top-0 w-full z-50 border-b border-[var(--border-subtle)] bg-[var(--bg-header)]/80 backdrop-blur-md">
-        <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
-          <div className="w-32 h-6 bg-[var(--border-subtle)] rounded animate-pulse"></div>
-          <div className="flex items-center gap-3">
-            <div className="w-24 h-10 bg-[var(--border-subtle)] rounded-xl animate-pulse"></div>
-          </div>
-        </div>
-      </nav>
-
-      <main className="pt-24 max-w-2xl mx-auto px-6 pb-24">
-        <div className="mb-10">
-          <div className="w-48 h-10 bg-[var(--border-subtle)] rounded-lg mb-4 animate-pulse"></div>
-          <div className="w-64 h-5 bg-[var(--border-subtle)] rounded animate-pulse"></div>
-        </div>
-
-        <div className="space-y-6">
-          {[1, 2, 3, 4].map((i) => (
-            <div
-              key={i}
-              className="p-6 rounded-3xl border border-[var(--border-subtle)] bg-[var(--bg-card)]/50 flex flex-col gap-4 animate-pulse"
-            >
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-[var(--border-subtle)] rounded-full"></div>
-                <div>
-                  <div className="w-32 h-5 bg-[var(--border-subtle)] rounded mb-2"></div>
-                  <div className="w-48 h-4 bg-[var(--border-subtle)] rounded"></div>
-                </div>
-              </div>
-              <div className="w-full h-10 bg-[var(--border-subtle)] rounded-xl mt-4"></div>
+    <PageShell
+      maxWidth="xl"
+      header={
+        <header className="border-b border-[var(--border-subtle)] bg-[var(--bg-header)]/80 backdrop-blur-md">
+          <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-4 min-w-0">
+              <Skeleton className="h-5 w-20" />
+              <div className="h-6 w-px bg-[var(--border-subtle)]" />
+              <Skeleton className="h-6 w-48" />
             </div>
+            <div className="hidden sm:flex items-center gap-3">
+              <Skeleton className="h-10 w-10 rounded-full" />
+              <div className="space-y-1">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-3 w-24" />
+              </div>
+            </div>
+          </div>
+        </header>
+      }
+    >
+      <div className="grid lg:grid-cols-4 gap-6">
+        <aside className="lg:col-span-1 space-y-2">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className="h-12 rounded-xl" />
           ))}
-        </div>
-      </main>
-    </div>
+        </aside>
+        <section className="lg:col-span-3 space-y-4">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Skeleton key={i} className="h-40 rounded-2xl" />
+          ))}
+        </section>
+      </div>
+    </PageShell>
   );
 }

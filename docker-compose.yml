@@ -9,8 +9,17 @@ services:
       - NEXTAUTH_URL=https://myperformance.pl
       - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
       - KEYCLOAK_URL=https://auth.myperformance.pl
-      - KEYCLOAK_CLIENT_ID=dashboard-myperformance-pl
+      - KEYCLOAK_REALM=MyPerformance
+      - KEYCLOAK_CLIENT_ID=myperformance-dashboard
       - KEYCLOAK_CLIENT_SECRET=${KEYCLOAK_CLIENT_SECRET}
+      - KEYCLOAK_SERVICE_CLIENT_ID=myperformance-service
+      - KEYCLOAK_SERVICE_CLIENT_SECRET=${KEYCLOAK_SERVICE_CLIENT_SECRET}
+      - KEYCLOAK_WEBHOOK_SECRET=${KEYCLOAK_WEBHOOK_SECRET}
+      - GOOGLE_IDP_CLIENT_ID=${GOOGLE_IDP_CLIENT_ID}
+      - GOOGLE_IDP_CLIENT_SECRET=${GOOGLE_IDP_CLIENT_SECRET}
+      - NEXT_PUBLIC_APP_URL=https://myperformance.pl
+      - NEXT_PUBLIC_KEYCLOAK_URL=https://auth.myperformance.pl
+      - NEXT_PUBLIC_KEYCLOAK_REALM=MyPerformance
     networks:
       - proxy-network
       - backend

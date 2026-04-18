@@ -1,52 +1,82 @@
 "use client";
 
-import { AlertCircle, ArrowRight } from "lucide-react";
+import { Suspense, useCallback, useState } from "react";
 import { signIn } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
-import { Suspense } from "react";
+import { ArrowRight } from "lucide-react";
+import { Alert, Button } from "@/components/ui";
+
+const ERROR_MESSAGES: Record<string, string> = {
+  OAuthSignin: "Nie udało się rozpocząć logowania. Spróbuj ponownie.",
+  OAuthCallback: "Keycloak zwrócił błąd podczas logowania. Spróbuj ponownie.",
+  OAuthCreateAccount: "Nie udało się utworzyć konta z danych dostawcy.",
+  Callback: "Nie udało się zakończyć procesu logowania.",
+  AccessDenied: "Nie masz uprawnień do tej aplikacji.",
+  Configuration: "Nieprawidłowa konfiguracja serwera autoryzacji.",
+  Default: "Wystąpił błąd podczas logowania. Spróbuj ponownie.",
+  SessionRequired: "Twoja sesja wygasła. Zaloguj się ponownie.",
+};
+
+function resolveErrorMessage(code: string | null): string | null {
+  if (!code) return null;
+  return ERROR_MESSAGES[code] ?? ERROR_MESSAGES.Default;
+}
+
 function LoginContent() {
   const searchParams = useSearchParams();
-  const error = searchParams.get("error");
+  const errorCode = searchParams.get("error");
+  const callbackUrl = searchParams.get("callbackUrl") ?? "/dashboard";
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleLogin = async () => {
+  const handleLogin = useCallback(async () => {
+    setSubmitting(true);
     try {
-      await signIn("keycloak", { callbackUrl: "/dashboard" });
-    } catch (err) {
-      console.error("[login] Unexpected signIn error:", err);
+      await signIn("keycloak", { callbackUrl });
+    } finally {
+      setSubmitting(false);
     }
-  };
+  }, [callbackUrl]);
+
+  const errorMessage = resolveErrorMessage(errorCode);
 
   return (
-    <div className="w-full max-w-[400px] px-6">
+    <div className="w-full max-w-md px-6">
       <div className="flex flex-col items-center text-center">
-        {/* Minimal Identity */}
-        <div className="mb-12">
-          <h1 className="text-3xl font-black tracking-tighter mb-2">MyPerformance</h1>
-          <div className="h-1 w-8 bg-indigo-600 mx-auto rounded-full" />
+        <div className="mb-10">
+          <h1 className="text-3xl font-black tracking-tight text-[var(--text-main)]">
+            MyPerformance
+          </h1>
+          <div className="h-1 w-8 bg-[var(--accent)] mx-auto rounded-full mt-3" />
         </div>
 
-        {/* Login Card */}
-        <div className="w-full bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-[2.5rem] p-10 shadow-xl shadow-black/5">
-          <h2 className="text-xl font-bold mb-2">Witaj z powrotem</h2>
-          <p className="text-sm text-[var(--text-muted)] font-medium mb-8">Zaloguj się bezpiecznie przez Keycloak</p>
+        <div className="w-full bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-3xl p-8 shadow-xl shadow-black/5">
+          <h2 className="text-xl font-bold text-[var(--text-main)]">
+            Witaj z powrotem
+          </h2>
+          <p className="text-sm text-[var(--text-muted)] mt-1 mb-6">
+            Zaloguj się bezpiecznie przez Keycloak
+          </p>
 
-          {error && (
-            <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-2xl flex items-center gap-3">
-              <AlertCircle className="w-4 h-4 text-red-500" />
-              <p className="text-xs font-bold text-red-500">Błąd autoryzacji</p>
+          {errorMessage && (
+            <div className="mb-6">
+              <Alert tone="error" title="Błąd autoryzacji">
+                {errorMessage}
+              </Alert>
             </div>
           )}
 
-          <button
+          <Button
             onClick={handleLogin}
-            className="w-full py-4 bg-indigo-600 text-white font-bold rounded-2xl hover:bg-indigo-700 transition-all flex items-center justify-center gap-3 group shadow-lg shadow-indigo-600/20 active:scale-[0.98]"
+            loading={submitting}
+            fullWidth
+            size="lg"
+            rightIcon={<ArrowRight className="w-4 h-4" aria-hidden="true" />}
           >
-            <span>Kontynuuj</span>
-            <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-          </button>
+            Kontynuuj
+          </Button>
         </div>
 
-        <p className="mt-12 text-[10px] uppercase tracking-[0.2em] font-black text-[var(--text-muted)] opacity-50 font-sans">
+        <p className="mt-10 text-[10px] uppercase tracking-[0.2em] font-bold text-[var(--text-muted)] opacity-60">
           Identity Management
         </p>
       </div>
@@ -54,10 +84,21 @@ function LoginContent() {
   );
 }
 
+function LoginFallback() {
+  return (
+    <div
+      aria-live="polite"
+      className="text-xs uppercase tracking-widest font-bold text-[var(--text-muted)] animate-pulse"
+    >
+      Inicjalizacja…
+    </div>
+  );
+}
+
 export default function LoginPage() {
   return (
-    <div className="min-h-screen bg-[var(--bg-main)] text-[var(--text-main)] flex items-center justify-center transition-colors duration-500">
-      <Suspense fallback={<div className="font-bold text-xs tracking-widest opacity-20 uppercase animate-pulse">Inicjalizacja...</div>}>
+    <div className="min-h-screen bg-[var(--bg-main)] flex items-center justify-center transition-colors duration-500">
+      <Suspense fallback={<LoginFallback />}>
         <LoginContent />
       </Suspense>
     </div>

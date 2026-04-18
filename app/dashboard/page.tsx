@@ -1,16 +1,44 @@
 import { getServerSession } from "next-auth/next";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { 
-  ShieldCheck,
-  Settings
-} from "lucide-react";
+import { ArrowRight, CalendarDays, ShieldCheck, User as UserIcon } from "lucide-react";
 import { authOptions } from "@/app/auth";
-import { LogoutButton } from "@/components/LogoutButton";
+import { AppHeader } from "@/components/AppHeader";
+import { Card, PageShell } from "@/components/ui";
+
 export const dynamic = "force-dynamic";
-/**
- * FINAL ULTRA-CLEAN DASHBOARD
- */
+
+interface QuickLink {
+  title: string;
+  description: string;
+  href: string;
+  icon: typeof UserIcon;
+  accentClass: string;
+}
+
+const QUICK_LINKS: QuickLink[] = [
+  {
+    title: "Profil",
+    description: "Edytuj dane osobowe i preferencje konta.",
+    href: "/account?tab=profile",
+    icon: UserIcon,
+    accentClass: "bg-[var(--accent)]/10 text-[var(--accent)]",
+  },
+  {
+    title: "Bezpieczeństwo",
+    description: "Zarządzaj 2FA, kluczami bezpieczeństwa i hasłem.",
+    href: "/account?tab=security",
+    icon: ShieldCheck,
+    accentClass: "bg-green-500/10 text-green-500",
+  },
+  {
+    title: "Integracje",
+    description: "Podłącz konto Google, korzystaj z kalendarza.",
+    href: "/account?tab=integrations",
+    icon: CalendarDays,
+    accentClass: "bg-blue-500/10 text-blue-500",
+  },
+];
 
 export default async function DashboardPage() {
   const session = await getServerSession(authOptions);
@@ -19,41 +47,99 @@ export default async function DashboardPage() {
     redirect("/login");
   }
 
+  const fullName =
+    session.user.name ||
+    [
+      (session.user as { firstName?: string }).firstName,
+      (session.user as { lastName?: string }).lastName,
+    ]
+      .filter(Boolean)
+      .join(" ") ||
+    session.user.email ||
+    "Użytkowniku";
+
+  const email = session.user.email ?? undefined;
+
   return (
-    <div className="min-h-screen bg-[var(--bg-main)] text-[var(--text-main)] font-sans transition-colors duration-300">
-      {/* Top Navigation - Ultra Minimal */}
-      <nav className="fixed top-0 w-full z-50 border-b border-[var(--border-subtle)] bg-[var(--bg-header)]/80 backdrop-blur-md">
-        <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
-          <div className="font-bold tracking-tighter text-lg select-none">
-            MyPerformance
-          </div>
+    <PageShell
+      maxWidth="xl"
+      header={<AppHeader userLabel={fullName} userSubLabel={email} />}
+    >
+      <section className="mb-10">
+        <p className="text-sm font-medium text-[var(--text-muted)] uppercase tracking-wider">
+          Pulpit
+        </p>
+        <h1 className="text-3xl font-bold tracking-tight text-[var(--text-main)] mt-2">
+          Witaj, {fullName}
+        </h1>
+        <p className="text-sm text-[var(--text-muted)] mt-2 max-w-xl">
+          Stąd zarządzasz swoim kontem, integracjami oraz bezpieczeństwem.
+          Więcej usług dostępne wkrótce.
+        </p>
+      </section>
 
-          <div className="flex items-center gap-3">
+      <section aria-labelledby="quick-links-heading">
+        <h2
+          id="quick-links-heading"
+          className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-3"
+        >
+          Szybki dostęp
+        </h2>
+        <div className="grid gap-4 md:grid-cols-3">
+          {QUICK_LINKS.map(({ title, description, href, icon: Icon, accentClass }) => (
             <Link
-              href="/account"
-              className="p-3 rounded-xl text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-card)] transition-all duration-300"
-              title="Zarządzaj kontem"
+              key={href}
+              href={href}
+              className="group focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/50 rounded-2xl"
             >
-              <Settings className="w-5 h-5" />
+              <Card
+                interactive
+                padding="md"
+                className="h-full flex flex-col gap-4"
+              >
+                <div
+                  className={`w-12 h-12 rounded-xl flex items-center justify-center ${accentClass}`}
+                >
+                  <Icon className="w-6 h-6" aria-hidden="true" />
+                </div>
+                <div>
+                  <h3 className="text-base font-semibold text-[var(--text-main)]">
+                    {title}
+                  </h3>
+                  <p className="text-sm text-[var(--text-muted)] mt-1">
+                    {description}
+                  </p>
+                </div>
+                <span className="mt-auto inline-flex items-center gap-1 text-sm font-medium text-[var(--accent)]">
+                  Przejdź
+                  <ArrowRight
+                    className="w-4 h-4 transition-transform group-hover:translate-x-1"
+                    aria-hidden="true"
+                  />
+                </span>
+              </Card>
             </Link>
-            <LogoutButton />
-          </div>
+          ))}
         </div>
-      </nav>
+      </section>
 
-      <main className="pt-40 max-w-4xl mx-auto px-6">
-        <div className="flex flex-col items-center justify-center text-center">
-          <h1 className="text-5xl font-black tracking-tight mb-16">
-            Witaj, {session.user.name}
-          </h1>
-
-          {/* Clean Dashboard - No cards */}
-          <div className="p-8 border-2 border-dashed border-[var(--border-subtle)] rounded-[2.5rem] flex flex-col items-center justify-center text-center opacity-40">
-             <ShieldCheck className="w-10 h-10 mb-4 text-[var(--text-muted)]" />
-             <p className="text-sm font-bold uppercase tracking-widest">Więcej usług wkrótce</p>
-          </div>
-        </div>
-      </main>
-    </div>
+      <section aria-labelledby="upcoming-heading" className="mt-12">
+        <h2
+          id="upcoming-heading"
+          className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-3"
+        >
+          Nadchodzące
+        </h2>
+        <Card padding="lg" className="border-dashed flex flex-col items-center gap-3 text-center">
+          <ShieldCheck
+            className="w-8 h-8 text-[var(--text-muted)] opacity-60"
+            aria-hidden="true"
+          />
+          <p className="text-sm text-[var(--text-muted)] uppercase tracking-wider font-semibold">
+            Więcej usług wkrótce
+          </p>
+        </Card>
+      </section>
+    </PageShell>
   );
 }

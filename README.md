@@ -77,7 +77,6 @@ docker run -p 3000:3000 --env-file .env myperformance-dashboard
 │   ├── PerformanceChart.tsx     - Wykres wydajności
 │   └── TasksChart.tsx           - Wykres postępu zadań
 ├── lib/
-│   ├── role-check.ts            - Funkcje pomocnicze do sprawdzania ról
 │   └── utils.ts                 - Funkcje utility (cn)
 ├── types/
 │   └── next-auth.d.ts           - Rozszerzenie typów NextAuth
