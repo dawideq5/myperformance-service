@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import { useSession, signIn, signOut } from "next-auth/react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { User, Shield, History, Plug, ArrowLeft, AlertCircle } from "lucide-react";
+import { User, Shield, History, Plug, ArrowLeft, AlertCircle, CalendarDays } from "lucide-react";
 import Link from "next/link";
 
 import type { KeycloakSession, UserProfile, TwoFAStatus } from "@/app/account/types";
@@ -11,8 +11,9 @@ import { ProfileTab } from "@/app/account/components/ProfileTab";
 import { SecurityTab } from "@/app/account/components/SecurityTab";
 import { SessionsTab } from "@/app/account/components/SessionsTab";
 import { IntegrationsTab } from "@/app/account/components/IntegrationsTab";
+import { CalendarTab } from "@/app/account/components/CalendarTab";
 
-type Tab = "profile" | "security" | "sessions" | "integrations";
+type Tab = "profile" | "security" | "sessions" | "integrations" | "calendar";
 
 export default function AccountPage() {
   const { data: session, status, update } = useSession();
@@ -51,7 +52,6 @@ export default function AccountPage() {
   const [googleModalOpen, setGoogleModalOpen] = useState(false);
   const [googleFeatureEmail, setGoogleFeatureEmail] = useState(true);
   const [googleFeatureCalendar, setGoogleFeatureCalendar] = useState(true);
-  const [googleFeatureGmail, setGoogleFeatureGmail] = useState(true);
 
   const sessionDataLoadedRef = useRef(false);
 
@@ -233,11 +233,6 @@ export default function AccountPage() {
               if (result?.emailVerified?.ok) parts.push("Email został potwierdzony jako zweryfikowany.");
               if (result?.calendar?.ok) parts.push("Utworzono wydarzenie w kalendarzu.");
               else if (result?.calendar?.error) parts.push("Nie udało się utworzyć wydarzenia w kalendarzu.");
-              if (result?.gmail?.ok) {
-                parts.push(result.gmail.alreadyExists ? "Folder Gmail już istniał." : "Utworzono folder w Gmail.");
-              } else if (result?.gmail?.error) {
-                parts.push("Nie udało się utworzyć folderu Gmail.");
-              }
               setGoogleSuccess(parts.join(" "));
               void fetchUserData();
             }
@@ -359,7 +354,6 @@ export default function AccountPage() {
     setGoogleSuccess(null);
     setGoogleFeatureEmail(true);
     setGoogleFeatureCalendar(true);
-    setGoogleFeatureGmail(true);
     setGoogleModalOpen(true);
   };
 
@@ -367,7 +361,6 @@ export default function AccountPage() {
     const features: string[] = [];
     if (googleFeatureEmail) features.push("email_verification");
     if (googleFeatureCalendar) features.push("calendar");
-    if (googleFeatureGmail) features.push("gmail_labels");
 
     if (features.length === 0) { setGoogleError("Zaznacz przynajmniej jedną funkcję."); return; }
 
@@ -400,6 +393,7 @@ export default function AccountPage() {
         setGoogleConnected(false);
         setGoogleSuccess(null);
         setGoogleError(null);
+        if (activeTab === "calendar") setActiveTab("integrations");
       }
     } catch (err) {
       console.error("Failed to disconnect Google", err);
@@ -464,6 +458,11 @@ export default function AccountPage() {
       badge: googleConnected ? (
         <span className="ml-auto w-2 h-2 bg-green-500 rounded-full" />
       ) : undefined },
+    ...(googleConnected ? [{
+      id: "calendar" as Tab,
+      label: "Kalendarz",
+      icon: <CalendarDays className="w-5 h-5" />,
+    }] : []),
   ];
 
   return (
@@ -571,15 +570,16 @@ export default function AccountPage() {
                 googleModalOpen={googleModalOpen}
                 googleFeatureEmail={googleFeatureEmail}
                 googleFeatureCalendar={googleFeatureCalendar}
-                googleFeatureGmail={googleFeatureGmail}
                 setGoogleModalOpen={setGoogleModalOpen}
                 setGoogleFeatureEmail={setGoogleFeatureEmail}
                 setGoogleFeatureCalendar={setGoogleFeatureCalendar}
-                setGoogleFeatureGmail={setGoogleFeatureGmail}
                 onConnectGoogle={connectGoogle}
                 onDisconnectGoogle={disconnectGoogle}
                 onSubmitGoogleLink={submitGoogleLink}
               />
+            )}
+            {activeTab === "calendar" && googleConnected && (
+              <CalendarTab />
             )}
           </main>
         </div>

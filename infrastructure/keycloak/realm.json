@@ -1765,7 +1765,7 @@
       "enabled": true,
       "trustEmail": true,
       "storeToken": true,
-      "addReadTokenRoleOnCreate": false,
+      "addReadTokenRoleOnCreate": true,
       "authenticateByDefault": false,
       "linkOnly": false,
       "hideOnLogin": true,
@@ -1780,7 +1780,7 @@
         "caseSensitiveOriginalUsername": "false",
         "issuer": "https://accounts.google.com",
         "jwtAuthorizationGrantMaxAllowedAssertionExpiration": "3600",
-        "defaultScope": "openid profile email https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/gmail.labels"
+        "defaultScope": "openid profile email https://www.googleapis.com/auth/calendar.events"
       },
       "types": []
     }

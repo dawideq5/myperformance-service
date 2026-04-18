@@ -15,5 +15,4 @@ export const ALLOWED_REQUIRED_ACTIONS = new Set([
 export const ALLOWED_GOOGLE_FEATURES = new Set([
   "email_verification",
   "calendar",
-  "gmail_labels",
 ]);

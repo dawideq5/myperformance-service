@@ -6,7 +6,6 @@ import { keycloak } from "@/lib/keycloak";
 const ALLOWED_FEATURES = new Set([
   "email_verification",
   "calendar",
-  "gmail_labels",
 ]);
 
 /**
@@ -19,8 +18,7 @@ const ALLOWED_FEATURES = new Set([
  *
  * Body: { features: string[] }
  *   - email_verification: confirm and mark email as verified
- *   - calendar: create calendar events on user's behalf
- *   - gmail_labels: create / manage labels in user's Gmail
+ *   - calendar: create and manage calendar events on user's behalf
  */
 export async function POST(request: NextRequest) {
   try {

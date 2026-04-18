@@ -37,6 +37,7 @@ services:
       - KC_HOSTNAME=localhost
       - KC_HOSTNAME_STRICT=false
       - KC_HTTP_ENABLED=true
+      - KC_SSL_REQUIRED=none
       - KC_IMPORT_STRATEGY=OVERWRITE_EXISTING
       - KC_HEALTH_ENABLED=true
       - GOOGLE_IDP_CLIENT_ID=${GOOGLE_IDP_CLIENT_ID}

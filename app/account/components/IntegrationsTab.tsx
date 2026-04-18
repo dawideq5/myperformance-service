@@ -3,7 +3,7 @@
 import { useState } from "react";
 import {
   Globe, AlertCircle, CheckCircle2, Loader2, ChevronRight, X,
-  ShieldCheck, Calendar, Tag, Info, Settings,
+  ShieldCheck, Calendar, Info, Settings,
   Shield as ShieldIcon,
 } from "lucide-react";
 
@@ -15,11 +15,9 @@ interface Props {
   googleModalOpen: boolean;
   googleFeatureEmail: boolean;
   googleFeatureCalendar: boolean;
-  googleFeatureGmail: boolean;
   setGoogleModalOpen: (open: boolean) => void;
   setGoogleFeatureEmail: (v: boolean) => void;
   setGoogleFeatureCalendar: (v: boolean) => void;
-  setGoogleFeatureGmail: (v: boolean) => void;
   onConnectGoogle: () => void;
   onDisconnectGoogle: () => void;
   onSubmitGoogleLink: () => void;
@@ -27,8 +25,8 @@ interface Props {
 
 export function IntegrationsTab({
   googleConnected, googleError, googleSuccess, connectingGoogle,
-  googleModalOpen, googleFeatureEmail, googleFeatureCalendar, googleFeatureGmail,
-  setGoogleModalOpen, setGoogleFeatureEmail, setGoogleFeatureCalendar, setGoogleFeatureGmail,
+  googleModalOpen, googleFeatureEmail, googleFeatureCalendar,
+  setGoogleModalOpen, setGoogleFeatureEmail, setGoogleFeatureCalendar,
   onConnectGoogle, onDisconnectGoogle, onSubmitGoogleLink,
 }: Props) {
   const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
@@ -143,19 +141,14 @@ export function IntegrationsTab({
               bg: "bg-green-500/10",
               title: "Weryfikacja adresu email",
               desc: "Potwierdzanie, że Twoje konto w systemie MyPerformance jest powiązane ze zweryfikowaną tożsamością Google.",
+              warning: undefined,
             },
             {
               icon: <Calendar className="w-5 h-5 text-blue-500" />,
               bg: "bg-blue-500/10",
               title: "Kalendarz Google",
-              desc: "Tworzenie wydarzeń, spotkań i przypomnień w Twoim kalendarzu na wyraźne polecenie lub w wyniku akcji w systemie.",
-            },
-            {
-              icon: <Tag className="w-5 h-5 text-purple-500" />,
-              bg: "bg-purple-500/10",
-              title: "Organizacja skrzynki Gmail",
-              desc: "Tworzenie etykiety \"MyPerformance\" i ustawianie filtrów kierujących wiadomości z domeny @myperformance.pl.",
-              warning: "System NIE ma dostępu do treści wiadomości email. Może jedynie zarządzać strukturą folderów i regułami.",
+              desc: "Tworzenie i odczytywanie wydarzeń w Twoim kalendarzu. Po połączeniu zyskujesz zakładkę Kalendarz z synchronizacją.",
+              warning: undefined,
             },
           ].map(({ icon, bg, title, desc, warning }) => (
             <div key={title} className="p-4 bg-[var(--bg-main)] border border-[var(--border-subtle)] rounded-xl">
@@ -189,8 +182,8 @@ export function IntegrationsTab({
             {[
               "Przeglądać lub czytać Twoje wiadomości email",
               "Wysyłać wiadomości w Twoim imieniu",
-              "Usuwać plików z Dysku Google",
-              "Przeglądać Twoje pliki na Dysku",
+              "Usuwać wydarzeń z Twojego kalendarza Google",
+              "Przeglądać Twoje pliki na Dysku Google",
               "Modyfikować ustawień konta Google poza uprawnieniami",
             ].map((item) => (
               <li key={item} className="flex items-start gap-2">
@@ -261,13 +254,7 @@ export function IntegrationsTab({
                   checked: googleFeatureCalendar,
                   onChange: setGoogleFeatureCalendar,
                   label: "Kalendarz Google",
-                  desc: "Twórz wydarzenia w Twoim kalendarzu (np. potwierdzenia połączenia)",
-                },
-                {
-                  checked: googleFeatureGmail,
-                  onChange: setGoogleFeatureGmail,
-                  label: "Foldery Gmail",
-                  desc: "Twórz etykiety/foldery w Gmail (np. \"MyPerformance\")",
+                  desc: "Przeglądaj i twórz wydarzenia w Twoim Google Calendar z poziomu MyPerformance",
                 },
               ].map(({ checked, onChange, label, desc }) => (
                 <label key={label} className="flex items-start gap-3 cursor-pointer">

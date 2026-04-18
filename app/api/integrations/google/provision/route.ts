@@ -117,11 +117,9 @@ export async function POST() {
     const results: {
       emailVerified: FeatureResult;
       calendar: FeatureResult;
-      gmail: FeatureResult;
     } = {
       emailVerified: { ok: false, skipped: true },
       calendar: { ok: false, skipped: true },
-      gmail: { ok: false, skipped: true },
     };
 
     // Step 4: auto email verification (always runs if Google confirms)
@@ -179,47 +177,6 @@ export async function POST() {
       } catch (err: any) {
         console.error("[Google Provision] Calendar exception:", err);
         results.calendar = { ok: false, error: err?.message || "unknown" };
-      }
-    }
-
-    if (requestedFeatures.includes("gmail_labels")) {
-      try {
-        const gmailResp = await fetch(
-          "https://gmail.googleapis.com/gmail/v1/users/me/labels",
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${googleAccessToken}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              name: "MyPerformance",
-              labelListVisibility: "labelShow",
-              messageListVisibility: "show",
-            }),
-          }
-        );
-
-        if (gmailResp.ok) {
-          const data = await gmailResp.json();
-          results.gmail = { ok: true, id: data.id };
-        } else if (gmailResp.status === 409) {
-          results.gmail = { ok: true, alreadyExists: true };
-        } else {
-          const errText = await gmailResp.text();
-          console.error(
-            "[Google Provision] Gmail label failed:",
-            gmailResp.status,
-            errText
-          );
-          results.gmail = {
-            ok: false,
-            error: `${gmailResp.status}: ${errText}`,
-          };
-        }
-      } catch (err: any) {
-        console.error("[Google Provision] Gmail exception:", err);
-        results.gmail = { ok: false, error: err?.message || "unknown" };
       }
     }
 

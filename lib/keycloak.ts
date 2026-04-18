@@ -285,27 +285,41 @@ export class KeycloakService {
     userId: string,
     attributes: Record<string, string[]>
   ) {
+    console.log("[updateUserAttributes] Updating attributes for user:", userId);
+    console.log("[updateUserAttributes] Attributes to update:", Object.keys(attributes));
+    
     const userResponse = await this.adminRequest(`/users/${userId}`, adminToken);
     if (!userResponse.ok) {
+      const errorText = await userResponse.text();
+      console.error("[updateUserAttributes] Failed to load user:", errorText);
       throw new Error("Unable to load user data for attribute update");
     }
 
     const userData = await userResponse.json();
+    console.log("[updateUserAttributes] Current attributes:", Object.keys(userData.attributes || {}));
+    
+    const updateBody = {
+      ...userData,
+      attributes: {
+        ...(userData.attributes || {}),
+        ...attributes,
+      },
+    };
+    console.log("[updateUserAttributes] Sending PUT with full user object");
+    console.log("[updateUserAttributes] User object keys:", Object.keys(updateBody));
+    console.log("[updateUserAttributes] Attributes to send:", updateBody.attributes);
+    
     const updateResponse = await this.adminRequest(`/users/${userId}`, adminToken, {
       method: "PUT",
-      body: JSON.stringify({
-        ...userData,
-        attributes: {
-          ...(userData.attributes || {}),
-          ...attributes,
-        },
-      }),
+      body: JSON.stringify(updateBody),
     });
 
     if (!updateResponse.ok) {
       const details = await updateResponse.text();
+      console.error("[updateUserAttributes] Update failed:", updateResponse.status, details);
       throw new Error(details || "Unable to update user attributes");
     }
+    console.log("[updateUserAttributes] Update successful, status:", updateResponse.status);
   }
 
   public async resolveRequiredActionAlias(adminToken: string, candidates: string[]) {
