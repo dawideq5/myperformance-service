@@ -4,48 +4,73 @@ import { keycloak } from "@/lib/keycloak";
 import { getRequiredEnv } from "@/lib/env";
 import { SESSION_MAX_AGE_SECONDS } from "@/lib/constants";
 
+interface RefreshResult {
+  accessToken: string;
+  refreshToken: string;
+  idToken: string;
+  expiresAt: number;
+}
+
+type RefreshFailure =
+  | { kind: "transient" }
+  | { kind: "invalid_grant"; reason: string };
+
 async function refreshKeycloakToken(
   refreshToken: string,
   issuer: string,
   clientId: string,
   clientSecret: string
-): Promise<{
-  accessToken: string;
-  refreshToken: string;
-  idToken: string;
-  expiresAt: number;
-} | null> {
+): Promise<RefreshResult | RefreshFailure> {
   try {
-    const res = await fetch(
-      `${issuer}/protocol/openid-connect/token`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          grant_type: "refresh_token",
-          client_id: clientId,
-          client_secret: clientSecret,
-          refresh_token: refreshToken,
-        }),
-      }
-    );
+    const res = await fetch(`${issuer}/protocol/openid-connect/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        client_id: clientId,
+        client_secret: clientSecret,
+        refresh_token: refreshToken,
+      }),
+    });
 
-    if (!res.ok) {
-      console.error("[auth] Token refresh failed:", res.status, await res.text());
-      return null;
+    if (res.ok) {
+      const data = await res.json();
+      return {
+        accessToken: data.access_token,
+        refreshToken: data.refresh_token ?? refreshToken,
+        idToken: data.id_token,
+        expiresAt: Math.floor(Date.now() / 1000) + data.expires_in,
+      };
     }
 
-    const data = await res.json();
-    return {
-      accessToken: data.access_token,
-      refreshToken: data.refresh_token ?? refreshToken,
-      idToken: data.id_token,
-      expiresAt: Math.floor(Date.now() / 1000) + data.expires_in,
-    };
+    // 4xx from Keycloak = refresh token is permanently invalid (expired,
+    // revoked, provider mismatch). 5xx = transient infra failure.
+    const bodyText = await res.text();
+    if (res.status >= 400 && res.status < 500) {
+      let reason = "invalid_grant";
+      try {
+        const body = JSON.parse(bodyText);
+        if (body?.error_description) reason = String(body.error_description);
+        else if (body?.error) reason = String(body.error);
+      } catch {
+        /* non-JSON error body, keep default reason */
+      }
+      console.warn("[auth] Refresh rejected by Keycloak:", res.status, reason);
+      return { kind: "invalid_grant", reason };
+    }
+
+    console.error("[auth] Token refresh transient failure:", res.status, bodyText);
+    return { kind: "transient" };
   } catch (err) {
     console.error("[auth] Token refresh error:", err);
-    return null;
+    return { kind: "transient" };
   }
+}
+
+function isRefreshSuccess(
+  r: RefreshResult | RefreshFailure
+): r is RefreshResult {
+  return (r as RefreshResult).accessToken !== undefined;
 }
 
 /** Fetches user attributes from Keycloak Account API and caches them in the JWT token. */
@@ -141,7 +166,8 @@ function buildAuthOptions() {
             keycloakClientId,
             keycloakClientSecret
           );
-          if (refreshed) {
+
+          if (isRefreshSuccess(refreshed)) {
             token.accessToken = refreshed.accessToken;
             token.refreshToken = refreshed.refreshToken;
             token.idToken = refreshed.idToken;
@@ -150,9 +176,29 @@ function buildAuthOptions() {
             await hydrateTokenAttributes(token);
             return token;
           }
+
+          if (refreshed.kind === "invalid_grant") {
+            // Hard-kill the session — refresh token is permanently unusable.
+            // Clearing accessToken forces middleware to redirect to /login
+            // instead of bouncing through broken refresh attempts.
+            console.warn(
+              "[auth] Refresh token invalid — invalidating session:",
+              refreshed.reason
+            );
+            token.accessToken = undefined;
+            token.refreshToken = undefined;
+            token.idToken = undefined;
+            token.expiresAt = 0;
+            token.keycloakError = true;
+            return token;
+          }
+
+          // Transient: keep the existing (expired) token. The next request
+          // will retry. Avoids kicking users out on a blip.
+          console.warn("[auth] Transient refresh failure — will retry");
+          return token;
         }
 
-        console.warn("[auth] Keycloak refresh failed — session invalidated");
         token.keycloakError = true;
         return token;
       },

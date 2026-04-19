@@ -1,83 +1,73 @@
+export const dynamic = "force-dynamic";
+
 import { getServerSession } from "next-auth/next";
-import { NextResponse } from "next/server";
-import { authOptions } from "@/app/auth";
 import * as OTPAuth from "otpauth";
 import QRCode from "qrcode";
 
+import { authOptions } from "@/app/auth";
 import { keycloak } from "@/lib/keycloak";
 import { getClientIp, rateLimit } from "@/lib/rate-limit";
+import {
+  ApiError,
+  createSuccessResponse,
+  handleApiError,
+  requireSession,
+} from "@/lib/api-utils";
+import { withAdminContext } from "@/lib/keycloak-admin";
 
-// GET - Check 2FA status
+interface TwoFactorStatus {
+  enabled: boolean;
+  configured: boolean;
+}
+
+async function fetchAccountCredentials(accessToken: string): Promise<unknown[]> {
+  const res = await fetch(keycloak.getAccountUrl("/account/credentials"), {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: "application/json",
+    },
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return Array.isArray(data) ? data : [];
+}
+
 export async function GET() {
   try {
-    const session: any = await getServerSession(authOptions);
-    if (!session?.accessToken) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const session = await getServerSession(authOptions);
+    requireSession(session);
 
-    const response = await fetch(
-      keycloak.getAccountUrl("/account/credentials"),
-      {
-        headers: {
-          Authorization: `Bearer ${session.accessToken}`,
-          Accept: "application/json",
-        },
-      }
+    const credentials = await fetchAccountCredentials(
+      (session as any).accessToken,
     );
+    const otp = credentials.find((c: any) => c?.type === "otp") as any;
+    const configured = (otp?.userCredentialMetadatas?.length ?? 0) > 0;
 
-    if (!response.ok) {
-      return NextResponse.json({ enabled: false, configured: false });
-    }
-
-    const credentials = await response.json();
-    const otpCredential = Array.isArray(credentials)
-      ? credentials.find((c: any) => c.type === "otp")
-      : null;
-
-    const hasOtpConfigured = otpCredential?.userCredentialMetadatas?.length > 0;
-
-    return NextResponse.json({
-      enabled: hasOtpConfigured,
-      configured: hasOtpConfigured,
-    });
+    const body: TwoFactorStatus = { enabled: configured, configured };
+    return createSuccessResponse(body);
   } catch (error) {
-    console.error("[API /2fa GET] error:", error);
-    return NextResponse.json({ enabled: false, configured: false });
+    return handleApiError(error);
   }
 }
 
-// POST - Generate QR code or verify TOTP and enable 2FA
 export async function POST(request: Request) {
   try {
-    const session: any = await getServerSession(authOptions);
-    if (!session?.accessToken) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const session = await getServerSession(authOptions);
+    requireSession(session);
+
+    const accessToken = (session as any).accessToken as string;
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== "object") {
+      throw ApiError.badRequest("Invalid JSON body");
     }
+    const { action, totpCode, secret } = body as {
+      action?: string;
+      totpCode?: string;
+      secret?: string;
+    };
 
-    const body = await request.json();
-    const { action, totpCode, secret } = body;
-
-    if (action === "prepare") {
-      const serviceToken = await keycloak.getServiceAccountToken();
-      const userId = await keycloak.getUserIdFromToken(session.accessToken);
-      const requiredActionAlias = await keycloak.resolveRequiredActionAlias(serviceToken, [
-        "CONFIGURE_TOTP",
-      ]);
-
-      if (!requiredActionAlias) {
-        return NextResponse.json(
-          { error: "Brak wymaganej akcji CONFIGURE_TOTP w konfiguracji Keycloak" },
-          { status: 400 }
-        );
-      }
-
-      await keycloak.appendUserRequiredAction(serviceToken, userId, requiredActionAlias);
-      return NextResponse.json({ success: true, requiredAction: requiredActionAlias });
-    }
-
-    // Step 1: Generate new TOTP secret + QR code
     if (action === "generate") {
-      const userEmail = session.user?.email || "user";
+      const userEmail = (session as any).user?.email || "user";
       const totp = new OTPAuth.TOTP({
         issuer: "MyPerformance",
         label: userEmail,
@@ -88,242 +78,178 @@ export async function POST(request: Request) {
       });
 
       const otpauthUri = totp.toString();
-      const qrDataUrl = await QRCode.toDataURL(otpauthUri, {
+      const qrCode = await QRCode.toDataURL(otpauthUri, {
         width: 256,
         margin: 2,
         color: { dark: "#000000", light: "#ffffff" },
       });
 
-      return NextResponse.json({
-        qrCode: qrDataUrl,
+      return createSuccessResponse({
+        qrCode,
         secret: totp.secret.base32,
         otpauthUri,
       });
     }
 
-    // Step 2: Verify TOTP code and register in Keycloak
     if (action === "verify") {
       if (!totpCode || !secret) {
-        return NextResponse.json(
-          { error: "Brakuje kodu lub sekretu" },
-          { status: 400 }
-        );
+        throw ApiError.badRequest("Brakuje kodu lub sekretu");
       }
 
-      // 10 verify attempts per 5 min per user — deters TOTP code brute force
-      // even though the window validation below would also catch random codes.
       const userSub =
-        (session as any)?.user?.sub || session.user?.email || "anon";
+        (session as any)?.user?.sub ||
+        (session as any)?.user?.email ||
+        "anon";
       const ipKey = getClientIp(request);
       const rl = rateLimit(`totp:${userSub}:${ipKey}`, {
         capacity: 10,
         refillPerSec: 10 / (5 * 60),
       });
       if (!rl.allowed) {
-        return NextResponse.json(
-          { error: "Zbyt wiele prób weryfikacji. Spróbuj ponownie później." },
+        return new Response(
+          JSON.stringify({
+            error: {
+              code: "BAD_REQUEST",
+              message:
+                "Zbyt wiele prób weryfikacji. Spróbuj ponownie później.",
+            },
+          }),
           {
             status: 429,
             headers: {
+              "Content-Type": "application/json",
               "Retry-After": String(Math.ceil(rl.retryAfterMs / 1000)),
             },
           },
         );
       }
 
-      // Verify the TOTP code locally first
       const totp = new OTPAuth.TOTP({
         issuer: "MyPerformance",
-        label: session.user?.email || "user",
+        label: (session as any).user?.email || "user",
         algorithm: "SHA1",
         digits: 6,
         period: 30,
         secret: OTPAuth.Secret.fromBase32(secret),
       });
 
-      const delta = totp.validate({ token: totpCode, window: 1 });
-      if (delta === null) {
-        return NextResponse.json(
-          { error: "Nieprawidłowy kod weryfikacyjny" },
-          { status: 400 }
-        );
+      if (totp.validate({ token: totpCode, window: 1 }) === null) {
+        throw ApiError.badRequest("Nieprawidłowy kod weryfikacyjny");
       }
 
-      // Get service account token and user ID
-      const serviceToken = await keycloak.getServiceAccountToken();
-      const userId = await keycloak.getUserIdFromToken(session.accessToken);
-
-      // Get current user representation
-      const userRes = await fetch(
-        keycloak.getAdminUrl(`/users/${userId}`),
-        {
-          headers: {
-            Authorization: `Bearer ${serviceToken}`,
-            Accept: "application/json",
-          },
+      await withAdminContext(accessToken, async (adminToken, userId) => {
+        const userRes = await keycloak.adminRequest(
+          `/users/${userId}`,
+          adminToken,
+        );
+        if (!userRes.ok) {
+          throw ApiError.serviceUnavailable(
+            "Nie udało się pobrać danych użytkownika",
+          );
         }
-      );
+        const userData = await userRes.json();
 
-      if (!userRes.ok) {
-        console.error("[API /2fa POST verify] Failed to get user:", userRes.status);
-        return NextResponse.json(
-          { error: "Nie udało się pobrać danych użytkownika. Sprawdź rolę manage-users na service account." },
-          { status: 500 }
-        );
-      }
-
-      const userData = await userRes.json();
-
-      // Add OTP credential via PUT /users/{id} with credentials array
-      const otpCredential = {
-        type: "otp",
-        userLabel: "MyPerformance Authenticator",
-        secretData: JSON.stringify({ value: secret }),
-        credentialData: JSON.stringify({
-          subType: "totp",
-          digits: 6,
-          period: 30,
-          algorithm: "HmacSHA1",
-        }),
-      };
-
-      const updateRes = await fetch(
-        keycloak.getAdminUrl(`/users/${userId}`),
-        {
-          method: "PUT",
-          headers: {
-            Authorization: `Bearer ${serviceToken}`,
-            "Content-Type": "application/json",
+        const updateRes = await keycloak.adminRequest(
+          `/users/${userId}`,
+          adminToken,
+          {
+            method: "PUT",
+            body: JSON.stringify({
+              ...userData,
+              credentials: [
+                ...(userData.credentials || []),
+                {
+                  type: "otp",
+                  userLabel: "MyPerformance Authenticator",
+                  secretData: JSON.stringify({ value: secret }),
+                  credentialData: JSON.stringify({
+                    subType: "totp",
+                    digits: 6,
+                    period: 30,
+                    algorithm: "HmacSHA1",
+                  }),
+                },
+              ],
+            }),
           },
-          body: JSON.stringify({
-            ...userData,
-            credentials: [
-              ...(userData.credentials || []),
-              otpCredential,
-            ],
-          }),
-        }
-      );
-
-      if (!updateRes.ok) {
-        const errText = await updateRes.text();
-        return NextResponse.json(
-          { error: "Nie udało się zapisać konfiguracji 2FA." },
-          { status: 500 }
         );
-      }
+        if (!updateRes.ok) {
+          throw ApiError.serviceUnavailable(
+            "Nie udało się zapisać konfiguracji 2FA",
+          );
+        }
+      });
 
-      return NextResponse.json({ success: true, enabled: true });
+      return createSuccessResponse({ success: true, enabled: true });
     }
 
-    return NextResponse.json({ error: "Invalid action" }, { status: 400 });
+    throw ApiError.badRequest("Invalid action");
   } catch (error) {
-    console.error("[API /2fa POST] error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return handleApiError(error);
   }
 }
 
-// DELETE - Remove 2FA. Blocked when CONFIGURE_TOTP is present in requiredActions
-// (admin-forced). Keycloak's standard login flow clears that action; if it's still
-// there, it was set by an administrator and the user may not remove the method.
 export async function DELETE() {
   try {
-    const session: any = await getServerSession(authOptions);
-    if (!session?.accessToken) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const session = await getServerSession(authOptions);
+    requireSession(session);
 
-    // Admin-forced check: if user has CONFIGURE_TOTP required action, block deletion.
-    const serviceTokenForCheck = await keycloak.getServiceAccountToken();
-    const userIdForCheck = await keycloak.getUserIdFromToken(session.accessToken);
-    const adminUserResp = await keycloak.adminRequest(
-      `/users/${userIdForCheck}`,
-      serviceTokenForCheck,
-    );
-    if (adminUserResp.ok) {
-      const adminUserData = await adminUserResp.json();
+    const accessToken = (session as any).accessToken as string;
+
+    // Admin-forced check: CONFIGURE_TOTP in requiredActions blocks deletion.
+    await withAdminContext(accessToken, async (adminToken, userId) => {
+      const userResp = await keycloak.adminRequest(
+        `/users/${userId}`,
+        adminToken,
+      );
+      if (!userResp.ok) return;
+      const userData = await userResp.json();
       const normalized = keycloak.normalizeRequiredActions(
-        adminUserData.requiredActions || [],
+        userData.requiredActions || [],
       );
       if (normalized.includes("CONFIGURE_TOTP")) {
-        return NextResponse.json(
-          {
-            error:
-              "Aplikacja uwierzytelniająca została wymuszona przez administratora i nie może zostać usunięta.",
-            code: "admin_forced",
-          },
-          { status: 403 },
+        throw new ApiError(
+          "FORBIDDEN",
+          "Aplikacja uwierzytelniająca została wymuszona przez administratora i nie może zostać usunięta.",
+          403,
+          "admin_forced",
         );
       }
-    }
+    });
 
-    const credsResponse = await fetch(
-      keycloak.getAccountUrl("/account/credentials"),
-      {
-        headers: {
-          Authorization: `Bearer ${session.accessToken}`,
-          Accept: "application/json",
-        },
-      }
-    );
-
-    if (!credsResponse.ok) {
-      return NextResponse.json(
-        { error: "Nie udało się pobrać danych" },
-        { status: credsResponse.status }
-      );
-    }
-
-    const credentials = await credsResponse.json();
-    const otpEntry = Array.isArray(credentials)
-      ? credentials.find((c: any) => c.type === "otp")
-      : null;
-
-    const credentialId = otpEntry?.userCredentialMetadatas?.[0]?.credential?.id;
-
+    const credentials = await fetchAccountCredentials(accessToken);
+    const otp = credentials.find((c: any) => c?.type === "otp") as any;
+    const credentialId = otp?.userCredentialMetadatas?.[0]?.credential?.id;
     if (!credentialId) {
-      return NextResponse.json({ success: true, enabled: false });
+      return createSuccessResponse({ success: true, enabled: false });
     }
 
-    // Try Account API first
     let deleteResponse = await fetch(
       keycloak.getAccountUrl(`/account/credentials/${credentialId}`),
       {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${session.accessToken}` },
-      }
+        headers: { Authorization: `Bearer ${accessToken}` },
+      },
     );
 
-    // If Account API fails, use Admin API
     if (!deleteResponse.ok) {
-      const adminToken = await keycloak.getServiceAccountToken();
-      const userId = await keycloak.getUserIdFromToken(session.accessToken);
-
-      deleteResponse = await fetch(
-        keycloak.getAdminUrl(`/users/${userId}/credentials/${credentialId}`),
-        {
-          method: "DELETE",
-          headers: { Authorization: `Bearer ${adminToken}` },
-        }
+      deleteResponse = await withAdminContext(
+        accessToken,
+        async (adminToken, userId) =>
+          keycloak.adminRequest(
+            `/users/${userId}/credentials/${credentialId}`,
+            adminToken,
+            { method: "DELETE" },
+          ),
       );
     }
 
     if (!deleteResponse.ok) {
-      return NextResponse.json(
-        { error: "Nie udało się wyłączyć 2FA" },
-        { status: deleteResponse.status }
-      );
+      throw ApiError.serviceUnavailable("Nie udało się wyłączyć 2FA");
     }
 
-    return NextResponse.json({ success: true, enabled: false });
+    return createSuccessResponse({ success: true, enabled: false });
   } catch (error) {
-    console.error("[API /2fa DELETE] error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return handleApiError(error);
   }
 }

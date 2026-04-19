@@ -1,224 +1,207 @@
+export const dynamic = "force-dynamic";
+
 import { getServerSession } from "next-auth/next";
-import { NextResponse } from "next/server";
 import { authOptions } from "@/app/auth";
-
 import { keycloak } from "@/lib/keycloak";
+import {
+  ApiError,
+  createSuccessResponse,
+  handleApiError,
+  requireSession,
+} from "@/lib/api-utils";
+import { withAdminContext } from "@/lib/keycloak-admin";
 
-// GET - List registered WebAuthn credentials
+const MAX_WEBAUTHN_KEYS = 2;
+
+function base64urlToBase64(value: string): string {
+  return value.replace(/-/g, "+").replace(/_/g, "/");
+}
+
+function extractAaguid(attestationObject: string): string {
+  const fallback = "00000000-0000-0000-0000-000000000000";
+  try {
+    const bytes = Uint8Array.from(atob(attestationObject), (c) =>
+      c.charCodeAt(0),
+    );
+    const authDataOffset = 37;
+    if (bytes.length < authDataOffset + 16) return fallback;
+    const aaguidBytes = bytes.slice(authDataOffset, authDataOffset + 16);
+    const hex = Array.from(aaguidBytes)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+    if (hex === "00000000000000000000000000000000") return fallback;
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  } catch {
+    return fallback;
+  }
+}
+
+async function fetchAccountCredentials(accessToken: string): Promise<any[]> {
+  const res = await fetch(keycloak.getAccountUrl("/account/credentials"), {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: "application/json",
+    },
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return Array.isArray(data) ? data : [];
+}
+
 export async function GET() {
   try {
-    const session: any = await getServerSession(authOptions);
-    if (!session?.accessToken) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const session = await getServerSession(authOptions);
+    requireSession(session);
 
-    const response = await fetch(
-      keycloak.getAccountUrl("/account/credentials"),
-      {
-        headers: {
-          Authorization: `Bearer ${session.accessToken}`,
-          Accept: "application/json",
-        },
-      }
+    const credentials = await fetchAccountCredentials(
+      (session as any).accessToken,
     );
-
-    if (!response.ok) {
-      return NextResponse.json({ keys: [] });
-    }
-
-    const credentials = await response.json();
-    const webauthnEntry = Array.isArray(credentials)
-      ? credentials.find((c: any) => c.type === "webauthn")
-      : null;
-
-    const keys = (webauthnEntry?.userCredentialMetadatas || []).map((m: any) => ({
+    const webauthn = credentials.find((c: any) => c?.type === "webauthn");
+    const keys = (webauthn?.userCredentialMetadatas || []).map((m: any) => ({
       id: m.credential?.id,
       credentialId: m.credential?.id,
       label: m.credential?.userLabel || "Klucz bezpieczeństwa",
       createdDate: m.credential?.createdDate,
     }));
 
-    return NextResponse.json({ keys, hasWebAuthn: keys.length > 0 });
+    return createSuccessResponse({ keys, hasWebAuthn: keys.length > 0 });
   } catch (error) {
-    console.error("[API /webauthn GET] error:", error);
-    return NextResponse.json({ keys: [], hasWebAuthn: false });
+    return handleApiError(error);
   }
 }
 
-// POST - Register a new WebAuthn credential
 export async function POST(request: Request) {
   try {
-    const session: any = await getServerSession(authOptions);
-    if (!session?.accessToken) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const session = await getServerSession(authOptions);
+    requireSession(session);
+
+    const accessToken = (session as any).accessToken as string;
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== "object") {
+      throw ApiError.badRequest("Invalid JSON body");
     }
+    const { action } = body as { action?: string };
 
-    const body = await request.json();
-    const { action } = body;
-
-    // Step 1: Get registration options
     if (action === "get-options") {
-      const userId = await keycloak.getUserIdFromToken(session.accessToken);
+      const userId = await keycloak.getUserIdFromToken(accessToken);
 
-      // Get user info from Account API (no admin token needed)
-      const profileRes = await fetch(
-        keycloak.getAccountUrl("/account"),
-        {
-          headers: {
-            Authorization: `Bearer ${session.accessToken}`,
-            Accept: "application/json",
-          },
-        }
-      );
+      const profileRes = await fetch(keycloak.getAccountUrl("/account"), {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: "application/json",
+        },
+      });
 
-      let userName = session.user?.email || "user";
-      let displayName = session.user?.name || userName;
+      let userName = (session as any).user?.email || "user";
+      let displayName = (session as any).user?.name || userName;
 
       if (profileRes.ok) {
         const profile = await profileRes.json();
         userName = profile.username || profile.email || userName;
-        displayName = `${profile.firstName || ""} ${profile.lastName || ""}`.trim() || userName;
+        displayName =
+          `${profile.firstName || ""} ${profile.lastName || ""}`.trim() ||
+          userName;
       }
 
-      // Generate challenge
       const challengeBuffer = new Uint8Array(32);
       crypto.getRandomValues(challengeBuffer);
       const challenge = Buffer.from(challengeBuffer).toString("base64url");
 
-      const options = {
+      return createSuccessResponse({
+        options: {
+          challenge,
+          rp: { name: "MyPerformance" },
+          user: {
+            id: Buffer.from(userId).toString("base64url"),
+            name: userName,
+            displayName,
+          },
+          pubKeyCredParams: [
+            { alg: -7, type: "public-key" },
+            { alg: -257, type: "public-key" },
+          ],
+          timeout: 60_000,
+          attestation: "none",
+          authenticatorSelection: {
+            residentKey: "preferred",
+            userVerification: "required",
+          },
+          extensions: { credProps: true },
+        },
         challenge,
-        rp: {
-          name: "MyPerformance",
-        },
-        user: {
-          id: Buffer.from(userId).toString("base64url"),
-          name: userName,
-          displayName,
-        },
-        pubKeyCredParams: [
-          { alg: -7, type: "public-key" },   // ES256
-          { alg: -257, type: "public-key" },  // RS256
-        ],
-        timeout: 60000,
-        attestation: "none",
-        authenticatorSelection: {
-          residentKey: "preferred",
-          userVerification: "required",
-        },
-        extensions: {
-          credProps: true,
-        },
-      };
-
-      return NextResponse.json({ options, challenge });
+      });
     }
 
-    // Step 2: Save the registered credential
     if (action === "register") {
-      const { credential, label } = body;
+      const { credential, label } = body as {
+        credential?: {
+          id: string;
+          attestationObject: string;
+          publicKey?: string;
+        };
+        label?: string;
+      };
 
-      if (!credential) {
-        return NextResponse.json(
-          { error: "Brakuje danych credential" },
-          { status: 400 }
-        );
+      if (!credential?.id || !credential.attestationObject) {
+        throw ApiError.badRequest("Brakuje danych credential");
       }
 
-      const userId = await keycloak.getUserIdFromToken(session.accessToken);
-
-      try {
-        const serviceToken = await keycloak.getServiceAccountToken();
-
-        // Get current user representation
-        const userRes = await fetch(
-          keycloak.getAdminUrl(`/users/${userId}`),
-          {
-            headers: {
-              Authorization: `Bearer ${serviceToken}`,
-              Accept: "application/json",
-            },
-          }
+      await withAdminContext(accessToken, async (adminToken, userId) => {
+        const userRes = await keycloak.adminRequest(
+          `/users/${userId}`,
+          adminToken,
         );
-
         if (!userRes.ok) {
-          return NextResponse.json(
-            { error: "Nie udało się pobrać danych użytkownika. Sprawdź rolę manage-users." },
-            { status: 500 }
+          throw ApiError.serviceUnavailable(
+            "Nie udało się pobrać danych użytkownika",
           );
         }
-
         const userData = await userRes.json();
-
-        // Convert base64url to base64 for Keycloak compatibility
-        const base64urlToBase64 = (base64url: string) => {
-          return base64url.replace(/-/g, '+').replace(/_/g, '/');
-        };
-
-        // Check for duplicate credential (same credentialId)
-        const existingCredentials = userData.credentials || [];
-        const webauthnCredentials = existingCredentials.filter(
-          (c: any) => c.type === "webauthn"
+        const existing = (userData.credentials || []).filter(
+          (c: any) => c.type === "webauthn",
         );
 
-        if (webauthnCredentials.length >= 2) {
-          return NextResponse.json(
-            { error: "Możesz zarejestrować maksymalnie 2 klucze bezpieczeństwa" },
-            { status: 409 }
+        if (existing.length >= MAX_WEBAUTHN_KEYS) {
+          throw ApiError.conflict(
+            `Możesz zarejestrować maksymalnie ${MAX_WEBAUTHN_KEYS} klucze bezpieczeństwa`,
           );
         }
 
         const credentialIdBase64 = base64urlToBase64(credential.id);
-        for (const existingCred of webauthnCredentials) {
+        for (const ex of existing) {
           try {
-            const credData = JSON.parse(existingCred.credentialData || "{}");
-            if (credData.credentialId === credentialIdBase64 || credData.credentialId === credential.id) {
-              return NextResponse.json(
-                { error: "Ten klucz bezpieczeństwa jest już zarejestrowany" },
-                { status: 409 }
+            const credData = JSON.parse(ex.credentialData || "{}");
+            if (
+              credData.credentialId === credentialIdBase64 ||
+              credData.credentialId === credential.id
+            ) {
+              throw ApiError.conflict(
+                "Ten klucz bezpieczeństwa jest już zarejestrowany",
               );
             }
-          } catch {}
+          } catch (e) {
+            if (e instanceof ApiError) throw e;
+          }
         }
 
-        // Decode attestation to get proper aaguid if available
-        let aaguid = "00000000-0000-0000-0000-000000000000";
-        try {
-          const attestationBytes = Uint8Array.from(atob(credential.attestationObject), c => c.charCodeAt(0));
-          // AAGUID is at offset 37-53 in authData within attestation
-          // This is simplified - in production use proper CBOR parsing
-          const authDataOffset = 37; // After RP ID hash
-          if (attestationBytes.length > authDataOffset + 16) {
-            const aaguidBytes = attestationBytes.slice(authDataOffset, authDataOffset + 16);
-            // Convert to UUID format
-            const hex = Array.from(aaguidBytes).map(b => b.toString(16).padStart(2, '0')).join('');
-            if (hex !== '00000000000000000000000000000000') {
-              aaguid = `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
-            }
-          }
-        } catch {}
-
-        // Add WebAuthn credential via PUT /users/{id}
         const webauthnCredential = {
           type: "webauthn",
           userLabel: label || "Klucz bezpieczeństwa",
           credentialData: JSON.stringify({
-            credentialId: base64urlToBase64(credential.id),
+            credentialId: credentialIdBase64,
             credentialPublicKey: credential.publicKey || "",
             counter: 0,
-            aaguid: aaguid,
+            aaguid: extractAaguid(credential.attestationObject),
             attestationStatementFormat: "none",
           }),
           secretData: JSON.stringify({}),
         };
 
-        const updateRes = await fetch(
-          keycloak.getAdminUrl(`/users/${userId}`),
+        const updateRes = await keycloak.adminRequest(
+          `/users/${userId}`,
+          adminToken,
           {
             method: "PUT",
-            headers: {
-              Authorization: `Bearer ${serviceToken}`,
-              "Content-Type": "application/json",
-            },
             body: JSON.stringify({
               ...userData,
               credentials: [
@@ -226,158 +209,126 @@ export async function POST(request: Request) {
                 webauthnCredential,
               ],
             }),
-          }
+          },
         );
 
-        if (updateRes.ok || updateRes.status === 204) {
-          // Success! We don't need to add a required action because we just manually added the credential.
-          return NextResponse.json({ success: true });
+        if (!updateRes.ok && updateRes.status !== 204) {
+          throw ApiError.serviceUnavailable(
+            "Nie udało się zarejestrować klucza",
+          );
         }
+      });
 
-        const errText = await updateRes.text();
-        return NextResponse.json(
-          { error: `Nie udało się zarejestrować klucza: ${errText}` },
-          { status: 500 }
-        );
-      } catch (err) {
-        console.error("[API /webauthn POST register] error:", err);
-        return NextResponse.json(
-          { error: "Nie udało się zarejestrować klucza. Sprawdź konfigurację service account." },
-          { status: 500 }
-        );
-      }
+      return createSuccessResponse({ success: true });
     }
 
-    return NextResponse.json({ error: "Invalid action" }, { status: 400 });
+    throw ApiError.badRequest("Invalid action");
   } catch (error) {
-    console.error("[API /webauthn POST] error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return handleApiError(error);
   }
 }
 
-// PUT - Rename a WebAuthn credential
 export async function PUT(request: Request) {
   try {
-    const session: any = await getServerSession(authOptions);
-    if (!session?.accessToken) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const session = await getServerSession(authOptions);
+    requireSession(session);
 
-    const body = await request.json();
-    const { credentialId, newName } = body;
-
+    const accessToken = (session as any).accessToken as string;
+    const body = await request.json().catch(() => null);
+    const { credentialId, newName } = (body ?? {}) as {
+      credentialId?: string;
+      newName?: string;
+    };
     if (!credentialId || !newName) {
-      return NextResponse.json(
-        { error: "Missing credentialId or newName" },
-        { status: 400 }
-      );
+      throw ApiError.badRequest("Missing credentialId or newName");
     }
 
-    const userId = await keycloak.getUserIdFromToken(session.accessToken);
-    const serviceToken = await keycloak.getServiceAccountToken();
-
-    const updateRes = await fetch(
-      keycloak.getAdminUrl(`/users/${userId}/credentials/${credentialId}/userLabel`),
-      {
-        method: "PUT",
-        headers: {
-          Authorization: `Bearer ${serviceToken}`,
-          "Content-Type": "text/plain; charset=UTF-8",
+    await withAdminContext(accessToken, async (adminToken, userId) => {
+      const res = await fetch(
+        keycloak.getAdminUrl(
+          `/users/${userId}/credentials/${credentialId}/userLabel`,
+        ),
+        {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${adminToken}`,
+            "Content-Type": "text/plain; charset=UTF-8",
+          },
+          body: newName,
         },
-        body: newName,
-      }
-    );
-
-    if (!updateRes.ok) {
-      const errorText = await updateRes.text();
-      return NextResponse.json(
-        { error: "Failed to update credential label", details: errorText },
-        { status: updateRes.status }
       );
-    }
+      if (!res.ok) {
+        throw ApiError.serviceUnavailable(
+          "Nie udało się zmienić nazwy klucza",
+        );
+      }
+    });
 
-    return NextResponse.json({ success: true });
+    return createSuccessResponse({ success: true });
   } catch (error) {
-    console.error("[API /webauthn PUT] error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return handleApiError(error);
   }
 }
 
-// DELETE - Remove a WebAuthn credential. Blocked when WEBAUTHN_REGISTER is in
-// requiredActions (admin-forced).
 export async function DELETE(request: Request) {
   try {
-    const session: any = await getServerSession(authOptions);
-    if (!session?.accessToken) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const session = await getServerSession(authOptions);
+    requireSession(session);
 
+    const accessToken = (session as any).accessToken as string;
     const { searchParams } = new URL(request.url);
     const credentialId = searchParams.get("id");
-
     if (!credentialId) {
-      return NextResponse.json({ error: "Missing credential ID" }, { status: 400 });
+      throw ApiError.badRequest("Missing credential ID");
     }
 
     // Admin-forced check
-    const adminToken = await keycloak.getServiceAccountToken();
-    const userId = await keycloak.getUserIdFromToken(session.accessToken);
-    const userResp = await keycloak.adminRequest(`/users/${userId}`, adminToken);
-    if (userResp.ok) {
+    await withAdminContext(accessToken, async (adminToken, userId) => {
+      const userResp = await keycloak.adminRequest(
+        `/users/${userId}`,
+        adminToken,
+      );
+      if (!userResp.ok) return;
       const userData = await userResp.json();
       const normalized = keycloak.normalizeRequiredActions(
         userData.requiredActions || [],
       );
       if (normalized.includes("WEBAUTHN_REGISTER")) {
-        return NextResponse.json(
-          {
-            error:
-              "Klucz bezpieczeństwa został wymuszony przez administratora i nie może zostać usunięty.",
-            code: "admin_forced",
-          },
-          { status: 403 },
+        throw new ApiError(
+          "FORBIDDEN",
+          "Klucz bezpieczeństwa został wymuszony przez administratora i nie może zostać usunięty.",
+          403,
+          "admin_forced",
         );
       }
-    }
+    });
 
-    // Try Account API first
-    let deleteResponse = await fetch(
+    let res = await fetch(
       keycloak.getAccountUrl(`/account/credentials/${credentialId}`),
       {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${session.accessToken}` },
-      }
+        headers: { Authorization: `Bearer ${accessToken}` },
+      },
     );
 
-    if (!deleteResponse.ok) {
-      deleteResponse = await fetch(
-        keycloak.getAdminUrl(`/users/${userId}/credentials/${credentialId}`),
-        {
-          method: "DELETE",
-          headers: { Authorization: `Bearer ${adminToken}` },
-        }
+    if (!res.ok) {
+      res = await withAdminContext(accessToken, (adminToken, userId) =>
+        fetch(
+          keycloak.getAdminUrl(`/users/${userId}/credentials/${credentialId}`),
+          {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${adminToken}` },
+          },
+        ),
       );
     }
 
-    if (!deleteResponse.ok) {
-      return NextResponse.json(
-        { error: "Nie udało się usunąć klucza" },
-        { status: deleteResponse.status }
-      );
+    if (!res.ok) {
+      throw ApiError.serviceUnavailable("Nie udało się usunąć klucza");
     }
 
-    return NextResponse.json({ success: true });
+    return createSuccessResponse({ success: true });
   } catch (error) {
-    console.error("[API /webauthn DELETE] error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return handleApiError(error);
   }
 }

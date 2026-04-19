@@ -26,24 +26,53 @@ function getIssuerForMiddleware(): string | null {
   return `${trimSlash(keycloakUrl)}/realms/${realm}`;
 }
 
+/**
+ * Behind a TLS-terminating reverse proxy (Traefik/Caddy) the incoming
+ * connection to Next.js is HTTP, so `req.url` is reconstructed as
+ * `http://<host>` while the browser Origin is `https://<host>`. Comparing
+ * full origins would always mismatch and return 403. Compare host only,
+ * and honor the forwarded host when present.
+ */
+function getExpectedHost(req: Request): string | null {
+  const forwardedHost = req.headers.get("x-forwarded-host");
+  if (forwardedHost) return forwardedHost.split(",")[0].trim();
+  const host = req.headers.get("host");
+  if (host) return host;
+  try {
+    return new URL(req.url).host;
+  } catch {
+    return null;
+  }
+}
+
+function extractHost(value: string): string | null {
+  try {
+    return new URL(value).host;
+  } catch {
+    return null;
+  }
+}
+
 function isSameOrigin(req: Request): boolean {
   const method = req.method.toUpperCase();
   if (method === "GET" || method === "HEAD" || method === "OPTIONS") {
     return true;
   }
+
+  const expectedHost = getExpectedHost(req);
+  if (!expectedHost) return false;
+
   const origin = req.headers.get("origin");
-  if (!origin) {
-    // No Origin on same-origin fetch in some browsers. Fallback to Referer.
-    const referer = req.headers.get("referer");
-    if (!referer) return false;
-    try {
-      const refOrigin = new URL(referer).origin;
-      return refOrigin === new URL(req.url).origin;
-    } catch {
-      return false;
-    }
+  if (origin) {
+    const originHost = extractHost(origin);
+    return originHost === expectedHost;
   }
-  return origin === new URL(req.url).origin;
+
+  // Some browsers omit Origin on same-origin XHR. Fall back to Referer.
+  const referer = req.headers.get("referer");
+  if (!referer) return false;
+  const refererHost = extractHost(referer);
+  return refererHost === expectedHost;
 }
 
 export default withAuth(

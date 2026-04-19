@@ -15,6 +15,9 @@ const ERROR_MESSAGES: Record<string, string> = {
   Configuration: "Nieprawidłowa konfiguracja serwera autoryzacji.",
   Default: "Wystąpił błąd podczas logowania. Spróbuj ponownie.",
   SessionRequired: "Twoja sesja wygasła. Zaloguj się ponownie.",
+  SessionExpired: "Twoja sesja wygasła. Zaloguj się ponownie.",
+  RefreshTokenExpired:
+    "Sesja wygasła po dłuższej nieaktywności. Zaloguj się ponownie.",
 };
 
 function resolveErrorMessage(code: string | null): string | null {
