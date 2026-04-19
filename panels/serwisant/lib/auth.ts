@@ -27,7 +27,7 @@ export const authOptions: AuthOptions = {
         token.accessToken = account.access_token;
         token.refreshToken = account.refresh_token;
         token.idToken = account.id_token;
-        token.expiresAt = Math.floor(Date.now() / 1000) + (account.expires_in ?? 300);
+        token.expiresAt = Math.floor(Date.now() / 1000) + ((account.expires_in as number | undefined) ?? 300);
       }
       return token;
     },

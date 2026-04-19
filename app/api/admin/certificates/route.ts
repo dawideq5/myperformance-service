@@ -41,7 +41,7 @@ export async function POST(req: Request) {
 
   try {
     const { pkcs12 } = await issueClientCertificate({ commonName, email, role: role as any });
-    return new NextResponse(pkcs12, {
+    return new NextResponse(new Uint8Array(pkcs12), {
       status: 200,
       headers: {
         "Content-Type": "application/x-pkcs12",
