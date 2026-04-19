@@ -1,7 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { IssuedCertificate } from "@/lib/step-ca";
+
+type CaStatus = { online: boolean; url: string; provisioner?: string; provisionerType?: string; error?: string };
+type AuditEvent = { ts: string; actor: string; action: string; subject?: string; ok: boolean; error?: string };
 
 const ROLES = [
   { value: "sprzedawca", label: "Sprzedawca" },
@@ -17,6 +20,26 @@ export function CertificatesClient({ initialCerts }: { initialCerts: IssuedCerti
   const [role, setRole] = useState<(typeof ROLES)[number]["value"]>("sprzedawca");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [caStatus, setCaStatus] = useState<CaStatus | null>(null);
+  const [audit, setAudit] = useState<AuditEvent[]>([]);
+
+  useEffect(() => {
+    let mounted = true;
+    const refresh = async () => {
+      try {
+        const [s, a] = await Promise.all([
+          fetch("/api/admin/certificates/ca-status").then((r) => r.json()),
+          fetch("/api/admin/certificates/audit").then((r) => r.json()),
+        ]);
+        if (!mounted) return;
+        setCaStatus(s);
+        setAudit(a.events ?? []);
+      } catch {}
+    };
+    refresh();
+    const iv = setInterval(refresh, 30000);
+    return () => { mounted = false; clearInterval(iv); };
+  }, []);
 
   async function issue(e: React.FormEvent) {
     e.preventDefault();
@@ -68,6 +91,16 @@ export function CertificatesClient({ initialCerts }: { initialCerts: IssuedCerti
           <div>
             <h2 className="text-lg font-medium text-slate-100">Root CA</h2>
             <p className="text-xs text-slate-500 mt-1">Pobierz certyfikat wewnętrznej CA do instalacji w zaufanych kotwicach komputera / przeglądarki.</p>
+            {caStatus ? (
+              <p className="text-xs mt-2">
+                Status CA:{" "}
+                {caStatus.online ? (
+                  <span className="text-emerald-400">online ({caStatus.provisioner ?? "brak provisionera"}, {caStatus.provisionerType ?? "?"})</span>
+                ) : (
+                  <span className="text-red-400">offline — {caStatus.error ?? "nieznany błąd"}</span>
+                )}
+              </p>
+            ) : null}
           </div>
           <a
             href="/api/admin/certificates/root-ca"
@@ -175,6 +208,42 @@ export function CertificatesClient({ initialCerts }: { initialCerts: IssuedCerti
                           Unieważnij
                         </button>
                       ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="mt-8">
+        <h2 className="text-lg font-medium text-slate-100 mb-4">Dziennik audytu (ostatnie zdarzenia)</h2>
+        {audit.length === 0 ? (
+          <p className="text-sm text-slate-500 bg-slate-800/30 border border-dashed border-slate-700 rounded-xl p-6 text-center">
+            Brak zdarzeń — po restarcie procesu bufor jest czyszczony.
+          </p>
+        ) : (
+          <div className="overflow-x-auto bg-slate-800/30 border border-slate-700 rounded-xl">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-slate-400 text-left border-b border-slate-700">
+                  <th className="py-2 px-3">Czas</th>
+                  <th className="py-2 px-3">Admin</th>
+                  <th className="py-2 px-3">Akcja</th>
+                  <th className="py-2 px-3">Subject</th>
+                  <th className="py-2 px-3">Wynik</th>
+                </tr>
+              </thead>
+              <tbody>
+                {audit.map((e, idx) => (
+                  <tr key={idx} className="border-b border-slate-800/50">
+                    <td className="py-2 px-3 text-slate-400 font-mono">{new Date(e.ts).toLocaleString("pl-PL")}</td>
+                    <td className="py-2 px-3 text-slate-300">{e.actor}</td>
+                    <td className="py-2 px-3 text-slate-300">{e.action}</td>
+                    <td className="py-2 px-3 text-slate-300">{e.subject ?? "—"}</td>
+                    <td className="py-2 px-3">
+                      {e.ok ? <span className="text-emerald-400">ok</span> : <span className="text-red-400">błąd: {e.error}</span>}
                     </td>
                   </tr>
                 ))}

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
-import { issueClientCertificate, listCertificates } from "@/lib/step-ca";
+import { auditLog, issueClientCertificate, listCertificates } from "@/lib/step-ca";
 
 export const runtime = "nodejs";
 
@@ -39,8 +39,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid role" }, { status: 400 });
   }
 
+  const actor = (await getServerSession(authOptions))?.user?.email ?? "unknown-admin";
   try {
     const { pkcs12, pkcs12Password, meta } = await issueClientCertificate({ commonName, email, role: role as any });
+    auditLog({ ts: new Date().toISOString(), actor, action: "issue-cert", subject: `${commonName} (${role})`, ok: true });
     return new NextResponse(new Uint8Array(pkcs12), {
       status: 200,
       headers: {
@@ -53,9 +55,8 @@ export async function POST(req: Request) {
       },
     });
   } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Issue failed" },
-      { status: 503 }
-    );
+    const msg = err instanceof Error ? err.message : "Issue failed";
+    auditLog({ ts: new Date().toISOString(), actor, action: "issue-cert", subject: `${commonName} (${role})`, ok: false, error: msg });
+    return NextResponse.json({ error: msg }, { status: 503 });
   }
 }

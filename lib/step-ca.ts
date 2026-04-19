@@ -174,3 +174,48 @@ export async function getRootCaPem(): Promise<string> {
   if (!res.ok) throw new Error(`step-ca /roots.pem failed: ${res.status}`);
   return await res.text();
 }
+
+export interface CaStatus {
+  online: boolean;
+  url: string;
+  provisioner?: string;
+  provisionerType?: string;
+  error?: string;
+}
+
+export async function getCaStatus(): Promise<CaStatus> {
+  const url = getBaseUrl();
+  try {
+    const [health, provRes] = await Promise.all([
+      fetch(`${url}/health`, { signal: AbortSignal.timeout(5000) }),
+      fetch(`${url}/provisioners`, { signal: AbortSignal.timeout(5000) }),
+    ]);
+    if (!health.ok) return { online: false, url, error: `health ${health.status}` };
+    let provisioner: string | undefined;
+    let provisionerType: string | undefined;
+    if (provRes.ok) {
+      const data = (await provRes.json()) as { provisioners: Provisioner[] };
+      const p = data.provisioners.find((x) => x.name === getProvisionerName());
+      if (p) {
+        provisioner = p.name;
+        provisionerType = p.type;
+      }
+    }
+    return { online: true, url, provisioner, provisionerType };
+  } catch (err) {
+    return { online: false, url, error: err instanceof Error ? err.message : "unknown" };
+  }
+}
+
+type AuditEvent = { ts: string; actor: string; action: string; subject?: string; ok: boolean; error?: string };
+const AUDIT_RING: AuditEvent[] = [];
+const AUDIT_MAX = 200;
+
+export function auditLog(ev: AuditEvent): void {
+  AUDIT_RING.push(ev);
+  if (AUDIT_RING.length > AUDIT_MAX) AUDIT_RING.shift();
+}
+
+export function getAuditTail(n = 50): AuditEvent[] {
+  return AUDIT_RING.slice(-n).reverse();
+}
