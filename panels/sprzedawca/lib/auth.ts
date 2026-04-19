@@ -1,10 +1,8 @@
 import type { AuthOptions } from "next-auth";
 import KeycloakProvider from "next-auth/providers/keycloak";
 
-function requiredEnv(name: string): string {
-  const v = process.env[name]?.trim();
-  if (!v) throw new Error(`Missing env ${name}`);
-  return v;
+function optionalEnv(name: string): string {
+  return process.env[name]?.trim() || "";
 }
 
 const REQUIRED_ROLE = "sprzedawca";
@@ -13,9 +11,9 @@ const PANEL_CLIENT_ID = "panel-sprzedawca";
 export const authOptions: AuthOptions = {
   providers: [
     KeycloakProvider({
-      clientId: requiredEnv("KEYCLOAK_CLIENT_ID"),
-      clientSecret: requiredEnv("KEYCLOAK_CLIENT_SECRET"),
-      issuer: requiredEnv("KEYCLOAK_ISSUER"),
+      clientId: optionalEnv("KEYCLOAK_CLIENT_ID"),
+      clientSecret: optionalEnv("KEYCLOAK_CLIENT_SECRET"),
+      issuer: optionalEnv("KEYCLOAK_ISSUER"),
       authorization: { params: { scope: "openid profile email" } },
     }),
   ],
