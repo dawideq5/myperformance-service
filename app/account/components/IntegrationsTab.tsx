@@ -7,6 +7,7 @@ import {
   Calendar,
   CheckCircle2,
   ChevronRight,
+  Clock,
   Globe,
   Info,
   Settings,
@@ -22,12 +23,13 @@ import {
   CardHeader,
   Checkbox,
   Dialog,
+  Input,
 } from "@/components/ui";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { ApiRequestError } from "@/lib/api-client";
 
 import { useAccount } from "../AccountProvider";
-import { googleService } from "../account-service";
+import { googleService, kadromierzService } from "../account-service";
 
 const ERROR_MESSAGES: Record<string, string> = {
   access_denied:
@@ -358,6 +360,8 @@ export function IntegrationsTab() {
         </div>
       </Card>
 
+      <KadromierzCard />
+
       <Dialog
         open={modalOpen}
         onClose={() => setModalOpen(false)}
@@ -403,6 +407,265 @@ export function IntegrationsTab() {
         )}
       </Dialog>
     </div>
+  );
+}
+
+function KadromierzCard() {
+  const { kadromierzStatus, refetchKadromierzStatus, setKadromierzStatus } =
+    useAccount();
+  const [apiKey, setApiKey] = useState("");
+  const [feedback, setFeedback] = useState<
+    { tone: "success" | "error"; message: string } | null
+  >(null);
+  const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
+  const [showManualFallback, setShowManualFallback] = useState(false);
+
+  const connected = kadromierzStatus?.connected === true;
+  const stale = kadromierzStatus?.stale === true;
+  const masterMode = kadromierzStatus?.masterKeyConfigured === true;
+  const emailVerified = kadromierzStatus?.emailVerified === true;
+
+  const connectAction = useAsyncAction(
+    async () => {
+      if (masterMode && !showManualFallback) {
+        return kadromierzService.connect();
+      }
+      if (!apiKey.trim()) {
+        throw new Error("Wprowadź klucz API Kadromierza");
+      }
+      return kadromierzService.connect(apiKey.trim());
+    },
+    {
+      onSuccess: (status) => {
+        setKadromierzStatus(status);
+        setApiKey("");
+        setShowManualFallback(false);
+        setFeedback({
+          tone: "success",
+          message:
+            status.mode === "master"
+              ? "Połączono przez firmowy token (konto zidentyfikowane po emailu)."
+              : "Połączono z Kadromierzem.",
+        });
+      },
+      onError: (err) => {
+        setFeedback({
+          tone: "error",
+          message:
+            err instanceof ApiRequestError
+              ? err.message
+              : err instanceof Error
+                ? err.message
+                : "Nie udało się połączyć",
+        });
+      },
+    },
+  );
+
+  const disconnectAction = useAsyncAction(
+    async () => kadromierzService.disconnect(),
+    {
+      onSuccess: () => {
+        setKadromierzStatus({ connected: false });
+        setConfirmingDisconnect(false);
+        setFeedback(null);
+        void refetchKadromierzStatus();
+      },
+    },
+  );
+
+  return (
+    <Card padding="md">
+      <CardHeader
+        icon={<Clock className="w-6 h-6" aria-hidden="true" />}
+        iconBgClassName={
+          connected
+            ? "bg-green-500/10 text-green-500"
+            : "bg-orange-500/10 text-orange-500"
+        }
+        title="Kadromierz"
+        description={
+          connected ? (
+            <span className="text-green-500">
+              Połączone
+              {kadromierzStatus?.email ? ` — ${kadromierzStatus.email}` : ""}
+            </span>
+          ) : (
+            "Niepołączone"
+          )
+        }
+        action={
+          connected ? (
+            confirmingDisconnect ? (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-[var(--text-muted)]">
+                  Na pewno?
+                </span>
+                <Button
+                  variant="danger"
+                  size="sm"
+                  loading={disconnectAction.pending}
+                  onClick={() => void disconnectAction.run()}
+                >
+                  Tak, odłącz
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setConfirmingDisconnect(false)}
+                  disabled={disconnectAction.pending}
+                >
+                  Anuluj
+                </Button>
+              </div>
+            ) : (
+              <Button
+                variant="secondary"
+                leftIcon={<X className="w-4 h-4" aria-hidden="true" />}
+                onClick={() => setConfirmingDisconnect(true)}
+                className="border-red-500/30 text-red-500 hover:bg-red-500/10"
+              >
+                Odłącz
+              </Button>
+            )
+          ) : null
+        }
+      />
+
+      <div className="mt-6 space-y-4">
+        {stale && (
+          <Alert tone="warning" title="Sprawdź konto Kadromierz">
+            Kadromierz odpowiada nieoczekiwanie. Jeśli problem się powtórzy,
+            odłącz i połącz konto ponownie.
+          </Alert>
+        )}
+
+        {feedback && (
+          <Alert tone={feedback.tone}>{feedback.message}</Alert>
+        )}
+
+        {!connected && !showManualFallback && (
+          <div className="space-y-3">
+            {!emailVerified && (
+              <Alert tone="warning" title="Wymagana weryfikacja emaila">
+                Zanim połączymy konto, potwierdź swój adres email. Zapytaj
+                admina o ponowne wysłanie linku weryfikacyjnego lub sprawdź
+                skrzynkę.
+              </Alert>
+            )}
+            {masterMode ? (
+              <>
+                <p className="text-sm text-[var(--text-muted)]">
+                  Firmowy token Kadromierza jest skonfigurowany po stronie
+                  serwera. Dopasujemy Cię po zweryfikowanym emailu z konta
+                  MyPerformance. Wystarczy jedno kliknięcie — bez ręcznego
+                  kopiowania klucza.
+                </p>
+                <Button
+                  onClick={() => void connectAction.run()}
+                  loading={connectAction.pending}
+                  disabled={!emailVerified}
+                  rightIcon={
+                    !connectAction.pending && (
+                      <ChevronRight className="w-4 h-4" aria-hidden="true" />
+                    )
+                  }
+                >
+                  Połącz z Kadromierzem
+                </Button>
+              </>
+            ) : (
+              <Alert tone="info" title="Integracja w konfiguracji">
+                Administrator nie skonfigurował jeszcze firmowego tokenu
+                Kadromierza. Skontaktuj się z osobą zarządzającą systemem —
+                gdy token zostanie ustawiony, podłączenie zajmie jedno
+                kliknięcie.
+              </Alert>
+            )}
+            <button
+              type="button"
+              onClick={() => setShowManualFallback(true)}
+              className="text-xs text-[var(--text-muted)] hover:text-[var(--text-main)] underline underline-offset-2"
+            >
+              Mam własny osobisty klucz API Kadromierza →
+            </button>
+          </div>
+        )}
+
+        {!connected && showManualFallback && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void connectAction.run();
+            }}
+            className="space-y-3"
+          >
+            <Input
+              label="Osobisty klucz API Kadromierza"
+              type="password"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder="ddafc758-9737-4807-..."
+              disabled={connectAction.pending}
+              autoComplete="off"
+              required
+            />
+            <p className="text-xs text-[var(--text-muted)]">
+              Klucz znajdziesz w ustawieniach swojego konta Kadromierz
+              (Profil → Tokeny API). Przechowujemy go zaszyfrowany w atrybutach
+              Keycloak i używamy wyłącznie po stronie serwera.
+            </p>
+            <div className="flex gap-2">
+              <Button
+                type="submit"
+                loading={connectAction.pending}
+                rightIcon={
+                  !connectAction.pending && (
+                    <ChevronRight className="w-4 h-4" aria-hidden="true" />
+                  )
+                }
+              >
+                Połącz z Kadromierzem
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setShowManualFallback(false)}
+              >
+                Wróć
+              </Button>
+            </div>
+          </form>
+        )}
+
+        {connected && (
+          <div className="space-y-3">
+            <FeatureRow
+              icon={
+                <Clock
+                  className="w-5 h-5 text-orange-500"
+                  aria-hidden="true"
+                />
+              }
+              iconBg="bg-orange-500/10"
+              title="Start / Przerwa / Koniec pracy"
+              desc="Rejestruj czas pracy jednym kliknięciem z widżetu na dashboardzie."
+            />
+            <FeatureRow
+              icon={
+                <Calendar
+                  className="w-5 h-5 text-blue-500"
+                  aria-hidden="true"
+                />
+              }
+              iconBg="bg-blue-500/10"
+              title="Grafik w kalendarzu"
+              desc="Twoje zaplanowane zmiany pojawiają się automatycznie w kalendarzu MyPerformance."
+            />
+          </div>
+        )}
+      </div>
+    </Card>
   );
 }
 

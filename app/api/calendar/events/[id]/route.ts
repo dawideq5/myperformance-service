@@ -2,6 +2,7 @@ import { getServerSession } from "next-auth/next";
 import { NextRequest, NextResponse } from "next/server";
 import { authOptions } from "@/app/auth";
 import { keycloak } from "@/lib/keycloak";
+import { shiftDateString } from "@/lib/google-calendar";
 import type { CalendarEvent } from "../route";
 
 async function getEventsFromKeycloak(serviceToken: string, userId: string): Promise<CalendarEvent[]> {
@@ -189,6 +190,7 @@ export async function PUT(
         const googleAccessToken = googleTokens.access_token;
 
         if (googleAccessToken) {
+          // Google all-day: inclusive end → exclusive (+1 day).
           const googleEvent = {
             summary: updatedEvent.title,
             description: updatedEvent.description,
@@ -198,7 +200,9 @@ export async function PUT(
             },
             end: {
               dateTime: allDay ? undefined : updatedEvent.endDate,
-              date: allDay ? updatedEvent.endDate.split('T')[0] : undefined,
+              date: allDay
+                ? shiftDateString(updatedEvent.endDate.split('T')[0], 1)
+                : undefined,
             },
             location: updatedEvent.location,
           };

@@ -54,14 +54,20 @@ export default withAuth(
     // Defense-in-depth: reject state-changing API calls with mismatched Origin.
     // Session cookie is sameSite=lax so real cross-site POSTs are already blocked,
     // but this catches misconfigured CORS and leaks of bearer-style reuse.
-    if (pathname.startsWith("/api/account") && !isSameOrigin(req)) {
+    if (
+      (pathname.startsWith("/api/account") ||
+        pathname.startsWith("/api/admin")) &&
+      !isSameOrigin(req)
+    ) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const isProtected =
       pathname.startsWith("/dashboard") ||
       pathname.startsWith("/account") ||
-      pathname.startsWith("/api/account");
+      pathname.startsWith("/admin") ||
+      pathname.startsWith("/api/account") ||
+      pathname.startsWith("/api/admin");
 
     if (!isProtected) return NextResponse.next();
 
@@ -129,5 +135,11 @@ export default withAuth(
 );
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/account/:path*", "/api/account/:path*"],
+  matcher: [
+    "/dashboard/:path*",
+    "/account/:path*",
+    "/admin/:path*",
+    "/api/account/:path*",
+    "/api/admin/:path*",
+  ],
 };

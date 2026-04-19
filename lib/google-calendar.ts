@@ -21,6 +21,22 @@ export interface GoogleCalendarEvent {
 const CALENDAR_API = "https://www.googleapis.com/calendar/v3";
 const OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token";
 
+/**
+ * Google's all-day events use HALF-OPEN [start, end) semantics: a single-day
+ * event has start=2026-04-19, end=2026-04-20. Our UI treats ranges as
+ * inclusive, so we shift the end by one day when moving between the two.
+ * `days` should be -1 when importing from Google, +1 when exporting.
+ */
+export function shiftDateString(dateStr: string, days: number): string {
+  const parts = dateStr.slice(0, 10).split("-").map(Number);
+  const [y, m, d] = parts;
+  if (!y || !m || !d) return dateStr;
+  const date = new Date(y, m - 1, d);
+  date.setDate(date.getDate() + days);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
 export function readSingleAttr(
   attrs: Record<string, string[]> | undefined,
   key: string,
@@ -161,11 +177,10 @@ export async function listEventsIncremental(params: {
     url.searchParams.set("syncToken", params.syncToken);
   } else {
     const now = new Date();
-    url.searchParams.set("timeMin", now.toISOString());
-    url.searchParams.set(
-      "timeMax",
-      new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000).toISOString(),
-    );
+    const past = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const future = new Date(now.getTime() + 180 * 24 * 60 * 60 * 1000);
+    url.searchParams.set("timeMin", past.toISOString());
+    url.searchParams.set("timeMax", future.toISOString());
   }
   url.searchParams.set("singleEvents", "true");
   url.searchParams.set("maxResults", "250");
@@ -238,9 +253,13 @@ export function mergeGoogleEvents(
       continue;
     }
     const start = item.start?.dateTime || item.start?.date;
-    const end = item.end?.dateTime || item.end?.date;
-    if (!start || !end) continue;
+    const endRaw = item.end?.dateTime || item.end?.date;
+    if (!start || !endRaw) continue;
     const allDay = !item.start?.dateTime;
+    // Google's end.date is exclusive; convert to inclusive for storage.
+    const end = allDay && item.end?.date
+      ? shiftDateString(endRaw, -1)
+      : endRaw;
     upserts.push({
       id: `google_${item.id}`,
       title: item.summary || "(Bez tytułu)",

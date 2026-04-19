@@ -12,9 +12,14 @@ import {
 } from "react";
 import { useSession } from "next-auth/react";
 import { ApiRequestError } from "@/lib/api-client";
-import { accountService, googleService } from "./account-service";
+import {
+  accountService,
+  googleService,
+  kadromierzService,
+} from "./account-service";
 import type {
   GoogleStatus,
+  KadromierzStatus,
   KeycloakSession,
   TwoFAStatus,
   UserProfile,
@@ -31,6 +36,7 @@ interface AccountContextValue {
   twoFA: TwoFAStatus | null;
   webauthnKeys: WebAuthnKey[];
   googleStatus: GoogleStatus | null;
+  kadromierzStatus: KadromierzStatus | null;
   currentSessionId: string | undefined;
   refetchAll: () => Promise<void>;
   refetchProfile: () => Promise<void>;
@@ -38,9 +44,11 @@ interface AccountContextValue {
   refetchTwoFA: () => Promise<void>;
   refetchWebAuthn: () => Promise<void>;
   refetchGoogleStatus: () => Promise<GoogleStatus | null>;
+  refetchKadromierzStatus: () => Promise<KadromierzStatus | null>;
   patchProfile: (profile: UserProfile) => void;
   removeSessionLocally: (id: string) => void;
   setGoogleConnected: (connected: boolean) => void;
+  setKadromierzStatus: (status: KadromierzStatus | null) => void;
   setWebauthnKeys: (keys: WebAuthnKey[]) => void;
 }
 
@@ -58,6 +66,8 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   const [twoFA, setTwoFA] = useState<TwoFAStatus | null>(null);
   const [webauthnKeys, setWebauthnKeys] = useState<WebAuthnKey[]>([]);
   const [googleStatus, setGoogleStatus] = useState<GoogleStatus | null>(null);
+  const [kadromierzStatus, setKadromierzStatus] =
+    useState<KadromierzStatus | null>(null);
 
   const loadedRef = useRef(false);
 
@@ -113,6 +123,17 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const refetchKadromierzStatus = useCallback(async () => {
+    try {
+      const data = await kadromierzService.getStatus();
+      setKadromierzStatus(data);
+      return data;
+    } catch (err) {
+      if (err instanceof ApiRequestError && err.isUnauthorized) return null;
+      return null;
+    }
+  }, []);
+
   const refetchAll = useCallback(async () => {
     setStatus("loading");
     setError(null);
@@ -123,6 +144,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
         refetchTwoFA(),
         refetchWebAuthn(),
         refetchGoogleStatus(),
+        refetchKadromierzStatus(),
       ]);
       setStatus("ready");
     } catch (err) {
@@ -137,6 +159,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     refetchTwoFA,
     refetchWebAuthn,
     refetchGoogleStatus,
+    refetchKadromierzStatus,
   ]);
 
   useEffect(() => {
@@ -181,6 +204,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       twoFA,
       webauthnKeys,
       googleStatus,
+      kadromierzStatus,
       currentSessionId,
       refetchAll,
       refetchProfile,
@@ -188,9 +212,11 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       refetchTwoFA,
       refetchWebAuthn,
       refetchGoogleStatus,
+      refetchKadromierzStatus,
       patchProfile,
       removeSessionLocally,
       setGoogleConnected,
+      setKadromierzStatus,
       setWebauthnKeys,
     }),
     [
@@ -201,6 +227,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       twoFA,
       webauthnKeys,
       googleStatus,
+      kadromierzStatus,
       currentSessionId,
       refetchAll,
       refetchProfile,
@@ -208,6 +235,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       refetchTwoFA,
       refetchWebAuthn,
       refetchGoogleStatus,
+      refetchKadromierzStatus,
       patchProfile,
       removeSessionLocally,
       setGoogleConnected,

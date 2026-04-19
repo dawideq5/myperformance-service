@@ -7,11 +7,11 @@
   "sslRequired": "external",
   "registrationAllowed": false,
   "registrationEmailAsUsername": false,
-  "rememberMe": false,
-  "verifyEmail": false,
+  "rememberMe": true,
+  "verifyEmail": true,
   "loginWithEmailAllowed": true,
   "duplicateEmailsAllowed": false,
-  "resetPasswordAllowed": false,
+  "resetPasswordAllowed": true,
   "editUsernameAllowed": false,
 
   "bruteForceProtected": true,
@@ -105,6 +105,20 @@
       {
         "name": "app_user",
         "description": "Default role for authenticated users - grants access to dashboard",
+        "composite": false,
+        "clientRole": false,
+        "attributes": {}
+      },
+      {
+        "name": "manage_users",
+        "description": "Zarządzaj kontami użytkowników realmu Keycloak.",
+        "composite": false,
+        "clientRole": false,
+        "attributes": {}
+      },
+      {
+        "name": "directus_access",
+        "description": "Dostęp do Directus CMS",
         "composite": false,
         "clientRole": false,
         "attributes": {}
@@ -497,7 +511,11 @@
           "value": "admin"
         }
       ],
-      "realmRoles": ["default-roles-myperformance"],
+      "realmRoles": [
+        "default-roles-myperformance",
+        "manage_users",
+        "directus_access"
+      ],
       "clientRoles": {
         "realm-management": ["realm-admin"]
       }
@@ -534,6 +552,7 @@
   "internationalizationEnabled": true,
   "supportedLocales": ["en", "pl"],
   "defaultLocale": "pl",
+  "loginTheme": "myperformance",
 
   "browserFlow": "browser",
   "registrationFlow": "registration",

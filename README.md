@@ -5,7 +5,7 @@ Dashboard aplikacji MyPerformance zbudowany na Next.js (App Router).
 ## Funkcjonalności
 
 - **Autoryzacja**: Integracja z Auth.js (NextAuth) i Keycloak
-- **Role-Based Access Control**: Widoczność komponentów zależna od ról (admin, manager, user)
+- **Role-Based Access Control**: Widoczność komponentów zależna od ról `app_user`, `manage_users`, `directus_access`
 - **Dashboard**: Wykresy wydajności i postępu zadań (Recharts)
 - **Styling**: Tailwind CSS z ciemnym motywem
 - **Ikony**: Lucide React
@@ -33,6 +33,8 @@ Zmienne środowiskowe:
 npm ci
 ```
 
+Do zbudowania motywu Keycloak przez `Keycloakify` wymagany jest lokalnie Apache Maven.
+
 ## Uruchomienie lokalne
 
 ```bash
@@ -40,6 +42,18 @@ npm run dev
 ```
 
 Aplikacja będzie dostępna na `http://localhost:3000`
+
+Budowanie motywu logowania Keycloak:
+
+```bash
+npm run build-keycloak-theme
+```
+
+Podgląd samego motywu w Vite:
+
+```bash
+npm run dev:keycloak-theme
+```
 
 ## Budowanie
 
@@ -89,8 +103,14 @@ docker run -p 3000:3000 --env-file .env myperformance-dashboard
 ## Role w Keycloak
 
 Aplikacja oczekuje ról w tokenie JWT:
-- `admin` - Pełny dostęp do panelu administratora
-- `manager` - Dostęp do panelu menedżera
-- `user` - Dostęp do panelu użytkownika
+- `app_user` - Domyślny dostęp do dashboardu dla zalogowanych użytkowników
+- `manage_users` - Dostęp do sekcji `Użytkownicy` i zarządzania kontami w realmie Keycloak
+- `directus_access` - Widoczność i dostęp SSO do Directus CMS
 
 Role są pobierane z `realm_access.roles` oraz `resource_access.[CLIENT_ID].roles` w tokenie Keycloak.
+
+Lokalny `docker-compose.dev.yml` montuje wygenerowany katalog `build_keycloak/theme` do kontenera Keycloak. Po zmianach w motywie uruchom ponownie `npm run build-keycloak-theme`, a następnie odśwież lub zrestartuj usługę `keycloak`.
+
+## Wdrożenie Keycloak / theme na produkcję
+
+Instrukcja krok po kroku (build JAR-a, deploy do `/opt/keycloak/providers/`, migracja ról, aktywacja `loginTheme=myperformance`, runbook dla błędu Directusa `User belongs to a different auth provider`) znajduje się w [`infrastructure/keycloak/DEPLOYMENT.md`](infrastructure/keycloak/DEPLOYMENT.md).

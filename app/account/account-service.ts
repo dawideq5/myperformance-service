@@ -1,12 +1,35 @@
 import { api } from "@/lib/api-client";
 import type {
   GoogleStatus,
+  KadromierzStatus,
   KeycloakSession,
   RequiredAction,
   TwoFAStatus,
   UserProfile,
   WebAuthnKey,
 } from "./types";
+
+export interface KadromierzAttendanceBreak {
+  id: number | string;
+  started_at?: string;
+  ended_at?: string | null;
+}
+
+export interface KadromierzAttendance {
+  id: number | string;
+  started_at?: string;
+  ended_at?: string | null;
+  breaks?: KadromierzAttendanceBreak[];
+}
+
+export interface KadromierzShift {
+  id: number | string;
+  date: string;
+  start: string;
+  end: string;
+  position?: string;
+  location_id?: number | string;
+}
 
 interface ProfileUpdatePayload {
   firstName?: string;
@@ -121,3 +144,229 @@ export const googleService = {
       keycloakEmail?: string;
     }>("/api/integrations/google/provision"),
 };
+
+export const kadromierzService = {
+  getStatus: () =>
+    api.get<KadromierzStatus>("/api/integrations/kadromierz/status"),
+
+  connect: (apiKey?: string) =>
+    api.post<KadromierzStatus, { apiKey?: string }>(
+      "/api/integrations/kadromierz/connect",
+      apiKey ? { apiKey } : {},
+    ),
+
+  disconnect: () =>
+    api.post<{ ok: boolean }>("/api/integrations/kadromierz/disconnect"),
+
+  getSchedule: (range?: { from?: string; to?: string }) => {
+    const qs = new URLSearchParams();
+    if (range?.from) qs.set("from", range.from);
+    if (range?.to) qs.set("to", range.to);
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return api.get<{ shifts: KadromierzShift[] }>(
+      `/api/integrations/kadromierz/schedule${suffix}`,
+    );
+  },
+
+  getAttendance: () =>
+    api.get<{ attendance: KadromierzAttendance | null }>(
+      "/api/integrations/kadromierz/attendance",
+    ),
+
+  start: () =>
+    api.post<
+      { attendance: KadromierzAttendance },
+      { action: "start" }
+    >("/api/integrations/kadromierz/attendance", { action: "start" }),
+
+  end: (attendanceId: string | number) =>
+    api.post<
+      { attendance: KadromierzAttendance },
+      { action: "end"; attendanceId: string | number }
+    >("/api/integrations/kadromierz/attendance", {
+      action: "end",
+      attendanceId,
+    }),
+
+  startBreak: (attendanceId: string | number) =>
+    api.post<
+      { attendance: KadromierzAttendance },
+      { action: "break_start"; attendanceId: string | number }
+    >("/api/integrations/kadromierz/attendance", {
+      action: "break_start",
+      attendanceId,
+    }),
+
+  endBreak: (attendanceId: string | number, breakId: string | number) =>
+    api.post<
+      { attendance: KadromierzAttendance },
+      {
+        action: "break_end";
+        attendanceId: string | number;
+        breakId: string | number;
+      }
+    >("/api/integrations/kadromierz/attendance", {
+      action: "break_end",
+      attendanceId,
+      breakId,
+    }),
+};
+
+export interface AdminUserSummary {
+  id: string;
+  username: string;
+  email: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  enabled: boolean;
+  emailVerified: boolean;
+  createdTimestamp: number | null;
+  requiredActions: string[];
+}
+
+export interface AdminUserSession {
+  id: string;
+  ipAddress: string;
+  started: number;
+  lastAccess: number;
+  expires: number;
+  clients?: Record<string, string>;
+}
+
+export interface AdminUserListResponse {
+  users: AdminUserSummary[];
+  total: number;
+  first: number;
+  max: number;
+}
+
+export interface AdminRole {
+  id: string;
+  name: string;
+  description?: string;
+  composite?: boolean;
+  assigned: boolean;
+}
+
+export interface AdminIntegrationStatus {
+  google: {
+    connected: boolean;
+    userId: string | null;
+    username: string | null;
+  };
+  kadromierz: {
+    connected: boolean;
+    companyId: string | null;
+    employeeId: string | null;
+    connectedAt: string | null;
+  };
+}
+
+export const adminUserService = {
+  list: (params?: { search?: string; first?: number; max?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.search) qs.set("search", params.search);
+    if (params?.first !== undefined) qs.set("first", String(params.first));
+    if (params?.max !== undefined) qs.set("max", String(params.max));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return api.get<AdminUserListResponse>(`/api/admin/users${suffix}`);
+  },
+
+  invite: (payload: {
+    email: string;
+    firstName?: string;
+    lastName?: string;
+    username?: string;
+    actions?: string[];
+    sendEmail?: boolean;
+  }) =>
+    api.post<{ id: string; email: string; invited: boolean }, typeof payload>(
+      "/api/admin/users",
+      payload,
+    ),
+
+  get: (id: string) =>
+    api.get<AdminUserSummary & { attributes: Record<string, string[]> }>(
+      `/api/admin/users/${encodeURIComponent(id)}`,
+    ),
+
+  update: (
+    id: string,
+    payload: {
+      enabled?: boolean;
+      firstName?: string;
+      lastName?: string;
+      email?: string;
+    },
+  ) =>
+    api.put<{ ok: boolean }, typeof payload>(
+      `/api/admin/users/${encodeURIComponent(id)}`,
+      payload,
+    ),
+
+  remove: (id: string) =>
+    api.delete<{ ok: boolean }>(`/api/admin/users/${encodeURIComponent(id)}`),
+
+  sessions: (id: string) =>
+    api.get<{ sessions: AdminUserSession[] }>(
+      `/api/admin/users/${encodeURIComponent(id)}/sessions`,
+    ),
+
+  logoutAll: (id: string) =>
+    api.delete<{ ok: boolean }>(
+      `/api/admin/users/${encodeURIComponent(id)}/sessions`,
+    ),
+
+  sendActions: (
+    id: string,
+    payload: { actions: string[]; sendEmail?: boolean },
+  ) =>
+    api.post<{ sent: boolean; queued?: boolean }, typeof payload>(
+      `/api/admin/users/${encodeURIComponent(id)}/actions`,
+      payload,
+    ),
+
+  resetPassword: (
+    id: string,
+    payload: { password?: string; temporary?: boolean; sendEmail?: boolean },
+  ) =>
+    api.post<{ sent?: boolean; ok?: boolean }, typeof payload>(
+      `/api/admin/users/${encodeURIComponent(id)}/reset-password`,
+      payload,
+    ),
+
+  listRoles: (id: string) =>
+    api.get<{ roles: AdminRole[] }>(
+      `/api/admin/users/${encodeURIComponent(id)}/roles`,
+    ),
+
+  updateRoles: (id: string, payload: { add?: string[]; remove?: string[] }) =>
+    api.post<{ ok: boolean }, typeof payload>(
+      `/api/admin/users/${encodeURIComponent(id)}/roles`,
+      payload,
+    ),
+
+  getIntegrations: (id: string) =>
+    api.get<AdminIntegrationStatus>(
+      `/api/admin/users/${encodeURIComponent(id)}/integrations`,
+    ),
+
+  unlinkIntegration: (id: string, provider: "google" | "kadromierz") =>
+    api.delete<{ ok: boolean }>(
+      `/api/admin/users/${encodeURIComponent(id)}/integrations?provider=${provider}`,
+    ),
+
+  getLockStatus: (id: string) =>
+    api.get<{
+      numFailures: number;
+      disabled: boolean;
+      lastFailure: number | null;
+      lastIPFailure: string | null;
+    }>(`/api/admin/users/${encodeURIComponent(id)}/unlock`),
+
+  unlock: (id: string) =>
+    api.post<{ ok: boolean }>(
+      `/api/admin/users/${encodeURIComponent(id)}/unlock`,
+    ),
+};
+

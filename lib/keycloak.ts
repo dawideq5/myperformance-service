@@ -393,6 +393,35 @@ export class KeycloakService {
     }
   }
 
+  public async getBruteForceStatus(adminToken: string, userId: string) {
+    const response = await this.adminRequest(
+      `/attack-detection/brute-force/users/${userId}`,
+      adminToken,
+    );
+    if (!response.ok) {
+      if (response.status === 404) return null;
+      throw new Error("Unable to read brute-force status");
+    }
+    return (await response.json()) as {
+      numFailures?: number;
+      disabled?: boolean;
+      lastFailure?: number;
+      lastIPFailure?: string;
+    };
+  }
+
+  public async clearBruteForce(adminToken: string, userId: string) {
+    const response = await this.adminRequest(
+      `/attack-detection/brute-force/users/${userId}`,
+      adminToken,
+      { method: "DELETE" },
+    );
+    if (!response.ok && response.status !== 404) {
+      const details = await response.text();
+      throw new Error(details || "Unable to clear brute-force lockout");
+    }
+  }
+
   /**
    * Removes a federated identity (e.g., Google) from a user.
    */

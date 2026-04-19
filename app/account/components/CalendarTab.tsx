@@ -19,6 +19,7 @@ import {
   MapPin,
   Pencil,
   Plus,
+  RefreshCw,
   Trash2,
 } from "lucide-react";
 
@@ -41,6 +42,10 @@ import {
   calendarService,
   type CalendarEventInput,
 } from "../calendar-service";
+import {
+  kadromierzService,
+  type KadromierzShift,
+} from "../account-service";
 import type { CalendarEvent } from "../types";
 import { LocationAutocomplete } from "./LocationAutocomplete";
 
@@ -61,6 +66,46 @@ const EMPTY_FORM: EventFormState = {
   allDay: false,
   location: "",
 };
+
+const KADROMIERZ_COLOR = "#F97316";
+
+// Kadromierz shifts are read-only projections — render as calendar events
+// so they layer into the existing grid without persisting anywhere.
+function shiftsToEvents(shifts: KadromierzShift[]): CalendarEvent[] {
+  return shifts
+    .map((shift): CalendarEvent | null => {
+      const datePart = shift.date?.slice(0, 10);
+      if (!datePart) return null;
+      // API may return full datetime strings or HH:MM — normalise.
+      const ensureIso = (value: string) => {
+        if (!value) return value;
+        if (value.includes("T")) return value;
+        if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(value)) {
+          return value.replace(" ", "T");
+        }
+        if (/^\d{2}:\d{2}/.test(value)) {
+          return `${datePart}T${value.slice(0, 5)}:00`;
+        }
+        return value;
+      };
+      const start = ensureIso(shift.start);
+      const end = ensureIso(shift.end);
+      if (!start || !end) return null;
+      return {
+        id: `kadromierz_${shift.id}`,
+        title: shift.position
+          ? `Zmiana · ${shift.position}`
+          : "Zmiana Kadromierz",
+        startDate: start,
+        endDate: end,
+        allDay: false,
+        source: "kadromierz",
+        color: KADROMIERZ_COLOR,
+        readOnly: true,
+      };
+    })
+    .filter((e): e is CalendarEvent => e !== null);
+}
 
 const WEEKDAYS_PL = ["Pn", "Wt", "Śr", "Cz", "Pt", "Sb", "Nd"];
 const MONTHS_PL = [
@@ -112,6 +157,16 @@ function sameYMD(a: Date, b: Date): boolean {
 
 function dayKey(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+// When the allDay toggle flips, rewrite the stored string so the <input>
+// can still parse it: `datetime-local` needs `YYYY-MM-DDTHH:mm`, `date` needs
+// `YYYY-MM-DD`. Without this, toggling OFF leaves the input empty and the
+// user hits validation errors they can't see.
+function normalizeBoundaryForAllDay(value: string, allDay: boolean): string {
+  if (!value) return value;
+  if (allDay) return value.slice(0, 10);
+  return value.includes("T") ? value : `${value.slice(0, 10)}T09:00`;
 }
 
 function buildPayload(form: EventFormState): CalendarEventInput {
@@ -202,10 +257,14 @@ function groupEventsByDay(
 }
 
 export function CalendarTab() {
-  const { googleStatus } = useAccount();
+  const { googleStatus, kadromierzStatus } = useAccount();
   const googleConnected = googleStatus?.connected === true;
+  const kadromierzConnected = kadromierzStatus?.connected === true;
 
   const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [kadromierzShifts, setKadromierzShifts] = useState<CalendarEvent[]>(
+    [],
+  );
   const [initialLoading, setInitialLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<
@@ -223,6 +282,7 @@ export function CalendarTab() {
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [form, setForm] = useState<EventFormState>(EMPTY_FORM);
+  const [syncing, setSyncing] = useState(false);
 
   const autoSyncedRef = useRef(false);
 
@@ -244,6 +304,28 @@ export function CalendarTab() {
   useEffect(() => {
     void fetchEvents();
   }, [fetchEvents]);
+
+  // Fetch Kadromierz shifts when connected. Background-only — failures do
+  // not block the main calendar.
+  useEffect(() => {
+    if (!kadromierzConnected) {
+      setKadromierzShifts([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const resp = await kadromierzService.getSchedule();
+        if (cancelled) return;
+        setKadromierzShifts(shiftsToEvents(resp.shifts ?? []));
+      } catch {
+        if (!cancelled) setKadromierzShifts([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [kadromierzConnected]);
 
   // Silent background sync + watch-channel ensure on first mount when Google is connected.
   // Webhook delivers real-time updates afterward; this is the cold-open fallback.
@@ -343,6 +425,37 @@ export function CalendarTab() {
     [fetchEvents],
   );
 
+  const handleManualSync = useCallback(async () => {
+    setSyncing(true);
+    setFeedback(null);
+    try {
+      const result = await calendarService.syncGoogle();
+      setEvents(sortEvents(result.events ?? []));
+      setFeedback({
+        tone: "success",
+        message: `Synchronizacja zakończona. Pobrano ${result.synced} wydarzeń z Google (łącznie ${result.total}).`,
+      });
+    } catch (err) {
+      if (err instanceof ApiRequestError && err.status === 409) {
+        setFeedback({
+          tone: "error",
+          message:
+            "Token Google wygasł. Połącz ponownie konto Google w zakładce integracje.",
+        });
+      } else {
+        setFeedback({
+          tone: "error",
+          message:
+            err instanceof ApiRequestError
+              ? err.message
+              : "Nie udało się zsynchronizować z Google Calendar",
+        });
+      }
+    } finally {
+      setSyncing(false);
+    }
+  }, []);
+
   const openAddForDay = useCallback(
     (day: Date) => {
       setForm(initialFormForDay(day));
@@ -385,7 +498,14 @@ export function CalendarTab() {
   );
 
   const gridDays = useMemo(() => buildMonthGrid(viewDate), [viewDate]);
-  const eventsByDay = useMemo(() => groupEventsByDay(events), [events]);
+  const combinedEvents = useMemo(
+    () => [...events, ...kadromierzShifts],
+    [events, kadromierzShifts],
+  );
+  const eventsByDay = useMemo(
+    () => groupEventsByDay(combinedEvents),
+    [combinedEvents],
+  );
 
   const monthLabel = `${MONTHS_PL[viewDate.getMonth()]} ${viewDate.getFullYear()}`;
   const today = new Date();
@@ -429,13 +549,30 @@ export function CalendarTab() {
               </p>
             </div>
           </div>
-          <Button
-            size="sm"
-            leftIcon={<Plus className="w-4 h-4" aria-hidden="true" />}
-            onClick={() => openAddForDay(new Date())}
-          >
-            Dodaj wydarzenie
-          </Button>
+          <div className="flex items-center gap-2 flex-wrap">
+            {googleConnected && (
+              <Button
+                size="sm"
+                variant="secondary"
+                loading={syncing}
+                leftIcon={
+                  !syncing && (
+                    <RefreshCw className="w-4 h-4" aria-hidden="true" />
+                  )
+                }
+                onClick={handleManualSync}
+              >
+                Synchronizuj
+              </Button>
+            )}
+            <Button
+              size="sm"
+              leftIcon={<Plus className="w-4 h-4" aria-hidden="true" />}
+              onClick={() => openAddForDay(new Date())}
+            >
+              Dodaj wydarzenie
+            </Button>
+          </div>
         </div>
 
         {loadError && (
@@ -618,9 +755,27 @@ function MonthGrid({
   );
 }
 
+// Treat any event carrying a googleEventId as synced-to-Google. A manual
+// event that POSTed successfully to Google picks up a googleEventId before
+// the local state refreshes, so the badge lights up the moment we save —
+// no page reload needed.
+function isSyncedToGoogle(event: CalendarEvent): boolean {
+  return event.source === "google" || !!event.googleEventId;
+}
+
+function isKadromierz(event: CalendarEvent): boolean {
+  return event.source === "kadromierz";
+}
+
 function EventPill({ event }: { event: CalendarEvent }) {
-  const isGoogle = event.source === "google";
-  const color = event.color || (isGoogle ? "#4285F4" : "var(--accent)");
+  const isGoogle = isSyncedToGoogle(event);
+  const color =
+    event.color ||
+    (isKadromierz(event)
+      ? KADROMIERZ_COLOR
+      : isGoogle
+        ? "#4285F4"
+        : "var(--accent)");
   return (
     <div
       className="flex items-center gap-1 text-[10px] leading-tight rounded-md px-1.5 py-0.5 truncate"
@@ -722,20 +877,27 @@ function DayEventRow({
 }) {
   const start = parseEventDate(event, "start");
   const end = parseEventDate(event, "end");
-  const isGoogle = event.source === "google";
+  const isGoogle = isSyncedToGoogle(event);
+  const isKadro = isKadromierz(event);
+  const readOnly = event.readOnly || isKadro;
 
   const timeLabel = event.allDay
     ? "Cały dzień"
     : `${start.toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" })} – ${end.toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" })}`;
 
+  const stripeColor =
+    event.color ||
+    (isKadro
+      ? KADROMIERZ_COLOR
+      : isGoogle
+        ? "#4285F4"
+        : "var(--accent)");
+
   return (
     <div className="border border-[var(--border-subtle)] rounded-xl p-3 flex items-start gap-3 bg-[var(--bg-card)]">
       <div
         className="w-1 self-stretch rounded-full flex-shrink-0"
-        style={{
-          backgroundColor:
-            event.color || (isGoogle ? "#4285F4" : "var(--accent)"),
-        }}
+        style={{ backgroundColor: stripeColor }}
         aria-hidden="true"
       />
       <div className="flex-1 min-w-0">
@@ -743,12 +905,17 @@ function DayEventRow({
           <span className="text-sm font-medium text-[var(--text-main)] truncate">
             {event.title}
           </span>
-          {isGoogle && (
+          {isKadro ? (
+            <Badge tone="warning">
+              <Clock className="w-2.5 h-2.5 mr-1" aria-hidden="true" />
+              Kadromierz
+            </Badge>
+          ) : isGoogle ? (
             <Badge tone="info">
               <Globe className="w-2.5 h-2.5 mr-1" aria-hidden="true" />
               Google
             </Badge>
-          )}
+          ) : null}
         </div>
         <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-[var(--text-muted)]">
           <span className="inline-flex items-center gap-1">
@@ -768,26 +935,28 @@ function DayEventRow({
           </p>
         )}
       </div>
-      <div className="flex gap-1 flex-shrink-0">
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="Edytuj wydarzenie"
-          onClick={() => onEdit(event)}
-        >
-          <Pencil className="w-4 h-4" aria-hidden="true" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="Usuń wydarzenie"
-          loading={deleting}
-          onClick={() => onDelete(event.id)}
-          className="text-red-500 hover:bg-red-500/10 hover:text-red-500"
-        >
-          <Trash2 className="w-4 h-4" aria-hidden="true" />
-        </Button>
-      </div>
+      {!readOnly && (
+        <div className="flex gap-1 flex-shrink-0">
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Edytuj wydarzenie"
+            onClick={() => onEdit(event)}
+          >
+            <Pencil className="w-4 h-4" aria-hidden="true" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Usuń wydarzenie"
+            loading={deleting}
+            onClick={() => onDelete(event.id)}
+            className="text-red-500 hover:bg-red-500/10 hover:text-red-500"
+          >
+            <Trash2 className="w-4 h-4" aria-hidden="true" />
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -840,7 +1009,17 @@ function EventFormDialog({
         <Checkbox
           label="Cały dzień"
           checked={form.allDay}
-          onChange={(e) => patch({ allDay: e.target.checked })}
+          onChange={(e) => {
+            const next = e.target.checked;
+            patch({
+              allDay: next,
+              start: normalizeBoundaryForAllDay(form.start, next),
+              end: normalizeBoundaryForAllDay(
+                form.end,
+                next,
+              ) || normalizeBoundaryForAllDay(form.start, next),
+            });
+          }}
           disabled={submitting}
         />
 

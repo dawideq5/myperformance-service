@@ -3,14 +3,24 @@
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
-import { ArrowLeft, Calendar, LayoutGrid, Plug } from "lucide-react";
+import {
+  ArrowLeft,
+  Calendar,
+  Clock,
+  Database,
+  ExternalLink,
+  LayoutGrid,
+  Plug,
+} from "lucide-react";
 
 import { AppHeader } from "@/components/AppHeader";
 import { Button, Card, PageShell } from "@/components/ui";
 import { WelcomeAnimation } from "@/components/WelcomeAnimation";
 import { AccountProvider, useAccount } from "@/app/account/AccountProvider";
 import { CalendarTab } from "@/app/account/components/CalendarTab";
+import { KadromierzWorkWidget } from "./components/KadromierzWorkWidget";
 import { useAuthRedirect } from "@/hooks/useAuthRedirect";
+import { canAccessDirectus } from "@/lib/admin-auth";
 import { cn } from "@/lib/utils";
 
 const WELCOME_KEY = "welcome-pending";
@@ -208,37 +218,121 @@ function ViewSwitcher({
 }
 
 function TileGrid({ onOpenCalendar }: { onOpenCalendar: () => void }) {
-  const { googleStatus, status } = useAccount();
+  const { googleStatus, kadromierzStatus, status } = useAccount();
+  const { data: session } = useSession();
   const accountLoading = status === "loading" || status === "idle";
   const googleConnected = googleStatus?.connected === true;
+  const kadromierzConnected = kadromierzStatus?.connected === true;
+  const directusVisible = canAccessDirectus(session);
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-      <Tile
-        icon={<Calendar className="w-7 h-7 text-blue-500" aria-hidden="true" />}
-        iconBg="bg-blue-500/10"
-        title="Kalendarz"
-        description={
-          googleConnected
-            ? "Twoje wydarzenia i Google Calendar"
-            : "Wymaga integracji z Google"
-        }
-        disabled={accountLoading || !googleConnected}
-        footer={
-          !accountLoading && !googleConnected ? (
-            <Link
-              href="/account?tab=integrations"
-              className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--accent)] hover:underline"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <Plug className="w-3.5 h-3.5" aria-hidden="true" />
-              Skonfiguruj Google
-            </Link>
-          ) : null
-        }
-        onClick={onOpenCalendar}
-      />
+    <div className="space-y-4">
+      {kadromierzConnected && <KadromierzWorkWidget />}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <Tile
+          icon={<Calendar className="w-7 h-7 text-blue-500" aria-hidden="true" />}
+          iconBg="bg-blue-500/10"
+          title="Kalendarz"
+          description={
+            googleConnected
+              ? "Twoje wydarzenia i Google Calendar"
+              : "Wymaga integracji z Google"
+          }
+          disabled={accountLoading || !googleConnected}
+          footer={
+            !accountLoading && !googleConnected ? (
+              <Link
+                href="/account?tab=integrations"
+                className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--accent)] hover:underline"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <Plug className="w-3.5 h-3.5" aria-hidden="true" />
+                Skonfiguruj Google
+              </Link>
+            ) : null
+          }
+          onClick={onOpenCalendar}
+        />
+        {directusVisible && (
+          <ExternalTile
+            icon={
+              <Database className="w-7 h-7 text-emerald-500" aria-hidden="true" />
+            }
+            iconBg="bg-emerald-500/10"
+            title="Directus"
+            description="Zarządzanie treścią i danymi aplikacji (SSO)"
+            href="https://cms.myperformance.pl"
+          />
+        )}
+        {!kadromierzConnected && (
+          <Tile
+            icon={<Clock className="w-7 h-7 text-orange-500" aria-hidden="true" />}
+            iconBg="bg-orange-500/10"
+            title="Kadromierz"
+            description="Grafik pracy i ewidencja czasu"
+            disabled={accountLoading}
+            footer={
+              !accountLoading ? (
+                <Link
+                  href="/account?tab=integrations"
+                  className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--accent)] hover:underline"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <Plug className="w-3.5 h-3.5" aria-hidden="true" />
+                  Skonfiguruj Kadromierz
+                </Link>
+              ) : null
+            }
+            onClick={() => {
+              window.location.href = "/account?tab=integrations";
+            }}
+          />
+        )}
+      </div>
     </div>
+  );
+}
+
+function ExternalTile({
+  icon,
+  iconBg,
+  title,
+  description,
+  href,
+  disabled,
+}: {
+  icon: React.ReactNode;
+  iconBg: string;
+  title: string;
+  description: string;
+  href?: string;
+  disabled?: boolean;
+}) {
+  const handleClick = () => {
+    if (disabled || !href) return;
+    window.open(href, "_blank", "noopener,noreferrer");
+  };
+  return (
+    <Tile
+      icon={icon}
+      iconBg={iconBg}
+      title={title}
+      description={description}
+      disabled={disabled}
+      footer={
+        !disabled && href ? (
+          <span className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--accent)]">
+            <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
+            Otwórz w nowej karcie
+          </span>
+        ) : disabled ? (
+          <span className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--text-muted)]">
+            Wkrótce
+          </span>
+        ) : null
+      }
+      onClick={handleClick}
+    />
   );
 }
 

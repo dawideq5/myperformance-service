@@ -5,12 +5,16 @@
   "scripts": {
     "dev": "PORT=3000 next dev",
     "build": "next build",
+    "dev:keycloak-theme": "vite",
+    "build:keycloak-theme-app": "vite build",
+    "build-keycloak-theme": "npm run build:keycloak-theme-app && keycloakify build",
     "start": "next start",
     "lint": "next lint"
   },
   "dependencies": {
     "@types/qrcode": "^1.5.6",
     "clsx": "^2.1.0",
+    "keycloakify": "^11.15.3",
     "lucide-react": "^0.344.0",
     "next": "^15.0.0",
     "next-auth": "^4.24.0",
@@ -26,11 +30,13 @@
     "@types/node": "^20.11.0",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^6.0.1",
     "autoprefixer": "^10.4.0",
     "eslint": "^8.57.0",
     "eslint-config-next": "^14.2.0",
     "postcss": "^8.4.0",
     "tailwindcss": "^3.4.0",
-    "typescript": "^5.3.0"
+    "typescript": "^5.3.0",
+    "vite": "^8.0.8"
   }
 }

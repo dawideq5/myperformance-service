@@ -30,6 +30,7 @@ import {
   Skeleton,
 } from "@/components/ui";
 import { ApiRequestError, api } from "@/lib/api-client";
+import { cn } from "@/lib/utils";
 
 interface ActivityEntry {
   time: number;
@@ -143,11 +144,6 @@ const EVENT_META: Record<string, EventMeta> = {
     icon: RefreshCw,
     tone: "neutral",
   },
-  CODE_TO_TOKEN: {
-    label: "Wymiana kodu autoryzacji",
-    icon: Shield,
-    tone: "neutral",
-  },
   INTROSPECT_TOKEN: {
     label: "Weryfikacja tokenu",
     icon: ShieldCheck,
@@ -186,6 +182,45 @@ const EVENT_META: Record<string, EventMeta> = {
   },
 };
 
+// Keycloak error codes → human-readable Polish reason.
+const ERROR_REASONS_PL: Record<string, string> = {
+  invalid_user_credentials: "Niepoprawne dane logowania",
+  user_not_found: "Nie znaleziono użytkownika",
+  user_disabled: "Konto zablokowane",
+  user_temporarily_disabled: "Konto tymczasowo zablokowane",
+  account_disabled: "Konto wyłączone",
+  email_not_verified: "E-mail nie został zweryfikowany",
+  invalid_token: "Nieprawidłowy token",
+  invalid_code: "Nieprawidłowy kod",
+  invalid_request: "Nieprawidłowe żądanie",
+  invalid_grant: "Nieprawidłowe odświeżenie sesji",
+  invalid_client: "Nieprawidłowy klient",
+  invalid_client_credentials: "Nieprawidłowe dane klienta",
+  invalid_refresh_token: "Nieprawidłowy refresh token",
+  expired_code: "Kod wygasł",
+  expired_token: "Token wygasł",
+  access_denied: "Odmowa dostępu",
+  consent_denied: "Nie udzielono zgody",
+  different_user_authenticated: "Zalogowany jest inny użytkownik",
+  invalid_redirect_uri: "Nieprawidłowy adres powrotu",
+  not_allowed: "Operacja niedozwolona",
+  staleness_check_failed: "Sesja jest nieaktualna",
+  identity_provider_error: "Błąd dostawcy tożsamości",
+  identity_provider_login_failure: "Nieudane logowanie przez dostawcę",
+  user_session_not_found: "Nie znaleziono sesji użytkownika",
+  rejected_by_user: "Odrzucono przez użytkownika",
+  federated_identity_not_found: "Brak powiązanego konta zewnętrznego",
+  web_authn_not_supported: "WebAuthn nieobsługiwane",
+  otp_not_configured: "Nie skonfigurowano 2FA",
+  invalid_user_resource_owner_credentials: "Niepoprawne dane użytkownika",
+};
+
+function translateErrorCode(code: string): string {
+  const normalized = code.trim().toLowerCase();
+  if (ERROR_REASONS_PL[normalized]) return ERROR_REASONS_PL[normalized];
+  return normalized.replace(/_/g, " ");
+}
+
 function resolveMeta(type: string): EventMeta {
   if (EVENT_META[type]) return EVENT_META[type];
   const normalized = type.replace(/_/g, " ").toLowerCase();
@@ -210,6 +245,36 @@ function formatTime(ms: number): string {
   }
 }
 
+function pad(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+function dayKey(d: Date): string {
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+const WEEKDAYS_PL = ["Nd", "Pn", "Wt", "Śr", "Cz", "Pt", "Sb"];
+
+interface DayChip {
+  key: string;
+  weekday: string;
+  shortDate: string;
+}
+
+function buildLast7Days(today: Date): DayChip[] {
+  const chips: DayChip[] = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(today.getDate() - i);
+    chips.push({
+      key: dayKey(d),
+      weekday: WEEKDAYS_PL[d.getDay()],
+      shortDate: `${pad(d.getDate())}.${pad(d.getMonth() + 1)}`,
+    });
+  }
+  return chips;
+}
+
 const TONE_STYLES: Record<EventMeta["tone"], string> = {
   neutral: "bg-[var(--bg-main)] text-[var(--text-muted)]",
   success: "bg-green-500/10 text-green-500",
@@ -217,10 +282,16 @@ const TONE_STYLES: Record<EventMeta["tone"], string> = {
   error: "bg-red-500/10 text-red-500",
 };
 
+const PAGE_SIZE = 50;
+
 export function ActivityTab() {
   const [entries, setEntries] = useState<ActivityEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [sectionLimits, setSectionLimits] = useState<Record<string, number>>(
+    {},
+  );
 
   const load = async () => {
     setLoading(true);
@@ -246,20 +317,42 @@ export function ActivityTab() {
     void load();
   }, []);
 
+  const dayChips = useMemo(() => buildLast7Days(new Date()), []);
+
+  const visibleEntries = useMemo(() => {
+    if (!selectedDay) return entries;
+    return entries.filter((e) => dayKey(new Date(e.time)) === selectedDay);
+  }, [entries, selectedDay]);
+
+  // Group by yyyy-mm-dd so sections line up with the chip filter.
   const grouped = useMemo(() => {
     const map = new Map<string, ActivityEntry[]>();
-    for (const entry of entries) {
-      const d = new Date(entry.time);
-      const key = d.toLocaleDateString("pl-PL", {
-        weekday: "long",
-        day: "numeric",
-        month: "long",
-      });
+    for (const entry of visibleEntries) {
+      const key = dayKey(new Date(entry.time));
       const list = map.get(key) ?? [];
       list.push(entry);
       map.set(key, list);
     }
     return Array.from(map.entries());
+  }, [visibleEntries]);
+
+  const formatSectionTitle = (key: string) => {
+    const [y, m, d] = key.split("-").map(Number);
+    const date = new Date(y, (m || 1) - 1, d || 1);
+    return date.toLocaleDateString("pl-PL", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+    });
+  };
+
+  const entryCountByDay = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const entry of entries) {
+      const key = dayKey(new Date(entry.time));
+      counts[key] = (counts[key] ?? 0) + 1;
+    }
+    return counts;
   }, [entries]);
 
   return (
@@ -281,6 +374,57 @@ export function ActivityTab() {
             </Button>
           }
         />
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setSelectedDay(null)}
+            className={cn(
+              "px-3 py-1.5 rounded-full text-xs font-medium border transition-colors",
+              selectedDay === null
+                ? "bg-[var(--accent)] text-white border-[var(--accent)]"
+                : "bg-[var(--bg-card)] text-[var(--text-muted)] border-[var(--border-subtle)] hover:text-[var(--text-main)]",
+            )}
+          >
+            Wszystkie
+          </button>
+          {dayChips.map((chip) => {
+            const active = selectedDay === chip.key;
+            const count = entryCountByDay[chip.key] ?? 0;
+            return (
+              <button
+                key={chip.key}
+                type="button"
+                onClick={() =>
+                  setSelectedDay((current) =>
+                    current === chip.key ? null : chip.key,
+                  )
+                }
+                className={cn(
+                  "px-3 py-1.5 rounded-full text-xs font-medium border transition-colors flex items-center gap-2",
+                  active
+                    ? "bg-[var(--accent)] text-white border-[var(--accent)]"
+                    : "bg-[var(--bg-card)] text-[var(--text-muted)] border-[var(--border-subtle)] hover:text-[var(--text-main)]",
+                )}
+                aria-pressed={active}
+              >
+                <span className="font-semibold">{chip.weekday}</span>
+                <span className="opacity-80">{chip.shortDate}</span>
+                {count > 0 && (
+                  <span
+                    className={cn(
+                      "inline-flex items-center justify-center min-w-[18px] h-[18px] rounded-full text-[10px] px-1",
+                      active
+                        ? "bg-white/20"
+                        : "bg-[var(--bg-main)] text-[var(--text-muted)]",
+                    )}
+                  >
+                    {count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
       </Card>
 
       {error && <Alert tone="error">{error}</Alert>}
@@ -291,30 +435,56 @@ export function ActivityTab() {
             <Skeleton key={i} className="h-16 rounded-xl" />
           ))}
         </div>
-      ) : entries.length === 0 ? (
+      ) : visibleEntries.length === 0 ? (
         <Card padding="lg" className="text-center">
           <Shield
             className="w-10 h-10 mx-auto mb-3 text-[var(--text-muted)] opacity-40"
             aria-hidden="true"
           />
           <p className="text-sm text-[var(--text-muted)]">
-            Brak zdarzeń w ostatnich 7 dniach.
+            {selectedDay
+              ? "Brak zdarzeń tego dnia."
+              : "Brak zdarzeń w ostatnich 7 dniach."}
           </p>
         </Card>
       ) : (
         <div className="space-y-6">
-          {grouped.map(([day, items]) => (
-            <section key={day}>
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2 capitalize">
-                {day}
-              </h3>
-              <div className="space-y-2">
-                {items.map((entry, idx) => (
-                  <ActivityRow key={`${entry.time}-${idx}`} entry={entry} />
-                ))}
-              </div>
-            </section>
-          ))}
+          {grouped.map(([key, items]) => {
+            const limit = sectionLimits[key] ?? PAGE_SIZE;
+            const shown = items.slice(0, limit);
+            const remaining = items.length - shown.length;
+            return (
+              <section key={key}>
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2 capitalize">
+                  {formatSectionTitle(key)}{" "}
+                  <span className="text-[var(--text-muted)]/70 normal-case">
+                    ({items.length})
+                  </span>
+                </h3>
+                <div className="space-y-2">
+                  {shown.map((entry, idx) => (
+                    <ActivityRow key={`${entry.time}-${idx}`} entry={entry} />
+                  ))}
+                </div>
+                {remaining > 0 && (
+                  <div className="mt-3 text-center">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() =>
+                        setSectionLimits((prev) => ({
+                          ...prev,
+                          [key]: (prev[key] ?? PAGE_SIZE) + PAGE_SIZE,
+                        }))
+                      }
+                    >
+                      Pokaż więcej ({remaining})
+                    </Button>
+                  </div>
+                )}
+              </section>
+            );
+          })}
         </div>
       )}
     </div>
@@ -324,7 +494,7 @@ export function ActivityTab() {
 function ActivityRow({ entry }: { entry: ActivityEntry }) {
   const meta = resolveMeta(entry.type);
   const Icon = meta.icon;
-  const isError = Boolean(entry.error) || meta.tone === "error";
+  const reason = entry.error ? translateErrorCode(entry.error) : null;
 
   return (
     <div className="flex items-start gap-3 p-3 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-xl">
@@ -338,9 +508,9 @@ function ActivityRow({ entry }: { entry: ActivityEntry }) {
           <p className="text-sm font-medium text-[var(--text-main)]">
             {meta.label}
           </p>
-          {isError && entry.error && (
+          {reason && (
             <Badge tone="neutral">
-              <span className="text-red-500">{entry.error}</span>
+              <span className="text-red-500">Powód: {reason}</span>
             </Badge>
           )}
         </div>

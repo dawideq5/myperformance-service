@@ -12,6 +12,8 @@
 
 # Production
 /build
+/.keycloak-theme-build
+/build_keycloak
 
 # Misc
 .DS_Store

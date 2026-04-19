@@ -2,6 +2,7 @@ import { getServerSession } from "next-auth/next";
 import { NextRequest, NextResponse } from "next/server";
 import { authOptions } from "@/app/auth";
 import { keycloak } from "@/lib/keycloak";
+import { shiftDateString } from "@/lib/google-calendar";
 import { randomUUID } from "crypto";
 
 export interface CalendarEvent {
@@ -98,6 +99,8 @@ export async function POST(request: NextRequest) {
       const googleAccessToken = googleTokens.access_token;
 
       if (googleAccessToken) {
+        // Google all-day events use half-open [start, end) — shift our
+        // inclusive end by +1 day before sending.
         const googleEvent = {
           summary: String(title).slice(0, 200),
           description: description ? String(description).slice(0, 1000) : undefined,
@@ -107,7 +110,9 @@ export async function POST(request: NextRequest) {
           },
           end: {
             dateTime: allDay ? undefined : String(endDate),
-            date: allDay ? String(endDate).split('T')[0] : undefined,
+            date: allDay
+              ? shiftDateString(String(endDate).split('T')[0], 1)
+              : undefined,
           },
           location: location ? String(location).slice(0, 200) : undefined,
         };

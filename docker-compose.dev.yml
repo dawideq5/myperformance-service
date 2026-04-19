@@ -46,6 +46,7 @@ services:
       - "8080:8080"
     volumes:
       - ./infrastructure/keycloak/realm.json:/opt/keycloak/data/import/realm.json:ro
+      - ./build_keycloak/theme:/opt/keycloak/themes:ro
     depends_on:
       - postgres-keycloak
 

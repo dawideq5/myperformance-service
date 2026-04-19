@@ -41,6 +41,21 @@ export interface GoogleStatus {
   connectedAt?: string | null;
 }
 
+export interface KadromierzStatus {
+  connected: boolean;
+  stale?: boolean;
+  reason?: "invalid_key";
+  masterKeyConfigured?: boolean;
+  mode?: "master" | "manual";
+  emailVerified?: boolean;
+  email?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  companyId?: string | number | null;
+  employeeId?: string | number | null;
+  role?: string | null;
+}
+
 export interface CalendarEvent {
   id: string;
   title: string;
@@ -48,10 +63,11 @@ export interface CalendarEvent {
   startDate: string;
   endDate: string;
   allDay: boolean;
-  source: "manual" | "google";
+  source: "manual" | "google" | "kadromierz";
   googleEventId?: string;
   color?: string;
   location?: string;
+  readOnly?: boolean;
 }
 
 export type RequiredAction =
