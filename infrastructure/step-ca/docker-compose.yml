@@ -2,31 +2,22 @@ services:
   step-ca:
     image: 'smallstep/step-ca:latest'
     environment:
-      - SERVICE_FQDN_STEPCA_9000=ca.myperformance.pl
+      - 'SERVICE_FQDN_STEPCA_9000=ca.myperformance.pl'
       - 'DOCKER_STEPCA_INIT_NAME=MyPerformance Internal CA'
-      - 'DOCKER_STEPCA_INIT_DNS_NAMES=ca.myperformance.pl,localhost'
+      - 'DOCKER_STEPCA_INIT_DNS_NAMES=ca.myperformance.pl,localhost,step-ca'
       - 'DOCKER_STEPCA_INIT_PROVISIONER_NAME=admin@myperformance.pl'
-      - 'DOCKER_STEPCA_INIT_PASSWORD_FILE=/home/step/secrets/password'
+      - 'DOCKER_STEPCA_INIT_PASSWORD=${SERVICE_PASSWORD_64_CAPASSWORD}'
       - 'DOCKER_STEPCA_INIT_REMOTE_MANAGEMENT=true'
       - 'DOCKER_STEPCA_INIT_ACME=false'
       - 'DOCKER_STEPCA_INIT_SSH=false'
+      - 'DOCKER_STEPCA_INIT_ADDRESS=:9000'
     volumes:
       - 'stepca-data:/home/step'
-      - 'stepca-secrets:/home/step/secrets'
-    entrypoint:
-      - /bin/sh
-      - -c
-      - |
-        set -eu
-        mkdir -p /home/step/secrets
-        if [ ! -f /home/step/secrets/password ]; then
-          echo "${SERVICE_PASSWORD_64_CAPASSWORD}" > /home/step/secrets/password
-          chmod 600 /home/step/secrets/password
-        fi
-        exec /usr/local/bin/step-ca-entrypoint.sh
     healthcheck:
-      test: ['CMD-SHELL', 'curl -fsSk https://127.0.0.1:9000/health >/dev/null 2>&1 || exit 1']
-      interval: 15s
+      test:
+        - CMD-SHELL
+        - 'step ca health >/dev/null 2>&1 || exit 1'
+      interval: 20s
       timeout: 10s
-      retries: 12
+      retries: 10
       start_period: 60s
