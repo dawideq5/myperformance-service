@@ -97,17 +97,10 @@ function buildAuthOptions() {
       strategy: "jwt" as const,
       maxAge: SESSION_MAX_AGE_SECONDS,
     },
-    cookies: {
-      sessionToken: {
-        name: `next-auth.session-token`,
-        options: {
-          httpOnly: true,
-          sameSite: "lax",
-          path: "/",
-          secure: process.env.NODE_ENV === "production",
-        },
-      },
-    },
+    // Cookie name is left to NextAuth defaults. Overriding it here broke
+    // middleware auth: withAuth reads `__Secure-next-auth.session-token` on
+    // HTTPS, but an explicit name of `next-auth.session-token` caused a
+    // write/read mismatch and an infinite login redirect loop.
     callbacks: {
       async jwt({ token, account, trigger }: any) {
         // First login — store tokens and fetch initial user attributes
