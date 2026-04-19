@@ -31,15 +31,12 @@ export async function GET() {
       ? credentials.find((c: any) => c.type === "webauthn")
       : null;
 
-    const keys = (webauthnEntry?.userCredentialMetadatas || []).map((m: any) => {
-      console.log("[API /webauthn GET] credential metadata:", JSON.stringify(m, null, 2));
-      return {
-        id: m.credential?.id,
-        credentialId: m.credential?.id, // Add explicit credentialId field
-        label: m.credential?.userLabel || "Klucz bezpieczeństwa",
-        createdDate: m.credential?.createdDate,
-      };
-    });
+    const keys = (webauthnEntry?.userCredentialMetadatas || []).map((m: any) => ({
+      id: m.credential?.id,
+      credentialId: m.credential?.id,
+      label: m.credential?.userLabel || "Klucz bezpieczeństwa",
+      createdDate: m.credential?.createdDate,
+    }));
 
     return NextResponse.json({ keys, hasWebAuthn: keys.length > 0 });
   } catch (error) {
@@ -282,9 +279,6 @@ export async function PUT(request: Request) {
     const userId = await keycloak.getUserIdFromToken(session.accessToken);
     const serviceToken = await keycloak.getServiceAccountToken();
 
-    console.log("[API /webauthn PUT] renaming credential:", credentialId, "to:", newName);
-
-    // Use dedicated Keycloak endpoint for updating credential userLabel
     const updateRes = await fetch(
       keycloak.getAdminUrl(`/users/${userId}/credentials/${credentialId}/userLabel`),
       {
@@ -299,14 +293,12 @@ export async function PUT(request: Request) {
 
     if (!updateRes.ok) {
       const errorText = await updateRes.text();
-      console.error("[API /webauthn PUT] error:", errorText);
       return NextResponse.json(
         { error: "Failed to update credential label", details: errorText },
         { status: updateRes.status }
       );
     }
 
-    console.log("[API /webauthn PUT] successfully renamed credential");
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("[API /webauthn PUT] error:", error);
@@ -317,7 +309,8 @@ export async function PUT(request: Request) {
   }
 }
 
-// DELETE - Remove a WebAuthn credential
+// DELETE - Remove a WebAuthn credential. Blocked when WEBAUTHN_REGISTER is in
+// requiredActions (admin-forced).
 export async function DELETE(request: Request) {
   try {
     const session: any = await getServerSession(authOptions);
@@ -332,6 +325,27 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: "Missing credential ID" }, { status: 400 });
     }
 
+    // Admin-forced check
+    const adminToken = await keycloak.getServiceAccountToken();
+    const userId = await keycloak.getUserIdFromToken(session.accessToken);
+    const userResp = await keycloak.adminRequest(`/users/${userId}`, adminToken);
+    if (userResp.ok) {
+      const userData = await userResp.json();
+      const normalized = keycloak.normalizeRequiredActions(
+        userData.requiredActions || [],
+      );
+      if (normalized.includes("WEBAUTHN_REGISTER")) {
+        return NextResponse.json(
+          {
+            error:
+              "Klucz bezpieczeństwa został wymuszony przez administratora i nie może zostać usunięty.",
+            code: "admin_forced",
+          },
+          { status: 403 },
+        );
+      }
+    }
+
     // Try Account API first
     let deleteResponse = await fetch(
       keycloak.getAccountUrl(`/account/credentials/${credentialId}`),
@@ -342,9 +356,6 @@ export async function DELETE(request: Request) {
     );
 
     if (!deleteResponse.ok) {
-      const adminToken = await keycloak.getServiceAccountToken();
-      const userId = await keycloak.getUserIdFromToken(session.accessToken);
-
       deleteResponse = await fetch(
         keycloak.getAdminUrl(`/users/${userId}/credentials/${credentialId}`),
         {

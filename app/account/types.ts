@@ -66,4 +66,4 @@ export type AccountTabId =
   | "security"
   | "sessions"
   | "integrations"
-  | "calendar";
+  | "activity";

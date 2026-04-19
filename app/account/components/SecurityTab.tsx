@@ -1,15 +1,22 @@
 "use client";
 
-import { useCallback, useState, type FormEvent } from "react";
 import {
+  useCallback,
+  useEffect,
+  useId,
+  useState,
+  type FormEvent,
+} from "react";
+import {
+  AlertTriangle,
   Check,
-  ChevronRight,
-  Clock,
+  Copy,
   Edit2,
   Key,
-  LogOut,
+  Lock,
   Shield,
   Smartphone,
+  Trash2,
   X,
 } from "lucide-react";
 
@@ -19,20 +26,18 @@ import {
   Button,
   Card,
   CardHeader,
+  Dialog,
   Input,
   PasswordInput,
 } from "@/components/ui";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
-import { useAuthRedirect } from "@/hooks/useAuthRedirect";
 import { MIN_PASSWORD_LENGTH } from "@/lib/constants";
 import { ApiRequestError } from "@/lib/api-client";
+import { enrollWebAuthnCredential } from "@/lib/webauthn-client";
 
 import { useAccount } from "../AccountProvider";
 import { accountService } from "../account-service";
-import type { RequiredAction, WebAuthnKey } from "../types";
-
-const METHOD_2FA = "CONFIGURE_TOTP";
-const METHOD_WEBAUTHN = "WEBAUTHN_REGISTER";
+import type { WebAuthnKey } from "../types";
 
 function formatDate(ms: number): string {
   if (!ms) return "Nieznana data";
@@ -44,42 +49,23 @@ function formatDate(ms: number): string {
 }
 
 export function SecurityTab() {
-  const { twoFA, webauthnKeys, profile, refetchProfile, refetchWebAuthn } =
-    useAccount();
-  const { fullLogout } = useAuthRedirect();
+  const {
+    twoFA,
+    webauthnKeys,
+    profile,
+    refetchProfile,
+    refetchTwoFA,
+    refetchWebAuthn,
+  } = useAccount();
 
   const requiredActions = profile?.requiredActions ?? [];
-  const pending2FA = requiredActions.includes("CONFIGURE_TOTP");
-  const pendingWebAuthn = requiredActions.includes("WEBAUTHN_REGISTER");
+  const totpAdminForced = requiredActions.includes("CONFIGURE_TOTP");
+  const webauthnAdminForced = requiredActions.includes("WEBAUTHN_REGISTER");
 
-  const setAction = useAsyncAction(
-    async (action: RequiredAction) => {
-      await accountService.setRequiredAction(action);
-      await refetchProfile();
-    },
-  );
-  const cancelAction = useAsyncAction(
-    async (action: RequiredAction) => {
-      await accountService.cancelRequiredAction(action);
-      await refetchProfile();
-    },
-  );
+  const [totpSetupOpen, setTotpSetupOpen] = useState(false);
+  const [webauthnEnrollOpen, setWebauthnEnrollOpen] = useState(false);
 
-  // Track which method is currently being set to drive per-button spinners.
-  const [activeMethod, setActiveMethod] = useState<string | null>(null);
-  const triggerRequiredAction = useCallback(
-    async (action: RequiredAction, method: string) => {
-      setActiveMethod(method);
-      try {
-        await setAction.run(action);
-      } finally {
-        setActiveMethod(null);
-      }
-    },
-    [setAction],
-  );
-
-  // --- Password change ---
+  // Password change
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -122,134 +108,109 @@ export function SecurityTab() {
     [currentPassword, newPassword, confirmPassword, passwordAction],
   );
 
-  // --- WebAuthn rename ---
-  const [renamingKeyId, setRenamingKeyId] = useState<string | null>(null);
-  const [renameValue, setRenameValue] = useState("");
-
-  const startRename = useCallback((key: WebAuthnKey) => {
-    setRenamingKeyId(key.id);
-    setRenameValue(key.label);
-  }, []);
-
-  const renameAction = useAsyncAction(
-    async (input: { key: WebAuthnKey; value: string }) => {
-      await accountService.renameWebAuthnKey({
-        credentialId: input.key.credentialId || input.key.id,
-        newName: input.value,
-      });
-      await refetchWebAuthn();
-    },
-    { onSuccess: () => setRenamingKeyId(null) },
-  );
-
-  const submitRename = useCallback(
-    (key: WebAuthnKey) => {
-      const trimmed = renameValue.trim();
-      if (!trimmed || trimmed === key.label) {
-        setRenamingKeyId(null);
-        return;
-      }
-      renameAction.run({ key, value: trimmed });
-    },
-    [renameAction, renameValue],
-  );
-
   const passwordSuccess = passwordAction.data !== null && !passwordAction.pending;
   const passwordError = validationError || passwordAction.error;
 
+  const deleteTotpAction = useAsyncAction(
+    async () => {
+      await accountService.deleteTOTP();
+    },
+    {
+      onSuccess: async () => {
+        await refetchTwoFA();
+      },
+      resolveError: (err) =>
+        err instanceof ApiRequestError
+          ? err.message
+          : "Nie udało się usunąć aplikacji uwierzytelniającej",
+    },
+  );
+
+  const [deletingKeyId, setDeletingKeyId] = useState<string | null>(null);
+  const deleteKey = useCallback(
+    async (key: WebAuthnKey) => {
+      setDeletingKeyId(key.id);
+      try {
+        await accountService.deleteWebAuthnKey(key.credentialId || key.id);
+        await refetchWebAuthn();
+      } finally {
+        setDeletingKeyId(null);
+      }
+    },
+    [refetchWebAuthn],
+  );
+
   return (
     <div className="space-y-6">
-      {/* 2FA */}
+      {/* TOTP */}
       <Card padding="md">
         <CardHeader
           icon={<Smartphone className="w-6 h-6" aria-hidden="true" />}
           iconBgClassName={
             twoFA?.enabled
               ? "bg-green-500/10 text-green-500"
-              : pending2FA
-                ? "bg-blue-500/10 text-blue-500"
+              : totpAdminForced
+                ? "bg-red-500/10 text-red-500"
                 : "bg-yellow-500/10 text-yellow-500"
           }
           title="Aplikacja uwierzytelniająca"
           description={
             twoFA?.enabled ? (
               <span className="text-green-500">Skonfigurowana</span>
-            ) : pending2FA ? (
-              <span className="text-blue-500">
-                Oczekuje konfiguracji przy logowaniu
+            ) : totpAdminForced ? (
+              <span className="text-red-500">
+                Administrator wymaga konfiguracji
               </span>
             ) : (
               <span className="text-yellow-500">Nieskonfigurowana</span>
             )
           }
           action={
-            !twoFA?.enabled && !pending2FA ? (
-              <Button
-                loading={activeMethod === "2FA"}
-                rightIcon={
-                  activeMethod !== "2FA" && (
-                    <ChevronRight className="w-4 h-4" aria-hidden="true" />
-                  )
-                }
-                onClick={() => void triggerRequiredAction(METHOD_2FA, "2FA")}
-              >
-                Włącz
+            !twoFA?.enabled ? (
+              <Button onClick={() => setTotpSetupOpen(true)}>
+                {totpAdminForced ? "Skonfiguruj" : "Włącz"}
               </Button>
-            ) : pending2FA ? (
-              <Badge tone="info">
-                <Clock className="w-3 h-3 mr-1" aria-hidden="true" />
-                Gotowe do konfiguracji
-              </Badge>
             ) : undefined
           }
         />
 
-        {pending2FA && (
-          <div className="mt-4 p-4 bg-blue-500/10 border border-blue-500/20 rounded-xl">
-            <p className="text-sm text-blue-400 mb-3">
-              Aplikacja uwierzytelniająca zostanie skonfigurowana przy
-              następnym logowaniu. Wyloguj się i zaloguj ponownie, aby
-              dokończyć konfigurację.
-            </p>
-            <div className="flex gap-3">
-              <Button
-                variant="primary"
-                size="sm"
-                leftIcon={<LogOut className="w-4 h-4" aria-hidden="true" />}
-                onClick={() => void fullLogout()}
-              >
-                Wyloguj się teraz
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                leftIcon={<X className="w-4 h-4" aria-hidden="true" />}
-                loading={cancelAction.pending}
-                onClick={() => void cancelAction.run(METHOD_2FA)}
-              >
-                Anuluj
-              </Button>
-            </div>
-          </div>
-        )}
-
         {twoFA?.enabled && (
-          <div className="mt-6 p-4 bg-[var(--bg-main)] rounded-xl border border-[var(--border-subtle)]">
-            <div className="flex items-center gap-3 mb-3">
-              <Shield className="w-5 h-5 text-green-500" aria-hidden="true" />
-              <div>
+          <div className="mt-6 p-4 bg-[var(--bg-main)] rounded-xl border border-[var(--border-subtle)] flex items-start justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <Shield
+                className="w-5 h-5 text-green-500 flex-shrink-0"
+                aria-hidden="true"
+              />
+              <div className="min-w-0">
                 <p className="text-sm font-medium text-[var(--text-main)]">
                   Aplikacja uwierzytelniająca
                 </p>
-                <p className="text-xs text-[var(--text-muted)]">
-                  Status: Aktywna
-                </p>
+                <p className="text-xs text-[var(--text-muted)]">Status: Aktywna</p>
               </div>
             </div>
-            <Alert tone="info">
-              W celu usunięcia aplikacji uwierzytelniającej skontaktuj się z
-              administratorem systemu.
-            </Alert>
+            {totpAdminForced ? (
+              <Badge tone="neutral">
+                <Lock className="w-3 h-3 mr-1" aria-hidden="true" />
+                Wymuszone przez administratora
+              </Badge>
+            ) : (
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Usuń aplikację uwierzytelniającą"
+                loading={deleteTotpAction.pending}
+                onClick={() => void deleteTotpAction.run()}
+                className="text-red-500 hover:bg-red-500/10 hover:text-red-500"
+              >
+                <Trash2 className="w-4 h-4" aria-hidden="true" />
+              </Button>
+            )}
+          </div>
+        )}
+
+        {deleteTotpAction.error && (
+          <div className="mt-3">
+            <Alert tone="error">{deleteTotpAction.error}</Alert>
           </div>
         )}
       </Card>
@@ -261,161 +222,49 @@ export function SecurityTab() {
           iconBgClassName={
             webauthnKeys.length > 0
               ? "bg-green-500/10 text-green-500"
-              : pendingWebAuthn
-                ? "bg-blue-500/10 text-blue-500"
+              : webauthnAdminForced
+                ? "bg-red-500/10 text-red-500"
                 : "bg-yellow-500/10 text-yellow-500"
           }
           title="Klucz bezpieczeństwa"
           description={
             webauthnKeys.length > 0 ? (
               <span className="text-green-500">
-                {webauthnKeys.length} klucz(y) skonfigurowany(ch)
+                {webauthnKeys.length}{" "}
+                {webauthnKeys.length === 1 ? "klucz" : "klucze"} skonfigurowany
               </span>
-            ) : pendingWebAuthn ? (
-              <span className="text-blue-500">
-                Oczekuje konfiguracji przy logowaniu
+            ) : webauthnAdminForced ? (
+              <span className="text-red-500">
+                Administrator wymaga konfiguracji
               </span>
             ) : (
               <span className="text-yellow-500">Nieskonfigurowany</span>
             )
           }
           action={
-            webauthnKeys.length < 2 && !pendingWebAuthn ? (
-              <Button
-                loading={activeMethod === "WebAuthn"}
-                rightIcon={
-                  activeMethod !== "WebAuthn" && (
-                    <ChevronRight className="w-4 h-4" aria-hidden="true" />
-                  )
-                }
-                onClick={() =>
-                  void triggerRequiredAction(METHOD_WEBAUTHN, "WebAuthn")
-                }
-              >
-                {webauthnKeys.length === 0 ? "Włącz" : "Dodaj drugi klucz"}
+            webauthnKeys.length < 5 ? (
+              <Button onClick={() => setWebauthnEnrollOpen(true)}>
+                {webauthnKeys.length === 0
+                  ? webauthnAdminForced
+                    ? "Skonfiguruj"
+                    : "Włącz"
+                  : "Dodaj klucz"}
               </Button>
-            ) : webauthnKeys.length >= 2 ? (
-              <Badge tone="neutral">Maks. 2 klucze</Badge>
-            ) : pendingWebAuthn ? (
-              <Badge tone="info">
-                <Clock className="w-3 h-3 mr-1" aria-hidden="true" />
-                Gotowe
-              </Badge>
             ) : undefined
           }
         />
 
-        {pendingWebAuthn && (
-          <div className="mt-4 p-4 bg-blue-500/10 border border-blue-500/20 rounded-xl">
-            <p className="text-sm text-blue-400 mb-3">
-              Klucz bezpieczeństwa zostanie skonfigurowany przy następnym
-              logowaniu. Wyloguj się i zaloguj ponownie, aby dokończyć
-              konfigurację.
-            </p>
-            <div className="flex gap-3">
-              <Button
-                variant="primary"
-                size="sm"
-                leftIcon={<LogOut className="w-4 h-4" aria-hidden="true" />}
-                onClick={() => void fullLogout()}
-              >
-                Wyloguj się teraz
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                leftIcon={<X className="w-4 h-4" aria-hidden="true" />}
-                loading={cancelAction.pending}
-                onClick={() => void cancelAction.run(METHOD_WEBAUTHN)}
-              >
-                Anuluj
-              </Button>
-            </div>
-          </div>
-        )}
-
         {webauthnKeys.length > 0 && (
           <div className="mt-6 space-y-3">
-            <h3 className="text-sm font-medium text-[var(--text-main)] mb-3">
-              Zarejestrowane klucze
-            </h3>
             {webauthnKeys.map((key) => (
-              <div
+              <WebAuthnKeyRow
                 key={key.id}
-                className="p-4 bg-[var(--bg-main)] rounded-xl border border-[var(--border-subtle)]"
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <Key
-                      className="w-5 h-5 text-green-500 flex-shrink-0"
-                      aria-hidden="true"
-                    />
-                    <div className="flex-1 min-w-0">
-                      {renamingKeyId === key.id ? (
-                        <div className="flex items-center gap-2">
-                          <input
-                            autoFocus
-                            type="text"
-                            value={renameValue}
-                            onChange={(e) => setRenameValue(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") submitRename(key);
-                              if (e.key === "Escape") setRenamingKeyId(null);
-                            }}
-                            aria-label="Nowa nazwa klucza"
-                            className="flex-1 px-3 py-1.5 bg-[var(--bg-card)] border border-[var(--accent)] rounded-lg text-sm text-[var(--text-main)] focus:outline-none"
-                          />
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            aria-label="Zapisz nazwę"
-                            loading={renameAction.pending}
-                            onClick={() => submitRename(key)}
-                          >
-                            <Check
-                              className="w-4 h-4 text-green-500"
-                              aria-hidden="true"
-                            />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            aria-label="Anuluj zmianę nazwy"
-                            onClick={() => setRenamingKeyId(null)}
-                          >
-                            <X className="w-4 h-4" aria-hidden="true" />
-                          </Button>
-                        </div>
-                      ) : (
-                        <>
-                          <p className="text-sm font-medium text-[var(--text-main)] truncate">
-                            {key.label}
-                          </p>
-                          <p className="text-xs text-[var(--text-muted)]">
-                            Dodano: {formatDate(key.createdDate)}
-                          </p>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                  {renamingKeyId !== key.id && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label="Edytuj nazwę klucza"
-                      onClick={() => startRename(key)}
-                    >
-                      <Edit2 className="w-4 h-4" aria-hidden="true" />
-                    </Button>
-                  )}
-                </div>
-                <div className="mt-3">
-                  <Alert tone="info">
-                    W celu usunięcia klucza bezpieczeństwa skontaktuj się z
-                    administratorem systemu.
-                  </Alert>
-                </div>
-              </div>
+                keyData={key}
+                adminForced={webauthnAdminForced}
+                deleting={deletingKeyId === key.id}
+                onDelete={() => void deleteKey(key)}
+                onRenamed={() => void refetchWebAuthn()}
+              />
             ))}
           </div>
         )}
@@ -428,7 +277,6 @@ export function SecurityTab() {
           title="Zmiana hasła"
           description="Zmień hasło dostępu do konta"
         />
-
         <div className="mt-6">
           {passwordSuccess && (
             <div className="mb-4">
@@ -440,7 +288,6 @@ export function SecurityTab() {
               </Alert>
             </div>
           )}
-
           {passwordError && (
             <div className="mb-4">
               <Alert tone="error">{passwordError}</Alert>
@@ -483,6 +330,429 @@ export function SecurityTab() {
           </form>
         </div>
       </Card>
+
+      <TotpSetupDialog
+        open={totpSetupOpen}
+        onClose={() => setTotpSetupOpen(false)}
+        onSuccess={async () => {
+          setTotpSetupOpen(false);
+          await Promise.all([refetchTwoFA(), refetchProfile()]);
+        }}
+      />
+
+      <WebAuthnEnrollDialog
+        open={webauthnEnrollOpen}
+        onClose={() => setWebauthnEnrollOpen(false)}
+        onSuccess={async () => {
+          setWebauthnEnrollOpen(false);
+          await Promise.all([refetchWebAuthn(), refetchProfile()]);
+        }}
+      />
     </div>
+  );
+}
+
+function WebAuthnKeyRow({
+  keyData,
+  adminForced,
+  deleting,
+  onDelete,
+  onRenamed,
+}: {
+  keyData: WebAuthnKey;
+  adminForced: boolean;
+  deleting: boolean;
+  onDelete: () => void;
+  onRenamed: () => void;
+}) {
+  const [renaming, setRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState(keyData.label);
+
+  const renameAction = useAsyncAction(
+    async (value: string) => {
+      await accountService.renameWebAuthnKey({
+        credentialId: keyData.credentialId || keyData.id,
+        newName: value,
+      });
+    },
+    {
+      onSuccess: () => {
+        setRenaming(false);
+        onRenamed();
+      },
+    },
+  );
+
+  const submitRename = () => {
+    const trimmed = renameValue.trim();
+    if (!trimmed || trimmed === keyData.label) {
+      setRenaming(false);
+      return;
+    }
+    renameAction.run(trimmed);
+  };
+
+  return (
+    <div className="p-4 bg-[var(--bg-main)] rounded-xl border border-[var(--border-subtle)] flex items-center justify-between gap-3">
+      <div className="flex items-center gap-3 flex-1 min-w-0">
+        <Key
+          className="w-5 h-5 text-green-500 flex-shrink-0"
+          aria-hidden="true"
+        />
+        <div className="flex-1 min-w-0">
+          {renaming ? (
+            <div className="flex items-center gap-2">
+              <input
+                autoFocus
+                type="text"
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") submitRename();
+                  if (e.key === "Escape") setRenaming(false);
+                }}
+                aria-label="Nowa nazwa klucza"
+                className="flex-1 px-3 py-1.5 bg-[var(--bg-card)] border border-[var(--accent)] rounded-lg text-sm text-[var(--text-main)] focus:outline-none"
+              />
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Zapisz nazwę"
+                loading={renameAction.pending}
+                onClick={submitRename}
+              >
+                <Check className="w-4 h-4 text-green-500" aria-hidden="true" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Anuluj"
+                onClick={() => setRenaming(false)}
+              >
+                <X className="w-4 h-4" aria-hidden="true" />
+              </Button>
+            </div>
+          ) : (
+            <>
+              <p className="text-sm font-medium text-[var(--text-main)] truncate">
+                {keyData.label}
+              </p>
+              <p className="text-xs text-[var(--text-muted)]">
+                Dodano: {formatDate(keyData.createdDate)}
+              </p>
+            </>
+          )}
+        </div>
+      </div>
+      {!renaming && (
+        <div className="flex gap-1 items-center flex-shrink-0">
+          {adminForced ? (
+            <Badge tone="neutral">
+              <Lock className="w-3 h-3 mr-1" aria-hidden="true" />
+              Wymuszone przez administratora
+            </Badge>
+          ) : (
+            <>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Zmień nazwę"
+                onClick={() => {
+                  setRenameValue(keyData.label);
+                  setRenaming(true);
+                }}
+              >
+                <Edit2 className="w-4 h-4" aria-hidden="true" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Usuń klucz"
+                loading={deleting}
+                onClick={onDelete}
+                className="text-red-500 hover:bg-red-500/10 hover:text-red-500"
+              >
+                <Trash2 className="w-4 h-4" aria-hidden="true" />
+              </Button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TotpSetupDialog({
+  open,
+  onClose,
+  onSuccess,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSuccess: () => void | Promise<void>;
+}) {
+  const id = useId();
+  const [qr, setQr] = useState<string | null>(null);
+  const [secret, setSecret] = useState<string | null>(null);
+  const [code, setCode] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  const generateAction = useAsyncAction(
+    async () => accountService.generateTOTP(),
+    {
+      onSuccess: (r) => {
+        setQr(r.qrCode);
+        setSecret(r.secret);
+      },
+    },
+  );
+
+  const verifyAction = useAsyncAction(
+    async (input: { secret: string; totpCode: string }) =>
+      accountService.verifyTOTP(input),
+    {
+      onSuccess: () => {
+        void onSuccess();
+      },
+      resolveError: (err) =>
+        err instanceof ApiRequestError
+          ? err.message
+          : "Nie udało się zweryfikować kodu",
+    },
+  );
+
+  useEffect(() => {
+    if (!open) {
+      setQr(null);
+      setSecret(null);
+      setCode("");
+      setCopied(false);
+      generateAction.reset();
+      verifyAction.reset();
+      return;
+    }
+    if (!qr) void generateAction.run();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    if (!secret || code.trim().length < 6) return;
+    void verifyAction.run({ secret, totpCode: code.trim() });
+  };
+
+  const copySecret = async () => {
+    if (!secret) return;
+    try {
+      await navigator.clipboard.writeText(secret);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title="Konfiguracja aplikacji uwierzytelniającej"
+      labelledById={id}
+      size="md"
+    >
+      {generateAction.pending && !qr ? (
+        <p className="text-sm text-[var(--text-muted)]">Generowanie kodu QR…</p>
+      ) : generateAction.error ? (
+        <Alert tone="error">{generateAction.error}</Alert>
+      ) : (
+        qr &&
+        secret && (
+          <form onSubmit={submit} className="space-y-4">
+            <p className="text-sm text-[var(--text-muted)]">
+              Zeskanuj kod QR aplikacją (Google Authenticator, Authy, 1Password)
+              lub wpisz sekret ręcznie, a następnie podaj wygenerowany 6-cyfrowy
+              kod poniżej.
+            </p>
+            <div className="flex flex-col items-center gap-3 py-2">
+              <img
+                src={qr}
+                alt="Kod QR do skanowania"
+                width={200}
+                height={200}
+                className="rounded-xl border border-[var(--border-subtle)] bg-white p-2"
+              />
+              <div className="flex items-center gap-2 text-xs">
+                <code className="px-2 py-1 bg-[var(--bg-main)] border border-[var(--border-subtle)] rounded font-mono break-all">
+                  {secret}
+                </code>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Kopiuj sekret"
+                  onClick={copySecret}
+                >
+                  {copied ? (
+                    <Check
+                      className="w-4 h-4 text-green-500"
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    <Copy className="w-4 h-4" aria-hidden="true" />
+                  )}
+                </Button>
+              </div>
+            </div>
+            <Input
+              label="Kod weryfikacyjny"
+              required
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              pattern="[0-9]{6}"
+              maxLength={6}
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+              placeholder="123456"
+              disabled={verifyAction.pending}
+            />
+            {verifyAction.error && <Alert tone="error">{verifyAction.error}</Alert>}
+            <div className="flex gap-3">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={onClose}
+                disabled={verifyAction.pending}
+                className="flex-1"
+              >
+                Anuluj
+              </Button>
+              <Button
+                type="submit"
+                loading={verifyAction.pending}
+                disabled={code.length !== 6}
+                className="flex-1"
+              >
+                Aktywuj
+              </Button>
+            </div>
+          </form>
+        )
+      )}
+    </Dialog>
+  );
+}
+
+function WebAuthnEnrollDialog({
+  open,
+  onClose,
+  onSuccess,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSuccess: () => void | Promise<void>;
+}) {
+  const id = useId();
+  const [label, setLabel] = useState("");
+  const [status, setStatus] = useState<"idle" | "prompting" | "saving">("idle");
+  const [error, setError] = useState<string | null>(null);
+
+  const title = "Rejestracja klucza bezpieczeństwa";
+  const defaultLabel = "Klucz bezpieczeństwa";
+  const placeholder = "np. YubiKey biurowy";
+  const description =
+    "Podłącz klucz sprzętowy (np. YubiKey) lub użyj klucza Passkey wbudowanego w przeglądarkę / urządzenie. Po zatwierdzeniu przeglądarka poprosi o potwierdzenie tożsamości.";
+
+  useEffect(() => {
+    if (!open) {
+      setLabel("");
+      setStatus("idle");
+      setError(null);
+    }
+  }, [open]);
+
+  const enroll = async (e: FormEvent) => {
+    e.preventDefault();
+    const trimmed = label.trim() || defaultLabel;
+    setError(null);
+    setStatus("prompting");
+    try {
+      const { options } = await accountService.getWebAuthnOptions();
+      const rpId =
+        typeof window !== "undefined" ? window.location.hostname : undefined;
+      const credential = await enrollWebAuthnCredential({
+        challenge: options.challenge,
+        rpName: options.rp.name,
+        rpId,
+        user: options.user,
+        pubKeyCredParams: options.pubKeyCredParams,
+        timeout: options.timeout,
+        attestation: options.attestation as AttestationConveyancePreference,
+        authenticatorSelection:
+          options.authenticatorSelection as AuthenticatorSelectionCriteria,
+      });
+      setStatus("saving");
+      await accountService.registerWebAuthn({
+        credential,
+        label: trimmed,
+      });
+      await onSuccess();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Nie udało się zarejestrować klucza",
+      );
+      setStatus("idle");
+    }
+  };
+
+  const busy = status !== "idle";
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title={title}
+      labelledById={id}
+      size="md"
+    >
+      <form onSubmit={enroll} className="space-y-4">
+        <p className="text-sm text-[var(--text-muted)]">{description}</p>
+        <Input
+          label="Nazwa klucza"
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          placeholder={placeholder}
+          disabled={busy}
+          hint="Pomoże rozpoznać klucz w ustawieniach"
+        />
+
+        {status === "prompting" && (
+          <Alert tone="info">
+            <span className="inline-flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4" aria-hidden="true" />
+              Potwierdź rejestrację na urządzeniu…
+            </span>
+          </Alert>
+        )}
+
+        {error && <Alert tone="error">{error}</Alert>}
+
+        <div className="flex gap-3">
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={onClose}
+            disabled={busy}
+            className="flex-1"
+          >
+            Anuluj
+          </Button>
+          <Button type="submit" loading={busy} className="flex-1">
+            Zarejestruj klucz
+          </Button>
+        </div>
+      </form>
+    </Dialog>
   );
 }

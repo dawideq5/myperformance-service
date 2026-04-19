@@ -28,7 +28,59 @@ export const accountService = {
 
   get2FA: () => api.get<TwoFAStatus>("/api/account/2fa"),
 
+  generateTOTP: () =>
+    api.post<
+      { qrCode: string; secret: string; otpauthUri: string },
+      { action: "generate" }
+    >("/api/account/2fa", { action: "generate" }),
+
+  verifyTOTP: (payload: { secret: string; totpCode: string }) =>
+    api.post<
+      { success: boolean; enabled: boolean },
+      { action: "verify"; secret: string; totpCode: string }
+    >("/api/account/2fa", { action: "verify", ...payload }),
+
+  deleteTOTP: () => api.delete<unknown>("/api/account/2fa"),
+
   getWebAuthnKeys: () => api.get<{ keys: WebAuthnKey[] }>("/api/account/webauthn"),
+
+  getWebAuthnOptions: () =>
+    api.post<
+      {
+        options: {
+          challenge: string;
+          rp: { name: string; id?: string };
+          user: { id: string; name: string; displayName: string };
+          pubKeyCredParams: { alg: number; type: string }[];
+          timeout: number;
+          attestation: string;
+          authenticatorSelection: Record<string, unknown>;
+          extensions?: Record<string, unknown>;
+        };
+        challenge: string;
+      },
+      { action: "get-options" }
+    >("/api/account/webauthn", { action: "get-options" }),
+
+  registerWebAuthn: (payload: {
+    credential: {
+      id: string;
+      attestationObject: string;
+      clientDataJSON: string;
+      publicKey?: string;
+      transports?: string[];
+    };
+    label: string;
+  }) =>
+    api.post<
+      { success: boolean },
+      { action: "register"; credential: typeof payload.credential; label: string }
+    >("/api/account/webauthn", { action: "register", ...payload }),
+
+  deleteWebAuthnKey: (credentialId: string) =>
+    api.delete<unknown>(
+      `/api/account/webauthn?id=${encodeURIComponent(credentialId)}`,
+    ),
 
   renameWebAuthnKey: (payload: { credentialId: string; newName: string }) =>
     api.put<unknown, typeof payload>("/api/account/webauthn", payload),

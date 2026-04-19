@@ -1,9 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { LogOut, Settings, User as UserIcon } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { Button, PageHeader } from "@/components/ui";
 import { useAuthRedirect } from "@/hooks/useAuthRedirect";
 
@@ -13,56 +11,23 @@ export interface AppHeaderProps {
   showAccountLink?: boolean;
 }
 
-interface NavLinkProps {
-  href: string;
-  label: string;
-}
-
-const LINKS: NavLinkProps[] = [{ href: "/dashboard", label: "Pulpit" }];
-
 export function AppHeader({
   userLabel,
   userSubLabel,
   showAccountLink = true,
 }: AppHeaderProps) {
-  const pathname = usePathname();
   const { fullLogout } = useAuthRedirect();
 
   return (
     <PageHeader
       left={
-        <>
-          <Link
-            href="/dashboard"
-            className="font-bold text-lg tracking-tight text-[var(--text-main)] select-none"
-            aria-label="MyPerformance — pulpit"
-          >
-            MyPerformance
-          </Link>
-          <nav
-            aria-label="Główna nawigacja"
-            className="hidden md:flex items-center gap-1 ml-4"
-          >
-            {LINKS.map(({ href, label }) => {
-              const active = pathname === href;
-              return (
-                <Link
-                  key={href}
-                  href={href}
-                  aria-current={active ? "page" : undefined}
-                  className={cn(
-                    "px-3 py-2 rounded-xl text-sm font-medium transition-colors",
-                    active
-                      ? "text-[var(--text-main)] bg-[var(--bg-card)]"
-                      : "text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-card)]",
-                  )}
-                >
-                  {label}
-                </Link>
-              );
-            })}
-          </nav>
-        </>
+        <Link
+          href="/dashboard"
+          className="font-bold text-lg tracking-tight text-[var(--text-main)] select-none"
+          aria-label="MyPerformance — pulpit"
+        >
+          MyPerformance
+        </Link>
       }
       right={
         <>

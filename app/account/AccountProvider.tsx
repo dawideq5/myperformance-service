@@ -35,6 +35,7 @@ interface AccountContextValue {
   refetchAll: () => Promise<void>;
   refetchProfile: () => Promise<void>;
   refetchSessions: () => Promise<void>;
+  refetchTwoFA: () => Promise<void>;
   refetchWebAuthn: () => Promise<void>;
   refetchGoogleStatus: () => Promise<GoogleStatus | null>;
   patchProfile: (profile: UserProfile) => void;
@@ -184,6 +185,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       refetchAll,
       refetchProfile,
       refetchSessions,
+      refetchTwoFA,
       refetchWebAuthn,
       refetchGoogleStatus,
       patchProfile,
@@ -203,6 +205,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       refetchAll,
       refetchProfile,
       refetchSessions,
+      refetchTwoFA,
       refetchWebAuthn,
       refetchGoogleStatus,
       patchProfile,

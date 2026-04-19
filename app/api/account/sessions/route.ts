@@ -37,9 +37,6 @@ export async function GET() {
       throw ApiError.unauthorized();
     }
 
-    console.log("[sessions] Fetching user sessions via Account API...");
-
-    // Try Keycloak Account API first to get rich session info (browser, OS, device)
     const accountUrl = keycloak.getAccountUrl("/account/sessions");
     let response = await fetchWithTimeout(
       accountUrl,
@@ -53,14 +50,10 @@ export async function GET() {
     );
 
     let sessions = [];
-    let source = "Account API";
 
     if (response.ok) {
       sessions = await response.json();
     } else {
-      // Fallback to Admin API if Account API fails (e.g. missing scopes)
-      source = "Admin API (Fallback)";
-      console.warn(`[sessions] Account API failed (Status: ${response.status}), falling back to Admin API...`);
       const userId = await keycloak.getUserIdFromToken(session.accessToken);
       const adminToken = await keycloak.getServiceAccountToken();
       
@@ -83,7 +76,6 @@ export async function GET() {
     }
 
     const sid = (session as any)?.user?.sid || (session as any)?.user?.session_id;
-    console.log(`[sessions] Found session ID from token: ${sid}`);
 
     const flatSessions: SessionInfo[] = sessions.map((s: any) => {
       // Keycloak timestamps can be in ms (e.g. 1713436000000) or s (e.g. 1713436000)
@@ -119,7 +111,6 @@ export async function GET() {
       };
     });
 
-    console.log("[sessions] Transformed sessions:", JSON.stringify(flatSessions, null, 2));
     return createSuccessResponse(flatSessions);
   } catch (error) {
     console.error("[sessions] Error:", error);

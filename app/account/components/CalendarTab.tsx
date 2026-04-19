@@ -1,16 +1,24 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useState, type FormEvent } from "react";
 import {
-  AlignLeft,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
+import {
   Calendar,
   CalendarDays,
+  ChevronLeft,
+  ChevronRight,
   Clock,
   Globe,
   MapPin,
   Pencil,
   Plus,
-  RefreshCw,
   Trash2,
 } from "lucide-react";
 
@@ -34,14 +42,7 @@ import {
   type CalendarEventInput,
 } from "../calendar-service";
 import type { CalendarEvent } from "../types";
-
-type Filter = "all" | "manual" | "google";
-
-const FILTER_LABELS: Record<Filter, string> = {
-  all: "Wszystkie",
-  manual: "Moje",
-  google: "Google",
-};
+import { LocationAutocomplete } from "./LocationAutocomplete";
 
 interface EventFormState {
   title: string;
@@ -61,6 +62,22 @@ const EMPTY_FORM: EventFormState = {
   location: "",
 };
 
+const WEEKDAYS_PL = ["Pn", "Wt", "Śr", "Cz", "Pt", "Sb", "Nd"];
+const MONTHS_PL = [
+  "Styczeń",
+  "Luty",
+  "Marzec",
+  "Kwiecień",
+  "Maj",
+  "Czerwiec",
+  "Lipiec",
+  "Sierpień",
+  "Wrzesień",
+  "Październik",
+  "Listopad",
+  "Grudzień",
+];
+
 function pad(n: number): string {
   return String(n).padStart(2, "0");
 }
@@ -69,6 +86,32 @@ function toLocalDatetimeValue(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
     date.getDate(),
   )}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function toLocalDateValue(date: Date): string {
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function parseEventDate(event: CalendarEvent, which: "start" | "end"): Date {
+  const raw = which === "start" ? event.startDate : event.endDate;
+  if (event.allDay) {
+    const d = raw.split("T")[0];
+    const [y, m, day] = d.split("-").map(Number);
+    return new Date(y, (m || 1) - 1, day || 1);
+  }
+  return new Date(raw);
+}
+
+function sameYMD(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+function dayKey(d: Date): string {
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 function buildPayload(form: EventFormState): CalendarEventInput {
@@ -85,33 +128,77 @@ function buildPayload(form: EventFormState): CalendarEventInput {
 
 function sortEvents(events: CalendarEvent[]): CalendarEvent[] {
   return [...events].sort(
-    (a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime(),
+    (a, b) =>
+      parseEventDate(a, "start").getTime() -
+      parseEventDate(b, "start").getTime(),
   );
 }
 
 function initialFormForEvent(event: CalendarEvent): EventFormState {
+  const start = parseEventDate(event, "start");
+  const end = parseEventDate(event, "end");
   return {
     title: event.title,
     description: event.description ?? "",
-    start: event.allDay
-      ? event.startDate.split("T")[0]
-      : toLocalDatetimeValue(new Date(event.startDate)),
-    end: event.allDay
-      ? event.endDate.split("T")[0]
-      : toLocalDatetimeValue(new Date(event.endDate)),
+    start: event.allDay ? toLocalDateValue(start) : toLocalDatetimeValue(start),
+    end: event.allDay ? toLocalDateValue(end) : toLocalDatetimeValue(end),
     allDay: event.allDay,
     location: event.location ?? "",
   };
 }
 
-function initialFormForNew(): EventFormState {
+function initialFormForDay(day: Date): EventFormState {
   const now = new Date();
-  const later = new Date(now.getTime() + 60 * 60 * 1000);
+  const start = new Date(day);
+  start.setHours(now.getHours(), 0, 0, 0);
+  const end = new Date(start.getTime() + 60 * 60 * 1000);
   return {
     ...EMPTY_FORM,
-    start: toLocalDatetimeValue(now),
-    end: toLocalDatetimeValue(later),
+    start: toLocalDatetimeValue(start),
+    end: toLocalDatetimeValue(end),
   };
+}
+
+function buildMonthGrid(viewDate: Date): Date[] {
+  const firstOfMonth = new Date(
+    viewDate.getFullYear(),
+    viewDate.getMonth(),
+    1,
+  );
+  // Monday = 0
+  const dow = (firstOfMonth.getDay() + 6) % 7;
+  const start = new Date(firstOfMonth);
+  start.setDate(firstOfMonth.getDate() - dow);
+  const grid: Date[] = [];
+  for (let i = 0; i < 42; i++) {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    grid.push(d);
+  }
+  return grid;
+}
+
+function groupEventsByDay(
+  events: CalendarEvent[],
+): Map<string, CalendarEvent[]> {
+  const map = new Map<string, CalendarEvent[]>();
+  for (const ev of events) {
+    const start = parseEventDate(ev, "start");
+    const end = parseEventDate(ev, "end");
+    const cursor = new Date(start);
+    cursor.setHours(0, 0, 0, 0);
+    const lastDay = new Date(end);
+    lastDay.setHours(0, 0, 0, 0);
+    // For all-day events in Google iCal style, end is exclusive. Treat spans > 1 day by stepping inclusive.
+    while (cursor.getTime() <= lastDay.getTime()) {
+      const key = dayKey(cursor);
+      const list = map.get(key) ?? [];
+      if (!list.find((e) => e.id === ev.id)) list.push(ev);
+      map.set(key, list);
+      cursor.setDate(cursor.getDate() + 1);
+    }
+  }
+  return map;
 }
 
 export function CalendarTab() {
@@ -124,11 +211,20 @@ export function CalendarTab() {
   const [feedback, setFeedback] = useState<
     { tone: "success" | "error"; message: string } | null
   >(null);
-  const [filter, setFilter] = useState<Filter>("all");
-  const [addOpen, setAddOpen] = useState(false);
+
+  const [viewDate, setViewDate] = useState<Date>(() => {
+    const d = new Date();
+    d.setDate(1);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  });
+  const [selectedDay, setSelectedDay] = useState<Date | null>(null);
+  const [addOpen, setAddOpen] = useState<Date | null>(null);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [form, setForm] = useState<EventFormState>(EMPTY_FORM);
+
+  const autoSyncedRef = useRef(false);
 
   const fetchEvents = useCallback(async () => {
     try {
@@ -149,31 +245,32 @@ export function CalendarTab() {
     void fetchEvents();
   }, [fetchEvents]);
 
-  const syncAction = useAsyncAction(async () => calendarService.syncGoogle(), {
-    onSuccess: (result) => {
-      setEvents(sortEvents(result.events ?? []));
-      setFeedback({
-        tone: "success",
-        message: `Zsynchronizowano ${result.synced} wydarzeń z Google Calendar.`,
-      });
-    },
-    resolveError: (err) => {
-      if (err instanceof ApiRequestError) {
-        if (err.status === 401) {
-          return "Token Google wygasł. Połącz ponownie konto Google.";
-        }
-        return err.message;
+  // Silent background sync + watch-channel ensure on first mount when Google is connected.
+  // Webhook delivers real-time updates afterward; this is the cold-open fallback.
+  useEffect(() => {
+    if (!googleConnected || autoSyncedRef.current) return;
+    autoSyncedRef.current = true;
+    (async () => {
+      try {
+        const result = await calendarService.syncGoogle();
+        setEvents(sortEvents(result.events ?? []));
+      } catch {
+        /* silent; fallback remains existing events */
       }
-      return "Wystąpił błąd podczas synchronizacji";
-    },
-  });
+      try {
+        await calendarService.ensureWatch();
+      } catch {
+        /* non-fatal; auto-sync-on-open still works */
+      }
+    })();
+  }, [googleConnected]);
 
   const createAction = useAsyncAction(
     async (payload: CalendarEventInput) => calendarService.create(payload),
     {
       onSuccess: (result) => {
         setEvents((prev) => sortEvents([...prev, result.event]));
-        setAddOpen(false);
+        setAddOpen(null);
         setFeedback({
           tone: "success",
           message: result.googleSynced
@@ -204,38 +301,57 @@ export function CalendarTab() {
           message: "Wydarzenie zostało zaktualizowane.",
         });
       },
-      resolveError: (err) =>
-        err instanceof ApiRequestError
+      resolveError: (err) => {
+        if (err instanceof ApiRequestError && err.status === 404) {
+          void fetchEvents();
+          return "Wydarzenie już nie istnieje. Lista została odświeżona.";
+        }
+        return err instanceof ApiRequestError
           ? err.message
-          : "Nie udało się zaktualizować wydarzenia",
+          : "Nie udało się zaktualizować wydarzenia";
+      },
     },
   );
 
-  const handleDelete = useCallback(async (id: string) => {
-    setDeletingId(id);
-    try {
-      await calendarService.delete(id);
-      setEvents((prev) => prev.filter((e) => e.id !== id));
-      setFeedback({ tone: "success", message: "Wydarzenie zostało usunięte." });
-    } catch (err) {
-      setFeedback({
-        tone: "error",
-        message:
-          err instanceof ApiRequestError
-            ? err.message
-            : "Nie udało się usunąć wydarzenia",
-      });
-    } finally {
-      setDeletingId(null);
-    }
-  }, []);
+  const handleDelete = useCallback(
+    async (id: string) => {
+      setDeletingId(id);
+      try {
+        await calendarService.delete(id);
+        setEvents((prev) => prev.filter((e) => e.id !== id));
+        setFeedback({ tone: "success", message: "Wydarzenie zostało usunięte." });
+      } catch (err) {
+        if (err instanceof ApiRequestError && err.status === 404) {
+          void fetchEvents();
+          setFeedback({
+            tone: "error",
+            message: "Wydarzenie już nie istnieje. Lista została odświeżona.",
+          });
+        } else {
+          setFeedback({
+            tone: "error",
+            message:
+              err instanceof ApiRequestError
+                ? err.message
+                : "Nie udało się usunąć wydarzenia",
+          });
+        }
+      } finally {
+        setDeletingId(null);
+      }
+    },
+    [fetchEvents],
+  );
 
-  const openAdd = useCallback(() => {
-    setForm(initialFormForNew());
-    setFeedback(null);
-    createAction.reset();
-    setAddOpen(true);
-  }, [createAction]);
+  const openAddForDay = useCallback(
+    (day: Date) => {
+      setForm(initialFormForDay(day));
+      setFeedback(null);
+      createAction.reset();
+      setAddOpen(day);
+    },
+    [createAction],
+  );
 
   const openEdit = useCallback(
     (event: CalendarEvent) => {
@@ -247,7 +363,7 @@ export function CalendarTab() {
     [updateAction],
   );
 
-  const closeAdd = useCallback(() => setAddOpen(false), []);
+  const closeAdd = useCallback(() => setAddOpen(null), []);
   const closeEdit = useCallback(() => setEditingEvent(null), []);
 
   const submitAdd = useCallback(
@@ -268,21 +384,31 @@ export function CalendarTab() {
     [editingEvent, form, updateAction],
   );
 
-  const { upcoming, past, countsByFilter } = useMemo(() => {
-    const now = Date.now();
-    const filtered = events.filter(
-      (e) => filter === "all" || e.source === filter,
+  const gridDays = useMemo(() => buildMonthGrid(viewDate), [viewDate]);
+  const eventsByDay = useMemo(() => groupEventsByDay(events), [events]);
+
+  const monthLabel = `${MONTHS_PL[viewDate.getMonth()]} ${viewDate.getFullYear()}`;
+  const today = new Date();
+
+  const goPrev = () =>
+    setViewDate(
+      (d) => new Date(d.getFullYear(), d.getMonth() - 1, 1),
     );
-    return {
-      upcoming: filtered.filter((e) => new Date(e.endDate).getTime() >= now),
-      past: filtered.filter((e) => new Date(e.endDate).getTime() < now),
-      countsByFilter: {
-        all: events.length,
-        manual: events.filter((e) => e.source === "manual").length,
-        google: events.filter((e) => e.source === "google").length,
-      } as Record<Filter, number>,
-    };
-  }, [events, filter]);
+  const goNext = () =>
+    setViewDate(
+      (d) => new Date(d.getFullYear(), d.getMonth() + 1, 1),
+    );
+  const goToday = () => {
+    const d = new Date();
+    d.setDate(1);
+    d.setHours(0, 0, 0, 0);
+    setViewDate(d);
+  };
+
+  const selectedDayEvents = useMemo(() => {
+    if (!selectedDay) return [];
+    return eventsByDay.get(dayKey(selectedDay)) ?? [];
+  }, [eventsByDay, selectedDay]);
 
   return (
     <div className="space-y-6">
@@ -297,35 +423,19 @@ export function CalendarTab() {
                 Kalendarz
               </h2>
               <p className="text-sm text-[var(--text-muted)]">
-                Twoje wydarzenia i synchronizacja z Google
+                {googleConnected
+                  ? "Twoje wydarzenia oraz Google Calendar (synchronizacja w czasie rzeczywistym)"
+                  : "Twoje wydarzenia"}
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            {googleConnected && (
-              <Button
-                variant="secondary"
-                size="sm"
-                loading={syncAction.pending}
-                leftIcon={
-                  !syncAction.pending && (
-                    <RefreshCw className="w-4 h-4" aria-hidden="true" />
-                  )
-                }
-                onClick={() => void syncAction.run()}
-              >
-                <span className="hidden sm:inline">Pobierz z Google</span>
-                <span className="sm:hidden">Google</span>
-              </Button>
-            )}
-            <Button
-              size="sm"
-              leftIcon={<Plus className="w-4 h-4" aria-hidden="true" />}
-              onClick={openAdd}
-            >
-              Dodaj wydarzenie
-            </Button>
-          </div>
+          <Button
+            size="sm"
+            leftIcon={<Plus className="w-4 h-4" aria-hidden="true" />}
+            onClick={() => openAddForDay(new Date())}
+          >
+            Dodaj wydarzenie
+          </Button>
         </div>
 
         {loadError && (
@@ -335,88 +445,74 @@ export function CalendarTab() {
             </Alert>
           </div>
         )}
-        {syncAction.error && (
-          <div className="mb-4">
-            <Alert tone="error">{syncAction.error}</Alert>
-          </div>
-        )}
         {feedback && (
           <div className="mb-4">
             <Alert tone={feedback.tone}>{feedback.message}</Alert>
           </div>
         )}
 
-        <div
-          role="tablist"
-          aria-label="Filtr wydarzeń"
-          className="flex gap-1 p-1 bg-[var(--bg-main)] rounded-xl w-fit"
-        >
-          {(Object.keys(FILTER_LABELS) as Filter[]).map((f) => {
-            const active = filter === f;
-            return (
-              <button
-                key={f}
-                role="tab"
-                aria-selected={active}
-                onClick={() => setFilter(f)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                  active
-                    ? "bg-[var(--bg-card)] text-[var(--text-main)] shadow-sm"
-                    : "text-[var(--text-muted)] hover:text-[var(--text-main)]"
-                }`}
-              >
-                {FILTER_LABELS[f]}
-                <span className="ml-1.5 opacity-60">{countsByFilter[f]}</span>
-              </button>
-            );
-          })}
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              size="icon"
+              aria-label="Poprzedni miesiąc"
+              onClick={goPrev}
+            >
+              <ChevronLeft className="w-4 h-4" aria-hidden="true" />
+            </Button>
+            <Button variant="secondary" size="sm" onClick={goToday}>
+              Dziś
+            </Button>
+            <Button
+              variant="secondary"
+              size="icon"
+              aria-label="Następny miesiąc"
+              onClick={goNext}
+            >
+              <ChevronRight className="w-4 h-4" aria-hidden="true" />
+            </Button>
+          </div>
+          <h3 className="text-base font-semibold text-[var(--text-main)] capitalize">
+            {monthLabel}
+          </h3>
+          <div className="text-xs text-[var(--text-muted)]">
+            {events.length}{" "}
+            {events.length === 1 ? "wydarzenie" : "wydarzeń"} łącznie
+          </div>
         </div>
       </Card>
 
       {initialLoading ? (
-        <div className="space-y-3">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-24 rounded-2xl" />
-          ))}
-        </div>
-      ) : upcoming.length === 0 && past.length === 0 ? (
-        <Card padding="md">
-          <div className="p-8 text-center">
-            <CalendarDays
-              className="w-10 h-10 text-[var(--text-muted)] mx-auto mb-3 opacity-40"
-              aria-hidden="true"
-            />
-            <p className="text-sm text-[var(--text-muted)]">
-              Brak wydarzeń. Dodaj pierwsze lub pobierz z Google.
-            </p>
-          </div>
-        </Card>
+        <Skeleton className="h-[480px] rounded-2xl" />
       ) : (
-        <div className="space-y-4">
-          {upcoming.length > 0 && (
-            <EventSection
-              title="Nadchodzące"
-              events={upcoming}
-              onDelete={handleDelete}
-              onEdit={openEdit}
-              deletingId={deletingId}
-            />
-          )}
-          {past.length > 0 && (
-            <EventSection
-              title="Przeszłe"
-              events={past}
-              onDelete={handleDelete}
-              onEdit={openEdit}
-              deletingId={deletingId}
-              muted
-            />
-          )}
-        </div>
+        <MonthGrid
+          gridDays={gridDays}
+          viewDate={viewDate}
+          today={today}
+          eventsByDay={eventsByDay}
+          onDayClick={(d) => setSelectedDay(d)}
+        />
       )}
 
+      <DayDrawer
+        day={selectedDay}
+        events={selectedDayEvents}
+        onClose={() => setSelectedDay(null)}
+        onAdd={(day) => {
+          setSelectedDay(null);
+          openAddForDay(day);
+        }}
+        onEdit={(event) => {
+          setSelectedDay(null);
+          openEdit(event);
+        }}
+        onDelete={handleDelete}
+        deletingId={deletingId}
+      />
+
       <EventFormDialog
-        open={addOpen}
+        open={addOpen !== null}
         title="Nowe wydarzenie"
         submitLabel="Dodaj"
         submitIcon={<Plus className="w-4 h-4" aria-hidden="true" />}
@@ -444,82 +540,196 @@ export function CalendarTab() {
   );
 }
 
-function EventSection({
-  title,
-  events,
-  onDelete,
-  onEdit,
-  deletingId,
-  muted,
+function MonthGrid({
+  gridDays,
+  viewDate,
+  today,
+  eventsByDay,
+  onDayClick,
 }: {
-  title: string;
-  events: CalendarEvent[];
-  onDelete: (id: string) => void;
-  onEdit: (event: CalendarEvent) => void;
-  deletingId: string | null;
-  muted?: boolean;
+  gridDays: Date[];
+  viewDate: Date;
+  today: Date;
+  eventsByDay: Map<string, CalendarEvent[]>;
+  onDayClick: (day: Date) => void;
 }) {
   return (
-    <section>
-      <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-2 px-1">
-        {title}
-      </h3>
-      <div className={`space-y-2 ${muted ? "opacity-60" : ""}`}>
-        {events.map((event) => (
-          <EventCard
-            key={event.id}
-            event={event}
-            onDelete={onDelete}
-            onEdit={onEdit}
-            deleting={deletingId === event.id}
-          />
-        ))}
+    <Card padding="sm">
+      <div
+        role="grid"
+        aria-label="Kalendarz miesięczny"
+        className="select-none"
+      >
+        <div className="grid grid-cols-7 gap-px mb-1 text-center">
+          {WEEKDAYS_PL.map((d) => (
+            <div
+              key={d}
+              className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] py-1"
+            >
+              {d}
+            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-7 gap-px bg-[var(--border-subtle)] rounded-xl overflow-hidden">
+          {gridDays.map((day) => {
+            const inMonth = day.getMonth() === viewDate.getMonth();
+            const isToday = sameYMD(day, today);
+            const dayEvents = eventsByDay.get(dayKey(day)) ?? [];
+            const preview = dayEvents.slice(0, 3);
+            const overflow = dayEvents.length - preview.length;
+            return (
+              <button
+                key={day.toISOString()}
+                role="gridcell"
+                type="button"
+                onClick={() => onDayClick(day)}
+                aria-label={`${day.toLocaleDateString("pl-PL")}, ${dayEvents.length} wydarzeń`}
+                className={`group relative min-h-[92px] text-left p-1.5 bg-[var(--bg-card)] hover:bg-[var(--bg-main)] transition-colors ${
+                  inMonth ? "" : "opacity-40"
+                }`}
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span
+                    className={`text-xs font-medium inline-flex items-center justify-center w-6 h-6 rounded-full ${
+                      isToday
+                        ? "bg-[var(--accent)] text-white"
+                        : "text-[var(--text-main)]"
+                    }`}
+                  >
+                    {day.getDate()}
+                  </span>
+                </div>
+                <div className="space-y-0.5">
+                  {preview.map((ev) => (
+                    <EventPill key={ev.id} event={ev} />
+                  ))}
+                  {overflow > 0 && (
+                    <span className="block text-[10px] text-[var(--text-muted)] px-1.5">
+                      +{overflow} więcej
+                    </span>
+                  )}
+                </div>
+              </button>
+            );
+          })}
+        </div>
       </div>
-    </section>
+    </Card>
   );
 }
 
-function EventCard({
-  event,
-  onDelete,
+function EventPill({ event }: { event: CalendarEvent }) {
+  const isGoogle = event.source === "google";
+  const color = event.color || (isGoogle ? "#4285F4" : "var(--accent)");
+  return (
+    <div
+      className="flex items-center gap-1 text-[10px] leading-tight rounded-md px-1.5 py-0.5 truncate"
+      style={{
+        backgroundColor: `color-mix(in srgb, ${color} 15%, transparent)`,
+        color,
+      }}
+      title={event.title}
+    >
+      <span
+        className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+        style={{ backgroundColor: color }}
+        aria-hidden="true"
+      />
+      <span className="truncate">{event.title}</span>
+    </div>
+  );
+}
+
+function DayDrawer({
+  day,
+  events,
+  onClose,
+  onAdd,
   onEdit,
+  onDelete,
+  deletingId,
+}: {
+  day: Date | null;
+  events: CalendarEvent[];
+  onClose: () => void;
+  onAdd: (day: Date) => void;
+  onEdit: (event: CalendarEvent) => void;
+  onDelete: (id: string) => void;
+  deletingId: string | null;
+}) {
+  const id = useId();
+  if (!day) return null;
+  const title = day.toLocaleDateString("pl-PL", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+
+  return (
+    <Dialog
+      open={day !== null}
+      onClose={onClose}
+      title={title}
+      size="md"
+      labelledById={id}
+    >
+      <div className="space-y-3">
+        {events.length === 0 ? (
+          <div className="text-center py-6 text-sm text-[var(--text-muted)]">
+            <CalendarDays
+              className="w-8 h-8 mx-auto mb-2 opacity-40"
+              aria-hidden="true"
+            />
+            Brak wydarzeń tego dnia.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {events.map((ev) => (
+              <DayEventRow
+                key={ev.id}
+                event={ev}
+                onEdit={onEdit}
+                onDelete={onDelete}
+                deleting={deletingId === ev.id}
+              />
+            ))}
+          </div>
+        )}
+
+        <Button
+          className="w-full"
+          leftIcon={<Plus className="w-4 h-4" aria-hidden="true" />}
+          onClick={() => onAdd(day)}
+        >
+          Dodaj wydarzenie w tym dniu
+        </Button>
+      </div>
+    </Dialog>
+  );
+}
+
+function DayEventRow({
+  event,
+  onEdit,
+  onDelete,
   deleting,
 }: {
   event: CalendarEvent;
-  onDelete: (id: string) => void;
   onEdit: (event: CalendarEvent) => void;
+  onDelete: (id: string) => void;
   deleting: boolean;
 }) {
-  const start = new Date(event.startDate);
-  const end = new Date(event.endDate);
+  const start = parseEventDate(event, "start");
+  const end = parseEventDate(event, "end");
   const isGoogle = event.source === "google";
 
-  const formatDate = (d: Date) =>
-    event.allDay
-      ? d.toLocaleDateString("pl-PL", {
-          day: "numeric",
-          month: "long",
-          year: "numeric",
-        })
-      : d.toLocaleString("pl-PL", {
-          day: "numeric",
-          month: "short",
-          hour: "2-digit",
-          minute: "2-digit",
-        });
-
-  const sameDay = end.toDateString() === start.toDateString();
-  const endLabel = sameDay
-    ? event.allDay
-      ? ""
-      : end.toLocaleTimeString("pl-PL", {
-          hour: "2-digit",
-          minute: "2-digit",
-        })
-    : formatDate(end);
+  const timeLabel = event.allDay
+    ? "Cały dzień"
+    : `${start.toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" })} – ${end.toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" })}`;
 
   return (
-    <div className="group bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-xl p-4 flex items-start gap-4 hover:border-[var(--accent)]/30 transition-colors">
+    <div className="border border-[var(--border-subtle)] rounded-xl p-3 flex items-start gap-3 bg-[var(--bg-card)]">
       <div
         className="w-1 self-stretch rounded-full flex-shrink-0"
         style={{
@@ -529,7 +739,7 @@ function EventCard({
         aria-hidden="true"
       />
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-1">
+        <div className="flex items-center gap-2 mb-1 flex-wrap">
           <span className="text-sm font-medium text-[var(--text-main)] truncate">
             {event.title}
           </span>
@@ -543,30 +753,27 @@ function EventCard({
         <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-[var(--text-muted)]">
           <span className="inline-flex items-center gap-1">
             <Clock className="w-3 h-3" aria-hidden="true" />
-            {formatDate(start)}
-            {endLabel && ` – ${endLabel}`}
+            {timeLabel}
           </span>
           {event.location && (
             <span className="inline-flex items-center gap-1">
               <MapPin className="w-3 h-3" aria-hidden="true" />
-              {event.location}
-            </span>
-          )}
-          {event.description && (
-            <span className="inline-flex items-center gap-1">
-              <AlignLeft className="w-3 h-3" aria-hidden="true" />
-              <span className="truncate max-w-[200px]">{event.description}</span>
+              <span className="truncate max-w-[220px]">{event.location}</span>
             </span>
           )}
         </div>
+        {event.description && (
+          <p className="text-xs text-[var(--text-muted)] mt-1 line-clamp-2">
+            {event.description}
+          </p>
+        )}
       </div>
-      <div className="flex gap-1">
+      <div className="flex gap-1 flex-shrink-0">
         <Button
           variant="ghost"
           size="icon"
           aria-label="Edytuj wydarzenie"
           onClick={() => onEdit(event)}
-          className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
         >
           <Pencil className="w-4 h-4" aria-hidden="true" />
         </Button>
@@ -576,7 +783,7 @@ function EventCard({
           aria-label="Usuń wydarzenie"
           loading={deleting}
           onClick={() => onDelete(event.id)}
-          className="text-red-500 hover:bg-red-500/10 hover:text-red-500 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+          className="text-red-500 hover:bg-red-500/10 hover:text-red-500"
         >
           <Trash2 className="w-4 h-4" aria-hidden="true" />
         </Button>
@@ -609,7 +816,6 @@ function EventFormDialog({
   error: string | null;
 }) {
   const dialogId = useId();
-
   const patch = (partial: Partial<EventFormState>) =>
     onChange({ ...form, ...partial });
 
@@ -657,12 +863,12 @@ function EventFormDialog({
           />
         </div>
 
-        <Input
+        <LocationAutocomplete
           label="Lokalizacja"
           value={form.location}
-          onChange={(e) => patch({ location: e.target.value })}
-          placeholder="Opcjonalnie"
+          onChange={(v) => patch({ location: v })}
           disabled={submitting}
+          placeholder="Zacznij pisać aby wyszukać..."
         />
 
         <Textarea

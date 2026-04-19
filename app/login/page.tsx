@@ -25,12 +25,17 @@ function resolveErrorMessage(code: string | null): string | null {
 function LoginContent() {
   const searchParams = useSearchParams();
   const errorCode = searchParams.get("error");
-  const callbackUrl = searchParams.get("callbackUrl") ?? "/dashboard";
+  const rawCallbackUrl = searchParams.get("callbackUrl") ?? "/dashboard";
+  const callbackUrl = rawCallbackUrl.startsWith("/") ? rawCallbackUrl : "/dashboard";
   const [submitting, setSubmitting] = useState(false);
 
   const handleLogin = useCallback(async () => {
     setSubmitting(true);
     try {
+      // Flag consumed by /dashboard to play the welcome animation after a fresh login.
+      if (typeof window !== "undefined") {
+        window.sessionStorage.setItem("welcome-pending", "1");
+      }
       await signIn("keycloak", { callbackUrl });
     } finally {
       setSubmitting(false);

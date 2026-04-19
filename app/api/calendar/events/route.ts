@@ -45,22 +45,16 @@ export async function GET() {
     }
 
     const userId = await keycloak.getUserIdFromToken(session.accessToken);
-    console.log("[Calendar Events GET] User ID:", userId);
-    
     const serviceToken = await keycloak.getServiceAccountToken();
     const userResp = await keycloak.adminRequest(`/users/${userId}`, serviceToken);
-    console.log("[Calendar Events GET] Keycloak user response status:", userResp.status);
-    
+
     if (!userResp.ok) {
-      const errorText = await userResp.text();
-      console.error("[Calendar Events GET] Keycloak error:", errorText);
       return NextResponse.json({ events: [] });
     }
-    
+
     const userData = await userResp.json();
     const rawEvents: string[] = userData.attributes?.calendar_events || [];
-    console.log("[Calendar Events GET] Raw events count:", rawEvents.length);
-    
+
     const events = rawEvents.flatMap((raw) => {
       try {
         return [JSON.parse(raw) as CalendarEvent];
@@ -68,7 +62,6 @@ export async function GET() {
         return [];
       }
     });
-    console.log("[Calendar Events GET] Parsed events count:", events.length);
 
     events.sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
 
@@ -132,14 +125,10 @@ export async function POST(request: NextRequest) {
           const calData = await calResp.json();
           googleEventId = calData.id;
           googleSynced = true;
-          console.log("[Calendar Events POST] Synced to Google:", googleEventId);
-        } else {
-          console.warn("[Calendar Events POST] Failed to sync to Google:", calResp.status);
         }
       }
-    } catch (error) {
-      console.warn("[Calendar Events POST] Google sync error:", error);
-      // Continue without Google sync
+    } catch {
+      // Best-effort; local create still proceeds.
     }
 
     const newEvent: CalendarEvent = {

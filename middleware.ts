@@ -26,10 +26,37 @@ function getIssuerForMiddleware(): string | null {
   return `${trimSlash(keycloakUrl)}/realms/${realm}`;
 }
 
+function isSameOrigin(req: Request): boolean {
+  const method = req.method.toUpperCase();
+  if (method === "GET" || method === "HEAD" || method === "OPTIONS") {
+    return true;
+  }
+  const origin = req.headers.get("origin");
+  if (!origin) {
+    // No Origin on same-origin fetch in some browsers. Fallback to Referer.
+    const referer = req.headers.get("referer");
+    if (!referer) return false;
+    try {
+      const refOrigin = new URL(referer).origin;
+      return refOrigin === new URL(req.url).origin;
+    } catch {
+      return false;
+    }
+  }
+  return origin === new URL(req.url).origin;
+}
+
 export default withAuth(
   async function middleware(req) {
     const token = req.nextauth.token;
     const pathname = req.nextUrl.pathname;
+
+    // Defense-in-depth: reject state-changing API calls with mismatched Origin.
+    // Session cookie is sameSite=lax so real cross-site POSTs are already blocked,
+    // but this catches misconfigured CORS and leaks of bearer-style reuse.
+    if (pathname.startsWith("/api/account") && !isSameOrigin(req)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
     const isProtected =
       pathname.startsWith("/dashboard") ||

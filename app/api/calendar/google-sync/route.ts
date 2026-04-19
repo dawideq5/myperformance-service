@@ -81,10 +81,7 @@ export async function POST() {
     const userId = await keycloak.getUserIdFromToken(session.accessToken);
     const serviceToken = await keycloak.getServiceAccountToken();
 
-    console.log("[Calendar Google Sync] User ID:", userId);
-
     const userResp = await keycloak.adminRequest(`/users/${userId}`, serviceToken);
-    console.log("[Calendar Google Sync] Keycloak user response status:", userResp.status);
     const userData = userResp.ok ? await userResp.json() : {};
     const rawEvents: string[] = userData.attributes?.calendar_events || [];
     const existingEvents: CalendarEvent[] = rawEvents.flatMap((raw) => {
@@ -101,20 +98,10 @@ export async function POST() {
     const newGoogleEvents = googleEvents.filter((ge) => !localEvents.find((le) => le.googleEventId === ge.googleEventId));
     const merged = [...localEvents, ...newGoogleEvents];
 
-    console.log("[Calendar Google Sync] Storing", merged.length, "events");
     await keycloak.updateUserAttributes(serviceToken, userId, {
       calendar_events: merged.map((e) => JSON.stringify(e)),
       calendar_google_synced_at: [new Date().toISOString()],
     });
-    console.log("[Calendar Google Sync] Events stored successfully");
-    
-    // Verify storage
-    const verifyResp = await keycloak.adminRequest(`/users/${userId}`, serviceToken);
-    if (verifyResp.ok) {
-      const verifyData = await verifyResp.json();
-      const storedEvents = verifyData.attributes?.calendar_events || [];
-      console.log("[Calendar Google Sync] Verification - stored events:", storedEvents.length);
-    }
 
     return NextResponse.json({
       synced: googleEvents.length,

@@ -1,4 +1,5 @@
 import { getServerSession } from "next-auth/next";
+import { NextResponse } from "next/server";
 import { authOptions } from "@/app/auth";
 import { keycloak } from "@/lib/keycloak";
 import {
@@ -7,6 +8,7 @@ import {
   handleApiError,
   validateRequestBody,
 } from "@/lib/api-utils";
+import { getClientIp, rateLimit } from "@/lib/rate-limit";
 
 interface PasswordChangeRequest extends Record<string, unknown> {
   currentPassword: string;
@@ -28,6 +30,26 @@ export async function POST(request: Request) {
 
     if (!session?.accessToken) {
       throw ApiError.unauthorized();
+    }
+
+    // Throttle password-change attempts: 5 per 10 minutes per user+ip. Protects
+    // against brute-forcing `currentPassword` via the verify step below.
+    const userSub = (session as any)?.user?.sub || session.user?.email || "anon";
+    const ipKey = getClientIp(request);
+    const rl = rateLimit(`pw:${userSub}:${ipKey}`, {
+      capacity: 5,
+      refillPerSec: 5 / (10 * 60),
+    });
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: "Zbyt wiele prób. Spróbuj ponownie później." },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(Math.ceil(rl.retryAfterMs / 1000)),
+          },
+        },
+      );
     }
 
     const body = await request.json();

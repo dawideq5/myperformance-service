@@ -45,4 +45,9 @@ export const calendarService = {
 
   syncGoogle: () =>
     api.post<GoogleSyncResponse>("/api/calendar/google-sync"),
+
+  ensureWatch: () =>
+    api.post<{ ok: boolean; status?: string; reason?: string }>(
+      "/api/calendar/watch",
+    ),
 };

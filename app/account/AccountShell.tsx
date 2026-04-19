@@ -5,9 +5,9 @@ import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
+  Activity,
   AlertCircle,
   ArrowLeft,
-  CalendarDays,
   History,
   Plug,
   Shield,
@@ -29,7 +29,7 @@ import { ProfileTab } from "@/app/account/components/ProfileTab";
 import { SecurityTab } from "@/app/account/components/SecurityTab";
 import { SessionsTab } from "@/app/account/components/SessionsTab";
 import { IntegrationsTab } from "@/app/account/components/IntegrationsTab";
-import { CalendarTab } from "@/app/account/components/CalendarTab";
+import { ActivityTab } from "@/app/account/components/ActivityTab";
 
 import { useAccount } from "./AccountProvider";
 import type { AccountTabId } from "./types";
@@ -39,7 +39,7 @@ const TAB_IDS: readonly AccountTabId[] = [
   "security",
   "sessions",
   "integrations",
-  "calendar",
+  "activity",
 ];
 
 function isValidTab(value: string | null): value is AccountTabId {
@@ -199,15 +199,13 @@ export function AccountShell() {
       ) : undefined,
     },
     {
-      id: "calendar",
-      label: "Kalendarz",
-      icon: <CalendarDays className="w-5 h-5" />,
-      hidden: !googleConnected,
+      id: "activity",
+      label: "Logi aktywności",
+      icon: <Activity className="w-5 h-5" />,
     },
   ];
 
-  const safeActiveTab: AccountTabId =
-    activeTab === "calendar" && !googleConnected ? "integrations" : activeTab;
+  const safeActiveTab: AccountTabId = activeTab;
 
   return (
     <PageShell maxWidth="xl" header={header}>
@@ -239,11 +237,9 @@ export function AccountShell() {
             <IntegrationsTab />
           </TabPanel>
 
-          {googleConnected && (
-            <TabPanel tabId="calendar" active={safeActiveTab === "calendar"}>
-              <CalendarTab />
-            </TabPanel>
-          )}
+          <TabPanel tabId="activity" active={safeActiveTab === "activity"}>
+            <ActivityTab />
+          </TabPanel>
         </div>
       </div>
     </PageShell>

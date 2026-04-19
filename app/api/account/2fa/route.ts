@@ -5,6 +5,7 @@ import * as OTPAuth from "otpauth";
 import QRCode from "qrcode";
 
 import { keycloak } from "@/lib/keycloak";
+import { getClientIp, rateLimit } from "@/lib/rate-limit";
 
 // GET - Check 2FA status
 export async function GET() {
@@ -109,6 +110,27 @@ export async function POST(request: Request) {
         );
       }
 
+      // 10 verify attempts per 5 min per user — deters TOTP code brute force
+      // even though the window validation below would also catch random codes.
+      const userSub =
+        (session as any)?.user?.sub || session.user?.email || "anon";
+      const ipKey = getClientIp(request);
+      const rl = rateLimit(`totp:${userSub}:${ipKey}`, {
+        capacity: 10,
+        refillPerSec: 10 / (5 * 60),
+      });
+      if (!rl.allowed) {
+        return NextResponse.json(
+          { error: "Zbyt wiele prób weryfikacji. Spróbuj ponownie później." },
+          {
+            status: 429,
+            headers: {
+              "Retry-After": String(Math.ceil(rl.retryAfterMs / 1000)),
+            },
+          },
+        );
+      }
+
       // Verify the TOTP code locally first
       const totp = new OTPAuth.TOTP({
         issuer: "MyPerformance",
@@ -204,12 +226,38 @@ export async function POST(request: Request) {
   }
 }
 
-// DELETE - Remove 2FA
+// DELETE - Remove 2FA. Blocked when CONFIGURE_TOTP is present in requiredActions
+// (admin-forced). Keycloak's standard login flow clears that action; if it's still
+// there, it was set by an administrator and the user may not remove the method.
 export async function DELETE() {
   try {
     const session: any = await getServerSession(authOptions);
     if (!session?.accessToken) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // Admin-forced check: if user has CONFIGURE_TOTP required action, block deletion.
+    const serviceTokenForCheck = await keycloak.getServiceAccountToken();
+    const userIdForCheck = await keycloak.getUserIdFromToken(session.accessToken);
+    const adminUserResp = await keycloak.adminRequest(
+      `/users/${userIdForCheck}`,
+      serviceTokenForCheck,
+    );
+    if (adminUserResp.ok) {
+      const adminUserData = await adminUserResp.json();
+      const normalized = keycloak.normalizeRequiredActions(
+        adminUserData.requiredActions || [],
+      );
+      if (normalized.includes("CONFIGURE_TOTP")) {
+        return NextResponse.json(
+          {
+            error:
+              "Aplikacja uwierzytelniająca została wymuszona przez administratora i nie może zostać usunięta.",
+            code: "admin_forced",
+          },
+          { status: 403 },
+        );
+      }
     }
 
     const credsResponse = await fetch(

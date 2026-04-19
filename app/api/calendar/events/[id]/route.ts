@@ -24,6 +24,21 @@ async function saveEventsToKeycloak(serviceToken: string, userId: string, events
   });
 }
 
+/**
+ * Resolve an incoming id (may be `google_<googleId>` from the UI) against the
+ * stored events. Falls back to matching by `googleEventId` so UI state that's
+ * slightly ahead of Keycloak-side storage can still delete/update cleanly.
+ */
+function findEventIndex(events: CalendarEvent[], id: string): number {
+  const directIdx = events.findIndex((e) => e.id === id);
+  if (directIdx !== -1) return directIdx;
+  const googleId = id.startsWith("google_") ? id.slice("google_".length) : null;
+  if (!googleId) return -1;
+  return events.findIndex(
+    (e) => e.googleEventId === googleId || e.id === googleId,
+  );
+}
+
 export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -38,20 +53,14 @@ export async function DELETE(
     const userId = await keycloak.getUserIdFromToken(session.accessToken);
     const serviceToken = await keycloak.getServiceAccountToken();
 
-    console.log("[Calendar Events DELETE] User ID:", userId);
-    
     const userResp = await keycloak.adminRequest(`/users/${userId}`, serviceToken);
-    console.log("[Calendar Events DELETE] Keycloak user response status:", userResp.status);
     if (!userResp.ok) {
-      const errorText = await userResp.text();
-      console.error("[Calendar Events DELETE] Keycloak error:", errorText);
       return NextResponse.json({ error: "Failed to fetch user data" }, { status: 500 });
     }
-    
+
     const userData = await userResp.json();
     const rawEvents: string[] = userData.attributes?.calendar_events || [];
-    console.log("[Calendar Events DELETE] Raw events from Keycloak:", rawEvents);
-    
+
     const events = rawEvents.flatMap((raw) => {
       try {
         return [JSON.parse(raw) as CalendarEvent];
@@ -60,9 +69,23 @@ export async function DELETE(
       }
     });
     
-    console.log("[Calendar Events DELETE] Looking for event with ID:", id);
-    console.log("[Calendar Events DELETE] Available event IDs:", events.map(e => e.id));
-    const eventToDelete = events.find((e) => e.id === id);
+    const eventIndex = findEventIndex(events, id);
+    let eventToDelete = eventIndex !== -1 ? events[eventIndex] : null;
+
+    // If UI state is ahead of storage, accept a `google_<googleId>` id and
+    // still delete from Google. Local state won't change (nothing stored).
+    if (!eventToDelete && id.startsWith("google_")) {
+      const googleEventId = id.slice("google_".length);
+      eventToDelete = {
+        id,
+        title: "",
+        startDate: "",
+        endDate: "",
+        allDay: false,
+        source: "google",
+        googleEventId,
+      };
+    }
 
     if (!eventToDelete) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
@@ -82,16 +105,16 @@ export async function DELETE(
               headers: { Authorization: `Bearer ${googleAccessToken}` },
             }
           );
-          console.log("[Calendar Events DELETE] Deleted from Google:", eventToDelete.googleEventId);
         }
-      } catch (error) {
-        console.warn("[Calendar Events DELETE] Failed to delete from Google:", error);
-        // Continue with local deletion
+      } catch {
+        // Best-effort; local delete still proceeds.
       }
     }
 
-    const filtered = events.filter((e) => e.id !== id);
-    await saveEventsToKeycloak(serviceToken, userId, filtered);
+    const filtered = events.filter((_, idx) => idx !== eventIndex);
+    if (eventIndex !== -1) {
+      await saveEventsToKeycloak(serviceToken, userId, filtered);
+    }
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("[Calendar Events DELETE]", error);
@@ -121,14 +144,35 @@ export async function PUT(
     const serviceToken = await keycloak.getServiceAccountToken();
 
     const events = await getEventsFromKeycloak(serviceToken, userId);
-    const eventIndex = events.findIndex((e) => e.id === id);
+    const eventIndex = findEventIndex(events, id);
 
-    if (eventIndex === -1) {
+    // If UI state is ahead of storage, accept `google_<googleId>` and still
+    // forward the edit to Google. Local storage is only updated when we have
+    // something to update.
+    const googleFallbackId =
+      eventIndex === -1 && id.startsWith("google_")
+        ? id.slice("google_".length)
+        : null;
+
+    if (eventIndex === -1 && !googleFallbackId) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    const base: CalendarEvent =
+      eventIndex !== -1
+        ? events[eventIndex]
+        : {
+            id,
+            title: "",
+            startDate: "",
+            endDate: "",
+            allDay: false,
+            source: "google",
+            googleEventId: googleFallbackId!,
+          };
+
     const updatedEvent: CalendarEvent = {
-      ...events[eventIndex],
+      ...base,
       title: String(title).slice(0, 200),
       description: description ? String(description).slice(0, 1000) : undefined,
       startDate: String(startDate),
@@ -170,16 +214,16 @@ export async function PUT(
               body: JSON.stringify(googleEvent),
             }
           );
-          console.log("[Calendar Events PUT] Updated in Google:", updatedEvent.googleEventId);
         }
-      } catch (error) {
-        console.warn("[Calendar Events PUT] Failed to update in Google:", error);
-        // Continue with local update
+      } catch {
+        // Best-effort; local update still proceeds.
       }
     }
 
-    events[eventIndex] = updatedEvent;
-    await saveEventsToKeycloak(serviceToken, userId, events);
+    if (eventIndex !== -1) {
+      events[eventIndex] = updatedEvent;
+      await saveEventsToKeycloak(serviceToken, userId, events);
+    }
 
     return NextResponse.json({ event: updatedEvent });
   } catch (error) {

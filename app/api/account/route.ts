@@ -32,11 +32,7 @@ export async function GET() {
     if (response.ok) {
       // Account API succeeded - use it
       data = await response.json();
-      console.log("[account GET] Using Keycloak Account API");
     } else {
-      // Account API failed (requires 'account' scope), fallback to userinfo
-      const errorText = await response.text().catch(() => "N/A");
-      console.warn(`[account GET] Account API failed (status: ${response.status}), falling back to userinfo. Error: ${errorText}`);
       const userInfoUrl = `${keycloak.getIssuer()}/protocol/openid-connect/userinfo`;
       response = await fetch(userInfoUrl, {
         headers: {
@@ -52,8 +48,6 @@ export async function GET() {
 
       data = await response.json();
     }
-
-    console.log("[account GET] Profile data:", JSON.stringify(data, null, 2));
 
     const tokenPayload = keycloak.decodeTokenPayload(accessToken);
 
@@ -114,14 +108,8 @@ export async function PUT(request: Request) {
     const body = await request.json();
     const { firstName, lastName, email, attributes } = body;
 
-    console.log("[account PUT] Request body:", { firstName, lastName, email, attributes });
-    console.log("[account PUT] AccessToken exists:", !!accessToken);
-
-    // Use Keycloak Admin API for profile updates since Account API requires 'account' scope
     const userId = await keycloak.getUserIdFromToken(accessToken);
     const adminToken = await keycloak.getServiceAccountToken();
-
-    console.log("[account PUT] User ID:", userId);
 
     // Fetch current user data via Admin API
     const userRes = await fetch(keycloak.getAdminUrl(`/users/${userId}`), {
@@ -133,7 +121,6 @@ export async function PUT(request: Request) {
 
     if (!userRes.ok) {
       const errorText = await userRes.text();
-      console.error(`[account PUT] Failed to fetch current user from Admin API (URL: ${keycloak.getAdminUrl(`/users/${userId}`)}):`, errorText);
       throw new ApiError(
         "SERVICE_UNAVAILABLE",
         "Failed to fetch current user",
@@ -143,12 +130,8 @@ export async function PUT(request: Request) {
     }
 
     const currentUser = await userRes.json();
-    console.log("[account PUT] Current user data:", JSON.stringify(currentUser, null, 2));
-
     const isEmailChanged = email && email !== currentUser.email;
-    console.log("[account PUT] Email changed:", isEmailChanged);
 
-    // Build update body for Admin API
     const updateBody: Record<string, any> = {};
     if (firstName !== undefined) updateBody.firstName = firstName;
     if (lastName !== undefined) updateBody.lastName = lastName;
@@ -160,9 +143,6 @@ export async function PUT(request: Request) {
       ...(attributes || {}),
     };
 
-    console.log("[account PUT] Update body:", updateBody);
-
-    // Update user via Admin API
     const updateRes = await fetch(keycloak.getAdminUrl(`/users/${userId}`), {
       method: "PUT",
       headers: {
@@ -172,11 +152,8 @@ export async function PUT(request: Request) {
       body: JSON.stringify(updateBody),
     });
 
-    console.log("[account PUT] Update response status:", updateRes.status);
-
     if (!updateRes.ok) {
       const errorText = await updateRes.text();
-      console.error("[account PUT] Failed to update user:", errorText);
       throw new ApiError(
         "BAD_REQUEST",
         "Failed to update profile",
