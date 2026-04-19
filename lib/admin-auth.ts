@@ -43,7 +43,23 @@ export const ROLE_CATALOG: RoleSpec[] = [
  * Keycloak realm-management roles that implicitly grant full admin —
  * we honour them so realm-admin users work out of the box.
  */
-const SUPERADMIN_ROLES = ["realm-admin", "manage-realm", "manage-users"];
+const SUPERADMIN_ROLES = ["realm-admin", "manage-realm", "manage-users", "admin"];
+
+export const PANEL_ROLES = {
+  sprzedawca: "sprzedawca",
+  serwisant: "serwisant",
+  kierowca: "kierowca",
+  dokumenty: "dokumenty_access",
+} as const;
+
+export type PanelKey = keyof typeof PANEL_ROLES;
+
+export function canAccessPanel(
+  session: Session | null | undefined,
+  panel: PanelKey,
+): boolean {
+  return isSuperAdmin(session) || hasAny(session, [PANEL_ROLES[panel]]);
+}
 
 function rolesOf(session: Session | null | undefined): string[] {
   return session?.user?.roles ?? [];

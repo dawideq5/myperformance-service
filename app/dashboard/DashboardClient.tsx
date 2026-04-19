@@ -5,13 +5,19 @@ import Link from "next/link";
 import { useSession } from "next-auth/react";
 import {
   ArrowLeft,
+  Briefcase,
   Calendar,
   Clock,
   Database,
   ExternalLink,
   FileSignature,
+  Folder,
   LayoutGrid,
+  Mail,
+  MessageSquare,
   Plug,
+  Truck,
+  Wrench,
 } from "lucide-react";
 
 import { AppHeader } from "@/components/AppHeader";
@@ -21,7 +27,7 @@ import { AccountProvider, useAccount } from "@/app/account/AccountProvider";
 import { CalendarTab } from "@/app/account/components/CalendarTab";
 import { KadromierzWorkWidget } from "./components/KadromierzWorkWidget";
 import { useAuthRedirect } from "@/hooks/useAuthRedirect";
-import { canAccessDirectus, isSuperAdmin } from "@/lib/admin-auth";
+import { canAccessDirectus, canAccessPanel, isSuperAdmin } from "@/lib/admin-auth";
 import { cn } from "@/lib/utils";
 
 const WELCOME_KEY = "welcome-pending";
@@ -287,6 +293,69 @@ function TileGrid({ onOpenCalendar }: { onOpenCalendar: () => void }) {
             onClick={() => {
               window.location.href = "/admin/certificates";
             }}
+          />
+        )}
+        {canAccessPanel(session, "sprzedawca") && (
+          <ExternalTile
+            icon={<Briefcase className="w-7 h-7 text-sky-500" aria-hidden="true" />}
+            iconBg="bg-sky-500/10"
+            title="Panel Sprzedawcy"
+            description="Oferty, zamówienia, klienci"
+            href="https://panelsprzedawcy.myperformance.pl"
+          />
+        )}
+        {canAccessPanel(session, "serwisant") && (
+          <ExternalTile
+            icon={<Wrench className="w-7 h-7 text-rose-500" aria-hidden="true" />}
+            iconBg="bg-rose-500/10"
+            title="Panel Serwisanta"
+            description="Zgłoszenia serwisowe i naprawy"
+            href="https://panelserwisanta.myperformance.pl"
+          />
+        )}
+        {canAccessPanel(session, "kierowca") && (
+          <ExternalTile
+            icon={<Truck className="w-7 h-7 text-lime-500" aria-hidden="true" />}
+            iconBg="bg-lime-500/10"
+            title="Panel Kierowcy"
+            description="Trasy, dostawy, pojazdy"
+            href="https://panelkierowcy.myperformance.pl"
+          />
+        )}
+        {canAccessPanel(session, "dokumenty") && (
+          <ExternalTile
+            icon={<Folder className="w-7 h-7 text-indigo-500" aria-hidden="true" />}
+            iconBg="bg-indigo-500/10"
+            title="Obieg dokumentów"
+            description="Workflow dokumentów firmowych (Docuseal)"
+            href="https://dokumenty.myperformance.pl"
+          />
+        )}
+        {isSuperAdmin(session) && (
+          <ExternalTile
+            icon={<FileSignature className="w-7 h-7 text-fuchsia-500" aria-hidden="true" />}
+            iconBg="bg-fuchsia-500/10"
+            title="Docuseal"
+            description="Elektroniczne podpisy i szablony dokumentów"
+            href="https://sign.myperformance.pl"
+          />
+        )}
+        {isSuperAdmin(session) && (
+          <ExternalTile
+            icon={<MessageSquare className="w-7 h-7 text-cyan-500" aria-hidden="true" />}
+            iconBg="bg-cyan-500/10"
+            title="Chatwoot"
+            description="Obsługa klienta: chat, tickets, inbox"
+            href="https://chat.myperformance.pl"
+          />
+        )}
+        {isSuperAdmin(session) && (
+          <ExternalTile
+            icon={<Mail className="w-7 h-7 text-pink-500" aria-hidden="true" />}
+            iconBg="bg-pink-500/10"
+            title="Plunk"
+            description="Transakcyjne i marketingowe e-maile"
+            href="https://mail.myperformance.pl"
           />
         )}
         {!kadromierzConnected && (
