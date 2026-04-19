@@ -48,9 +48,12 @@ export async function POST() {
       console.error("[Calendar Google Sync] Failed:", calResp.status, errText);
       
       if (calResp.status === 401) {
+        // 409 (not 401): user's NextAuth session is fine; only the linked
+        // Google broker token needs re-consent. A 401 here would trigger the
+        // global unauthorized handler and sign the user out of the whole app.
         return NextResponse.json(
           { error: "Google token expired. Please reconnect your Google account.", needsReconnect: true },
-          { status: 401 }
+          { status: 409 }
         );
       }
       

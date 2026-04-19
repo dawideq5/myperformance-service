@@ -1,58 +1,84 @@
-# Base image - Node 22 LTS
-FROM node:22-alpine AS base
+# syntax=docker/dockerfile:1.7
 
-# Install dependencies only when needed
-FROM base AS deps
+############################################
+# MyPerformance Dashboard - Next.js 15
+# Multi-stage build (deps → builder → runner)
+############################################
+
+ARG NODE_VERSION=22-alpine
+
+# -----------------------------------------------------------------------------
+# Stage 1: base image
+# -----------------------------------------------------------------------------
+FROM node:${NODE_VERSION} AS base
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
-# Copy package files and install dependencies
+# -----------------------------------------------------------------------------
+# Stage 2: install dependencies (always include dev deps for the build stage)
+# -----------------------------------------------------------------------------
+FROM base AS deps
+ENV NODE_ENV=development
 COPY package.json package-lock.json* ./
-# Use npm install if package-lock.json doesn't exist, otherwise npm ci
-RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
+RUN --mount=type=cache,target=/root/.npm \
+    if [ -f package-lock.json ]; then \
+        npm ci --include=dev --no-audit --no-fund; \
+    else \
+        npm install --include=dev --no-audit --no-fund; \
+    fi
 
-# Rebuild the source code only when needed
+# -----------------------------------------------------------------------------
+# Stage 3: build the Next.js application
+# -----------------------------------------------------------------------------
 FROM base AS builder
-WORKDIR /app
+
+# Only public build-time variables belong here - no secrets.
+ARG NEXT_PUBLIC_APP_URL
+ARG NEXT_PUBLIC_KEYCLOAK_URL
+ARG NEXT_PUBLIC_KEYCLOAK_REALM
+ARG NEXT_PUBLIC_KEYCLOAK_ISSUER
+ARG NEXT_PUBLIC_KEYCLOAK_CLIENT_ID
+
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV NODE_ENV=production
+ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
+ENV NEXT_PUBLIC_KEYCLOAK_URL=${NEXT_PUBLIC_KEYCLOAK_URL}
+ENV NEXT_PUBLIC_KEYCLOAK_REALM=${NEXT_PUBLIC_KEYCLOAK_REALM}
+ENV NEXT_PUBLIC_KEYCLOAK_ISSUER=${NEXT_PUBLIC_KEYCLOAK_ISSUER}
+ENV NEXT_PUBLIC_KEYCLOAK_CLIENT_ID=${NEXT_PUBLIC_KEYCLOAK_CLIENT_ID}
+
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Set build environment
-ENV NEXT_TELEMETRY_DISABLED=1
-ENV NODE_ENV=production
-
-# Build the application
 RUN npm run build
 
-# Production image, copy all the files and run next
-FROM base AS runner
+# -----------------------------------------------------------------------------
+# Stage 4: runtime image
+# -----------------------------------------------------------------------------
+FROM node:${NODE_VERSION} AS runner
 WORKDIR /app
 
-ENV NODE_ENV production
-ENV NEXT_TELEMETRY_DISABLED 1
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
 
-# Install curl for healthcheck
-RUN apk add --no-cache curl
+RUN apk add --no-cache curl tini \
+ && addgroup --system --gid 1001 nodejs \
+ && adduser  --system --uid 1001 --ingroup nodejs nextjs \
+ && mkdir -p /app/public \
+ && chown -R nextjs:nodejs /app
 
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
-
-# Copy necessary files (public folder may not exist)
-RUN mkdir -p /app/public
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
-# Copy public files if they exist (optional)
-RUN if [ -d /app/.next/standalone/public ]; then rm -rf /app/public && mv /app/.next/standalone/public /app/public; fi || true
-
-# Set correct permissions
-RUN chown -R nextjs:nodejs /app
+# Standalone Next.js output is fully self-contained.
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static    ./.next/static
+COPY --from=builder --chown=nextjs:nodejs /app/public          ./public
 
 USER nextjs
-
 EXPOSE 3000
 
-ENV PORT 3000
-ENV HOSTNAME "0.0.0.0"
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD curl -fsS -o /dev/null "http://127.0.0.1:${PORT}/api/health" || exit 1
 
-# Start the application
+ENTRYPOINT ["/sbin/tini", "--"]
 CMD ["node", "server.js"]

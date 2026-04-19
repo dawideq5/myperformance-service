@@ -79,6 +79,7 @@ function DashboardBody({ firstName, lastName, email }: DashboardClientProps) {
           opacity: panelVisible ? 1 : 0,
           transition: "opacity 700ms cubic-bezier(0.65, 0, 0.35, 1)",
           pointerEvents: panelVisible ? "auto" : "none",
+          willChange: panelVisible ? "auto" : "opacity",
         }}
       >
         <PageShell
