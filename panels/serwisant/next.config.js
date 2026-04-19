@@ -1,11 +1,50 @@
 /** @type {import("next").NextConfig} */
+const isDev = process.env.NODE_ENV === "development";
+
+const keycloakOrigin = (() => {
+  const url = process.env.NEXT_PUBLIC_KEYCLOAK_URL?.trim() || process.env.KEYCLOAK_URL?.trim();
+  if (!url) return null;
+  try { return new URL(url).origin; } catch { return null; }
+})();
+const kc = keycloakOrigin ? ` ${keycloakOrigin}` : "";
+const scriptSrc = isDev ? "'self' 'unsafe-inline' 'unsafe-eval'" : "'self' 'unsafe-inline'";
+
 const securityHeaders = [
   { key: "X-Frame-Options", value: "DENY" },
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(self)" },
-  { key: "X-DNS-Prefetch-Control", value: "on" },
-  { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
+  { key: "X-DNS-Prefetch-Control", value: "off" },
+  { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+  { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
+  {
+    key: "Permissions-Policy",
+    value: [
+      "camera=()",
+      "microphone=()",
+      "geolocation=(self)",
+      "payment=()",
+      "usb=()",
+    ].join(", "),
+  },
+  {
+    key: "Content-Security-Policy",
+    value: [
+      "default-src 'self'",
+      `connect-src 'self'${kc}`,
+      `script-src ${scriptSrc}`,
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data: blob:",
+      "font-src 'self' data:",
+      `frame-src 'self'${kc}`,
+      `form-action 'self'${kc}`,
+      "frame-ancestors 'none'",
+      "base-uri 'self'",
+      "object-src 'none'",
+    ].join("; "),
+  },
+  ...(!isDev
+    ? [{ key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" }]
+    : []),
 ];
 
 const nextConfig = {
