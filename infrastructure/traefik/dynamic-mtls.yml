@@ -1,0 +1,42 @@
+http:
+  middlewares:
+    mtls-required:
+      passTLSClientCert:
+        pem: true
+        info:
+          subject:
+            commonName: true
+            organization: true
+            organizationalUnit: true
+            serialNumber: true
+          issuer:
+            commonName: true
+          sans: true
+          notAfter: true
+
+tls:
+  options:
+    mtls-sprzedawca:
+      clientAuth:
+        caFiles:
+          - /etc/traefik/certs/myperformance-ca.pem
+        clientAuthType: RequireAndVerifyClientCert
+      minVersion: VersionTLS12
+    mtls-serwisant:
+      clientAuth:
+        caFiles:
+          - /etc/traefik/certs/myperformance-ca.pem
+        clientAuthType: RequireAndVerifyClientCert
+      minVersion: VersionTLS12
+    mtls-kierowca:
+      clientAuth:
+        caFiles:
+          - /etc/traefik/certs/myperformance-ca.pem
+        clientAuthType: RequireAndVerifyClientCert
+      minVersion: VersionTLS12
+    mtls-dokumenty:
+      clientAuth:
+        caFiles:
+          - /etc/traefik/certs/myperformance-ca.pem
+        clientAuthType: RequireAndVerifyClientCert
+      minVersion: VersionTLS12
