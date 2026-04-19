@@ -32,6 +32,7 @@ export function CertificatesClient({ initialCerts }: { initialCerts: IssuedCerti
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error ?? `HTTP ${res.status}`);
       }
+      const pwd = res.headers.get("X-Pkcs12-Password");
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -39,6 +40,9 @@ export function CertificatesClient({ initialCerts }: { initialCerts: IssuedCerti
       a.download = `${commonName.replace(/[^a-zA-Z0-9_-]+/g, "_")}.p12`;
       a.click();
       URL.revokeObjectURL(url);
+      if (pwd) {
+        alert(`Certyfikat wystawiony.\n\nHasło do pliku .p12:\n\n${pwd}\n\nZapisz je — nie będzie wyświetlone ponownie.`);
+      }
       const refreshed = await fetch("/api/admin/certificates").then((r) => r.json());
       setCerts(refreshed.certificates ?? []);
       setCommonName("");
@@ -59,6 +63,21 @@ export function CertificatesClient({ initialCerts }: { initialCerts: IssuedCerti
 
   return (
     <>
+      <section className="bg-slate-800/50 border border-slate-700 rounded-2xl p-6 mb-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-medium text-slate-100">Root CA</h2>
+            <p className="text-xs text-slate-500 mt-1">Pobierz certyfikat wewnętrznej CA do instalacji w zaufanych kotwicach komputera / przeglądarki.</p>
+          </div>
+          <a
+            href="/api/admin/certificates/root-ca"
+            className="bg-slate-700 hover:bg-slate-600 text-slate-100 text-sm font-medium px-4 py-2 rounded-lg"
+          >
+            Pobierz root-ca.pem
+          </a>
+        </div>
+      </section>
+
       <section className="bg-slate-800/50 border border-slate-700 rounded-2xl p-6 mb-8">
         <h2 className="text-lg font-medium text-slate-100 mb-4">Wystaw nowy certyfikat</h2>
         <form onSubmit={issue} className="grid md:grid-cols-4 gap-4">

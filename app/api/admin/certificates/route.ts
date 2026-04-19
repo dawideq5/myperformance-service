@@ -40,12 +40,16 @@ export async function POST(req: Request) {
   }
 
   try {
-    const { pkcs12 } = await issueClientCertificate({ commonName, email, role: role as any });
+    const { pkcs12, pkcs12Password, meta } = await issueClientCertificate({ commonName, email, role: role as any });
     return new NextResponse(new Uint8Array(pkcs12), {
       status: 200,
       headers: {
         "Content-Type": "application/x-pkcs12",
         "Content-Disposition": `attachment; filename="${commonName.replace(/[^a-zA-Z0-9_-]+/g, "_")}.p12"`,
+        "X-Pkcs12-Password": pkcs12Password,
+        "X-Cert-Serial": meta.serialNumber,
+        "X-Cert-Not-After": meta.notAfter,
+        "Access-Control-Expose-Headers": "X-Pkcs12-Password, X-Cert-Serial, X-Cert-Not-After",
       },
     });
   } catch (err) {
