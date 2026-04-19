@@ -5,6 +5,7 @@ import { listSubmissionsForEmail } from "@/lib/docuseal";
 import { MojeDokumentyClient } from "./MojeDokumentyClient";
 
 export const metadata = { title: "Moje dokumenty — MyPerformance" };
+export const dynamic = "force-dynamic";
 
 export default async function MojeDokumentyPage() {
   const session = await getServerSession(authOptions);
