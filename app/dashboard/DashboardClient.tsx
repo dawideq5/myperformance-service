@@ -9,6 +9,7 @@ import {
   Clock,
   Database,
   ExternalLink,
+  FileSignature,
   LayoutGrid,
   Plug,
 } from "lucide-react";
@@ -20,7 +21,7 @@ import { AccountProvider, useAccount } from "@/app/account/AccountProvider";
 import { CalendarTab } from "@/app/account/components/CalendarTab";
 import { KadromierzWorkWidget } from "./components/KadromierzWorkWidget";
 import { useAuthRedirect } from "@/hooks/useAuthRedirect";
-import { canAccessDirectus } from "@/lib/admin-auth";
+import { canAccessDirectus, isSuperAdmin } from "@/lib/admin-auth";
 import { cn } from "@/lib/utils";
 
 const WELCOME_KEY = "welcome-pending";
@@ -262,6 +263,30 @@ function TileGrid({ onOpenCalendar }: { onOpenCalendar: () => void }) {
             title="Directus"
             description="Zarządzanie treścią i danymi aplikacji (SSO)"
             href="https://cms.myperformance.pl"
+          />
+        )}
+        <Tile
+          icon={
+            <FileSignature className="w-7 h-7 text-purple-500" aria-hidden="true" />
+          }
+          iconBg="bg-purple-500/10"
+          title="Moje dokumenty"
+          description="Dokumenty do podpisu i podpisane (Docuseal)"
+          onClick={() => {
+            window.location.href = "/dashboard/moje-dokumenty";
+          }}
+        />
+        {isSuperAdmin(session) && (
+          <Tile
+            icon={
+              <FileSignature className="w-7 h-7 text-amber-500" aria-hidden="true" />
+            }
+            iconBg="bg-amber-500/10"
+            title="Certyfikaty klienckie"
+            description="Zarządzanie certyfikatami dostępu do paneli (admin)"
+            onClick={() => {
+              window.location.href = "/admin/certificates";
+            }}
           />
         )}
         {!kadromierzConnected && (
