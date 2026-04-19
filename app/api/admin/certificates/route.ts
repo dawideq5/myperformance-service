@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
 import { auditLog, issueClientCertificate, listCertificates } from "@/lib/step-ca";
+import { getClientIp, rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -23,6 +24,14 @@ export async function GET() {
 export async function POST(req: Request) {
   const auth = await requireAdmin();
   if (!auth.ok) return NextResponse.json({ error: "Unauthorized" }, { status: auth.status });
+
+  const rl = rateLimit(`cert-issue:${getClientIp(req)}`, { capacity: 5, refillPerSec: 5 / 60 });
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "Przekroczono limit wystawiania (5/min). Spróbuj ponownie za chwilę." },
+      { status: 429, headers: { "Retry-After": String(Math.ceil(rl.retryAfterMs / 1000)) } }
+    );
+  }
 
   let body: any;
   try {
