@@ -1,5 +1,7 @@
 /** @type {import('next').NextConfig} */
 
+const path = require("path");
+
 const isDev = process.env.NODE_ENV === "development";
 
 // Derive Keycloak origin for CSP (allow loading resources from auth server)
@@ -64,6 +66,14 @@ const securityHeaders = [
 const nextConfig = {
   reactStrictMode: true,
   output: "standalone",
+  webpack(config) {
+    config.resolve = config.resolve || {};
+    config.resolve.alias = {
+      ...(config.resolve.alias || {}),
+      "@": path.resolve(__dirname),
+    };
+    return config;
+  },
   async headers() {
     return [
       {
