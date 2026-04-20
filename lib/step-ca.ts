@@ -7,10 +7,13 @@ import { request as httpsRequest } from "node:https";
 import { URL } from "node:url";
 import { getOptionalEnv } from "@/lib/env";
 
+export type PanelRole = "sprzedawca" | "serwisant" | "kierowca" | "dokumenty_access";
+
 export interface IssuedCertificate {
   id: string;
   subject: string;
   role: string;
+  roles?: PanelRole[];
   email: string;
   serialNumber: string;
   notAfter: string;
@@ -22,7 +25,7 @@ export interface IssuedCertificate {
 export interface IssueCertInput {
   commonName: string;
   email: string;
-  role: "sprzedawca" | "serwisant" | "kierowca" | "dokumenty_access";
+  roles: PanelRole[];
   ttlDays?: number;
 }
 
@@ -63,6 +66,7 @@ async function decryptProvisionerKey(encryptedKey: string, password: string): Pr
   const pw = new TextEncoder().encode(password);
   const { plaintext } = await compactDecrypt(encryptedKey, pw, {
     keyManagementAlgorithms: ["PBES2-HS256+A128KW", "PBES2-HS384+A192KW", "PBES2-HS512+A256KW"],
+    maxPBES2Count: 1_000_000,
   });
   return JSON.parse(new TextDecoder().decode(plaintext));
 }
@@ -88,14 +92,14 @@ async function signOttToken(params: { provisioner: Provisioner; jwk: Record<stri
     .sign(key);
 }
 
-function buildCsr(commonName: string, email: string, role: string): { csrPem: string; keyPem: string } {
+function buildCsr(commonName: string, email: string, roles: PanelRole[]): { csrPem: string; keyPem: string } {
   const keypair = forge.pki.rsa.generateKeyPair({ bits: 2048 });
   const csr = forge.pki.createCertificationRequest();
   csr.publicKey = keypair.publicKey;
   csr.setSubject([
     { name: "commonName", value: commonName },
     { name: "organizationName", value: "MyPerformance" },
-    { name: "organizationalUnitName", value: role },
+    ...roles.map((r) => ({ name: "organizationalUnitName", value: r })),
     { name: "emailAddress", value: email },
   ]);
   csr.setAttributes([
@@ -144,7 +148,7 @@ export async function issueClientCertificate(
     subject: input.commonName,
     sans: [input.email, input.commonName],
   });
-  const { csrPem, keyPem } = buildCsr(input.commonName, input.email, input.role);
+  const { csrPem, keyPem } = buildCsr(input.commonName, input.email, input.roles);
   const ttlHours = (input.ttlDays ?? 365) * 24;
   const signRes = await fetch(`${getBaseUrl()}/1.0/sign`, {
     method: "POST",
@@ -158,12 +162,14 @@ export async function issueClientCertificate(
   const signed = (await signRes.json()) as { crt: string; ca: string; certChain?: string[] };
   const pkcs12Password = randomBytes(9).toString("base64url");
   const caChain = signed.certChain && signed.certChain.length ? signed.certChain : signed.ca ? [signed.ca] : [];
-  const pkcs12 = buildPkcs12(keyPem, signed.crt, caChain, pkcs12Password, `${input.commonName} (${input.role})`);
+  const rolesLabel = input.roles.join(",");
+  const pkcs12 = buildPkcs12(keyPem, signed.crt, caChain, pkcs12Password, `${input.commonName} (${rolesLabel})`);
   const cert = forge.pki.certificateFromPem(signed.crt);
   const meta: IssuedCertificate = {
     id: cert.serialNumber,
     subject: input.commonName,
-    role: input.role,
+    role: rolesLabel,
+    roles: input.roles,
     email: input.email,
     serialNumber: cert.serialNumber,
     notAfter: cert.validity.notAfter.toISOString(),

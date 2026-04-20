@@ -17,7 +17,7 @@ export function CertificatesClient({ initialCerts }: { initialCerts: IssuedCerti
   const [certs, setCerts] = useState(initialCerts);
   const [commonName, setCommonName] = useState("");
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<(typeof ROLES)[number]["value"]>("sprzedawca");
+  const [roles, setRoles] = useState<string[]>(["sprzedawca"]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [caStatus, setCaStatus] = useState<CaStatus | null>(null);
@@ -45,11 +45,16 @@ export function CertificatesClient({ initialCerts }: { initialCerts: IssuedCerti
     e.preventDefault();
     setError(null);
     setBusy(true);
+    if (roles.length === 0) {
+      setError("Zaznacz co najmniej jedną rolę.");
+      setBusy(false);
+      return;
+    }
     try {
       const res = await fetch("/api/admin/certificates", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ commonName, email, role }),
+        body: JSON.stringify({ commonName, email, roles }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -113,7 +118,7 @@ export function CertificatesClient({ initialCerts }: { initialCerts: IssuedCerti
 
       <section className="bg-slate-800/50 border border-slate-700 rounded-2xl p-6 mb-8">
         <h2 className="text-lg font-medium text-slate-100 mb-4">Wystaw nowy certyfikat</h2>
-        <form onSubmit={issue} className="grid md:grid-cols-4 gap-4">
+        <form onSubmit={issue} className="grid md:grid-cols-3 gap-4">
           <div>
             <label className="block text-xs font-medium text-slate-300 mb-1">Common Name</label>
             <input
@@ -135,18 +140,6 @@ export function CertificatesClient({ initialCerts }: { initialCerts: IssuedCerti
               className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-slate-100 text-sm"
             />
           </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1">Rola</label>
-            <select
-              value={role}
-              onChange={(e) => setRole(e.target.value as typeof role)}
-              className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-slate-100 text-sm"
-            >
-              {ROLES.map((r) => (
-                <option key={r.value} value={r.value}>{r.label}</option>
-              ))}
-            </select>
-          </div>
           <div className="flex items-end">
             <button
               type="submit"
@@ -155,6 +148,26 @@ export function CertificatesClient({ initialCerts }: { initialCerts: IssuedCerti
             >
               {busy ? "Wystawianie…" : "Wystaw i pobierz .p12"}
             </button>
+          </div>
+          <div className="md:col-span-3">
+            <label className="block text-xs font-medium text-slate-300 mb-2">Role (można zaznaczyć kilka — 1 certyfikat do wielu paneli)</label>
+            <div className="flex flex-wrap gap-4">
+              {ROLES.map((r) => (
+                <label key={r.value} className="inline-flex items-center gap-2 text-sm text-slate-200 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={roles.includes(r.value)}
+                    onChange={(e) =>
+                      setRoles((prev) =>
+                        e.target.checked ? Array.from(new Set([...prev, r.value])) : prev.filter((x) => x !== r.value)
+                      )
+                    }
+                    className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-brand-600 focus:ring-brand-500"
+                  />
+                  {r.label}
+                </label>
+              ))}
+            </div>
           </div>
         </form>
         {error ? (

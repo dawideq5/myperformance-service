@@ -40,19 +40,30 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { commonName, email, role } = body ?? {};
-  if (typeof commonName !== "string" || typeof email !== "string" || typeof role !== "string") {
+  const { commonName, email } = body ?? {};
+  const rawRoles: string[] = Array.isArray(body?.roles)
+    ? body.roles
+    : typeof body?.role === "string"
+      ? [body.role]
+      : [];
+  if (typeof commonName !== "string" || typeof email !== "string" || rawRoles.length === 0) {
     return NextResponse.json({ error: "Missing fields" }, { status: 400 });
   }
-  if (!["sprzedawca", "serwisant", "kierowca", "dokumenty_access"].includes(role)) {
+  const allowed = ["sprzedawca", "serwisant", "kierowca", "dokumenty_access"] as const;
+  const roles = Array.from(new Set(rawRoles));
+  if (roles.some((r) => !allowed.includes(r as (typeof allowed)[number]))) {
     return NextResponse.json({ error: "Invalid role" }, { status: 400 });
   }
 
   const actor = (await getServerSession(authOptions))?.user?.email ?? "unknown-admin";
   try {
-    const { pkcs12, pkcs12Password, meta } = await issueClientCertificate({ commonName, email, role: role as any });
+    const { pkcs12, pkcs12Password, meta } = await issueClientCertificate({
+      commonName,
+      email,
+      roles: roles as Parameters<typeof issueClientCertificate>[0]["roles"],
+    });
     await recordCertificate(meta);
-    auditLog({ ts: new Date().toISOString(), actor, action: "issue-cert", subject: `${commonName} (${role})`, ok: true });
+    auditLog({ ts: new Date().toISOString(), actor, action: "issue-cert", subject: `${commonName} (${roles.join(",")})`, ok: true });
     return new NextResponse(new Uint8Array(pkcs12), {
       status: 200,
       headers: {
@@ -66,7 +77,7 @@ export async function POST(req: Request) {
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Issue failed";
-    auditLog({ ts: new Date().toISOString(), actor, action: "issue-cert", subject: `${commonName} (${role})`, ok: false, error: msg });
+    auditLog({ ts: new Date().toISOString(), actor, action: "issue-cert", subject: `${commonName} (${roles.join(",")})`, ok: false, error: msg });
     return NextResponse.json({ error: msg }, { status: 503 });
   }
 }
