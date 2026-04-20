@@ -353,7 +353,7 @@ function TileGrid({ onOpenCalendar }: { onOpenCalendar: () => void }) {
           <ExternalTile
             icon={<Mail className="w-7 h-7 text-pink-500" aria-hidden="true" />}
             iconBg="bg-pink-500/10"
-            title="Plunk"
+            title="Listmonk"
             description="Transakcyjne i marketingowe e-maile"
             href="https://mail.myperformance.pl"
           />
