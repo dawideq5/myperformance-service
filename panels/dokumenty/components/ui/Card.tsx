@@ -20,7 +20,7 @@ export function Card({ padding = "md", className, children, ...rest }: CardProps
     <div
       {...rest}
       className={cn(
-        "rounded-2xl border border-slate-700/60 bg-slate-800/60 backdrop-blur-sm shadow-sm",
+        "rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)] shadow-card transition-colors hover:border-[var(--border-strong)]",
         PADDING[padding],
         className,
       )}

@@ -46,14 +46,14 @@ export function Dialog({
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
-      <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-md animate-fade-in" onClick={onClose} />
       <div
         className={cn(
-          "relative w-full rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl",
+          "relative w-full rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)] shadow-card animate-slide-up",
           SIZE[size],
         )}
       >
-        <div className="flex items-start justify-between gap-4 p-5 border-b border-slate-700/60">
+        <div className="flex items-start justify-between gap-4 p-5 border-b border-[var(--border-subtle)]">
           <div className="min-w-0">
             {title ? (
               <h2 className="text-lg font-semibold text-slate-100 truncate">{title}</h2>
@@ -72,7 +72,7 @@ export function Dialog({
         </div>
         <div className="p-5 max-h-[70vh] overflow-y-auto">{children}</div>
         {footer ? (
-          <div className="flex items-center justify-end gap-2 p-4 border-t border-slate-700/60 bg-slate-900/40 rounded-b-2xl">
+          <div className="flex items-center justify-end gap-2 p-4 border-t border-[var(--border-subtle)] bg-black/20 rounded-b-2xl">
             {footer}
           </div>
         ) : null}

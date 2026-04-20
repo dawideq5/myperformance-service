@@ -10,7 +10,7 @@ export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
 export const Input = forwardRef<HTMLInputElement, InputProps>(
   ({ className, leftIcon, ...rest }, ref) => {
     const base =
-      "w-full h-10 rounded-xl bg-slate-900/70 border border-slate-700/70 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/60 disabled:opacity-60";
+      "w-full h-10 rounded-xl bg-[var(--bg-input)] border border-slate-700/60 hover:border-brand-500/30 transition-colors text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/60 disabled:opacity-60";
     if (!leftIcon)
       return <input ref={ref} {...rest} className={cn(base, "px-3", className)} />;
     return (
@@ -33,7 +33,7 @@ export function Textarea({
     <textarea
       {...rest}
       className={cn(
-        "w-full rounded-xl bg-slate-900/70 border border-slate-700/70 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/60 disabled:opacity-60",
+        "w-full rounded-xl bg-[var(--bg-input)] border border-slate-700/60 hover:border-brand-500/30 transition-colors px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/60 disabled:opacity-60",
         className,
       )}
     />
@@ -49,7 +49,7 @@ export function Select({
     <select
       {...rest}
       className={cn(
-        "w-full h-10 rounded-xl bg-slate-900/70 border border-slate-700/70 px-3 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/60 disabled:opacity-60",
+        "w-full h-10 rounded-xl bg-[var(--bg-input)] border border-slate-700/60 hover:border-brand-500/30 transition-colors px-3 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/60 disabled:opacity-60",
         className,
       )}
     >

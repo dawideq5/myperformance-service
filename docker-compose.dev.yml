@@ -38,9 +38,17 @@ services:
       - NODE_ENV=development
       - NEXT_TELEMETRY_DISABLED=1
       - NEXTAUTH_URL=http://localhost:3000
-      - KEYCLOAK_URL=http://keycloak:8080
-      - KEYCLOAK_ISSUER=http://keycloak:8080/realms/MyPerformance
+      - KEYCLOAK_URL=http://localhost:8080
+      - KEYCLOAK_ISSUER=http://localhost:8080/realms/MyPerformance
+      - KEYCLOAK_REALM=MyPerformance
+      - KEYCLOAK_CLIENT_ID=myperformance-dashboard
+      - KEYCLOAK_CLIENT_SECRET=${KEYCLOAK_CLIENT_SECRET}
+      - KEYCLOAK_SERVICE_CLIENT_ID=myperformance-service
+      - KEYCLOAK_SERVICE_CLIENT_SECRET=${KEYCLOAK_SERVICE_CLIENT_SECRET}
       - NEXT_PUBLIC_KEYCLOAK_URL=http://localhost:8080
+      - NEXT_PUBLIC_KEYCLOAK_ISSUER=http://localhost:8080/realms/MyPerformance
+      - NEXT_PUBLIC_KEYCLOAK_REALM=MyPerformance
+      - NEXT_PUBLIC_KEYCLOAK_CLIENT_ID=myperformance-dashboard
       - NEXT_PUBLIC_APP_URL=http://localhost:3000
     extra_hosts:
       - "localhost:host-gateway"
@@ -60,7 +68,10 @@ services:
       - NODE_ENV=development
       - NEXT_TELEMETRY_DISABLED=1
       - NEXTAUTH_URL=http://localhost:3001
-      - KEYCLOAK_ISSUER=http://keycloak:8080/realms/MyPerformance
+      - KEYCLOAK_ISSUER=http://localhost:8080/realms/MyPerformance
+      - KEYCLOAK_URL=http://localhost:8080
+      - NEXT_PUBLIC_KEYCLOAK_URL=http://localhost:8080
+      - NEXT_PUBLIC_KEYCLOAK_ISSUER=http://localhost:8080/realms/MyPerformance
       - KEYCLOAK_CLIENT_ID=panel-sprzedawca
       - KEYCLOAK_CLIENT_SECRET=${PANEL_SPRZEDAWCA_CLIENT_SECRET}
     extra_hosts:
@@ -81,7 +92,10 @@ services:
       - NODE_ENV=development
       - NEXT_TELEMETRY_DISABLED=1
       - NEXTAUTH_URL=http://localhost:3002
-      - KEYCLOAK_ISSUER=http://keycloak:8080/realms/MyPerformance
+      - KEYCLOAK_ISSUER=http://localhost:8080/realms/MyPerformance
+      - KEYCLOAK_URL=http://localhost:8080
+      - NEXT_PUBLIC_KEYCLOAK_URL=http://localhost:8080
+      - NEXT_PUBLIC_KEYCLOAK_ISSUER=http://localhost:8080/realms/MyPerformance
       - KEYCLOAK_CLIENT_ID=panel-serwisant
       - KEYCLOAK_CLIENT_SECRET=${PANEL_SERWISANT_CLIENT_SECRET}
     extra_hosts:
@@ -102,7 +116,10 @@ services:
       - NODE_ENV=development
       - NEXT_TELEMETRY_DISABLED=1
       - NEXTAUTH_URL=http://localhost:3003
-      - KEYCLOAK_ISSUER=http://keycloak:8080/realms/MyPerformance
+      - KEYCLOAK_ISSUER=http://localhost:8080/realms/MyPerformance
+      - KEYCLOAK_URL=http://localhost:8080
+      - NEXT_PUBLIC_KEYCLOAK_URL=http://localhost:8080
+      - NEXT_PUBLIC_KEYCLOAK_ISSUER=http://localhost:8080/realms/MyPerformance
       - KEYCLOAK_CLIENT_ID=panel-kierowca
       - KEYCLOAK_CLIENT_SECRET=${PANEL_KIEROWCA_CLIENT_SECRET}
     extra_hosts:
@@ -123,7 +140,10 @@ services:
       - NODE_ENV=development
       - NEXT_TELEMETRY_DISABLED=1
       - NEXTAUTH_URL=http://localhost:3004
-      - KEYCLOAK_ISSUER=http://keycloak:8080/realms/MyPerformance
+      - KEYCLOAK_ISSUER=http://localhost:8080/realms/MyPerformance
+      - KEYCLOAK_URL=http://localhost:8080
+      - NEXT_PUBLIC_KEYCLOAK_URL=http://localhost:8080
+      - NEXT_PUBLIC_KEYCLOAK_ISSUER=http://localhost:8080/realms/MyPerformance
       - KEYCLOAK_CLIENT_ID=panel-dokumenty
       - KEYCLOAK_CLIENT_SECRET=${PANEL_DOKUMENTY_CLIENT_SECRET}
       - KEYCLOAK_SERVICE_CLIENT_ID=${KEYCLOAK_SERVICE_CLIENT_ID}
@@ -161,7 +181,7 @@ services:
       - "8080:8080"
     volumes:
       - ./infrastructure/keycloak/realm.json:/opt/keycloak/data/import/realm.json:ro
-      - ./build_keycloak/theme:/opt/keycloak/themes:ro
+      - ./build_keycloak/keycloak-theme-for-kc-all-other-versions.jar:/opt/keycloak/providers/myperformance-theme.jar:ro
     depends_on:
       - postgres-keycloak
 

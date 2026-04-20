@@ -9,15 +9,15 @@ type Size = "sm" | "md" | "lg";
 
 const VARIANT: Record<Variant, string> = {
   primary:
-    "bg-brand-600 text-white hover:bg-brand-700 active:bg-brand-700 disabled:opacity-40",
+    "mp-gradient-btn text-white hover:brightness-110 active:brightness-95 disabled:opacity-40",
   secondary:
-    "bg-slate-700/60 text-slate-100 hover:bg-slate-600/70 border border-slate-600/60 disabled:opacity-40",
+    "bg-slate-800/70 text-slate-100 hover:bg-slate-700/70 border border-slate-700/60 hover:border-brand-500/40 disabled:opacity-40",
   ghost:
-    "bg-transparent text-slate-200 hover:bg-slate-700/50 disabled:opacity-40",
+    "bg-transparent text-slate-200 hover:bg-slate-800/70 disabled:opacity-40",
   danger:
-    "bg-red-600 text-white hover:bg-red-700 disabled:opacity-40",
+    "bg-red-600/90 text-white hover:bg-red-600 shadow-[0_10px_24px_rgba(239,68,68,0.28)] disabled:opacity-40",
   success:
-    "bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40",
+    "bg-emerald-600/90 text-white hover:bg-emerald-600 shadow-[0_10px_24px_rgba(16,185,129,0.28)] disabled:opacity-40",
 };
 
 const SIZE: Record<Size, string> = {
@@ -44,7 +44,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       {...rest}
       disabled={disabled || loading}
       className={cn(
-        "inline-flex items-center justify-center gap-2 font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/60",
+        "inline-flex items-center justify-center gap-2 font-semibold transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-main)] active:translate-y-px",
         VARIANT[variant],
         SIZE[size],
         className,

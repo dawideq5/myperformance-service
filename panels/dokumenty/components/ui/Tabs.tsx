@@ -25,7 +25,7 @@ export function Tabs<T extends string>({
     <div
       role="tablist"
       className={cn(
-        "flex flex-wrap gap-1 p-1 rounded-xl border border-slate-700/60 bg-slate-900/60",
+        "flex flex-wrap gap-1 p-1 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] shadow-card",
         className,
       )}
     >
@@ -41,8 +41,8 @@ export function Tabs<T extends string>({
             className={cn(
               "inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium transition-colors",
               isActive
-                ? "bg-brand-600 text-white shadow"
-                : "text-slate-300 hover:bg-slate-800 hover:text-slate-100",
+                ? "mp-gradient-btn text-white shadow-glow"
+                : "text-slate-300 hover:bg-slate-800/70 hover:text-slate-100",
             )}
           >
             {item.icon}
