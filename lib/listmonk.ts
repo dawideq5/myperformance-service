@@ -39,7 +39,7 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
 
 export async function getHealth(): Promise<boolean> {
   try {
-    const r = await call<{ data: boolean }>("/api/health");
+    const r = await call<{ data: boolean }>("/health");
     return r.data === true;
   } catch {
     return false;
