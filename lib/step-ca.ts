@@ -1,6 +1,10 @@
 import * as forge from "node-forge";
 import { compactDecrypt, importJWK, SignJWT } from "jose";
 import { randomBytes } from "crypto";
+import { promises as fs } from "node:fs";
+import { dirname } from "node:path";
+import { request as httpsRequest } from "node:https";
+import { URL } from "node:url";
 import { getOptionalEnv } from "@/lib/env";
 
 export interface IssuedCertificate {
@@ -12,6 +16,7 @@ export interface IssuedCertificate {
   notAfter: string;
   issuedAt: string;
   revokedAt?: string;
+  revokedReason?: string;
 }
 
 export interface IssueCertInput {
@@ -63,11 +68,15 @@ async function decryptProvisionerKey(encryptedKey: string, password: string): Pr
 async function signOttToken(params: { provisioner: Provisioner; jwk: Record<string, unknown>; subject: string; sans: string[] }): Promise<string> {
   const { provisioner, jwk, subject, sans } = params;
   const kid = (jwk.kid as string | undefined) ?? (provisioner.key.kid as string | undefined);
-  const key = await importJWK(jwk as Parameters<typeof importJWK>[0], "ES256");
+  const alg =
+    (jwk.alg as string | undefined) ??
+    (provisioner.key.alg as string | undefined) ??
+    "ES256";
+  const key = await importJWK(jwk as Parameters<typeof importJWK>[0], alg);
   const now = Math.floor(Date.now() / 1000);
   const nonce = randomBytes(16).toString("hex");
   return await new SignJWT({ sha: "", sans, step: { ssh: null } })
-    .setProtectedHeader({ alg: "ES256", kid, typ: "JWT" })
+    .setProtectedHeader({ alg, kid, typ: "JWT" })
     .setIssuer(provisioner.name)
     .setAudience(`${getBaseUrl()}/1.0/sign`)
     .setSubject(subject)
@@ -161,12 +170,104 @@ export async function issueClientCertificate(
   return { pkcs12, pkcs12Password, meta };
 }
 
-export async function listCertificates(): Promise<IssuedCertificate[]> {
-  return [];
+function getRegistryPath(): string {
+  return getOptionalEnv("CERT_REGISTRY_PATH", "/data/certs.json");
 }
 
-export async function revokeCertificate(_serial: string, _reason: string): Promise<void> {
-  throw new Error("Revocation via step-ca admin API requires mTLS admin credentials — implement once admin cert provisioned");
+export async function recordCertificate(meta: IssuedCertificate): Promise<void> {
+  const path = getRegistryPath();
+  await fs.mkdir(dirname(path), { recursive: true });
+  await fs.appendFile(path, JSON.stringify(meta) + "\n", "utf8");
+}
+
+export async function listCertificates(): Promise<IssuedCertificate[]> {
+  const path = getRegistryPath();
+  let content: string;
+  try {
+    content = await fs.readFile(path, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw err;
+  }
+  const byId = new Map<string, IssuedCertificate>();
+  for (const line of content.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      const entry = JSON.parse(trimmed) as IssuedCertificate;
+      const existing = byId.get(entry.id);
+      byId.set(entry.id, existing ? { ...existing, ...entry } : entry);
+    } catch {
+      // skip malformed line
+    }
+  }
+  return Array.from(byId.values()).sort((a, b) => b.issuedAt.localeCompare(a.issuedAt));
+}
+
+async function mtlsPostJson(
+  url: string,
+  body: string,
+  cert: string,
+  key: string
+): Promise<{ status: number; body: string }> {
+  const parsed = new URL(url);
+  return await new Promise((resolve, reject) => {
+    const req = httpsRequest(
+      {
+        method: "POST",
+        protocol: parsed.protocol,
+        hostname: parsed.hostname,
+        port: parsed.port || (parsed.protocol === "https:" ? 443 : 80),
+        path: `${parsed.pathname}${parsed.search}`,
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(body),
+        },
+        cert,
+        key,
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (c: Buffer) => chunks.push(c));
+        res.on("end", () =>
+          resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString("utf8") })
+        );
+        res.on("error", reject);
+      }
+    );
+    req.on("error", reject);
+    req.write(body);
+    req.end();
+  });
+}
+
+export async function revokeCertificate(serial: string, reason: string): Promise<void> {
+  const cert = getOptionalEnv("STEP_CA_ADMIN_CERT_PEM");
+  const key = getOptionalEnv("STEP_CA_ADMIN_KEY_PEM");
+  if (!cert || !key) {
+    throw new Error(
+      "Admin mTLS credentials not configured (set STEP_CA_ADMIN_CERT_PEM and STEP_CA_ADMIN_KEY_PEM)"
+    );
+  }
+  const res = await mtlsPostJson(
+    `${getBaseUrl()}/admin/crl`,
+    JSON.stringify({ serial, reason }),
+    cert,
+    key
+  );
+  if (res.status < 200 || res.status >= 300) {
+    throw new Error(`step-ca /admin/crl failed: ${res.status} ${res.body}`);
+  }
+  const existing = (await listCertificates()).find(
+    (c) => c.id === serial || c.serialNumber === serial
+  );
+  if (existing && !existing.revokedAt) {
+    await recordCertificate({
+      ...existing,
+      revokedAt: new Date().toISOString(),
+      revokedReason: reason,
+    });
+  }
 }
 
 export async function getRootCaPem(): Promise<string> {
