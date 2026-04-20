@@ -355,7 +355,7 @@ function TileGrid({ onOpenCalendar }: { onOpenCalendar: () => void }) {
             iconBg="bg-pink-500/10"
             title="Listmonk"
             description="Transakcyjne i marketingowe e-maile"
-            href="https://mail.myperformance.pl"
+            href="https://newsletter.myperformance.pl"
           />
         )}
         {!kadromierzConnected && (
