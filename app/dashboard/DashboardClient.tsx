@@ -345,8 +345,8 @@ function TileGrid({ onOpenCalendar }: { onOpenCalendar: () => void }) {
             icon={<MessageSquare className="w-7 h-7 text-cyan-500" aria-hidden="true" />}
             iconBg="bg-cyan-500/10"
             title="Chatwoot"
-            description="Obsługa klienta: chat, tickets, inbox"
-            href="https://chat.myperformance.pl"
+            description="Obsługa klienta — SSO przez Keycloak"
+            href="/api/chatwoot/sso"
           />
         )}
         {isSuperAdmin(session) && (
