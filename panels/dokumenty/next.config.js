@@ -1,12 +1,23 @@
 /** @type {import("next").NextConfig} */
 const isDev = process.env.NODE_ENV === "development";
 
-const keycloakOrigin = (() => {
-  const url = process.env.NEXT_PUBLIC_KEYCLOAK_URL?.trim() || process.env.KEYCLOAK_URL?.trim();
+function originOf(url) {
   if (!url) return null;
   try { return new URL(url).origin; } catch { return null; }
-})();
+}
+const keycloakOrigin = originOf(
+  process.env.NEXT_PUBLIC_KEYCLOAK_URL?.trim() ||
+  process.env.KEYCLOAK_URL?.trim() ||
+  process.env.KEYCLOAK_ISSUER?.trim() ||
+  ""
+);
+const docusealOrigin = originOf(
+  process.env.DOCUSEAL_URL?.trim() ||
+  process.env.NEXT_PUBLIC_DOCUSEAL_URL?.trim() ||
+  ""
+);
 const kc = keycloakOrigin ? ` ${keycloakOrigin}` : "";
+const ds = docusealOrigin ? ` ${docusealOrigin}` : "";
 const scriptSrc = isDev ? "'self' 'unsafe-inline' 'unsafe-eval'" : "'self' 'unsafe-inline'";
 
 const securityHeaders = [
@@ -30,12 +41,12 @@ const securityHeaders = [
     key: "Content-Security-Policy",
     value: [
       "default-src 'self'",
-      `connect-src 'self'${kc}`,
+      `connect-src 'self'${kc}${ds}`,
       `script-src ${scriptSrc}`,
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob:",
       "font-src 'self' data:",
-      `frame-src 'self'${kc}`,
+      `frame-src 'self'${kc}${ds}`,
       `form-action 'self'${kc}`,
       "frame-ancestors 'none'",
       "base-uri 'self'",
