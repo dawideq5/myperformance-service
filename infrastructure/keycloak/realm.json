@@ -124,6 +124,34 @@
         "attributes": {}
       },
       {
+        "name": "sprzedawca",
+        "description": "Dostęp do Panelu Sprzedawcy (cert-gated)",
+        "composite": false,
+        "clientRole": false,
+        "attributes": {}
+      },
+      {
+        "name": "serwisant",
+        "description": "Dostęp do Panelu Serwisanta (cert-gated)",
+        "composite": false,
+        "clientRole": false,
+        "attributes": {}
+      },
+      {
+        "name": "kierowca",
+        "description": "Dostęp do Panelu Kierowcy (cert-gated)",
+        "composite": false,
+        "clientRole": false,
+        "attributes": {}
+      },
+      {
+        "name": "dokumenty_access",
+        "description": "Dostęp do Panelu Obiegu Dokumentów (cert-gated)",
+        "composite": false,
+        "clientRole": false,
+        "attributes": {}
+      },
+      {
         "name": "default-roles-myperformance",
         "description": "${role_default-roles}",
         "composite": true,
@@ -472,6 +500,126 @@
       "protocolMappers": [],
       "defaultClientScopes": ["basic", "roles"],
       "optionalClientScopes": []
+    },
+    {
+      "clientId": "panel-sprzedawca",
+      "name": "Panel Sprzedawcy",
+      "description": "Confidential OIDC client for panelsprzedawcy.myperformance.pl",
+      "rootUrl": "https://panelsprzedawcy.myperformance.pl",
+      "baseUrl": "/",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${PANEL_SPRZEDAWCA_CLIENT_SECRET}",
+      "redirectUris": [
+        "https://panelsprzedawcy.myperformance.pl/api/auth/callback/keycloak",
+        "http://localhost:3001/api/auth/callback/keycloak"
+      ],
+      "webOrigins": ["+"],
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "publicClient": false,
+      "frontchannelLogout": true,
+      "protocol": "openid-connect",
+      "attributes": {
+        "post.logout.redirect.uris": "https://panelsprzedawcy.myperformance.pl/*##http://localhost:3001/*",
+        "pkce.code.challenge.method": "S256",
+        "backchannel.logout.session.required": "true"
+      },
+      "fullScopeAllowed": true,
+      "defaultClientScopes": ["web-origins", "acr", "profile", "roles", "basic", "email"],
+      "optionalClientScopes": ["offline_access", "phone", "address", "microprofile-jwt"]
+    },
+    {
+      "clientId": "panel-serwisant",
+      "name": "Panel Serwisanta",
+      "description": "Confidential OIDC client for panelserwisanta.myperformance.pl",
+      "rootUrl": "https://panelserwisanta.myperformance.pl",
+      "baseUrl": "/",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${PANEL_SERWISANT_CLIENT_SECRET}",
+      "redirectUris": [
+        "https://panelserwisanta.myperformance.pl/api/auth/callback/keycloak",
+        "http://localhost:3002/api/auth/callback/keycloak"
+      ],
+      "webOrigins": ["+"],
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "publicClient": false,
+      "frontchannelLogout": true,
+      "protocol": "openid-connect",
+      "attributes": {
+        "post.logout.redirect.uris": "https://panelserwisanta.myperformance.pl/*##http://localhost:3002/*",
+        "pkce.code.challenge.method": "S256",
+        "backchannel.logout.session.required": "true"
+      },
+      "fullScopeAllowed": true,
+      "defaultClientScopes": ["web-origins", "acr", "profile", "roles", "basic", "email"],
+      "optionalClientScopes": ["offline_access", "phone", "address", "microprofile-jwt"]
+    },
+    {
+      "clientId": "panel-kierowca",
+      "name": "Panel Kierowcy",
+      "description": "Confidential OIDC client for panelkierowcy.myperformance.pl",
+      "rootUrl": "https://panelkierowcy.myperformance.pl",
+      "baseUrl": "/",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${PANEL_KIEROWCA_CLIENT_SECRET}",
+      "redirectUris": [
+        "https://panelkierowcy.myperformance.pl/api/auth/callback/keycloak",
+        "http://localhost:3003/api/auth/callback/keycloak"
+      ],
+      "webOrigins": ["+"],
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "publicClient": false,
+      "frontchannelLogout": true,
+      "protocol": "openid-connect",
+      "attributes": {
+        "post.logout.redirect.uris": "https://panelkierowcy.myperformance.pl/*##http://localhost:3003/*",
+        "pkce.code.challenge.method": "S256",
+        "backchannel.logout.session.required": "true"
+      },
+      "fullScopeAllowed": true,
+      "defaultClientScopes": ["web-origins", "acr", "profile", "roles", "basic", "email"],
+      "optionalClientScopes": ["offline_access", "phone", "address", "microprofile-jwt"]
+    },
+    {
+      "clientId": "panel-dokumenty",
+      "name": "Panel Obiegu Dokumentów",
+      "description": "Confidential OIDC client for dokumenty.myperformance.pl",
+      "rootUrl": "https://dokumenty.myperformance.pl",
+      "baseUrl": "/",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${PANEL_DOKUMENTY_CLIENT_SECRET}",
+      "redirectUris": [
+        "https://dokumenty.myperformance.pl/api/auth/callback/keycloak",
+        "http://localhost:3004/api/auth/callback/keycloak"
+      ],
+      "webOrigins": ["+"],
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "publicClient": false,
+      "frontchannelLogout": true,
+      "protocol": "openid-connect",
+      "attributes": {
+        "post.logout.redirect.uris": "https://dokumenty.myperformance.pl/*##http://localhost:3004/*",
+        "pkce.code.challenge.method": "S256",
+        "backchannel.logout.session.required": "true"
+      },
+      "fullScopeAllowed": true,
+      "defaultClientScopes": ["web-origins", "acr", "profile", "roles", "basic", "email"],
+      "optionalClientScopes": ["offline_access", "phone", "address", "microprofile-jwt"]
     }
   ],
 

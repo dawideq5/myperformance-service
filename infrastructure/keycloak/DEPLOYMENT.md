@@ -280,3 +280,40 @@ Bezpieczne opcje:
 
 `GET /admin/realms/MyPerformance/users?email=…` zwraca `id` (== `sub`
 w tokenie), którego potrzebujesz jako `external_identifier` w Directusie.
+
+## §10 Panele cert-gated — klienci OIDC per host
+
+Każdy panel (sprzedawca, serwisant, kierowca, obieg dokumentów) jest
+osobnym Next.js app z własnym confidential clientem OIDC w tym realmie.
+Poniższa tabela wiąże host z `clientId` i wymaganą realm role.
+
+| Host                                    | clientId            | Realm role          |
+|-----------------------------------------|---------------------|---------------------|
+| panelsprzedawcy.myperformance.pl        | `panel-sprzedawca`  | `sprzedawca`        |
+| panelserwisanta.myperformance.pl        | `panel-serwisant`   | `serwisant`         |
+| panelkierowcy.myperformance.pl          | `panel-kierowca`    | `kierowca`          |
+| dokumenty.myperformance.pl              | `panel-dokumenty`   | `dokumenty_access`  |
+
+Klienci są zadeklarowane w `realm.json` (pełny import realmu je utworzy),
+ale na już-działającym Keycloaku użyj idempotentnego skryptu:
+
+```bash
+export KC_URL=https://auth.myperformance.pl
+export KC_ADMIN_USER=<master-admin>
+export KC_ADMIN_PASS=<master-password>
+export KC_REALM=MyPerformance
+export PANEL_SPRZEDAWCA_CLIENT_SECRET=$(openssl rand -base64 32)
+export PANEL_SERWISANT_CLIENT_SECRET=$(openssl rand -base64 32)
+export PANEL_KIEROWCA_CLIENT_SECRET=$(openssl rand -base64 32)
+export PANEL_DOKUMENTY_CLIENT_SECRET=$(openssl rand -base64 32)
+bash scripts/apply-realm-changes.sh
+```
+
+Skrypt jest idempotentny — pierwszy raz tworzy (`201`), każdy kolejny
+wykrywa `409 Conflict` i nic nie zmienia. Secrety wklej następnie do
+envów Coolify dla każdej aplikacji panelowej
+(`KEYCLOAK_CLIENT_SECRET`).
+
+Realm role (`sprzedawca`, `serwisant`, `kierowca`, `dokumenty_access`)
+przypisuj ręcznie w Admin Console → *Users* → *Role mappings*, albo
+masowo via `PUT /admin/realms/${KC_REALM}/users/${uid}/role-mappings/realm`.
