@@ -1,26 +1,20 @@
 import * as forge from "node-forge";
 import { compactDecrypt, importJWK, SignJWT } from "jose";
 import { randomBytes } from "crypto";
-import { promises as fs } from "node:fs";
-import { dirname } from "node:path";
 import { request as httpsRequest } from "node:https";
 import { URL } from "node:url";
 import { getOptionalEnv } from "@/lib/env";
+import {
+  appendAudit,
+  findCertificateBySerial,
+  listCertificates as persistenceListCertificates,
+  recordCertificate as persistenceRecordCertificate,
+  tailAudit,
+  type AuditEvent,
+} from "@/lib/persistence";
+import type { IssuedCertificate, PanelRole } from "@/lib/step-ca-types";
 
-export type PanelRole = "sprzedawca" | "serwisant" | "kierowca" | "dokumenty_access";
-
-export interface IssuedCertificate {
-  id: string;
-  subject: string;
-  role: string;
-  roles?: PanelRole[];
-  email: string;
-  serialNumber: string;
-  notAfter: string;
-  issuedAt: string;
-  revokedAt?: string;
-  revokedReason?: string;
-}
+export type { IssuedCertificate, PanelRole } from "@/lib/step-ca-types";
 
 export interface IssueCertInput {
   commonName: string;
@@ -209,38 +203,12 @@ export async function issueClientCertificate(
   return { pkcs12, pkcs12Password, meta };
 }
 
-function getRegistryPath(): string {
-  return getOptionalEnv("CERT_REGISTRY_PATH", "/data/certs.json");
-}
-
 export async function recordCertificate(meta: IssuedCertificate): Promise<void> {
-  const path = getRegistryPath();
-  await fs.mkdir(dirname(path), { recursive: true });
-  await fs.appendFile(path, JSON.stringify(meta) + "\n", "utf8");
+  await persistenceRecordCertificate(meta);
 }
 
 export async function listCertificates(): Promise<IssuedCertificate[]> {
-  const path = getRegistryPath();
-  let content: string;
-  try {
-    content = await fs.readFile(path, "utf8");
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
-    throw err;
-  }
-  const byId = new Map<string, IssuedCertificate>();
-  for (const line of content.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    try {
-      const entry = JSON.parse(trimmed) as IssuedCertificate;
-      const existing = byId.get(entry.id);
-      byId.set(entry.id, existing ? { ...existing, ...entry } : entry);
-    } catch {
-      // skip malformed line
-    }
-  }
-  return Array.from(byId.values()).sort((a, b) => b.issuedAt.localeCompare(a.issuedAt));
+  return persistenceListCertificates();
 }
 
 async function mtlsPostJson(
@@ -299,16 +267,14 @@ export async function revokeCertificate(
     const body = await res.text();
     throw new Error(`step-ca /1.0/revoke failed: ${res.status} ${body}`);
   }
-  const existing = (await listCertificates()).find(
-    (c) => c.id === serial || c.serialNumber === serial
-  );
+  const existing = await findCertificateBySerial(serial);
   if (existing && !existing.revokedAt) {
     const updated: IssuedCertificate = {
       ...existing,
       revokedAt: new Date().toISOString(),
       revokedReason: reason,
     };
-    await recordCertificate(updated);
+    await persistenceRecordCertificate(updated);
     return updated;
   }
   return existing ?? null;
@@ -352,59 +318,14 @@ export async function getCaStatus(): Promise<CaStatus> {
   }
 }
 
-type AuditEvent = { ts: string; actor: string; action: string; subject?: string; ok: boolean; error?: string };
-
-function getAuditPath(): string {
-  return getOptionalEnv("AUDIT_LOG_PATH", "/data/audit.log");
-}
+export type { AuditEvent } from "@/lib/persistence";
 
 export function auditLog(ev: AuditEvent): void {
-  const path = getAuditPath();
-  const line = JSON.stringify(ev) + "\n";
-  fs.mkdir(dirname(path), { recursive: true })
-    .then(() => fs.appendFile(path, line, "utf8"))
-    .catch((err) => {
-      console.error("[audit] append failed:", err instanceof Error ? err.message : err);
-    });
-}
-
-async function tailLines(path: string, maxLines: number): Promise<string[]> {
-  let fh: Awaited<ReturnType<typeof fs.open>>;
-  try {
-    fh = await fs.open(path, "r");
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
-    throw err;
-  }
-  try {
-    const { size } = await fh.stat();
-    const CHUNK = 8192;
-    let position = size;
-    let collected = "";
-    const linesNeeded = maxLines + 1;
-    while (position > 0 && collected.split("\n").length <= linesNeeded) {
-      const readSize = Math.min(CHUNK, position);
-      position -= readSize;
-      const buf = Buffer.alloc(readSize);
-      await fh.read(buf, 0, readSize, position);
-      collected = buf.toString("utf8") + collected;
-    }
-    const lines = collected.split("\n").filter((l) => l.length > 0);
-    return lines.slice(-maxLines);
-  } finally {
-    await fh.close();
-  }
+  appendAudit(ev).catch((err) => {
+    console.error("[audit] append failed:", err instanceof Error ? err.message : err);
+  });
 }
 
 export async function getAuditTail(n = 50): Promise<AuditEvent[]> {
-  const lines = await tailLines(getAuditPath(), n);
-  const events: AuditEvent[] = [];
-  for (const line of lines) {
-    try {
-      events.push(JSON.parse(line) as AuditEvent);
-    } catch {
-      // skip malformed
-    }
-  }
-  return events.reverse();
+  return tailAudit(n);
 }
