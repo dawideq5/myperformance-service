@@ -61,7 +61,9 @@ async function fetchProvisioner(): Promise<Provisioner> {
 
 async function decryptProvisionerKey(encryptedKey: string, password: string): Promise<Record<string, unknown>> {
   const pw = new TextEncoder().encode(password);
-  const { plaintext } = await compactDecrypt(encryptedKey, pw);
+  const { plaintext } = await compactDecrypt(encryptedKey, pw, {
+    keyManagementAlgorithms: ["PBES2-HS256+A128KW", "PBES2-HS384+A192KW", "PBES2-HS512+A256KW"],
+  });
   return JSON.parse(new TextDecoder().decode(plaintext));
 }
 
