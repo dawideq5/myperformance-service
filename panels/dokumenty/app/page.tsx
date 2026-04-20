@@ -42,7 +42,12 @@ export default async function HomePage() {
         </div>
       ) : null}
 
-      <ObiegClient templates={templates} submissions={submissions} configured={configured} />
+      <ObiegClient
+        templates={templates}
+        submissions={submissions}
+        configured={configured}
+        docusealUrl={process.env.DOCUSEAL_URL?.replace(/\/$/, "") ?? null}
+      />
     </main>
   );
 }

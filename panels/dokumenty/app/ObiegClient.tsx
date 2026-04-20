@@ -14,10 +14,12 @@ export function ObiegClient({
   templates,
   submissions,
   configured,
+  docusealUrl,
 }: {
   templates: DocusealTemplate[];
   submissions: DocusealSubmission[];
   configured: boolean;
+  docusealUrl: string | null;
 }) {
   const [file, setFile] = useState<File | null>(null);
   const [name, setName] = useState("");
@@ -166,6 +168,7 @@ export function ObiegClient({
                   <th className="py-2 px-3">Odbiorcy</th>
                   <th className="py-2 px-3">Status</th>
                   <th className="py-2 px-3">Utworzono</th>
+                  <th className="py-2 px-3">Akcje</th>
                 </tr>
               </thead>
               <tbody>
@@ -180,6 +183,18 @@ export function ObiegClient({
                       <td className={`py-2 px-3 font-medium ${st.cls}`}>{st.label}</td>
                       <td className="py-2 px-3 text-slate-400">
                         {new Date(s.createdAt).toLocaleString("pl-PL")}
+                      </td>
+                      <td className="py-2 px-3">
+                        {docusealUrl ? (
+                          <a
+                            href={`${docusealUrl}/submissions/${s.id}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-brand-400 hover:text-brand-300 text-xs font-medium"
+                          >
+                            Otwórz w Docuseal →
+                          </a>
+                        ) : null}
                       </td>
                     </tr>
                   );
