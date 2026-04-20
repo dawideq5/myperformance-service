@@ -21,3 +21,83 @@ Reference docker-compose files and Docker build contexts for every self-hosted s
 - **Secrets:** Generated via Coolify's `SERVICE_*` magic envs (e.g. `${SERVICE_PASSWORD_64_*}`) so every deployment has strong, unique values and we never check secrets into git.
 - **Traefik:** Services expose themselves via `SERVICE_FQDN_*_<port>` so Coolify auto-generates Traefik labels (HTTPS, Let's Encrypt). Cert-gated subdomains additionally attach the `mtls-required` middleware from `traefik/dynamic-mtls.yml`.
 - **Healthchecks:** Every long-running container defines a healthcheck so Coolify's `degraded:unhealthy` flag actually means what it says.
+
+## mTLS dla paneli cert-gated
+
+Panele `panelsprzedawcy`, `panelserwisanta`, `panelkierowcy`, `dokumenty`
+są dostępne tylko z zainstalowanym certyfikatem klienckim `.p12` wydanym
+przez `ca.myperformance.pl`. Bez certa Traefik zwróci `400 Bad Request`.
+
+### Dystrybucja root CA na VPS (jednorazowo)
+
+```bash
+# 1. Pobierz root CA publicznie
+curl -s https://ca.myperformance.pl/roots.pem \
+  -o /data/coolify/proxy/certs/myperformance-ca.pem
+
+# 2. Podłącz konfigurację Traefika
+cp infrastructure/traefik/dynamic-mtls.yml \
+   /data/coolify/proxy/dynamic/mtls.yml
+
+# 3. Przeładuj Traefika (file provider hot-reload, HUP dla pewności)
+docker kill --signal=HUP $(docker ps -qf name=coolify-proxy)
+```
+
+### Labels per aplikacja (Coolify UI)
+
+Dla każdej z 4 aplikacji panelowych dopisz w *Labels*:
+
+```
+traefik.http.routers.<coolify-router>.tls.options=mtls-<rola>@file
+traefik.http.routers.<coolify-router>.middlewares=mtls-required@file
+```
+
+gdzie `<rola>` to `sprzedawca`, `serwisant`, `kierowca` lub `dokumenty`,
+a `<coolify-router>` to nazwa routera generowana przez Coolify (patrz
+`traefik.http.routers.*.rule` w aktualnych labelach kontenera).
+
+### Wystawienie i instalacja `.p12`
+
+1. Admin dashboardu: `https://myperformance.pl/admin/certyfikaty` → wybierz
+   rolę i CN, kliknij *Wystaw*. Przeglądarka pobierze `.p12`; hasło do
+   pliku jest w nagłówku odpowiedzi `X-Pkcs12-Password` (widać je tylko
+   raz — skopiuj od razu).
+2. Rotacja: wydaj nowy cert; stary unieważnij przez DELETE w panelu
+   admin (revoke przez step-ca Admin API).
+
+#### macOS (Keychain) — Safari, Chrome, Edge
+
+1. Otwórz `.p12` dwuklikiem → Keychain Access otworzy dialog „Add
+   certificates". Wybierz **login** (nie `System`) i podaj hasło `.p12`.
+2. W Keychain Access odszukaj cert po CN, kliknij prawym → *Get Info* →
+   *Trust* → `When using this certificate: Always Trust` (wymaga hasła
+   konta).
+3. Safari / Chrome / Edge używają Keychaina automatycznie. Przy
+   pierwszym wejściu na panel przeglądarka zapyta o wybór certa.
+
+#### Firefox (cross-platform)
+
+Firefox ma własny magazyn — nie widzi Keychaina / Windows Cert Store.
+
+1. `about:preferences#privacy` → *Certificates* → *View Certificates*.
+2. Zakładka *Your Certificates* → *Import* → wskaż `.p12` → podaj hasło.
+3. Zakładka *Authorities* → *Import* → wybierz `root_ca.pem` pobrany z
+   `https://ca.myperformance.pl/roots.pem`; zaznacz *Trust this CA to
+   identify websites*.
+
+#### Windows (Edge / Chrome)
+
+1. Dwuklik `.p12` → *Certificate Import Wizard* → *Current User* →
+   hasło → store: *Personal* (klucz + cert) i *Trusted Root Certification
+   Authorities* (dla `root_ca.pem` osobno).
+2. Po restart przeglądarka zapyta o cert przy wejściu na panel.
+
+### Troubleshooting
+
+- `ERR_BAD_SSL_CLIENT_AUTH_CERT` / `TLS alert: no certificates`:
+  `.p12` nie został zaimportowany do właściwego magazynu (Firefox vs
+  system store).
+- Traefik loguje `tls: client didn't provide a certificate`: dobrze —
+  middleware mTLS działa, użytkownik nie wybrał/zaimportował certa.
+- Po wygaśnięciu `.p12` trzeba wygenerować nowy — stary nie zostanie
+  rozpoznany przez Traefik (koniec `notAfter`).
