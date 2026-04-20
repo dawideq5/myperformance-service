@@ -5,9 +5,11 @@ RUN npm ci --omit=dev --ignore-scripts || npm install --omit=dev --ignore-script
 
 FROM node:20-alpine AS builder
 WORKDIR /app
+ENV NODE_ENV=development
 COPY package.json package-lock.json* ./
-RUN npm ci --ignore-scripts || npm install --ignore-scripts
+RUN npm ci --include=dev --ignore-scripts || npm install --include=dev --ignore-scripts
 COPY . .
+ENV NODE_ENV=production
 RUN npm run build
 
 FROM node:20-alpine AS runner
