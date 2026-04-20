@@ -28,20 +28,29 @@ Panele `panelsprzedawcy`, `panelserwisanta`, `panelkierowcy`, `dokumenty`
 są dostępne tylko z zainstalowanym certyfikatem klienckim `.p12` wydanym
 przez `ca.myperformance.pl`. Bez certa Traefik zwróci `400 Bad Request`.
 
-### Dystrybucja root CA na VPS (jednorazowo)
+### Dystrybucja trust bundle CA na VPS
+
+> **Uwaga:** step-ca podpisuje leaf przez *intermediate*, a `.p12` nie
+> zawiera chain (node-forge 1.x nie potrafi zapakować EC intermediate).
+> Traefik musi mieć w `caFiles` **root + intermediate**, inaczej odrzuci
+> certyfikat z `tls: unable to verify client certificate`.
 
 ```bash
-# 1. Pobierz root CA publicznie
-curl -s https://ca.myperformance.pl/roots.pem \
-  -o /data/coolify/proxy/certs/myperformance-ca.pem
+# 1. Zbuduj bundle z root + intermediate (skrypt idempotentny)
+sudo bash /root/myperformance-service/scripts/update-mtls-bundle.sh
 
-# 2. Podłącz konfigurację Traefika
+# 2. Podłącz konfigurację Traefika (jednorazowo)
 cp infrastructure/traefik/dynamic-mtls.yml \
    /data/coolify/proxy/dynamic/mtls.yml
 
-# 3. Przeładuj Traefika (file provider hot-reload, HUP dla pewności)
+# 3. Skrypt z p.1 sam HUPuje Traefika; jeśli dodajesz mtls.yml osobno:
 docker kill --signal=HUP $(docker ps -qf name=coolify-proxy)
 ```
+
+Skrypt `update-mtls-bundle.sh` można uruchamiać po każdej rotacji step-ca
+(np. odnowienie intermediate) — wyciąga aktualny `root_ca.crt` i
+`intermediate_ca.crt` z kontenera step-ca i zapisuje je do
+`/data/coolify/proxy/certs/myperformance-ca.pem`.
 
 ### Labels per aplikacja (Coolify UI)
 

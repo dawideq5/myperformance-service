@@ -7,9 +7,9 @@ Traefik uruchomiony przez Coolify odczytuje konfigurację dynamiczną z `/data/c
 ## Kroki (SSH do VPS)
 
 ```bash
-# 1. Eksportuj root CA z step-ca
-docker exec $(docker ps -qf name=step-ca) cat /home/step/certs/root_ca.crt \
-  > /data/coolify/proxy/certs/myperformance-ca.pem
+# 1. Zbuduj trust bundle (root + intermediate) — wymagane,
+#    bo .p12 nie zawiera chain, a intermediate podpisuje leafa.
+sudo bash scripts/update-mtls-bundle.sh
 
 # 2. Skopiuj konfigurację
 cp infrastructure/traefik/dynamic-mtls.yml /data/coolify/proxy/dynamic/mtls.yml
@@ -21,7 +21,7 @@ cp infrastructure/traefik/dynamic-mtls.yml /data/coolify/proxy/dynamic/mtls.yml
 #    Ustaw to przez edycję Docker Compose w Coolify UI dla każdej aplikacji
 #    panel-sprzedawca / panel-serwisant / panel-kierowca / panel-dokumenty.
 
-# 4. Reload Traefik (dynamic config pobrany automatycznie, ale dla pewności):
+# 4. Skrypt HUPuje Traefika automatycznie; przy dodawaniu samego mtls.yml:
 docker kill --signal=HUP $(docker ps -qf name=coolify-proxy)
 ```
 

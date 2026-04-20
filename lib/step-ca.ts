@@ -92,12 +92,33 @@ async function signOttToken(params: { provisioner: Provisioner; jwk: Record<stri
     .sign(key);
 }
 
+async function signRevokeToken(params: { provisioner: Provisioner; jwk: Record<string, unknown>; serial: string }): Promise<string> {
+  const { provisioner, jwk, serial } = params;
+  const kid = (jwk.kid as string | undefined) ?? (provisioner.key.kid as string | undefined);
+  const alg =
+    (jwk.alg as string | undefined) ??
+    (provisioner.key.alg as string | undefined) ??
+    "ES256";
+  const key = await importJWK(jwk as Parameters<typeof importJWK>[0], alg);
+  const now = Math.floor(Date.now() / 1000);
+  const nonce = randomBytes(16).toString("hex");
+  return await new SignJWT({ sha: "" })
+    .setProtectedHeader({ alg, kid, typ: "JWT" })
+    .setIssuer(provisioner.name)
+    .setAudience(`${getBaseUrl()}/1.0/revoke`)
+    .setSubject(serial)
+    .setNotBefore(now - 30)
+    .setExpirationTime(now + 300)
+    .setJti(nonce)
+    .sign(key);
+}
+
 function buildCsr(commonName: string, email: string, roles: PanelRole[]): { csrPem: string; keyPem: string } {
   const keypair = forge.pki.rsa.generateKeyPair({ bits: 2048 });
   const csr = forge.pki.createCertificationRequest();
   csr.publicKey = keypair.publicKey;
-  const utf8 = forge.asn1.Type.UTF8;
-  const ia5 = forge.asn1.Type.IA5STRING;
+  const utf8 = forge.asn1.Type.UTF8 as unknown as forge.asn1.Class;
+  const ia5 = forge.asn1.Type.IA5STRING as unknown as forge.asn1.Class;
   csr.setSubject([
     { name: "commonName", value: commonName, valueTagClass: utf8 },
     { name: "organizationName", value: "MyPerformance", valueTagClass: utf8 },
@@ -130,7 +151,15 @@ function buildCsr(commonName: string, email: string, roles: PanelRole[]): { csrP
 function buildPkcs12(keyPem: string, certPem: string, caCertsPem: string[], password: string, friendlyName: string): Buffer {
   const privateKey = forge.pki.privateKeyFromPem(keyPem);
   const cert = forge.pki.certificateFromPem(certPem);
-  const caCerts = caCertsPem.map((p) => forge.pki.certificateFromPem(p));
+  const caCerts: forge.pki.Certificate[] = [];
+  for (const pem of caCertsPem) {
+    try {
+      caCerts.push(forge.pki.certificateFromPem(pem));
+    } catch {
+      // node-forge 1.x can't parse EC certs; skip chain entries it rejects.
+      // Root CA is distributed separately via /roots.pem.
+    }
+  }
   const p12Asn1 = forge.pkcs12.toPkcs12Asn1(privateKey, [cert, ...caCerts], password, {
     friendlyName,
     algorithm: "3des",
@@ -251,33 +280,38 @@ async function mtlsPostJson(
   });
 }
 
-export async function revokeCertificate(serial: string, reason: string): Promise<void> {
-  const cert = getOptionalEnv("STEP_CA_ADMIN_CERT_PEM");
-  const key = getOptionalEnv("STEP_CA_ADMIN_KEY_PEM");
-  if (!cert || !key) {
-    throw new Error(
-      "Admin mTLS credentials not configured (set STEP_CA_ADMIN_CERT_PEM and STEP_CA_ADMIN_KEY_PEM)"
-    );
-  }
-  const res = await mtlsPostJson(
-    `${getBaseUrl()}/admin/crl`,
-    JSON.stringify({ serial, reason }),
-    cert,
-    key
-  );
-  if (res.status < 200 || res.status >= 300) {
-    throw new Error(`step-ca /admin/crl failed: ${res.status} ${res.body}`);
+export async function revokeCertificate(
+  serial: string,
+  reason: string
+): Promise<IssuedCertificate | null> {
+  const provisioner = await fetchProvisioner();
+  const jwk = await decryptProvisionerKey(provisioner.encryptedKey, getProvisionerPassword());
+  // step-ca normalizes serial to decimal before comparing to OTT subject; emit decimal on both sides.
+  const hex = serial.startsWith("0x") ? serial.slice(2) : serial;
+  const decimal = /^[0-9]+$/.test(serial) ? serial : BigInt(`0x${hex}`).toString(10);
+  const ott = await signRevokeToken({ provisioner, jwk, serial: decimal });
+  const res = await fetch(`${getBaseUrl()}/1.0/revoke`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ serial: decimal, ott, reasonCode: 0, reason, passive: true }),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`step-ca /1.0/revoke failed: ${res.status} ${body}`);
   }
   const existing = (await listCertificates()).find(
     (c) => c.id === serial || c.serialNumber === serial
   );
   if (existing && !existing.revokedAt) {
-    await recordCertificate({
+    const updated: IssuedCertificate = {
       ...existing,
       revokedAt: new Date().toISOString(),
       revokedReason: reason,
-    });
+    };
+    await recordCertificate(updated);
+    return updated;
   }
+  return existing ?? null;
 }
 
 export async function getRootCaPem(): Promise<string> {

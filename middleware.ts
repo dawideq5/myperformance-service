@@ -100,11 +100,19 @@ export default withAuth(
 
     if (!isProtected) return NextResponse.next();
 
+    const isApi = pathname.startsWith("/api/");
+
     if (!token || !token.accessToken) {
+      if (isApi) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
       return NextResponse.redirect(new URL("/login", req.url));
     }
 
     if (token.keycloakError) {
+      if (isApi) {
+        return NextResponse.json({ error: "SessionExpired" }, { status: 401 });
+      }
       return NextResponse.redirect(
         new URL("/login?error=SessionExpired", req.url)
       );
@@ -117,6 +125,9 @@ export default withAuth(
 
     if (cached && cached.expiresAt > now) {
       if (!cached.valid) {
+        if (isApi) {
+          return NextResponse.json({ error: "SessionExpired" }, { status: 401 });
+        }
         return NextResponse.redirect(new URL("/api/auth/logout", req.url));
       }
       return NextResponse.next();
@@ -144,6 +155,9 @@ export default withAuth(
 
       if (!valid) {
         console.warn("[middleware] Keycloak session invalid (userinfo failed)");
+        if (isApi) {
+          return NextResponse.json({ error: "SessionExpired" }, { status: 401 });
+        }
         return NextResponse.redirect(new URL("/api/auth/logout", req.url));
       }
     } catch (e) {
