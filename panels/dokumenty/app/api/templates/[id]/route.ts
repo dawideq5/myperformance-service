@@ -17,10 +17,14 @@ async function guard() {
   return { ok: true as const };
 }
 
-export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
+export async function DELETE(
+  _req: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
   const auth = await guard();
   if (!auth.ok) return NextResponse.json({ error: "Forbidden" }, { status: auth.status });
-  const id = Number(params.id);
+  const { id: rawId } = await params;
+  const id = Number(rawId);
   if (!Number.isFinite(id)) return NextResponse.json({ error: "Bad id" }, { status: 400 });
   try {
     await archiveTemplate(id);
@@ -34,10 +38,14 @@ export async function DELETE(_req: Request, { params }: { params: { id: string }
   }
 }
 
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
   const auth = await guard();
   if (!auth.ok) return NextResponse.json({ error: "Forbidden" }, { status: auth.status });
-  const id = Number(params.id);
+  const { id: rawId } = await params;
+  const id = Number(rawId);
   if (!Number.isFinite(id)) return NextResponse.json({ error: "Bad id" }, { status: 400 });
   let body: any = {};
   try {
