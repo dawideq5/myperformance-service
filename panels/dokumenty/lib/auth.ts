@@ -5,8 +5,19 @@ function optionalEnv(name: string): string {
   return process.env[name]?.trim() || "";
 }
 
-const REQUIRED_ROLE = "dokumenty_access";
+export const REQUIRED_ROLE = "dokumenty_access";
 const PANEL_CLIENT_ID = "panel-dokumenty";
+
+function extractRoles(rawJwt: string): string[] {
+  try {
+    const payload = JSON.parse(Buffer.from(rawJwt.split(".")[1], "base64url").toString());
+    const realmRoles: string[] = payload.realm_access?.roles ?? [];
+    const clientRoles: string[] = payload.resource_access?.[PANEL_CLIENT_ID]?.roles ?? [];
+    return [...realmRoles, ...clientRoles];
+  } catch {
+    return [];
+  }
+}
 
 export const authOptions: AuthOptions = {
   providers: [
@@ -14,6 +25,7 @@ export const authOptions: AuthOptions = {
       clientId: optionalEnv("KEYCLOAK_CLIENT_ID"),
       clientSecret: optionalEnv("KEYCLOAK_CLIENT_SECRET"),
       issuer: optionalEnv("KEYCLOAK_ISSUER"),
+      client: { token_endpoint_auth_method: "client_secret_post" },
       authorization: { params: { scope: "openid profile email" } },
     }),
   ],
@@ -26,25 +38,16 @@ export const authOptions: AuthOptions = {
         token.refreshToken = account.refresh_token;
         token.idToken = account.id_token;
         token.expiresAt = Math.floor(Date.now() / 1000) + ((account.expires_in as number | undefined) ?? 300);
+        const raw = (account.access_token as string) || (account.id_token as string) || "";
+        (token as { roles?: string[] }).roles = raw ? extractRoles(raw) : [];
       }
       return token;
     },
     async session({ session, token }) {
-      const raw = (token.accessToken as string) || (token.idToken as string) || "";
-      let roles: string[] = [];
-      if (raw) {
-        try {
-          const payload = JSON.parse(Buffer.from(raw.split(".")[1], "base64url").toString());
-          const realmRoles = payload.realm_access?.roles ?? [];
-          const clientRoles = payload.resource_access?.[PANEL_CLIENT_ID]?.roles ?? [];
-          roles = [...realmRoles, ...clientRoles];
-        } catch {
-          roles = [];
-        }
-      }
-      (session as any).accessToken = token.accessToken;
-      (session.user as any).roles = roles;
-      (session.user as any).requiredRole = REQUIRED_ROLE;
+      const roles = ((token as { roles?: string[] }).roles) ?? [];
+      (session as { accessToken?: unknown }).accessToken = token.accessToken;
+      (session.user as { roles?: string[]; requiredRole?: string }).roles = roles;
+      (session.user as { roles?: string[]; requiredRole?: string }).requiredRole = REQUIRED_ROLE;
       return session;
     },
   },

@@ -1,11 +1,17 @@
 import { withAuth } from "next-auth/middleware";
 import { NextResponse } from "next/server";
 
+const REQUIRED_ROLE = "dokumenty_access";
+
 export default withAuth(
   function middleware(req) {
-    const token = req.nextauth.token;
-    if (!token || !token.accessToken) {
+    const token = req.nextauth.token as { accessToken?: string; roles?: string[] } | null;
+    if (!token?.accessToken) {
       return NextResponse.redirect(new URL("/login", req.url));
+    }
+    const roles = token.roles ?? [];
+    if (!roles.includes(REQUIRED_ROLE) && !roles.includes("admin")) {
+      return NextResponse.redirect(new URL("/forbidden", req.url));
     }
     return NextResponse.next();
   },
