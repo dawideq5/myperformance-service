@@ -1,7 +1,11 @@
 import * as forge from "node-forge";
 import { compactDecrypt, importJWK, SignJWT } from "jose";
 import { randomBytes } from "crypto";
+import { spawn } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { request as httpsRequest } from "node:https";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { URL } from "node:url";
 import { getOptionalEnv } from "@/lib/env";
 import {
@@ -142,24 +146,57 @@ function buildCsr(commonName: string, email: string, roles: PanelRole[]): { csrP
   };
 }
 
-function buildPkcs12(keyPem: string, certPem: string, caCertsPem: string[], password: string, friendlyName: string): Buffer {
-  const privateKey = forge.pki.privateKeyFromPem(keyPem);
-  const cert = forge.pki.certificateFromPem(certPem);
-  const caCerts: forge.pki.Certificate[] = [];
-  for (const pem of caCertsPem) {
-    try {
-      caCerts.push(forge.pki.certificateFromPem(pem));
-    } catch {
-      // node-forge 1.x can't parse EC certs; skip chain entries it rejects.
-      // Root CA is distributed separately via /roots.pem.
+async function buildPkcs12(
+  keyPem: string,
+  certPem: string,
+  caCertsPem: string[],
+  password: string,
+  friendlyName: string
+): Promise<Buffer> {
+  const dir = await mkdtemp(join(tmpdir(), "p12-"));
+  const keyPath = join(dir, "key.pem");
+  const certPath = join(dir, "cert.pem");
+  const caPath = join(dir, "ca.pem");
+  const outPath = join(dir, "out.p12");
+  try {
+    await writeFile(keyPath, keyPem, "utf8");
+    await writeFile(certPath, certPem, "utf8");
+    if (caCertsPem.length > 0) {
+      await writeFile(caPath, caCertsPem.join("\n"), "utf8");
     }
+    const args = [
+      "pkcs12",
+      "-export",
+      "-out", outPath,
+      "-inkey", keyPath,
+      "-in", certPath,
+      "-name", friendlyName,
+      "-passout", "env:P12_PASS",
+      "-macalg", "sha256",
+      "-certpbe", "AES-256-CBC",
+      "-keypbe", "AES-256-CBC",
+    ];
+    if (caCertsPem.length > 0) {
+      args.push("-certfile", caPath);
+    }
+    await new Promise<void>((resolve, reject) => {
+      const proc = spawn("openssl", args, {
+        env: { ...process.env, P12_PASS: password },
+      });
+      let stderr = "";
+      proc.stderr.on("data", (d: Buffer) => {
+        stderr += d.toString();
+      });
+      proc.on("error", reject);
+      proc.on("close", (code) => {
+        if (code === 0) resolve();
+        else reject(new Error(`openssl pkcs12 exit ${code}: ${stderr.trim()}`));
+      });
+    });
+    return await readFile(outPath);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
   }
-  const p12Asn1 = forge.pkcs12.toPkcs12Asn1(privateKey, [cert, ...caCerts], password, {
-    friendlyName,
-    algorithm: "3des",
-  });
-  const bytes = forge.asn1.toDer(p12Asn1).getBytes();
-  return Buffer.from(bytes, "binary");
 }
 
 export async function issueClientCertificate(
@@ -186,9 +223,17 @@ export async function issueClientCertificate(
   }
   const signed = (await signRes.json()) as { crt: string; ca: string; certChain?: string[] };
   const pkcs12Password = randomBytes(9).toString("base64url");
-  const caChain = signed.certChain && signed.certChain.length ? signed.certChain : signed.ca ? [signed.ca] : [];
+  const signedChain = signed.certChain && signed.certChain.length ? signed.certChain : signed.ca ? [signed.ca] : [];
+  let rootPem = "";
+  try {
+    rootPem = (await getRootCaPem()).trim();
+  } catch {
+    // If roots endpoint is unreachable the import still works — macOS/Windows
+    // will chain via an already-trusted root if the user installed it separately.
+  }
+  const caChain = rootPem ? [...signedChain, rootPem] : signedChain;
   const rolesLabel = input.roles.join(",");
-  const pkcs12 = buildPkcs12(keyPem, signed.crt, caChain, pkcs12Password, `${input.commonName} (${rolesLabel})`);
+  const pkcs12 = await buildPkcs12(keyPem, signed.crt, caChain, pkcs12Password, `${input.commonName} (${rolesLabel})`);
   const cert = forge.pki.certificateFromPem(signed.crt);
   const meta: IssuedCertificate = {
     id: cert.serialNumber,
