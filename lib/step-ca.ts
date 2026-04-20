@@ -97,11 +97,12 @@ function buildCsr(commonName: string, email: string, roles: PanelRole[]): { csrP
   const csr = forge.pki.createCertificationRequest();
   csr.publicKey = keypair.publicKey;
   const utf8 = forge.asn1.Type.UTF8;
+  const ia5 = forge.asn1.Type.IA5STRING;
   csr.setSubject([
     { name: "commonName", value: commonName, valueTagClass: utf8 },
     { name: "organizationName", value: "MyPerformance", valueTagClass: utf8 },
     ...roles.map((r) => ({ name: "organizationalUnitName", value: r, valueTagClass: utf8 })),
-    { name: "emailAddress", value: email },
+    { name: "emailAddress", value: email, valueTagClass: ia5 },
   ]);
   csr.setAttributes([
     {
