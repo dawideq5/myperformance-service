@@ -36,9 +36,8 @@ export const authOptions: AuthOptions = {
       if (account) {
         token.accessToken = account.access_token;
         token.refreshToken = account.refresh_token;
-        token.idToken = account.id_token;
         token.expiresAt = Math.floor(Date.now() / 1000) + ((account.expires_in as number | undefined) ?? 300);
-        const raw = (account.access_token as string) || (account.id_token as string) || "";
+        const raw = (account.access_token as string) || "";
         (token as { roles?: string[] }).roles = raw ? extractRoles(raw) : [];
       }
       return token;

@@ -7,7 +7,6 @@ import { SESSION_MAX_AGE_SECONDS } from "@/lib/constants";
 interface RefreshResult {
   accessToken: string;
   refreshToken: string;
-  idToken: string;
   expiresAt: number;
 }
 
@@ -38,7 +37,6 @@ async function refreshKeycloakToken(
       return {
         accessToken: data.access_token,
         refreshToken: data.refresh_token ?? refreshToken,
-        idToken: data.id_token,
         expiresAt: Math.floor(Date.now() / 1000) + data.expires_in,
       };
     }
@@ -132,7 +130,6 @@ function buildAuthOptions() {
         if (account) {
           token.accessToken = account.access_token;
           token.refreshToken = account.refresh_token;
-          token.idToken = account.id_token;
           token.sid = account.session_state;
           token.expiresAt =
             Math.floor(Date.now() / 1000) + (account.expires_in ?? 300);
@@ -170,7 +167,6 @@ function buildAuthOptions() {
           if (isRefreshSuccess(refreshed)) {
             token.accessToken = refreshed.accessToken;
             token.refreshToken = refreshed.refreshToken;
-            token.idToken = refreshed.idToken;
             token.expiresAt = refreshed.expiresAt;
             token.keycloakError = false;
             await hydrateTokenAttributes(token);
@@ -187,7 +183,6 @@ function buildAuthOptions() {
             );
             token.accessToken = undefined;
             token.refreshToken = undefined;
-            token.idToken = undefined;
             token.expiresAt = 0;
             token.keycloakError = true;
             return token;
@@ -210,11 +205,9 @@ function buildAuthOptions() {
         }
 
         session.accessToken = token.accessToken;
-        session.idToken = token.idToken;
         session.error = token.error;
 
-        // Extract roles from access token — no network call needed
-        const rawToken: string = token.accessToken || token.idToken || "";
+        const rawToken: string = token.accessToken || "";
         if (rawToken) {
           try {
             const payload = keycloak.decodeTokenPayload(rawToken);

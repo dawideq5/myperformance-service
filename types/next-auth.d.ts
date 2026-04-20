@@ -12,7 +12,6 @@ declare module "next-auth" {
       emailVerified?: boolean;
     };
     accessToken?: string;
-    idToken?: string;
     error?: "RefreshTokenExpired" | string;
   }
 
@@ -30,7 +29,6 @@ declare module "next-auth/jwt" {
   interface JWT {
     accessToken?: string;
     refreshToken?: string;
-    idToken?: string;
     expiresAt?: number;
     keycloakError?: boolean;
     userAttributes?: Record<string, string[]>;
