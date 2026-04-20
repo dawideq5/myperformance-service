@@ -47,9 +47,11 @@ export function MojeDokumentyClient({
             </div>
             <div className={`text-sm font-medium ${status.cls}`}>{status.label}</div>
             <div className="flex-shrink-0">
-              {doc.status === "pending" && mySigner?.status !== "completed" ? (
+              {mySigner?.status !== "completed" && doc.signUrl ? (
                 <a
-                  href={`/api/moje-dokumenty/${doc.id}/sign`}
+                  href={doc.signUrl}
+                  target="_blank"
+                  rel="noreferrer"
                   className="inline-flex items-center bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2 rounded-lg"
                 >
                   Podpisz
@@ -57,6 +59,8 @@ export function MojeDokumentyClient({
               ) : doc.downloadUrl ? (
                 <a
                   href={doc.downloadUrl}
+                  target="_blank"
+                  rel="noreferrer"
                   className="inline-flex items-center border border-slate-600 text-slate-200 hover:bg-slate-700 text-sm font-medium px-4 py-2 rounded-lg"
                 >
                   Pobierz
