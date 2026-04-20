@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
-import { resendSubmitter } from "@/lib/docuseal";
+import { resendSubmitter } from "@/lib/documenso";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

@@ -30,23 +30,23 @@ import {
   Input,
 } from "@/components/ui";
 import type {
-  DocusealDocument,
-  DocumentStats,
-} from "@/lib/docuseal";
+  DocumensoDocument,
+  DocumensoDocumentStats,
+} from "@/lib/documenso";
 
-type Filter = "all" | "pending" | "completed" | "declined" | "expired";
+type StatusFilter = "all" | "pending" | "completed" | "declined" | "expired";
 
 const STATUS_LABEL: Record<string, { label: string; tone: "neutral" | "warning" | "success" | "danger" | "info" }> = {
   pending: { label: "Do podpisu", tone: "warning" },
-  awaiting: { label: "Oczekuje", tone: "warning" },
   sent: { label: "Wysłane", tone: "info" },
   opened: { label: "Otwarte", tone: "info" },
   completed: { label: "Podpisany", tone: "success" },
   declined: { label: "Odrzucony", tone: "danger" },
   expired: { label: "Wygasł", tone: "neutral" },
+  draft: { label: "Szkic", tone: "neutral" },
 };
 
-const FILTER_LABEL: Record<Filter, string> = {
+const FILTER_LABEL: Record<StatusFilter, string> = {
   all: "Wszystkie",
   pending: "Do podpisu",
   completed: "Podpisane",
@@ -59,16 +59,16 @@ export function MojeDokumentyClient({
   initialStats,
   userEmail,
 }: {
-  initialDocuments: DocusealDocument[];
-  initialStats: DocumentStats;
+  initialDocuments: DocumensoDocument[];
+  initialStats: DocumensoDocumentStats;
   userEmail: string;
 }) {
   const [docs, setDocs] = useState(initialDocuments);
   const [stats, setStats] = useState(initialStats);
-  const [filter, setFilter] = useState<Filter>("all");
+  const [filter, setFilter] = useState<StatusFilter>("all");
   const [search, setSearch] = useState("");
   const [refreshing, setRefreshing] = useState(false);
-  const [active, setActive] = useState<DocusealDocument | null>(null);
+  const [active, setActive] = useState<DocumensoDocument | null>(null);
 
   const reload = useCallback(async () => {
     setRefreshing(true);
@@ -140,7 +140,7 @@ export function MojeDokumentyClient({
           <Filter className="w-4 h-4" aria-hidden />
           Filtr:
         </div>
-        {(Object.keys(FILTER_LABEL) as Filter[]).map((f) => (
+        {(Object.keys(FILTER_LABEL) as StatusFilter[]).map((f) => (
           <button
             key={f}
             type="button"
@@ -189,7 +189,7 @@ export function MojeDokumentyClient({
         <div className="space-y-3">
           {filtered.map((doc) => (
             <DocumentRow
-              key={doc.submitterId || doc.id}
+              key={doc.id}
               document={doc}
               onOpen={() => setActive(doc)}
             />
@@ -239,12 +239,12 @@ function DocumentRow({
   document: doc,
   onOpen,
 }: {
-  document: DocusealDocument;
+  document: DocumensoDocument;
   onOpen: () => void;
 }) {
-  const self = doc.signers.find((s) => s.self);
+  const self = doc.recipients.find((r) => r.self);
   const status = STATUS_LABEL[doc.status] ?? { label: doc.status, tone: "neutral" as const };
-  const canSign = self && self.status !== "completed" && (doc.signUrl || doc.embedSrc);
+  const canSign = self && self.status !== "completed" && !!self.signingUrl;
 
   return (
     <Card
@@ -287,10 +287,10 @@ function DocumentRow({
           {doc.completedAt ? ` · Podpisany ${formatDate(doc.completedAt)}` : ""}
           {doc.expiresAt ? ` · Termin ${formatDate(doc.expiresAt)}` : ""}
         </p>
-        {doc.signers.length > 1 ? (
+        {doc.recipients.length > 1 ? (
           <p className="text-[11px] text-[var(--text-muted)] mt-1">
-            {doc.signers.length} podpisujących ·{" "}
-            {doc.signers.filter((s) => s.status === "completed").length} podpisanych
+            {doc.recipients.length} podpisujących ·{" "}
+            {doc.recipients.filter((r) => r.status === "completed").length} podpisanych
           </p>
         ) : null}
       </div>
@@ -305,9 +305,9 @@ function DocumentRow({
           >
             Podpisz
           </Button>
-        ) : doc.status === "completed" ? (
+        ) : doc.status === "completed" && doc.downloadUrl ? (
           <a
-            href={doc.downloadUrl ?? "#"}
+            href={doc.downloadUrl}
             onClick={(e) => e.stopPropagation()}
             className="inline-flex"
           >
@@ -326,17 +326,16 @@ function SignDialog({
   onClose,
   onCompleted,
 }: {
-  document: DocusealDocument | null;
+  document: DocumensoDocument | null;
   onClose: () => void;
   onCompleted: () => void;
 }) {
-  const [confirmOpen, setConfirmOpen] = useState(false);
-
   useEffect(() => {
     function onMessage(e: MessageEvent) {
       if (typeof e.data !== "object" || !e.data) return;
-      const data = e.data as { type?: string };
-      if (data.type === "form.completed" || data.type === "form_completed") {
+      const data = e.data as { type?: string; event?: string };
+      const kind = data.type ?? data.event ?? "";
+      if (kind.includes("completed") || kind.includes("signed")) {
         onCompleted();
       }
     }
@@ -345,8 +344,9 @@ function SignDialog({
   }, [onCompleted]);
 
   if (!doc) return null;
-  const self = doc.signers.find((s) => s.self);
-  const canSign = self && self.status !== "completed" && (doc.embedSrc || doc.signUrl);
+  const self = doc.recipients.find((r) => r.self);
+  const signingUrl = self?.signingUrl;
+  const canSign = self && self.status !== "completed" && !!signingUrl;
   const status = STATUS_LABEL[doc.status] ?? { label: doc.status, tone: "neutral" as const };
 
   return (
@@ -372,8 +372,8 @@ function SignDialog({
               <Button leftIcon={<Download className="w-4 h-4" aria-hidden />}>Pobierz</Button>
             </a>
           ) : null}
-          {canSign && doc.signUrl ? (
-            <a href={doc.signUrl} target="_blank" rel="noreferrer">
+          {canSign && signingUrl ? (
+            <a href={signingUrl} target="_blank" rel="noreferrer">
               <Button variant="secondary" rightIcon={<ExternalLink className="w-4 h-4" aria-hidden />}>
                 Otwórz w nowej karcie
               </Button>
@@ -388,44 +388,45 @@ function SignDialog({
             Podpisujący
           </h4>
           <ul className="space-y-2">
-            {doc.signers.map((s) => (
+            {doc.recipients.map((r) => (
               <li
-                key={s.id}
+                key={r.id}
                 className="flex items-center justify-between gap-3 px-3 py-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-main)]/40"
               >
                 <div className="min-w-0">
                   <div className="text-sm text-[var(--text-main)] truncate">
-                    {s.name || s.email} {s.self ? <Badge tone="info">Ty</Badge> : null}
+                    {r.name || r.email} {r.self ? <Badge tone="info">Ty</Badge> : null}
                   </div>
                   <div className="text-[11px] text-[var(--text-muted)] truncate">
-                    {s.email}
-                    {s.signedAt ? ` · podpisano ${formatDate(s.signedAt)}` : ""}
+                    {r.email}
+                    {r.signedAt ? ` · podpisano ${formatDate(r.signedAt)}` : ""}
                   </div>
                 </div>
-                <Badge tone={STATUS_LABEL[s.status]?.tone ?? "neutral"}>
-                  {STATUS_LABEL[s.status]?.label ?? s.status}
+                <Badge tone={STATUS_LABEL[r.status]?.tone ?? "neutral"}>
+                  {STATUS_LABEL[r.status]?.label ?? r.status}
                 </Badge>
               </li>
             ))}
           </ul>
         </div>
 
-        {canSign && (doc.embedSrc || doc.signUrl) ? (
+        {canSign && signingUrl ? (
           <div>
             <h4 className="text-xs uppercase text-[var(--text-muted)] tracking-wider mb-2">
               Podpis
             </h4>
             <div className="rounded-xl overflow-hidden border border-[var(--border-subtle)] bg-white">
               <iframe
-                src={doc.embedSrc || doc.signUrl}
+                src={signingUrl}
                 title={`Podpis: ${doc.name}`}
-                className="w-full h-[500px]"
+                className="w-full h-[600px]"
                 allow="clipboard-write; fullscreen"
               />
             </div>
-            <p className="text-[11px] text-[var(--text-muted)] mt-2">
-              Po zakończeniu podpisu dokument odświeży się automatycznie.
-            </p>
+            <Alert tone="info" className="mt-3 text-xs">
+              Jeśli formularz nie ładuje się poprawnie, użyj przycisku „Otwórz w nowej karcie”.
+              Po podpisaniu strona odświeży się automatycznie.
+            </Alert>
           </div>
         ) : null}
 
@@ -440,12 +441,6 @@ function SignDialog({
           </a>
         ) : null}
       </div>
-
-      {confirmOpen ? (
-        <Alert tone="info" className="mt-3">
-          Dokument w trakcie przetwarzania…
-        </Alert>
-      ) : null}
     </Dialog>
   );
 }

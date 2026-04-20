@@ -8,7 +8,7 @@ Reference docker-compose files and Docker build contexts for every self-hosted s
 | --- | --- | --- |
 | `keycloak/realm.json` | Baseline `MyPerformance` realm export (clients, roles, identity providers). | Manual import into Keycloak admin once per env. |
 | `keycloak/Dockerfile` | Custom Keycloak 26.6.1 image with the Keycloakify theme baked in (replaces the runtime `theme-fetcher` pattern). | Build via Coolify Application (Dockerfile build pack) against this repo subpath. |
-| `docuseal/docker-compose.yml` | Docuseal + Postgres sidecar. Subdomain `sign.myperformance.pl`. | Coolify Service. |
+| `documenso/docker-compose.yml` | Documenso + Postgres sidecar, self-signed signing cert auto-provisioned on volume. Keycloak OIDC SSO + webhook signing envs. Subdomain `sign.myperformance.pl`. | Coolify Service. |
 | `chatwoot/docker-compose.yml` | Chatwoot (Rails + Sidekiq) + Postgres (pgvector) + Redis. Subdomain `chat.myperformance.pl`. | Coolify Service. |
 | `listmonk/docker-compose.yml` | Listmonk transactional + newsletter sender (+ Postgres sidecar). Subdomain `mail.myperformance.pl`. Replaces the earlier Plunk service, which redirected to the OVHcloud placeholder whenever `APP_URI` drifted from the public FQDN. | Coolify Service. |
 | `step-ca/docker-compose.yml` | Smallstep step-ca — internal CA that issues browser client certificates for cert-gated panels. Subdomain `ca.myperformance.pl`. | Coolify Service. |

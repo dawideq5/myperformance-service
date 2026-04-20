@@ -620,6 +620,37 @@
       "fullScopeAllowed": true,
       "defaultClientScopes": ["web-origins", "acr", "profile", "roles", "basic", "email"],
       "optionalClientScopes": ["offline_access", "phone", "address", "microprofile-jwt"]
+    },
+    {
+      "clientId": "documenso",
+      "name": "Documenso",
+      "description": "Documenso e-signing platform (OIDC SSO for sign.myperformance.pl)",
+      "rootUrl": "https://sign.myperformance.pl",
+      "baseUrl": "/",
+      "adminUrl": "https://sign.myperformance.pl",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${DOCUMENSO_CLIENT_SECRET}",
+      "redirectUris": [
+        "https://sign.myperformance.pl/api/auth/callback/oidc",
+        "https://sign.myperformance.pl/*"
+      ],
+      "webOrigins": ["+"],
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "publicClient": false,
+      "frontchannelLogout": true,
+      "protocol": "openid-connect",
+      "attributes": {
+        "post.logout.redirect.uris": "https://sign.myperformance.pl/*",
+        "pkce.code.challenge.method": "S256",
+        "backchannel.logout.session.required": "true"
+      },
+      "fullScopeAllowed": true,
+      "defaultClientScopes": ["web-origins", "acr", "profile", "roles", "basic", "email"],
+      "optionalClientScopes": ["offline_access", "phone", "address", "microprofile-jwt"]
     }
   ],
 

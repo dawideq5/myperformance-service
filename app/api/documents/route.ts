@@ -1,7 +1,7 @@
 import { getServerSession } from "next-auth/next";
 import { NextResponse } from "next/server";
 import { authOptions } from "@/app/auth";
-import { computeDocumentStats, listSubmissionsForEmail } from "@/lib/docuseal";
+import { computeDocumensoStats, listDocumentsForEmail } from "@/lib/documenso";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,8 +12,8 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const documents = await listSubmissionsForEmail(session.user.email);
-  const stats = computeDocumentStats(documents);
+  const documents = await listDocumentsForEmail(session.user.email);
+  const stats = computeDocumensoStats(documents);
 
   return NextResponse.json({ documents, stats });
 }

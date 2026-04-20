@@ -42,10 +42,10 @@ import {
   type TabItem,
 } from "@/components/ui";
 import type {
-  DocusealSubmissionSummary,
-  DocusealTemplateSummary,
+  DocumensoSubmissionSummary,
+  DocumensoTemplateSummary,
   SubmissionStats,
-} from "@/lib/docuseal";
+} from "@/lib/documenso";
 
 type Tab = "overview" | "send" | "templates" | "submissions" | "people" | "settings";
 
@@ -66,14 +66,14 @@ export function ObiegClient({
   initialSubmissions,
   initialStats,
   configured,
-  docusealUrl,
+  documensoUrl,
   isAdmin,
 }: {
-  initialTemplates: DocusealTemplateSummary[];
-  initialSubmissions: DocusealSubmissionSummary[];
+  initialTemplates: DocumensoTemplateSummary[];
+  initialSubmissions: DocumensoSubmissionSummary[];
   initialStats: SubmissionStats;
   configured: boolean;
-  docusealUrl: string | null;
+  documensoUrl: string | null;
   isAdmin: boolean;
 }) {
   const [tab, setTab] = useState<Tab>("overview");
@@ -210,7 +210,7 @@ export function ObiegClient({
           stats={stats}
           submissions={submissions}
           templates={templates}
-          docusealUrl={docusealUrl}
+          documensoUrl={documensoUrl}
           onJumpSend={() => setTab("send")}
           onJumpSubmissions={() => setTab("submissions")}
         />
@@ -221,6 +221,7 @@ export function ObiegClient({
           people={people}
           onRefreshPeople={refreshPeople}
           disabled={!configured}
+          documensoUrl={documensoUrl}
           onNotice={setNotice}
           onSent={() => {
             setTab("submissions");
@@ -239,7 +240,7 @@ export function ObiegClient({
       {tab === "submissions" && (
         <SubmissionsTab
           submissions={submissions}
-          docusealUrl={docusealUrl}
+          documensoUrl={documensoUrl}
           disabled={!configured}
           onChanged={() => void reload()}
           onNotice={setNotice}
@@ -286,14 +287,14 @@ function OverviewTab({
   stats,
   submissions,
   templates,
-  docusealUrl,
+  documensoUrl,
   onJumpSend,
   onJumpSubmissions,
 }: {
   stats: SubmissionStats;
-  submissions: DocusealSubmissionSummary[];
-  templates: DocusealTemplateSummary[];
-  docusealUrl: string | null;
+  submissions: DocumensoSubmissionSummary[];
+  templates: DocumensoTemplateSummary[];
+  documensoUrl: string | null;
   onJumpSend: () => void;
   onJumpSubmissions: () => void;
 }) {
@@ -371,17 +372,17 @@ function OverviewTab({
             >
               Wyślij dokument
             </Button>
-            {docusealUrl ? (
-              <a href={docusealUrl} target="_blank" rel="noreferrer" className="block">
+            {documensoUrl ? (
+              <a href={documensoUrl} target="_blank" rel="noreferrer" className="block">
                 <Button variant="secondary" className="w-full" rightIcon={<ArrowUpRight className="w-4 h-4" />}>
-                  Otwórz Docuseal
+                  Otwórz Documenso
                 </Button>
               </a>
             ) : null}
             <div className="text-xs text-slate-500 pt-2 border-t border-slate-800 mt-3">
-              <div>Adres webhooku Docuseal:</div>
+              <div>Adres webhooku Documenso:</div>
               <code className="text-slate-300 text-[11px] break-all">
-                {typeof window !== "undefined" ? `${window.location.origin}/api/webhooks/docuseal` : "/api/webhooks/docuseal"}
+                {typeof window !== "undefined" ? `${window.location.origin}/api/webhooks/documenso` : "/api/webhooks/documenso"}
               </code>
             </div>
           </div>
@@ -396,20 +397,19 @@ function SendTab({
   people,
   onRefreshPeople,
   disabled,
+  documensoUrl,
   onNotice,
   onSent,
 }: {
-  templates: DocusealTemplateSummary[];
+  templates: DocumensoTemplateSummary[];
   people: EmployeeRow[];
   onRefreshPeople: () => Promise<void>;
   disabled: boolean;
+  documensoUrl: string | null;
   onNotice: (n: { tone: "success" | "error" | "info"; msg: string }) => void;
   onSent: () => void;
 }) {
   const [mode, setMode] = useState<"existing" | "upload">("existing");
-  const [file, setFile] = useState<File | null>(null);
-  const [templateName, setTemplateName] = useState("");
-  const [uploadBusy, setUploadBusy] = useState(false);
 
   const [templateId, setTemplateId] = useState<number | "">("");
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -441,30 +441,6 @@ function SendTab({
       next.has(email) ? next.delete(email) : next.add(email);
       return next;
     });
-
-  async function upload(e: React.FormEvent) {
-    e.preventDefault();
-    if (!file) return;
-    setUploadBusy(true);
-    try {
-      const b64 = await fileToBase64(file);
-      const res = await fetch("/api/templates", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: templateName || file.name, pdfBase64: b64 }),
-      });
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `HTTP ${res.status}`);
-      const data = await res.json();
-      window.open(data.editUrl, "_blank");
-      onNotice({ tone: "success", msg: "Szablon utworzony — oznacz pola w otwartej karcie Docuseal, następnie wróć tutaj." });
-      setFile(null);
-      setTemplateName("");
-    } catch (err) {
-      onNotice({ tone: "error", msg: err instanceof Error ? err.message : "Upload failed" });
-    } finally {
-      setUploadBusy(false);
-    }
-  }
 
   async function send(e: React.FormEvent) {
     e.preventDefault();
@@ -561,33 +537,30 @@ function SendTab({
               ))}
             </Select>
           ) : (
-            <form onSubmit={upload} className="space-y-3">
-              <Input
-                value={templateName}
-                onChange={(e) => setTemplateName(e.target.value)}
-                placeholder="Nazwa szablonu (opcjonalnie)"
-              />
-              <input
-                type="file"
-                accept="application/pdf"
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                required
-                className="w-full text-sm text-slate-300 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-brand-600 file:text-white file:font-medium"
-              />
-              <Button
-                type="submit"
-                variant="primary"
-                className="w-full"
-                loading={uploadBusy}
-                disabled={disabled || !file}
-                leftIcon={<Upload className="w-4 h-4" />}
-              >
-                Prześlij i oznacz pola
-              </Button>
-              <p className="text-xs text-slate-500">
-                Otworzymy edytor Docuseal w nowej karcie — oznacz pola do podpisu, zapisz, wróć tutaj i odśwież (Realtime zrobi to automatycznie).
+            <div className="space-y-3">
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Tworzenie nowego szablonu z PDF odbywa się w panelu Documenso.
+                Po wgraniu pliku i oznaczeniu pól zapisz szablon — pojawi się tu
+                automatycznie (Realtime aktywny).
               </p>
-            </form>
+              <a
+                href={documensoUrl ? `${documensoUrl}/templates` : "#"}
+                target="_blank"
+                rel="noreferrer"
+                className={documensoUrl ? "block" : "pointer-events-none opacity-50"}
+              >
+                <Button
+                  type="button"
+                  variant="primary"
+                  className="w-full"
+                  disabled={disabled || !documensoUrl}
+                  leftIcon={<Upload className="w-4 h-4" />}
+                  rightIcon={<ArrowUpRight className="w-3.5 h-3.5" />}
+                >
+                  Otwórz Documenso → Templates
+                </Button>
+              </a>
+            </div>
           )}
         </Card>
 
@@ -736,7 +709,7 @@ function TemplatesTab({
   onChanged,
   onNotice,
 }: {
-  templates: DocusealTemplateSummary[];
+  templates: DocumensoTemplateSummary[];
   disabled: boolean;
   onChanged: () => void;
   onNotice: (n: { tone: "success" | "error" | "info"; msg: string }) => void;
@@ -762,7 +735,7 @@ function TemplatesTab({
   }
 
   async function archive(id: number) {
-    if (!window.confirm("Usunąć szablon z Docuseal?")) return;
+    if (!window.confirm("Usunąć szablon z Documenso?")) return;
     setBusy(id);
     try {
       const res = await fetch(`/api/templates/${id}`, { method: "DELETE" });
@@ -834,20 +807,20 @@ function TemplatesTab({
 
 function SubmissionsTab({
   submissions,
-  docusealUrl,
+  documensoUrl,
   disabled,
   onChanged,
   onNotice,
 }: {
-  submissions: DocusealSubmissionSummary[];
-  docusealUrl: string | null;
+  submissions: DocumensoSubmissionSummary[];
+  documensoUrl: string | null;
   disabled: boolean;
   onChanged: () => void;
   onNotice: (n: { tone: "success" | "error" | "info"; msg: string }) => void;
 }) {
   const [filter, setFilter] = useState<"all" | "pending" | "completed" | "declined" | "expired">("all");
   const [search, setSearch] = useState("");
-  const [active, setActive] = useState<DocusealSubmissionSummary | null>(null);
+  const [active, setActive] = useState<DocumensoSubmissionSummary | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
@@ -999,13 +972,13 @@ function SubmissionsTab({
                             <Mail className="w-4 h-4" />
                           </button>
                         )}
-                        {docusealUrl ? (
+                        {documensoUrl ? (
                           <a
-                            href={`${docusealUrl}/submissions/${s.id}`}
+                            href={`${documensoUrl}/submissions/${s.id}`}
                             target="_blank"
                             rel="noreferrer"
                             className="inline-flex items-center p-2 rounded-lg text-slate-300 hover:bg-slate-700"
-                            title="Otwórz w Docuseal"
+                            title="Otwórz w Documenso"
                           >
                             <ArrowUpRight className="w-4 h-4" />
                           </a>
@@ -1033,7 +1006,7 @@ function SubmissionsTab({
         submission={active}
         onClose={() => setActive(null)}
         onResend={resend}
-        docusealUrl={docusealUrl}
+        documensoUrl={documensoUrl}
       />
     </div>
   );
@@ -1174,7 +1147,7 @@ function SettingsTab({
       setHooks(data.webhooks ?? []);
       setSecretConfigured(!!data.secretConfigured);
       if (typeof window !== "undefined") {
-        setDraftUrl(`${window.location.origin}/api/webhooks/docuseal`);
+        setDraftUrl(`${window.location.origin}/api/webhooks/documenso`);
       }
     } finally {
       setLoading(false);
@@ -1194,19 +1167,18 @@ function SettingsTab({
         body: JSON.stringify({
           url: draftUrl,
           events: [
-            "submission.created",
-            "submission.completed",
-            "submission.declined",
-            "submission.expired",
-            "form.completed",
-            "form.declined",
-            "form.viewed",
-            "form.started",
+            "DOCUMENT_CREATED",
+            "DOCUMENT_SENT",
+            "DOCUMENT_OPENED",
+            "DOCUMENT_SIGNED",
+            "DOCUMENT_COMPLETED",
+            "DOCUMENT_REJECTED",
+            "DOCUMENT_CANCELLED",
           ],
         }),
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `HTTP ${res.status}`);
-      onNotice({ tone: "success", msg: "Webhook zapisany w Docuseal." });
+      onNotice({ tone: "success", msg: "Webhook zapisany w Documenso." });
       void load();
     } catch (err) {
       onNotice({ tone: "error", msg: err instanceof Error ? err.message : "Save failed" });
@@ -1233,14 +1205,14 @@ function SettingsTab({
     <div className="space-y-5 max-w-3xl">
       <Card padding="md">
         <h2 className="text-sm font-semibold text-slate-100 mb-3 flex items-center gap-2">
-          <Settings className="w-4 h-4" /> Webhooki Docuseal
+          <Settings className="w-4 h-4" /> Webhooki Documenso
         </h2>
         <div className="text-xs text-slate-400 mb-4 space-y-1">
           <p>Dzięki webhookom panel odbiera zdarzenia (podpisane, odrzucone, wygasłe) w czasie rzeczywistym.</p>
           <p>
             HMAC signing key:{" "}
             {secretConfigured ? (
-              <Badge tone="success">Skonfigurowany (DOCUSEAL_WEBHOOK_SECRET)</Badge>
+              <Badge tone="success">Skonfigurowany (DOCUMENSO_WEBHOOK_SECRET)</Badge>
             ) : (
               <Badge tone="warning">Brak — webhook bez weryfikacji</Badge>
             )}
@@ -1251,11 +1223,11 @@ function SettingsTab({
           <Input
             value={draftUrl}
             onChange={(e) => setDraftUrl(e.target.value)}
-            placeholder="https://dokumenty.myperformance.pl/api/webhooks/docuseal"
+            placeholder="https://dokumenty.myperformance.pl/api/webhooks/documenso"
             leftIcon={<Copy className="w-4 h-4" />}
           />
           <Button onClick={() => void save()} loading={busy}>
-            Zapisz w Docuseal
+            Zapisz w Documenso
           </Button>
         </div>
 
@@ -1300,12 +1272,12 @@ function SubmissionDetailDialog({
   submission,
   onClose,
   onResend,
-  docusealUrl,
+  documensoUrl,
 }: {
-  submission: DocusealSubmissionSummary | null;
+  submission: DocumensoSubmissionSummary | null;
   onClose: () => void;
   onResend: (subId: number) => Promise<void>;
-  docusealUrl: string | null;
+  documensoUrl: string | null;
 }) {
   if (!submission) return null;
   return (
@@ -1336,10 +1308,10 @@ function SubmissionDetailDialog({
               </Button>
             </a>
           ) : null}
-          {docusealUrl ? (
-            <a href={`${docusealUrl}/submissions/${submission.id}`} target="_blank" rel="noreferrer">
+          {documensoUrl ? (
+            <a href={`${documensoUrl}/submissions/${submission.id}`} target="_blank" rel="noreferrer">
               <Button variant="secondary" rightIcon={<ArrowUpRight className="w-4 h-4" />}>
-                Docuseal
+                Documenso
               </Button>
             </a>
           ) : null}
@@ -1460,18 +1432,6 @@ function PresenceDot({ online }: { online: boolean }) {
       }`}
     />
   );
-}
-
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const s = reader.result as string;
-      resolve(s.split(",")[1] ?? s);
-    };
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
 }
 
 function formatRelative(iso: string): string {

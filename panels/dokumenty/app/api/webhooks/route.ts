@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
-import { deleteWebhook, listWebhooks, upsertWebhook } from "@/lib/docuseal";
+import { deleteWebhook, listWebhooks, upsertWebhook } from "@/lib/documenso";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,8 +20,8 @@ export async function GET() {
   const webhooks = await listWebhooks();
   return NextResponse.json({
     webhooks,
-    recommendedUrl: "(DEPLOY_URL)/api/webhooks/docuseal",
-    secretConfigured: !!process.env.DOCUSEAL_WEBHOOK_SECRET,
+    recommendedUrl: "(DEPLOY_URL)/api/webhooks/documenso",
+    secretConfigured: !!process.env.DOCUMENSO_WEBHOOK_SECRET,
   });
 }
 
@@ -53,8 +53,8 @@ export async function DELETE(req: Request) {
   const auth = await guard();
   if (!auth.ok) return NextResponse.json({ error: "Forbidden" }, { status: auth.status });
   const url = new URL(req.url);
-  const id = Number(url.searchParams.get("id"));
-  if (!Number.isFinite(id)) return NextResponse.json({ error: "id required" }, { status: 400 });
+  const id = url.searchParams.get("id");
+  if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
   try {
     await deleteWebhook(id);
     return NextResponse.json({ ok: true });

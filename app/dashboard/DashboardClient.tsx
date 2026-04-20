@@ -277,7 +277,7 @@ function TileGrid({ onOpenCalendar }: { onOpenCalendar: () => void }) {
           }
           iconBg="bg-purple-500/10"
           title="Moje dokumenty"
-          description="Dokumenty do podpisu i podpisane (Docuseal)"
+          description="Dokumenty do podpisu i podpisane (Documenso)"
           onClick={() => {
             window.location.href = "/dashboard/moje-dokumenty";
           }}
@@ -327,7 +327,7 @@ function TileGrid({ onOpenCalendar }: { onOpenCalendar: () => void }) {
             icon={<Folder className="w-7 h-7 text-indigo-500" aria-hidden="true" />}
             iconBg="bg-indigo-500/10"
             title="Obieg dokumentów"
-            description="Workflow dokumentów firmowych (Docuseal)"
+            description="Workflow dokumentów firmowych (Documenso)"
             href="https://dokumenty.myperformance.pl"
           />
         )}
@@ -335,7 +335,7 @@ function TileGrid({ onOpenCalendar }: { onOpenCalendar: () => void }) {
           <ExternalTile
             icon={<FileSignature className="w-7 h-7 text-fuchsia-500" aria-hidden="true" />}
             iconBg="bg-fuchsia-500/10"
-            title="Docuseal"
+            title="Documenso"
             description="Elektroniczne podpisy i szablony dokumentów"
             href="https://sign.myperformance.pl"
           />

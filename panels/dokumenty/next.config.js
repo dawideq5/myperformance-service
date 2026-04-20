@@ -11,13 +11,13 @@ const keycloakOrigin = originOf(
   process.env.KEYCLOAK_ISSUER?.trim() ||
   ""
 );
-const docusealOrigin = originOf(
-  process.env.DOCUSEAL_URL?.trim() ||
-  process.env.NEXT_PUBLIC_DOCUSEAL_URL?.trim() ||
+const documensoOrigin = originOf(
+  process.env.DOCUMENSO_URL?.trim() ||
+  process.env.NEXT_PUBLIC_DOCUMENSO_URL?.trim() ||
   ""
 );
 const kc = keycloakOrigin ? ` ${keycloakOrigin}` : "";
-const ds = docusealOrigin ? ` ${docusealOrigin}` : "";
+const ds = documensoOrigin ? ` ${documensoOrigin}` : "";
 const scriptSrc = isDev ? "'self' 'unsafe-inline' 'unsafe-eval'" : "'self' 'unsafe-inline'";
 
 const securityHeaders = [

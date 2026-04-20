@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
-import { archiveSubmission, getSubmission } from "@/lib/docuseal";
+import { archiveSubmission, getSubmission } from "@/lib/documenso";
 import { broadcast } from "@/lib/events";
 
 export const runtime = "nodejs";

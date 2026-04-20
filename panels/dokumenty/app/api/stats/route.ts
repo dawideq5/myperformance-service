@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
-import { computeStats, listSubmissions } from "@/lib/docuseal";
+import { computeStats, listSubmissions } from "@/lib/documenso";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

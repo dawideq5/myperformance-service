@@ -12,15 +12,15 @@ const keycloakOrigin = (() => {
   try { return new URL(url).origin; } catch { return null; }
 })();
 
-const docusealOrigin = (() => {
-  const url = process.env.DOCUSEAL_URL?.trim() ||
-    process.env.NEXT_PUBLIC_DOCUSEAL_URL?.trim();
+const documensoOrigin = (() => {
+  const url = process.env.DOCUMENSO_URL?.trim() ||
+    process.env.NEXT_PUBLIC_DOCUMENSO_URL?.trim();
   if (!url) return null;
   try { return new URL(url).origin; } catch { return null; }
 })();
 
 const keycloakCspSrc = keycloakOrigin ? ` ${keycloakOrigin}` : "";
-const docusealCspSrc = docusealOrigin ? ` ${docusealOrigin}` : "";
+const documensoCspSrc = documensoOrigin ? ` ${documensoOrigin}` : "";
 
 const scriptSrc = isDev
   ? "'self' 'unsafe-inline' 'unsafe-eval'"
@@ -49,12 +49,12 @@ const securityHeaders = [
     key: "Content-Security-Policy",
     value: [
       "default-src 'self'",
-      `connect-src 'self'${keycloakCspSrc}${docusealCspSrc} https://nominatim.openstreetmap.org https://www.googleapis.com`,
+      `connect-src 'self'${keycloakCspSrc}${documensoCspSrc} https://nominatim.openstreetmap.org https://www.googleapis.com`,
       `script-src ${scriptSrc}`,
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob:",
       "font-src 'self' data:",
-      `frame-src 'self'${keycloakCspSrc}${docusealCspSrc}`,
+      `frame-src 'self'${keycloakCspSrc}${documensoCspSrc}`,
       `form-action 'self'${keycloakCspSrc}`,
       "frame-ancestors 'none'",
       "base-uri 'self'",

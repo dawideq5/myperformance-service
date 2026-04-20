@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
-import { getSubmissionDocuments, proxyFetch } from "@/lib/docuseal";
+import { getSubmissionDocuments, proxyFetch } from "@/lib/documenso";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

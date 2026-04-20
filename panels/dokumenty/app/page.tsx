@@ -7,7 +7,7 @@ import {
   isConfigured,
   listSubmissions,
   listTemplates,
-} from "@/lib/docuseal";
+} from "@/lib/documenso";
 import { AppHeader } from "@/components/AppHeader";
 import { Alert } from "@/components/ui";
 import { ObiegClient } from "./ObiegClient";
@@ -57,9 +57,9 @@ export default async function HomePage() {
       {!configured ? (
         <div className="mb-5">
           <Alert tone="warning">
-            Docuseal jeszcze niepodłączony. Ustaw <code>DOCUSEAL_URL</code> oraz{" "}
-            <code>DOCUSEAL_API_KEY</code> w Coolify dla tej aplikacji, aby móc
-            przesyłać szablony.
+            Documenso jeszcze niepodłączony. Ustaw <code>DOCUMENSO_URL</code> oraz{" "}
+            <code>DOCUMENSO_API_KEY</code> w Coolify dla tej aplikacji, aby móc
+            wysyłać dokumenty do podpisu.
           </Alert>
         </div>
       ) : null}
@@ -69,7 +69,7 @@ export default async function HomePage() {
         initialSubmissions={submissions}
         initialStats={stats}
         configured={configured}
-        docusealUrl={getBaseUrl()}
+        documensoUrl={getBaseUrl()}
         isAdmin={isAdmin}
       />
     </main>
