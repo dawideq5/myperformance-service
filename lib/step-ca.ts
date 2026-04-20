@@ -309,14 +309,58 @@ export async function getCaStatus(): Promise<CaStatus> {
 }
 
 type AuditEvent = { ts: string; actor: string; action: string; subject?: string; ok: boolean; error?: string };
-const AUDIT_RING: AuditEvent[] = [];
-const AUDIT_MAX = 200;
 
-export function auditLog(ev: AuditEvent): void {
-  AUDIT_RING.push(ev);
-  if (AUDIT_RING.length > AUDIT_MAX) AUDIT_RING.shift();
+function getAuditPath(): string {
+  return getOptionalEnv("AUDIT_LOG_PATH", "/data/audit.log");
 }
 
-export function getAuditTail(n = 50): AuditEvent[] {
-  return AUDIT_RING.slice(-n).reverse();
+export function auditLog(ev: AuditEvent): void {
+  const path = getAuditPath();
+  const line = JSON.stringify(ev) + "\n";
+  fs.mkdir(dirname(path), { recursive: true })
+    .then(() => fs.appendFile(path, line, "utf8"))
+    .catch((err) => {
+      console.error("[audit] append failed:", err instanceof Error ? err.message : err);
+    });
+}
+
+async function tailLines(path: string, maxLines: number): Promise<string[]> {
+  let fh: Awaited<ReturnType<typeof fs.open>>;
+  try {
+    fh = await fs.open(path, "r");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw err;
+  }
+  try {
+    const { size } = await fh.stat();
+    const CHUNK = 8192;
+    let position = size;
+    let collected = "";
+    const linesNeeded = maxLines + 1;
+    while (position > 0 && collected.split("\n").length <= linesNeeded) {
+      const readSize = Math.min(CHUNK, position);
+      position -= readSize;
+      const buf = Buffer.alloc(readSize);
+      await fh.read(buf, 0, readSize, position);
+      collected = buf.toString("utf8") + collected;
+    }
+    const lines = collected.split("\n").filter((l) => l.length > 0);
+    return lines.slice(-maxLines);
+  } finally {
+    await fh.close();
+  }
+}
+
+export async function getAuditTail(n = 50): Promise<AuditEvent[]> {
+  const lines = await tailLines(getAuditPath(), n);
+  const events: AuditEvent[] = [];
+  for (const line of lines) {
+    try {
+      events.push(JSON.parse(line) as AuditEvent);
+    } catch {
+      // skip malformed
+    }
+  }
+  return events.reverse();
 }
