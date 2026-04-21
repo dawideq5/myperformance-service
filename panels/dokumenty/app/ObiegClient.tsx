@@ -341,7 +341,13 @@ function OverviewTab({
             </Button>
           </div>
           {recent.length === 0 ? (
-            <p className="text-sm text-slate-500 py-8 text-center">Brak wysyłek.</p>
+            <div className="py-10 text-center">
+              <FileSignature className="mx-auto h-10 w-10 text-slate-700 mb-3" />
+              <p className="text-sm text-slate-400 mb-3">Brak wysyłek. Czas wysłać pierwszy dokument.</p>
+              <Button size="sm" leftIcon={<Send className="w-4 h-4" />} onClick={onJumpSend}>
+                Wyślij pierwszy dokument
+              </Button>
+            </div>
           ) : (
             <ul className="divide-y divide-slate-800">
               {recent.map((s) => (
@@ -380,7 +386,22 @@ function OverviewTab({
               </a>
             ) : null}
             <div className="text-xs text-slate-500 pt-2 border-t border-slate-800 mt-3">
-              <div>Adres webhooku Documenso:</div>
+              <div className="flex items-center justify-between mb-1">
+                <span>Adres webhooku Documenso</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const url = typeof window !== "undefined"
+                      ? `${window.location.origin}/api/webhooks/documenso`
+                      : "/api/webhooks/documenso";
+                    void navigator.clipboard?.writeText(url);
+                  }}
+                  className="text-brand-400 hover:text-brand-300 inline-flex items-center gap-1"
+                  title="Skopiuj URL"
+                >
+                  <Copy className="w-3 h-3" /> kopiuj
+                </button>
+              </div>
               <code className="text-slate-300 text-[11px] break-all">
                 {typeof window !== "undefined" ? `${window.location.origin}/api/webhooks/documenso` : "/api/webhooks/documenso"}
               </code>
