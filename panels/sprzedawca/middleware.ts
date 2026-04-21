@@ -8,6 +8,7 @@ import {
 const REQUIRED_ROLE = "sprzedawca";
 const GATE_URL = process.env.CERT_GATE_URL ?? "";
 const GATE_SECRET = process.env.CERT_GATE_SECRET ?? "";
+const GATE_DEBUG = process.env.CERT_GATE_DEBUG === "1";
 
 async function verifyDeviceBinding(req: Request): Promise<{
   ok: boolean;
@@ -15,6 +16,21 @@ async function verifyDeviceBinding(req: Request): Promise<{
 }> {
   if (!GATE_URL || !GATE_SECRET) return { ok: true };
   const serial = extractCertSerial(req.headers);
+  if (GATE_DEBUG) {
+    const info = req.headers.get("x-forwarded-tls-client-cert-info");
+    const pem = req.headers.get("x-forwarded-tls-client-cert");
+    console.log(
+      JSON.stringify({
+        gate: "sprzedawca",
+        path: new URL(req.url).pathname,
+        hasInfo: !!info,
+        infoSample: info?.slice(0, 200),
+        hasPem: !!pem,
+        pemLen: pem?.length ?? 0,
+        serial,
+      }),
+    );
+  }
   if (!serial) return { ok: true };
   const components = extractFingerprintComponents(req.headers);
   try {
@@ -31,6 +47,11 @@ async function verifyDeviceBinding(req: Request): Promise<{
           req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? undefined,
       }),
     });
+    if (GATE_DEBUG) {
+      console.log(
+        JSON.stringify({ gate: "sprzedawca", step: "response", status: res.status }),
+      );
+    }
     if (res.ok) return { ok: true };
     if (res.status === 403) {
       const data = (await res.json().catch(() => ({}))) as { reason?: string };
@@ -39,9 +60,17 @@ async function verifyDeviceBinding(req: Request): Promise<{
         reason: data.reason ?? "Urządzenie zmieniło konfigurację.",
       };
     }
-    // Gate errors should not lock users out on transient failures.
     return { ok: true };
-  } catch {
+  } catch (err) {
+    if (GATE_DEBUG) {
+      console.error(
+        JSON.stringify({
+          gate: "sprzedawca",
+          step: "fetch-error",
+          err: err instanceof Error ? err.message : String(err),
+        }),
+      );
+    }
     return { ok: true };
   }
 }
