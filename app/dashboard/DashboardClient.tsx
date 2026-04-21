@@ -441,7 +441,7 @@ function TileGrid({ onOpenCalendar }: { onOpenCalendar: () => void }) {
             iconBg="bg-pink-500/10"
             title="Postal"
             description="Serwer pocztowy — transakcyjne i newslettery"
-            href="https://newsletter.myperformance.pl"
+            href="https://postal.myperformance.pl"
           />
         )}
 

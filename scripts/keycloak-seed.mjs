@@ -154,10 +154,10 @@ const CLIENTS = [
   {
     clientId: "postal", name: "Postal",
     publicClient: false, standardFlow: true,
-    rootUrl: "https://newsletter.myperformance.pl",
-    redirectUris: ["https://newsletter.myperformance.pl/*"],
-    webOrigins: ["+"],
-    description: "Postal — serwer pocztowy (transakcyjne + newslettery)",
+    rootUrl: "https://postal.myperformance.pl",
+    redirectUris: ["https://postal.myperformance.pl/auth/oidc/callback"],
+    webOrigins: ["https://postal.myperformance.pl"],
+    description: "Postal — serwer pocztowy (transakcyjne + newslettery); natywny OIDC /auth/oidc/callback",
   },
   {
     clientId: "stepca-oidc", name: "step-ca (OIDC provisioner)",
@@ -339,8 +339,12 @@ async function ensureClient(token, c) {
   const existing = (await list.json()) || [];
   const payload = buildClientPayload(c);
 
+  let id;
+  let created = false;
+  let secret = null;
+
   if (existing.length > 0) {
-    const id = existing[0].id;
+    id = existing[0].id;
     // Preserve existing secret by copying over — Keycloak discards secret
     // unless you set "secret" explicitly, and we don't want to rotate it.
     await kc(`/clients/${id}`, token, {
@@ -348,25 +352,64 @@ async function ensureClient(token, c) {
       body: JSON.stringify({ ...existing[0], ...payload }),
     });
     console.log(`[client] updated ${c.clientId}`);
-    return { id, created: false, secret: null };
+  } else {
+    const create = await kc("/clients", token, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    if (!create.ok) {
+      throw new Error(`create client ${c.clientId} → ${create.status} ${await create.text()}`);
+    }
+    const location = create.headers.get("location") || "";
+    id = location.split("/").pop();
+    created = true;
+    if (!payload.publicClient && !payload.bearerOnly) {
+      const sec = await kc(`/clients/${id}/client-secret`, token);
+      if (sec.ok) secret = (await sec.json()).value;
+    }
+    console.log(`[client] created ${c.clientId}${secret ? " (secret captured)" : ""}`);
   }
 
-  const create = await kc("/clients", token, {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-  if (!create.ok) {
-    throw new Error(`create client ${c.clientId} → ${create.status} ${await create.text()}`);
+  await ensureAudienceMappers(token, id, c);
+
+  return { id, created, secret };
+}
+
+// oauth2-proxy and similar gateways require the client_id in token `aud`.
+// Keycloak by default only populates aud with [account realm-management broker],
+// so we explicitly create audience mappers for clients that need it.
+async function ensureAudienceMappers(token, clientId, c) {
+  const wanted = c.audienceMappers || [];
+  if (wanted.length === 0) return;
+  const listRes = await kc(`/clients/${clientId}/protocol-mappers/models`, token);
+  const current = listRes.ok ? await listRes.json() : [];
+  const existingAud = new Set(
+    current
+      .filter((m) => m.protocolMapper === "oidc-audience-mapper")
+      .map((m) => m.config?.["included.client.audience"])
+      .filter(Boolean),
+  );
+  for (const aud of wanted) {
+    if (existingAud.has(aud)) continue;
+    const create = await kc(`/clients/${clientId}/protocol-mappers/models`, token, {
+      method: "POST",
+      body: JSON.stringify({
+        name: `aud-${aud}`,
+        protocol: "openid-connect",
+        protocolMapper: "oidc-audience-mapper",
+        config: {
+          "included.client.audience": aud,
+          "included.custom.audience": "",
+          "id.token.claim": "false",
+          "access.token.claim": "true",
+        },
+      }),
+    });
+    if (!create.ok) {
+      throw new Error(`audience mapper ${aud} → ${create.status} ${await create.text()}`);
+    }
+    console.log(`[client] ${c.clientId}: added audience mapper aud=${aud}`);
   }
-  const location = create.headers.get("location") || "";
-  const id = location.split("/").pop();
-  let secret = null;
-  if (!payload.publicClient && !payload.bearerOnly) {
-    const sec = await kc(`/clients/${id}/client-secret`, token);
-    if (sec.ok) secret = (await sec.json()).value;
-  }
-  console.log(`[client] created ${c.clientId}${secret ? " (secret captured)" : ""}`);
-  return { id, created: true, secret };
 }
 
 // ---------------------------------------------------------------------------

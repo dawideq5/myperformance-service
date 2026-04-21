@@ -1,24 +1,23 @@
 services:
-  # Generates /config/postal.yml from env vars on every boot (idempotent).
-  # Separate container so the main services can depend on healthcheck
-  # `service_completed_successfully`. Uses the same image as postal to avoid
-  # pulling an extra base layer.
+  # Writes /config/postal.yml from Coolify-managed secrets on every boot.
+  # alpine+root avoids perm issues and chmods /config so Postal can drop
+  # signing.key etc on first run. Exits 0; main services wait via
+  # service_completed_successfully.
   config-init:
-    image: 'ghcr.io/postalserver/postal:3.3.5'
+    image: 'alpine:3.19'
+    user: '0:0'
     entrypoint: ['/bin/sh', '-c']
     command:
       - |
         set -eu
         mkdir -p /config
-        if [ ! -f /config/signing.key ]; then
-          openssl genrsa -out /config/signing.key 2048
-        fi
+        chmod 0777 /config
         cat > /config/postal.yml <<EOF
         version: 2
         postal:
-          web_hostname: ${POSTAL_WEB_HOSTNAME:-newsletter.myperformance.pl}
+          web_hostname: ${POSTAL_WEB_HOSTNAME:-postal.myperformance.pl}
           web_protocol: https
-          smtp_hostname: ${POSTAL_SMTP_HOSTNAME:-newsletter.myperformance.pl}
+          smtp_hostname: ${POSTAL_SMTP_HOSTNAME:-postal.myperformance.pl}
         main_db:
           host: mariadb
           port: 3306
@@ -35,28 +34,44 @@ services:
           default_bind_address: "0.0.0.0"
         dns:
           mx_records:
-            - mx.${POSTAL_WEB_HOSTNAME:-newsletter.myperformance.pl}
-          spf_include: spf.${POSTAL_WEB_HOSTNAME:-newsletter.myperformance.pl}
-          return_path_domain: rp.${POSTAL_WEB_HOSTNAME:-newsletter.myperformance.pl}
-          route_domain: routes.${POSTAL_WEB_HOSTNAME:-newsletter.myperformance.pl}
-          track_domain: track.${POSTAL_WEB_HOSTNAME:-newsletter.myperformance.pl}
+            - mx.${POSTAL_WEB_HOSTNAME:-postal.myperformance.pl}
+          spf_include: spf.${POSTAL_WEB_HOSTNAME:-postal.myperformance.pl}
+          return_path_domain: rp.${POSTAL_WEB_HOSTNAME:-postal.myperformance.pl}
+          route_domain: routes.${POSTAL_WEB_HOSTNAME:-postal.myperformance.pl}
+          track_domain: track.${POSTAL_WEB_HOSTNAME:-postal.myperformance.pl}
         smtp:
           host: 127.0.0.1
           port: 2525
           from_name: Postal
-          from_address: newsletter@${POSTAL_WEB_HOSTNAME:-newsletter.myperformance.pl}
+          from_address: no-reply@${POSTAL_WEB_HOSTNAME:-postal.myperformance.pl}
         rails:
           secret_key: ${SERVICE_BASE64_128_RAILSSECRET}
         web_server:
           default_bind_address: 0.0.0.0
           default_port: 5000
+        oidc:
+          enabled: true
+          local_authentication_enabled: false
+          name: MyPerformance SSO
+          issuer: https://auth.myperformance.pl/realms/MyPerformance
+          identifier: postal
+          secret: ${POSTAL_OIDC_CLIENT_SECRET}
+          scopes:
+            - openid
+            - email
+            - profile
+          uid_field: sub
+          email_address_field: email
+          name_field: name
         EOF
+        chmod 0666 /config/postal.yml
         echo "[config-init] wrote /config/postal.yml"
     environment:
-      - 'POSTAL_WEB_HOSTNAME=${POSTAL_WEB_HOSTNAME:-newsletter.myperformance.pl}'
-      - 'POSTAL_SMTP_HOSTNAME=${POSTAL_SMTP_HOSTNAME:-newsletter.myperformance.pl}'
+      - 'POSTAL_WEB_HOSTNAME=${POSTAL_WEB_HOSTNAME:-postal.myperformance.pl}'
+      - 'POSTAL_SMTP_HOSTNAME=${POSTAL_SMTP_HOSTNAME:-postal.myperformance.pl}'
       - 'SERVICE_PASSWORD_MARIADB=${SERVICE_PASSWORD_MARIADB}'
       - 'SERVICE_BASE64_128_RAILSSECRET=${SERVICE_BASE64_128_RAILSSECRET}'
+      - 'POSTAL_OIDC_CLIENT_SECRET=${POSTAL_OIDC_CLIENT_SECRET}'
     volumes:
       - 'postal-config:/config'
     restart: 'no'
@@ -82,8 +97,7 @@ services:
       retries: 12
       start_period: 60s
 
-  # One-shot migrator. Postal is a Rails app; `postal initialize` creates/updates
-  # both main_db and message_db schemas. Safe to re-run.
+  # One-shot migrator. `postal initialize` creates/updates main_db + message_db schemas.
   migrator:
     image: 'ghcr.io/postalserver/postal:3.3.5'
     command: ['postal', 'initialize']
@@ -96,18 +110,27 @@ services:
       - 'postal-config:/config'
     restart: 'no'
 
+  # Postal web-server. Service is named `web` because Coolify's FQDN binding
+  # (postal.myperformance.pl → web:5000) was established under this name;
+  # renaming loses the public hostname binding. Postal's native OIDC handles
+  # SSO directly — no oauth2-proxy sidecar needed.
   web:
     image: 'ghcr.io/postalserver/postal:3.3.5'
     command: ['postal', 'web-server']
-    environment:
-      - SERVICE_FQDN_POSTAL_5000=newsletter.myperformance.pl
     depends_on:
       migrator:
         condition: service_completed_successfully
     volumes:
       - 'postal-config:/config'
+    expose:
+      - '5000'
     healthcheck:
-      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:5000/login >/dev/null 2>&1 || exit 1']
+      # Postal enforces Host header (Rails `web_hostname` check). With OIDC
+      # enabled + local_auth disabled, `/login` returns 200 (OIDC button page)
+      # when reached with proper Host + x-forwarded-proto headers.
+      test:
+        - 'CMD-SHELL'
+        - 'curl -fs -H "Host: postal.myperformance.pl" -H "x-forwarded-proto: https" http://127.0.0.1:5000/login >/dev/null 2>&1 || exit 1'
       interval: 15s
       timeout: 10s
       retries: 12
