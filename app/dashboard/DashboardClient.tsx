@@ -399,7 +399,7 @@ function TileGrid({ onOpenCalendar }: { onOpenCalendar: () => void }) {
           <ExternalTile
             icon={<FileSignature className="w-7 h-7 text-purple-500" aria-hidden="true" />}
             iconBg="bg-purple-500/10"
-            title="Moje dokumenty"
+            title="Documenso - użytkownik"
             description="Twoje dokumenty do podpisu i już podpisane (Documenso)"
             href="https://sign.myperformance.pl"
           />
@@ -409,7 +409,7 @@ function TileGrid({ onOpenCalendar }: { onOpenCalendar: () => void }) {
           <ExternalTile
             icon={<FileSignature className="w-7 h-7 text-fuchsia-500" aria-hidden="true" />}
             iconBg="bg-fuchsia-500/10"
-            title="Documenso — administracja"
+            title="Documenso - administrator"
             description="Szablony, webhooki, użytkownicy (SSO)"
             href="https://sign.myperformance.pl/admin"
           />
@@ -430,7 +430,7 @@ function TileGrid({ onOpenCalendar }: { onOpenCalendar: () => void }) {
           <ExternalTile
             icon={<MessageSquare className="w-7 h-7 text-cyan-500" aria-hidden="true" />}
             iconBg="bg-cyan-500/10"
-            title="Chatwoot — administracja"
+            title="Chatwoot - administrator"
             description="Konfiguracja, użytkownicy, webhooki (SSO)"
             href="/api/chatwoot/sso"
             sameTab

@@ -1,16 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useSession } from "next-auth/react";
 import {
   LogOut,
   Settings,
-  Shield,
   User as UserIcon,
 } from "lucide-react";
 import { Button, PageHeader } from "@/components/ui";
 import { useAuthRedirect } from "@/hooks/useAuthRedirect";
-import { canAccessAdminPanel } from "@/lib/admin-auth";
 
 export interface AppHeaderProps {
   userLabel?: string;
@@ -24,9 +21,6 @@ export function AppHeader({
   showAccountLink = true,
 }: AppHeaderProps) {
   const { fullLogout } = useAuthRedirect();
-  const { data: session } = useSession();
-
-  const showUsers = canAccessAdminPanel(session);
 
   return (
     <PageHeader
@@ -57,16 +51,6 @@ export function AppHeader({
                 )}
               </div>
             </div>
-          )}
-          {showUsers && (
-            <Link
-              href="/admin/users"
-              aria-label="Panel administratora — użytkownicy"
-              title="Zarządzanie użytkownikami"
-              className="p-2.5 rounded-xl text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-card)] transition-colors"
-            >
-              <Shield className="w-5 h-5" aria-hidden="true" />
-            </Link>
           )}
           {showAccountLink && (
             <Link
