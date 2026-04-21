@@ -55,8 +55,9 @@ async function getAdminToken() {
     console.error("[kc-delete] Provide KEYCLOAK_ADMIN_USER/PASSWORD or KEYCLOAK_ADMIN_CLIENT_ID/SECRET");
     process.exit(2);
   }
+  const adminRealm = process.env.KEYCLOAK_ADMIN_REALM || "master";
   const res = await fetch(
-    `${KEYCLOAK_URL}/realms/master/protocol/openid-connect/token`,
+    `${KEYCLOAK_URL}/realms/${adminRealm}/protocol/openid-connect/token`,
     { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: params },
   );
   if (!res.ok) throw new Error(`admin token: ${res.status} ${await res.text()}`);

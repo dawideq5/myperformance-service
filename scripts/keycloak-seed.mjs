@@ -188,8 +188,11 @@ async function getAdminToken() {
   const user = process.env.KEYCLOAK_ADMIN_USER;
   const password = process.env.KEYCLOAK_ADMIN_PASSWORD;
 
-  // master realm token endpoint — admin user is defined there
-  const url = `${KEYCLOAK_URL}/realms/master/protocol/openid-connect/token`;
+  // Admin token realm — domyślnie `master` (bootstrap admin user),
+  // ale service-account z realm-management w docelowym realmie też zadziała
+  // (ustaw KEYCLOAK_ADMIN_REALM=MyPerformance).
+  const adminRealm = process.env.KEYCLOAK_ADMIN_REALM || "master";
+  const url = `${KEYCLOAK_URL}/realms/${adminRealm}/protocol/openid-connect/token`;
 
   const params = new URLSearchParams();
   if (clientId && clientSecret) {
