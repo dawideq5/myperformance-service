@@ -77,6 +77,22 @@ async function verifyDeviceBinding(req: Request): Promise<{
 
 export default withAuth(
   async function middleware(req) {
+    if (GATE_DEBUG) {
+      const info = req.headers.get("x-forwarded-tls-client-cert-info");
+      const pem = req.headers.get("x-forwarded-tls-client-cert");
+      console.log(
+        JSON.stringify({
+          gate: "sprzedawca",
+          phase: "pre-auth",
+          path: new URL(req.url).pathname,
+          hasInfo: !!info,
+          infoLen: info?.length ?? 0,
+          infoSample: info?.slice(0, 300),
+          hasPem: !!pem,
+          pemLen: pem?.length ?? 0,
+        }),
+      );
+    }
     const token = req.nextauth.token as { accessToken?: string; roles?: string[] } | null;
     if (!token?.accessToken) {
       return NextResponse.redirect(new URL("/login", req.url));
