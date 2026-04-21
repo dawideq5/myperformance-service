@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getOptionalEnv } from "@/lib/env";
 import {
+  canonicalSerial,
   diffFingerprints,
   extractFingerprintComponents,
   FINGERPRINT_FIELD_LABELS,
@@ -55,12 +56,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { serial, components, ip } = body;
-  if (!serial || !components) {
+  const { serial: rawSerial, components, ip } = body;
+  if (!rawSerial || !components) {
     return NextResponse.json(
       { error: "Missing serial or components" },
       { status: 400 },
     );
+  }
+  const serial = canonicalSerial(rawSerial);
+  if (!serial) {
+    return NextResponse.json({ error: "Invalid serial" }, { status: 400 });
   }
 
   // Normalise + rehash server-side (defensive — never trust client hash).

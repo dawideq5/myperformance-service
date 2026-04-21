@@ -31,34 +31,28 @@ export function extractFingerprintComponents(
 /**
  * Extract the cert serial number forwarded by Traefik.
  *
- * Traefik `passTLSClientCert` renders the info header as a semicolon-delimited
- * list of `key=value` pairs. Values may be:
- *   - quoted:  `SerialNumber="1234ABCD"` (common in info form)
- *   - bare:    `SerialNumber=1234ABCD`   (older versions)
- *   - URL-encoded on newer Traefik releases
+ * Traefik renders `x-forwarded-tls-client-cert-info` as a URL-encoded,
+ * semicolon-delimited list of `key="value"` pairs — SerialNumber is given
+ * in **decimal** (`SerialNumber="235460867430995380638798850057639372510"`).
+ * node-forge (dashboard) parses `cert.serialNumber` as **hex**, so we
+ * normalise to lowercase hex without padding on both sides.
  *
- * Fallback chain:
- *   1. Parse SerialNumber out of `x-forwarded-tls-client-cert-info`.
- *   2. If missing, try extracting it from the raw PEM in
- *      `x-forwarded-tls-client-cert` by locating the cert's DER serial bytes.
- *
- * Returns a lowercase hex string without separators (step-ca uses decimal
- * serials, so do one more layer of normalization at the comparison site).
+ * Fallback chain: info header → raw PEM DER serial.
  */
 export function extractCertSerial(headers: Headers): string | null {
   const info = headers.get("x-forwarded-tls-client-cert-info");
   if (info) {
     const decoded = safeDecode(info);
     const quoted = decoded.match(/SerialNumber\s*=\s*"([^"]+)"/i);
-    if (quoted) return normaliseSerial(quoted[1]);
+    if (quoted) return canonicalSerial(quoted[1]);
     const bare = decoded.match(/SerialNumber\s*=\s*([A-Za-z0-9:_-]+)/i);
-    if (bare) return normaliseSerial(bare[1]);
+    if (bare) return canonicalSerial(bare[1]);
   }
 
   const pem = headers.get("x-forwarded-tls-client-cert");
   if (pem) {
     const serial = serialFromPem(safeDecode(pem));
-    if (serial) return serial;
+    if (serial) return canonicalSerial(serial);
   }
 
   return null;
@@ -72,8 +66,22 @@ function safeDecode(value: string): string {
   }
 }
 
-function normaliseSerial(raw: string): string {
-  return raw.trim().replace(/[:\s]/g, "").toLowerCase();
+/**
+ * Canonicalise a serial string to lowercase hex digits only, stripping
+ * separators (`:`, whitespace, `_`, `-`). Decimal inputs are converted via
+ * BigInt → toString(16). Anything already hex stays hex.
+ */
+export function canonicalSerial(raw: string): string {
+  const cleaned = raw.trim().replace(/[\s:_-]/g, "");
+  if (!cleaned) return "";
+  if (/^[0-9]+$/.test(cleaned) && cleaned.length > 0) {
+    try {
+      return BigInt(cleaned).toString(16).toLowerCase();
+    } catch {
+      return cleaned.toLowerCase();
+    }
+  }
+  return cleaned.toLowerCase();
 }
 
 /**
@@ -91,26 +99,23 @@ function serialFromPem(pem: string): string | null {
       .replace(/\s+/g, "");
     const bytes = Uint8Array.from(atob(normalised), (c) => c.charCodeAt(0));
 
-    // DER: SEQUENCE (Cert) → SEQUENCE (TBSCertificate) → [0] version (optional) →
-    //                         INTEGER (serialNumber)
     let offset = 0;
-    if (bytes[offset++] !== 0x30) return null; // outer SEQUENCE
+    if (bytes[offset++] !== 0x30) return null;
     offset += skipLength(bytes, offset);
-    if (bytes[offset++] !== 0x30) return null; // TBSCertificate SEQUENCE
+    if (bytes[offset++] !== 0x30) return null;
     offset += skipLength(bytes, offset);
-    // Optional version tag [0] EXPLICIT
     if (bytes[offset] === 0xa0) {
       offset += 1;
       const len = readLength(bytes, offset);
       offset += len.header + len.value;
     }
-    if (bytes[offset++] !== 0x02) return null; // serialNumber INTEGER
+    if (bytes[offset++] !== 0x02) return null;
     const serialLen = readLength(bytes, offset);
     offset += serialLen.header;
     const serialBytes = bytes.slice(offset, offset + serialLen.value);
     let hex = "";
     for (const b of serialBytes) hex += b.toString(16).padStart(2, "0");
-    return normaliseSerial(hex);
+    return hex;
   } catch {
     return null;
   }

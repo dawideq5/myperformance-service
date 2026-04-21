@@ -119,3 +119,26 @@ export const FINGERPRINT_FIELD_LABELS: Record<
   acceptLanguage: "Preferowany język",
   mobile: "Tryb mobilny",
 };
+
+/**
+ * Canonicalise any certificate serial-number representation to lowercase
+ * hex digits. Accepts:
+ *   - hex with colons / dashes / whitespace (`B1:24:1D…`)
+ *   - plain hex (`B1241D10…`)
+ *   - decimal strings from Traefik (`235460867430995380…`)
+ * step-ca + node-forge expose hex by default; Traefik emits decimal. The
+ * binding DB keeps this canonical form so both sides always match.
+ */
+export function canonicalSerial(raw: string | null | undefined): string {
+  if (!raw) return "";
+  const cleaned = String(raw).trim().replace(/[\s:_-]/g, "");
+  if (!cleaned) return "";
+  if (/^[0-9]+$/.test(cleaned)) {
+    try {
+      return BigInt(cleaned).toString(16).toLowerCase();
+    } catch {
+      return cleaned.toLowerCase();
+    }
+  }
+  return cleaned.toLowerCase();
+}
