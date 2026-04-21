@@ -246,11 +246,17 @@ export async function issueClientCertificate(
 ): Promise<{ pkcs12: Buffer; pkcs12Password: string; meta: IssuedCertificate }> {
   const provisioner = await fetchProvisioner();
   const jwk = await decryptProvisionerKey(provisioner.encryptedKey, getProvisionerPassword());
+  // step-ca drives cert SANs from the OTT `sans` list. Only IA5-safe values
+  // belong here — the email SAN is ASCII by construction, but the human CN
+  // may contain Polish diacritics (ł, ą, …) which step-ca then refuses with
+  // `"Dawid Pałuska" cannot be encoded as an IA5String`. The CN still lives
+  // in the CSR subject where UTF8String encoding is legal; no need to echo
+  // it in SAN.
   const ott = await signOttToken({
     provisioner,
     jwk,
     subject: input.commonName,
-    sans: [input.email, input.commonName],
+    sans: [input.email],
   });
   const { csrPem, keyPem } = await buildCsr(input.commonName, input.email, input.roles);
   const ttlHours = (input.ttlDays ?? 365) * 24;

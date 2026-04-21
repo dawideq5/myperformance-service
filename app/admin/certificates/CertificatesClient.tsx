@@ -516,6 +516,7 @@ function CertRow({
   const [binding, setBinding] = useState<DeviceBinding | null>(null);
   const [bindingError, setBindingError] = useState<string | null>(null);
   const [bindingLoading, setBindingLoading] = useState(false);
+  const [bindingLoaded, setBindingLoaded] = useState(false);
   const [resetting, setResetting] = useState(false);
 
   const loadBinding = useCallback(async () => {
@@ -537,6 +538,7 @@ function CertRow({
       }
       const data = await res.json();
       setBinding((data.binding as DeviceBinding) ?? null);
+      setBindingLoaded(true);
     } catch (err) {
       setBindingError(
         err instanceof Error ? err.message : "Nie udało się pobrać powiązania",
@@ -546,11 +548,13 @@ function CertRow({
     }
   }, [cert.id]);
 
+  // Load binding once per expand; `bindingLoaded` breaks the loop when the
+  // server legitimately returns { binding: null } (cert not yet used).
   useEffect(() => {
-    if (expanded && !binding && !bindingLoading && !bindingError) {
+    if (expanded && !bindingLoaded && !bindingLoading && !bindingError) {
       void loadBinding();
     }
-  }, [expanded, binding, bindingLoading, bindingError, loadBinding]);
+  }, [expanded, bindingLoaded, bindingLoading, bindingError, loadBinding]);
 
   async function resetBinding() {
     if (
@@ -568,6 +572,7 @@ function CertRow({
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setBinding(null);
+      setBindingLoaded(true);
     } catch (err) {
       setBindingError(
         err instanceof Error ? err.message : "Nie udało się zresetować",
