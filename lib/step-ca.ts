@@ -111,39 +111,81 @@ async function signRevokeToken(params: { provisioner: Provisioner; jwk: Record<s
     .sign(key);
 }
 
-function buildCsr(commonName: string, email: string, roles: PanelRole[]): { csrPem: string; keyPem: string } {
-  const keypair = forge.pki.rsa.generateKeyPair({ bits: 2048 });
-  const csr = forge.pki.createCertificationRequest();
-  csr.publicKey = keypair.publicKey;
-  const utf8 = forge.asn1.Type.UTF8 as unknown as forge.asn1.Class;
-  const ia5 = forge.asn1.Type.IA5STRING as unknown as forge.asn1.Class;
-  csr.setSubject([
-    { name: "commonName", value: commonName, valueTagClass: utf8 },
-    { name: "organizationName", value: "MyPerformance", valueTagClass: utf8 },
-    ...roles.map((r) => ({ name: "organizationalUnitName", value: r, valueTagClass: utf8 })),
-    { name: "emailAddress", value: email, valueTagClass: ia5 },
-  ]);
-  csr.setAttributes([
-    {
-      name: "extensionRequest",
-      extensions: [
-        {
-          name: "subjectAltName",
-          altNames: [
-            { type: 1, value: email },
-            { type: 2, value: commonName },
-          ],
-        },
-        { name: "keyUsage", digitalSignature: true, keyEncipherment: true, critical: true },
-        { name: "extKeyUsage", clientAuth: true },
-      ],
-    },
-  ]);
-  csr.sign(keypair.privateKey, forge.md.sha256.create());
-  return {
-    csrPem: forge.pki.certificationRequestToPem(csr),
-    keyPem: forge.pki.privateKeyToPem(keypair.privateKey),
-  };
+/**
+ * Escape a value for use inside an OpenSSL `-subj` string.
+ * Slashes separate RDNs, backslash escapes within an RDN.
+ */
+function escapeSubjValue(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/\//g, "\\/");
+}
+
+/**
+ * Build a CSR via OpenSSL (child process). node-forge's CSR signer produces
+ * a signature that step-ca rejects with "crypto/rsa: verification error"
+ * whenever the subject contains non-ASCII bytes (Polish diacritics, etc.) —
+ * node-forge re-encodes UTF8String fields between sign-time and serialize-
+ * time, so the on-disk encoding no longer matches what was signed. OpenSSL
+ * writes a canonical DER form once and hands back both key + CSR in PEM.
+ */
+async function buildCsr(
+  commonName: string,
+  email: string,
+  roles: PanelRole[],
+): Promise<{ csrPem: string; keyPem: string }> {
+  const dir = await mkdtemp(join(tmpdir(), "csr-"));
+  const keyPath = join(dir, "key.pem");
+  const csrPath = join(dir, "csr.pem");
+  try {
+    await runOpenssl(["genrsa", "-out", keyPath, "2048"]);
+    const subjectParts = [
+      `CN=${escapeSubjValue(commonName)}`,
+      `O=${escapeSubjValue("MyPerformance")}`,
+      ...roles.map((r) => `OU=${escapeSubjValue(r)}`),
+      `emailAddress=${escapeSubjValue(email)}`,
+    ];
+    const subj = "/" + subjectParts.join("/");
+    await runOpenssl([
+      "req",
+      "-new",
+      "-utf8",
+      "-key",
+      keyPath,
+      "-out",
+      csrPath,
+      "-subj",
+      subj,
+      "-addext",
+      `subjectAltName = email:${email}`,
+      "-addext",
+      "keyUsage = critical, digitalSignature, keyEncipherment",
+      "-addext",
+      "extendedKeyUsage = clientAuth",
+    ]);
+    const [csrPem, keyPem] = await Promise.all([
+      readFile(csrPath, "utf8"),
+      readFile(keyPath, "utf8"),
+    ]);
+    return { csrPem, keyPem };
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+function runOpenssl(args: string[], stdinEnv?: Record<string, string>): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const proc = spawn("openssl", args, {
+      env: { ...process.env, ...(stdinEnv ?? {}) },
+    });
+    let stderr = "";
+    proc.stderr.on("data", (d: Buffer) => {
+      stderr += d.toString();
+    });
+    proc.on("error", reject);
+    proc.on("close", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`openssl ${args[0]} exit ${code}: ${stderr.trim()}`));
+    });
+  });
 }
 
 async function buildPkcs12(
@@ -210,7 +252,7 @@ export async function issueClientCertificate(
     subject: input.commonName,
     sans: [input.email, input.commonName],
   });
-  const { csrPem, keyPem } = buildCsr(input.commonName, input.email, input.roles);
+  const { csrPem, keyPem } = await buildCsr(input.commonName, input.email, input.roles);
   const ttlHours = (input.ttlDays ?? 365) * 24;
   const signRes = await fetch(`${getBaseUrl()}/1.0/sign`, {
     method: "POST",

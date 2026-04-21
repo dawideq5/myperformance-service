@@ -74,10 +74,11 @@ export function CertificatesClient({ initialCerts }: { initialCerts: IssuedCerti
 
   const refreshAll = useCallback(async () => {
     try {
+      const init = { credentials: "same-origin" as const, cache: "no-store" as const };
       const [s, a, c] = await Promise.all([
-        fetch("/api/admin/certificates/ca-status").then((r) => r.json()),
-        fetch("/api/admin/certificates/audit").then((r) => r.json()),
-        fetch("/api/admin/certificates").then((r) => r.json()),
+        fetch("/api/admin/certificates/ca-status", init).then((r) => r.json()),
+        fetch("/api/admin/certificates/audit", init).then((r) => r.json()),
+        fetch("/api/admin/certificates", init).then((r) => r.json()),
       ]);
       setCaStatus(s);
       setAudit(a.events ?? []);
@@ -523,8 +524,17 @@ function CertRow({
     try {
       const res = await fetch(
         `/api/admin/certificates/${encodeURIComponent(cert.id)}/binding`,
+        { credentials: "same-origin", cache: "no-store" },
       );
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        const msg =
+          res.status === 401
+            ? "Sesja wygasła — zaloguj się ponownie."
+            : res.status === 403
+              ? "Brak uprawnień do tej operacji."
+              : `HTTP ${res.status}`;
+        throw new Error(msg);
+      }
       const data = await res.json();
       setBinding((data.binding as DeviceBinding) ?? null);
     } catch (err) {
@@ -554,7 +564,7 @@ function CertRow({
     try {
       const res = await fetch(
         `/api/admin/certificates/${encodeURIComponent(cert.id)}/binding`,
-        { method: "DELETE" },
+        { method: "DELETE", credentials: "same-origin", cache: "no-store" },
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setBinding(null);
