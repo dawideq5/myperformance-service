@@ -4,27 +4,55 @@ const path = require("path");
 
 const isDev = process.env.NODE_ENV === "development";
 
-// Derive Keycloak origin for CSP (allow loading resources from auth server)
-const keycloakOrigin = (() => {
-  const url = process.env.NEXT_PUBLIC_KEYCLOAK_URL?.trim() ||
-    process.env.KEYCLOAK_URL?.trim();
-  if (!url) return null;
-  try { return new URL(url).origin; } catch { return null; }
-})();
+// Derive external origins that must be reachable from the browser. All other
+// third-party calls (Google APIs, Nominatim, Documenso API, Chatwoot Platform
+// API, …) are proxied through our own /api/* routes and stay inside 'self'.
+function originOf(...candidates) {
+  for (const raw of candidates) {
+    const value = raw?.trim();
+    if (!value) continue;
+    try {
+      return new URL(value).origin;
+    } catch {
+      /* fall through */
+    }
+  }
+  return null;
+}
 
-const documensoOrigin = (() => {
-  const url = process.env.DOCUMENSO_URL?.trim() ||
-    process.env.NEXT_PUBLIC_DOCUMENSO_URL?.trim();
-  if (!url) return null;
-  try { return new URL(url).origin; } catch { return null; }
-})();
+const keycloakOrigin = originOf(
+  process.env.NEXT_PUBLIC_KEYCLOAK_URL,
+  process.env.KEYCLOAK_URL,
+);
+const documensoOrigin = originOf(
+  process.env.NEXT_PUBLIC_DOCUMENSO_URL,
+  process.env.DOCUMENSO_URL,
+);
 
-const keycloakCspSrc = keycloakOrigin ? ` ${keycloakOrigin}` : "";
-const documensoCspSrc = documensoOrigin ? ` ${documensoOrigin}` : "";
+const externalOrigins = [keycloakOrigin, documensoOrigin].filter(Boolean);
+const externalSrc = externalOrigins.length ? ` ${externalOrigins.join(" ")}` : "";
 
 const scriptSrc = isDev
   ? "'self' 'unsafe-inline' 'unsafe-eval'"
-  : "'self' 'unsafe-inline'";
+  : "'self' 'unsafe-inline'"; // TODO: migrate to per-request nonces
+
+const cspDirectives = [
+  "default-src 'self'",
+  `script-src ${scriptSrc}`,
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "font-src 'self' data:",
+  `connect-src 'self'${externalSrc}`,
+  `frame-src 'self'${externalSrc}`,
+  `form-action 'self'${keycloakOrigin ? ` ${keycloakOrigin}` : ""}`,
+  "frame-ancestors 'none'",
+  "worker-src 'self' blob:",
+  "manifest-src 'self'",
+  "media-src 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+];
+if (!isDev) cspDirectives.push("upgrade-insecure-requests");
 
 const securityHeaders = [
   { key: "X-Frame-Options", value: "DENY" },
@@ -41,26 +69,12 @@ const securityHeaders = [
       "geolocation=()",
       "payment=()",
       "usb=()",
+      "interest-cohort=()",
       "publickey-credentials-get=(self)",
       "publickey-credentials-create=(self)",
     ].join(", "),
   },
-  {
-    key: "Content-Security-Policy",
-    value: [
-      "default-src 'self'",
-      `connect-src 'self'${keycloakCspSrc}${documensoCspSrc} https://nominatim.openstreetmap.org https://www.googleapis.com`,
-      `script-src ${scriptSrc}`,
-      "style-src 'self' 'unsafe-inline'",
-      "img-src 'self' data: blob:",
-      "font-src 'self' data:",
-      `frame-src 'self'${keycloakCspSrc}${documensoCspSrc}`,
-      `form-action 'self'${keycloakCspSrc}`,
-      "frame-ancestors 'none'",
-      "base-uri 'self'",
-      "object-src 'none'",
-    ].join("; "),
-  },
+  { key: "Content-Security-Policy", value: cspDirectives.join("; ") },
   ...(!isDev
     ? [
         {
@@ -74,6 +88,9 @@ const securityHeaders = [
 const nextConfig = {
   reactStrictMode: true,
   output: "standalone",
+  poweredByHeader: false,
+  compress: true,
+  productionBrowserSourceMaps: false,
   webpack(config) {
     config.resolve = config.resolve || {};
     config.resolve.alias = {
@@ -87,6 +104,12 @@ const nextConfig = {
       {
         source: "/(.*)",
         headers: securityHeaders,
+      },
+      {
+        source: "/api/(.*)",
+        headers: [
+          { key: "Cache-Control", value: "no-store" },
+        ],
       },
     ];
   },

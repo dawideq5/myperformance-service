@@ -4,8 +4,11 @@ import { createHash } from "crypto";
 import { DEFAULT_KEYCLOAK_REALM } from "@/lib/keycloak-constants";
 import { trimSlash } from "@/lib/utils";
 import { MIDDLEWARE_USERINFO_CACHE_TTL_MS } from "@/lib/constants";
+import { log } from "@/lib/logger";
 
 export const runtime = "nodejs";
+
+const logger = log.child({ module: "middleware" });
 
 const userinfoCache = new Map<string, { valid: boolean; expiresAt: number }>();
 
@@ -190,7 +193,7 @@ export default withAuth(
     try {
       const issuer = getIssuerForMiddleware();
       if (!issuer) {
-        console.warn("[middleware] Missing Keycloak issuer configuration");
+        logger.warn("missing keycloak issuer configuration");
         return NextResponse.redirect(
           new URL("/login?error=Configuration", req.url)
         );
@@ -198,7 +201,10 @@ export default withAuth(
 
       const userInfoResponse = await fetch(
         `${issuer}/protocol/openid-connect/userinfo`,
-        { headers: { Authorization: `Bearer ${accessToken}` } }
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          signal: AbortSignal.timeout(5_000),
+        },
       );
 
       const valid = userInfoResponse.ok;
@@ -208,14 +214,17 @@ export default withAuth(
       });
 
       if (!valid) {
-        console.warn("[middleware] Keycloak session invalid (userinfo failed)");
+        logger.warn("keycloak session invalid", {
+          status: userInfoResponse.status,
+          pathname,
+        });
         if (isApi) {
           return NextResponse.json({ error: "SessionExpired" }, { status: 401 });
         }
         return NextResponse.redirect(new URL("/api/auth/logout", req.url));
       }
-    } catch (e) {
-      console.error("[middleware] Keycloak userinfo check failed", e);
+    } catch (err) {
+      logger.error("keycloak userinfo check failed", { err, pathname });
     }
 
     return NextResponse.next();

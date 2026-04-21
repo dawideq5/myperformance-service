@@ -10,6 +10,8 @@ declare module "next-auth" {
       roles?: string[];
       attributes?: Record<string, string[]>;
       emailVerified?: boolean;
+      sid?: string;
+      session_id?: string;
     };
     accessToken?: string;
     error?: "RefreshTokenExpired" | string;
@@ -34,5 +36,6 @@ declare module "next-auth/jwt" {
     userAttributes?: Record<string, string[]>;
     emailVerified?: boolean;
     sid?: string;
+    error?: string;
   }
 }

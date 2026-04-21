@@ -3,23 +3,27 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-https://myperformance.pl}
+        NEXT_PUBLIC_KEYCLOAK_URL: ${NEXT_PUBLIC_KEYCLOAK_URL:-https://auth.myperformance.pl}
+        NEXT_PUBLIC_KEYCLOAK_REALM: ${NEXT_PUBLIC_KEYCLOAK_REALM:-MyPerformance}
+        NEXT_PUBLIC_APP_VERSION: ${NEXT_PUBLIC_APP_VERSION:-dev}
     container_name: myperformance_dashboard
     restart: always
+    env_file:
+      - .env
     environment:
-      - NEXTAUTH_URL=https://myperformance.pl
-      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
-      - KEYCLOAK_URL=https://auth.myperformance.pl
-      - KEYCLOAK_REALM=MyPerformance
-      - KEYCLOAK_CLIENT_ID=myperformance-dashboard
-      - KEYCLOAK_CLIENT_SECRET=${KEYCLOAK_CLIENT_SECRET}
-      - KEYCLOAK_SERVICE_CLIENT_ID=myperformance-service
-      - KEYCLOAK_SERVICE_CLIENT_SECRET=${KEYCLOAK_SERVICE_CLIENT_SECRET}
-      - KEYCLOAK_WEBHOOK_SECRET=${KEYCLOAK_WEBHOOK_SECRET}
-      - GOOGLE_IDP_CLIENT_ID=${GOOGLE_IDP_CLIENT_ID}
-      - GOOGLE_IDP_CLIENT_SECRET=${GOOGLE_IDP_CLIENT_SECRET}
-      - NEXT_PUBLIC_APP_URL=https://myperformance.pl
-      - NEXT_PUBLIC_KEYCLOAK_URL=https://auth.myperformance.pl
-      - NEXT_PUBLIC_KEYCLOAK_REALM=MyPerformance
+      # Only values that must always be container-runtime-specific go here.
+      # Everything else is loaded from .env (above) or overridden by Coolify.
+      - NEXTAUTH_URL=${NEXTAUTH_URL:-https://myperformance.pl}
+      - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-https://myperformance.pl}
+      - NEXT_PUBLIC_KEYCLOAK_URL=${NEXT_PUBLIC_KEYCLOAK_URL:-https://auth.myperformance.pl}
+      - NEXT_PUBLIC_KEYCLOAK_REALM=${NEXT_PUBLIC_KEYCLOAK_REALM:-MyPerformance}
+      - KEYCLOAK_URL=${KEYCLOAK_URL:-https://auth.myperformance.pl}
+      - KEYCLOAK_REALM=${KEYCLOAK_REALM:-MyPerformance}
+      - KEYCLOAK_CLIENT_ID=${KEYCLOAK_CLIENT_ID:-myperformance-dashboard}
+      - KEYCLOAK_SERVICE_CLIENT_ID=${KEYCLOAK_SERVICE_CLIENT_ID:-myperformance-service}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
     networks:
       - proxy-network
       - backend
@@ -30,10 +34,11 @@ services:
       - "traefik.http.routers.dashboard.tls.certresolver=letsencrypt"
       - "traefik.http.services.dashboard.loadbalancer.server.port=3000"
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:3000/api/auth/session || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/api/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 20s
 
 networks:
   proxy-network:

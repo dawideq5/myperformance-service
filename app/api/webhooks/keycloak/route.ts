@@ -1,14 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
+import { timingSafeEqual } from "crypto";
 import { keycloak } from "@/lib/keycloak";
+import { log } from "@/lib/logger";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 /**
- * Keycloak Events Webhook
- * Receives events from Keycloak and handles them appropriately
- * - VERIFY_EMAIL: Updates user email verification status
+ * Keycloak event receiver.
+ *
+ * Fail-closed: if KEYCLOAK_WEBHOOK_SECRET is unset, POST returns 503.
+ * Anonymous webhook POSTs used to be allowed under "no secret configured"
+ * which meant a misdeployment silently opened an unauthenticated admin
+ * action channel.
+ *
+ * Handles:
+ *   - VERIFY_EMAIL / VERIFY_EMAIL_ERROR → strip VERIFY_EMAIL required action
+ *   - UPDATE_EMAIL → reset emailVerified flag
+ *   - REGISTER → log only (hook for welcome flow)
  */
 
-// Webhook secret for authentication
-const WEBHOOK_SECRET = process.env.KEYCLOAK_WEBHOOK_SECRET;
+const logger = log.child({ module: "webhook/keycloak" });
 
 interface KeycloakEvent {
   type: string;
@@ -21,161 +33,124 @@ interface KeycloakEvent {
   time?: number;
 }
 
-/**
- * Verify webhook request is from Keycloak
- */
-function verifyWebhookAuth(request: NextRequest): boolean {
-  // If no secret configured, allow (dev mode) or check other auth
-  if (!WEBHOOK_SECRET) {
-    console.warn("[Keycloak Webhook] No WEBHOOK_SECRET configured, skipping auth check");
-    return true;
-  }
+function authorize(request: NextRequest): "ok" | "missing-secret" | "unauthorized" {
+  const secret = process.env.KEYCLOAK_WEBHOOK_SECRET?.trim();
+  if (!secret) return "missing-secret";
 
-  const authHeader = request.headers.get("authorization");
-  const expectedAuth = `Bearer ${WEBHOOK_SECRET}`;
-
-  return authHeader === expectedAuth;
+  const header = request.headers.get("authorization") ?? "";
+  const expected = `Bearer ${secret}`;
+  const headerBuf = Buffer.from(header, "utf-8");
+  const expectedBuf = Buffer.from(expected, "utf-8");
+  if (headerBuf.length !== expectedBuf.length) return "unauthorized";
+  return timingSafeEqual(headerBuf, expectedBuf) ? "ok" : "unauthorized";
 }
 
-/**
- * Handle VERIFY_EMAIL event - sync email verification status
- */
 async function handleVerifyEmailEvent(userId: string): Promise<void> {
   try {
     const serviceToken = await keycloak.getServiceAccountToken();
-
-    // Get current user data
     const userResponse = await keycloak.adminRequest(`/users/${userId}`, serviceToken);
     if (!userResponse.ok) {
-      console.error(`[Keycloak Webhook] Failed to fetch user ${userId}:`, await userResponse.text());
+      logger.error("failed to fetch user", {
+        userId,
+        status: userResponse.status,
+        detail: await userResponse.text().catch(() => ""),
+      });
       return;
     }
 
     const userData = await userResponse.json();
+    if (userData.emailVerified !== true) return;
 
-    // Check if email is verified in Keycloak
-    const isEmailVerified = userData.emailVerified === true;
+    const requiredActions = (userData.requiredActions || []).filter(
+      (action: string) => keycloak.canonicalizeRequiredAction(action) !== "VERIFY_EMAIL",
+    );
 
-    if (isEmailVerified) {
-      // Remove VERIFY_EMAIL from required actions if present
-      const requiredActions = (userData.requiredActions || []).filter(
-        (action: string) => keycloak.canonicalizeRequiredAction(action) !== "VERIFY_EMAIL"
-      );
+    const updateResponse = await keycloak.adminRequest(`/users/${userId}`, serviceToken, {
+      method: "PUT",
+      body: JSON.stringify({ ...userData, requiredActions }),
+    });
 
-      // Update user with cleared required action
-      const updateResponse = await keycloak.adminRequest(`/users/${userId}`, serviceToken, {
-        method: "PUT",
-        body: JSON.stringify({
-          ...userData,
-          requiredActions,
-        }),
+    if (updateResponse.ok) {
+      logger.info("cleared VERIFY_EMAIL required action", { userId });
+    } else {
+      logger.error("failed to update user", {
+        userId,
+        status: updateResponse.status,
+        detail: await updateResponse.text().catch(() => ""),
       });
-
-      if (updateResponse.ok) {
-        console.log(`[Keycloak Webhook] User ${userId} email verified, removed VERIFY_EMAIL required action`);
-      } else {
-        console.error(`[Keycloak Webhook] Failed to update user ${userId}:`, await updateResponse.text());
-      }
     }
-  } catch (error) {
-    console.error("[Keycloak Webhook] Error handling VERIFY_EMAIL event:", error);
+  } catch (err) {
+    logger.error("handleVerifyEmailEvent failed", { userId, err });
   }
 }
 
-/**
- * Handle UPDATE_EMAIL event - sync email changes
- */
 async function handleUpdateEmailEvent(userId: string): Promise<void> {
   try {
     const serviceToken = await keycloak.getServiceAccountToken();
-
-    // Get current user data
     const userResponse = await keycloak.adminRequest(`/users/${userId}`, serviceToken);
-    if (!userResponse.ok) {
-      console.error(`[Keycloak Webhook] Failed to fetch user ${userId}:`, await userResponse.text());
-      return;
-    }
+    if (!userResponse.ok) return;
 
     const userData = await userResponse.json();
+    if (!userData.emailVerified) return;
 
-    // If email changed, ensure emailVerified is false
-    if (userData.emailVerified) {
-      const updateResponse = await keycloak.adminRequest(`/users/${userId}`, serviceToken, {
-        method: "PUT",
-        body: JSON.stringify({
-          ...userData,
-          emailVerified: false,
-        }),
-      });
-
-      if (updateResponse.ok) {
-        console.log(`[Keycloak Webhook] User ${userId} email changed, reset verification status`);
-      }
-    }
-  } catch (error) {
-    console.error("[Keycloak Webhook] Error handling UPDATE_EMAIL event:", error);
-  }
-}
-
-/**
- * POST handler for Keycloak events
- */
-export async function POST(request: NextRequest) {
-  try {
-    // Verify authentication
-    if (!verifyWebhookAuth(request)) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      );
-    }
-
-    // Parse event payload
-    const event: KeycloakEvent = await request.json();
-
-    console.log("[Keycloak Webhook] Received event:", {
-      type: event.type,
-      realmId: event.realmId,
-      userId: event.userId,
-      time: event.time,
+    await keycloak.adminRequest(`/users/${userId}`, serviceToken, {
+      method: "PUT",
+      body: JSON.stringify({ ...userData, emailVerified: false }),
     });
-
-    // Handle specific event types
-    if (event.userId) {
-      switch (event.type) {
-        case "VERIFY_EMAIL":
-        case "VERIFY_EMAIL_ERROR":
-          await handleVerifyEmailEvent(event.userId);
-          break;
-
-        case "UPDATE_EMAIL":
-          await handleUpdateEmailEvent(event.userId);
-          break;
-
-        case "REGISTER":
-          // New user registered - could trigger welcome email
-          console.log(`[Keycloak Webhook] New user registered: ${event.userId}`);
-          break;
-
-        default:
-          // Log other events for debugging
-          console.log(`[Keycloak Webhook] Unhandled event type: ${event.type}`);
-      }
-    }
-
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("[Keycloak Webhook] Error processing event:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    logger.info("reset email verification after UPDATE_EMAIL", { userId });
+  } catch (err) {
+    logger.error("handleUpdateEmailEvent failed", { userId, err });
   }
 }
 
-/**
- * GET handler for webhook health check
- */
+export async function POST(request: NextRequest) {
+  const authResult = authorize(request);
+  if (authResult === "missing-secret") {
+    logger.error("KEYCLOAK_WEBHOOK_SECRET not configured — refusing webhook");
+    return NextResponse.json({ error: "Webhook disabled" }, { status: 503 });
+  }
+  if (authResult === "unauthorized") {
+    logger.warn("unauthorized webhook request");
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  let event: KeycloakEvent;
+  try {
+    event = (await request.json()) as KeycloakEvent;
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  logger.info("received event", {
+    type: event.type,
+    realmId: event.realmId,
+    userId: event.userId,
+    time: event.time,
+  });
+
+  if (!event.userId) {
+    return NextResponse.json({ ok: true, skipped: "no-user" });
+  }
+
+  switch (event.type) {
+    case "VERIFY_EMAIL":
+    case "VERIFY_EMAIL_ERROR":
+      await handleVerifyEmailEvent(event.userId);
+      break;
+    case "UPDATE_EMAIL":
+      await handleUpdateEmailEvent(event.userId);
+      break;
+    case "REGISTER":
+      logger.info("new user registered", { userId: event.userId });
+      break;
+    default:
+      logger.debug("unhandled event type", { type: event.type });
+  }
+
+  return NextResponse.json({ ok: true });
+}
+
+/** Liveness probe for the webhook endpoint itself. */
 export async function GET() {
   return NextResponse.json({
     status: "ok",

@@ -1,8 +1,12 @@
 import type { AuthOptions } from "next-auth";
+import type { JWT } from "next-auth/jwt";
 import KeycloakProvider from "next-auth/providers/keycloak";
 import { keycloak } from "@/lib/keycloak";
 import { getRequiredEnv } from "@/lib/env";
 import { SESSION_MAX_AGE_SECONDS } from "@/lib/constants";
+import { log } from "@/lib/logger";
+
+const logger = log.child({ module: "auth" });
 
 interface RefreshResult {
   accessToken: string;
@@ -18,7 +22,7 @@ async function refreshKeycloakToken(
   refreshToken: string,
   issuer: string,
   clientId: string,
-  clientSecret: string
+  clientSecret: string,
 ): Promise<RefreshResult | RefreshFailure> {
   try {
     const res = await fetch(`${issuer}/protocol/openid-connect/token`, {
@@ -30,6 +34,7 @@ async function refreshKeycloakToken(
         client_secret: clientSecret,
         refresh_token: refreshToken,
       }),
+      signal: AbortSignal.timeout(5_000),
     });
 
     if (res.ok) {
@@ -53,26 +58,26 @@ async function refreshKeycloakToken(
       } catch {
         /* non-JSON error body, keep default reason */
       }
-      console.warn("[auth] Refresh rejected by Keycloak:", res.status, reason);
+      logger.warn("refresh rejected by Keycloak", { status: res.status, reason });
       return { kind: "invalid_grant", reason };
     }
 
-    console.error("[auth] Token refresh transient failure:", res.status, bodyText);
+    logger.error("token refresh transient failure", { status: res.status, body: bodyText });
     return { kind: "transient" };
   } catch (err) {
-    console.error("[auth] Token refresh error:", err);
+    logger.error("token refresh error", { err });
     return { kind: "transient" };
   }
 }
 
 function isRefreshSuccess(
-  r: RefreshResult | RefreshFailure
+  r: RefreshResult | RefreshFailure,
 ): r is RefreshResult {
   return (r as RefreshResult).accessToken !== undefined;
 }
 
 /** Fetches user attributes from Keycloak Account API and caches them in the JWT token. */
-async function hydrateTokenAttributes(token: any): Promise<void> {
+async function hydrateTokenAttributes(token: JWT): Promise<void> {
   if (!token.accessToken) return;
   try {
     const res = await fetch(keycloak.getAccountUrl("/account"), {
@@ -80,6 +85,7 @@ async function hydrateTokenAttributes(token: any): Promise<void> {
         Authorization: `Bearer ${token.accessToken}`,
         Accept: "application/json",
       },
+      signal: AbortSignal.timeout(5_000),
     });
     if (res.ok) {
       const data = await res.json();
@@ -91,9 +97,9 @@ async function hydrateTokenAttributes(token: any): Promise<void> {
   }
 }
 
-let _authOptions: ReturnType<typeof buildAuthOptions> | null = null;
+let _authOptions: AuthOptions | null = null;
 
-function buildAuthOptions() {
+function buildAuthOptions(): AuthOptions {
   const keycloakIssuer = keycloak.getIssuer();
   const keycloakClientId = getRequiredEnv("KEYCLOAK_CLIENT_ID");
   const keycloakClientSecret = getRequiredEnv("KEYCLOAK_CLIENT_SECRET");
@@ -117,7 +123,7 @@ function buildAuthOptions() {
     ],
     secret: process.env.NEXTAUTH_SECRET,
     session: {
-      strategy: "jwt" as const,
+      strategy: "jwt",
       maxAge: SESSION_MAX_AGE_SECONDS,
     },
     // Cookie name is left to NextAuth defaults. Overriding it here broke
@@ -125,18 +131,19 @@ function buildAuthOptions() {
     // HTTPS, but an explicit name of `next-auth.session-token` caused a
     // write/read mismatch and an infinite login redirect loop.
     callbacks: {
-      async jwt({ token, account, trigger }: any) {
+      async jwt({ token, account, trigger }) {
         // First login — store tokens and fetch initial user attributes
         if (account) {
           token.accessToken = account.access_token;
           token.refreshToken = account.refresh_token;
-          token.sid = account.session_state;
-          token.expiresAt =
-            Math.floor(Date.now() / 1000) + (account.expires_in ?? 300);
+          token.sid = typeof account.session_state === "string"
+            ? account.session_state
+            : undefined;
+          const expiresIn = typeof account.expires_in === "number"
+            ? account.expires_in
+            : 300;
+          token.expiresAt = Math.floor(Date.now() / 1000) + expiresIn;
           token.keycloakError = false;
-          // Don't store userAttributes in JWT to reduce cookie size
-          // token.userAttributes = {};
-          // token.emailVerified = false;
           return token;
         }
 
@@ -161,7 +168,7 @@ function buildAuthOptions() {
             token.refreshToken,
             keycloakIssuer,
             keycloakClientId,
-            keycloakClientSecret
+            keycloakClientSecret,
           );
 
           if (isRefreshSuccess(refreshed)) {
@@ -177,10 +184,9 @@ function buildAuthOptions() {
             // Hard-kill the session — refresh token is permanently unusable.
             // Clearing accessToken forces middleware to redirect to /login
             // instead of bouncing through broken refresh attempts.
-            console.warn(
-              "[auth] Refresh token invalid — invalidating session:",
-              refreshed.reason
-            );
+            logger.warn("refresh token invalid — invalidating session", {
+              reason: refreshed.reason,
+            });
             token.accessToken = undefined;
             token.refreshToken = undefined;
             token.expiresAt = 0;
@@ -190,7 +196,7 @@ function buildAuthOptions() {
 
           // Transient: keep the existing (expired) token. The next request
           // will retry. Avoids kicking users out on a blip.
-          console.warn("[auth] Transient refresh failure — will retry");
+          logger.warn("transient refresh failure — will retry");
           return token;
         }
 
@@ -198,7 +204,7 @@ function buildAuthOptions() {
         return token;
       },
 
-      async session({ session, token }: any) {
+      async session({ session, token }) {
         if (token.keycloakError) {
           session.error = "RefreshTokenExpired";
           return session;
@@ -207,7 +213,7 @@ function buildAuthOptions() {
         session.accessToken = token.accessToken;
         session.error = token.error;
 
-        const rawToken: string = token.accessToken || "";
+        const rawToken = token.accessToken ?? "";
         if (rawToken) {
           try {
             const payload = keycloak.decodeTokenPayload(rawToken);
@@ -227,13 +233,13 @@ function buildAuthOptions() {
         }
 
         session.user.sid = token.sid;
-        session.user.id = token.sub;
+        session.user.id = typeof token.sub === "string" ? token.sub : undefined;
         session.user.session_id = token.sid;
 
         return session;
       },
 
-      async redirect({ url, baseUrl }: any) {
+      async redirect({ url, baseUrl }) {
         if (url.startsWith("/")) {
           return `${baseUrl}${url}`;
         }
@@ -259,7 +265,7 @@ function buildAuthOptions() {
   };
 }
 
-export function getAuthOptions() {
+export function getAuthOptions(): AuthOptions {
   if (!_authOptions) {
     _authOptions = buildAuthOptions();
   }
@@ -268,7 +274,7 @@ export function getAuthOptions() {
 
 export const authOptions: AuthOptions = new Proxy({} as AuthOptions, {
   get(_target, prop) {
-    return (getAuthOptions() as any)[prop];
+    return (getAuthOptions() as unknown as Record<PropertyKey, unknown>)[prop];
   },
   has(_target, prop) {
     return prop in getAuthOptions();
