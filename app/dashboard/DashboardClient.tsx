@@ -11,12 +11,14 @@ import {
   Database,
   ExternalLink,
   FileSignature,
-  Folder,
+  KeyRound,
   LayoutGrid,
   Mail,
   MessageSquare,
   Plug,
+  ShieldCheck,
   Truck,
+  Users,
   Wrench,
 } from "lucide-react";
 
@@ -27,7 +29,20 @@ import { AccountProvider, useAccount } from "@/app/account/AccountProvider";
 import { CalendarTab } from "@/app/account/components/CalendarTab";
 import { KadromierzWorkWidget } from "./components/KadromierzWorkWidget";
 import { useAuthRedirect } from "@/hooks/useAuthRedirect";
-import { canAccessDirectus, canAccessPanel, isSuperAdmin } from "@/lib/admin-auth";
+import {
+  canAccessAdminPanel,
+  canAccessCalendar,
+  canAccessChatwoot,
+  canAccessDirectus,
+  canAccessDocuments,
+  canAccessDocumenso,
+  canAccessKadromierz,
+  canAccessKeycloakAdmin,
+  canAccessPanel,
+  canAccessStepCa,
+  canAccessUsesend,
+  canManageCertificates,
+} from "@/lib/admin-auth";
 import { cn } from "@/lib/utils";
 
 const WELCOME_KEY = "welcome-pending";
@@ -63,8 +78,6 @@ function DashboardBody({ firstName, lastName, email }: DashboardClientProps) {
   const [view, setView] = useState<DashboardView>("home");
   const consumedRef = useRef(false);
 
-  // Atomically consume the welcome-pending flag once per mount.
-  // sessionStorage removal is synchronous so StrictMode's double-mount cannot replay.
   useEffect(() => {
     if (consumedRef.current) return;
     consumedRef.current = true;
@@ -78,7 +91,6 @@ function DashboardBody({ firstName, lastName, email }: DashboardClientProps) {
     setStage(pending ? "playing" : "done");
   }, [firstName]);
 
-  // Refresh-token failures should bounce the user out cleanly, not cascade via 401s.
   useEffect(() => {
     if (session?.error === "RefreshTokenExpired") void softLogout();
   }, [session?.error, softLogout]);
@@ -87,6 +99,7 @@ function DashboardBody({ firstName, lastName, email }: DashboardClientProps) {
   const handleAnimationDone = useCallback(() => setStage("done"), []);
 
   const panelVisible = stage === "done" || stage === "revealing";
+  const calendarVisible = canAccessCalendar(session);
 
   return (
     <>
@@ -110,7 +123,7 @@ function DashboardBody({ firstName, lastName, email }: DashboardClientProps) {
           </section>
 
           <div className="flex gap-6 items-start">
-            <Sidebar view={view} onSelect={setView} />
+            <Sidebar view={view} onSelect={setView} calendarVisible={calendarVisible} />
             <main className="flex-1 min-w-0">
               <ViewSwitcher
                 view={view}
@@ -136,9 +149,11 @@ function DashboardBody({ firstName, lastName, email }: DashboardClientProps) {
 function Sidebar({
   view,
   onSelect,
+  calendarVisible,
 }: {
   view: DashboardView;
   onSelect: (next: DashboardView) => void;
+  calendarVisible: boolean;
 }) {
   const expanded = view !== "home";
 
@@ -146,16 +161,19 @@ function Sidebar({
     id: DashboardView;
     label: string;
     icon: React.ReactNode;
+    visible: boolean;
   }> = [
     {
       id: "home",
       label: "Dashboard",
       icon: <LayoutGrid className="w-5 h-5" aria-hidden="true" />,
+      visible: true,
     },
     {
       id: "calendar",
       label: "Kalendarz",
       icon: <Calendar className="w-5 h-5" aria-hidden="true" />,
+      visible: calendarVisible,
     },
   ];
 
@@ -173,7 +191,7 @@ function Sidebar({
       <nav className="w-[220px]">
         <Card padding="sm">
           <ul className="space-y-1">
-            {items.map((item) => {
+            {items.filter((i) => i.visible).map((item) => {
               const active = item.id === view;
               const isHome = item.id === "home";
               return (
@@ -230,135 +248,74 @@ function TileGrid({ onOpenCalendar }: { onOpenCalendar: () => void }) {
   const accountLoading = status === "loading" || status === "idle";
   const googleConnected = googleStatus?.connected === true;
   const kadromierzConnected = kadromierzStatus?.connected === true;
-  const directusVisible = canAccessDirectus(session);
+
+  const showCalendar = canAccessCalendar(session);
+  const showDocuments = canAccessDocuments(session);
+  const showKadromierz = canAccessKadromierz(session);
+  const showDirectus = canAccessDirectus(session);
+  const showDocumenso = canAccessDocumenso(session);
+  const showChatwoot = canAccessChatwoot(session);
+  const showUsesend = canAccessUsesend(session);
+  const showKeycloak = canAccessKeycloakAdmin(session);
+  const showStepCa = canAccessStepCa(session);
+  const showCerts = canManageCertificates(session);
+  const showUsers = canAccessAdminPanel(session);
+  const showSprzedawca = canAccessPanel(session, "sprzedawca");
+  const showSerwisant = canAccessPanel(session, "serwisant");
+  const showKierowca = canAccessPanel(session, "kierowca");
+
+  const anyVisible =
+    showCalendar || showDocuments || showKadromierz || showDirectus ||
+    showDocumenso || showChatwoot || showUsesend || showKeycloak ||
+    showStepCa || showCerts || showUsers || showSprzedawca ||
+    showSerwisant || showKierowca;
 
   return (
     <div className="space-y-4">
-      {kadromierzConnected && <KadromierzWorkWidget />}
+      {showKadromierz && kadromierzConnected && <KadromierzWorkWidget />}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        <Tile
-          icon={<Calendar className="w-7 h-7 text-blue-500" aria-hidden="true" />}
-          iconBg="bg-blue-500/10"
-          title="Kalendarz"
-          description={
-            googleConnected
-              ? "Twoje wydarzenia i Google Calendar"
-              : "Wymaga integracji z Google"
-          }
-          disabled={accountLoading || !googleConnected}
-          footer={
-            !accountLoading && !googleConnected ? (
-              <Link
-                href="/account?tab=integrations"
-                className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--accent)] hover:underline"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <Plug className="w-3.5 h-3.5" aria-hidden="true" />
-                Skonfiguruj Google
-              </Link>
-            ) : null
-          }
-          onClick={onOpenCalendar}
-        />
-        {directusVisible && (
-          <ExternalTile
-            icon={
-              <Database className="w-7 h-7 text-emerald-500" aria-hidden="true" />
+        {showCalendar && (
+          <Tile
+            icon={<Calendar className="w-7 h-7 text-blue-500" aria-hidden="true" />}
+            iconBg="bg-blue-500/10"
+            title="Kalendarz"
+            description={
+              googleConnected
+                ? "Twoje wydarzenia i Google Calendar"
+                : "Wymaga integracji z Google"
             }
-            iconBg="bg-emerald-500/10"
-            title="Directus"
-            description="Zarządzanie treścią i danymi aplikacji (SSO)"
-            href="https://cms.myperformance.pl"
+            disabled={accountLoading || !googleConnected}
+            footer={
+              !accountLoading && !googleConnected ? (
+                <Link
+                  href="/account?tab=integrations"
+                  className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--accent)] hover:underline"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <Plug className="w-3.5 h-3.5" aria-hidden="true" />
+                  Skonfiguruj Google
+                </Link>
+              ) : null
+            }
+            onClick={onOpenCalendar}
           />
         )}
-        <Tile
-          icon={
-            <FileSignature className="w-7 h-7 text-purple-500" aria-hidden="true" />
-          }
-          iconBg="bg-purple-500/10"
-          title="Moje dokumenty"
-          description="Dokumenty do podpisu i podpisane (Documenso)"
-          onClick={() => {
-            window.location.href = "/dashboard/moje-dokumenty";
-          }}
-        />
-        {isSuperAdmin(session) && (
+
+        {showDocuments && (
           <Tile
             icon={
-              <FileSignature className="w-7 h-7 text-amber-500" aria-hidden="true" />
+              <FileSignature className="w-7 h-7 text-purple-500" aria-hidden="true" />
             }
-            iconBg="bg-amber-500/10"
-            title="Certyfikaty klienckie"
-            description="Zarządzanie certyfikatami dostępu do paneli (admin)"
+            iconBg="bg-purple-500/10"
+            title="Moje dokumenty"
+            description="Dokumenty do podpisu i podpisane (Documenso)"
             onClick={() => {
-              window.location.href = "/admin/certificates";
+              window.location.href = "/dashboard/moje-dokumenty";
             }}
           />
         )}
-        {canAccessPanel(session, "sprzedawca") && (
-          <ExternalTile
-            icon={<Briefcase className="w-7 h-7 text-sky-500" aria-hidden="true" />}
-            iconBg="bg-sky-500/10"
-            title="Panel Sprzedawcy"
-            description="Oferty, zamówienia, klienci"
-            href="https://panelsprzedawcy.myperformance.pl"
-          />
-        )}
-        {canAccessPanel(session, "serwisant") && (
-          <ExternalTile
-            icon={<Wrench className="w-7 h-7 text-rose-500" aria-hidden="true" />}
-            iconBg="bg-rose-500/10"
-            title="Panel Serwisanta"
-            description="Zgłoszenia serwisowe i naprawy"
-            href="https://panelserwisanta.myperformance.pl"
-          />
-        )}
-        {canAccessPanel(session, "kierowca") && (
-          <ExternalTile
-            icon={<Truck className="w-7 h-7 text-lime-500" aria-hidden="true" />}
-            iconBg="bg-lime-500/10"
-            title="Panel Kierowcy"
-            description="Trasy, dostawy, pojazdy"
-            href="https://panelkierowcy.myperformance.pl"
-          />
-        )}
-        {canAccessPanel(session, "dokumenty") && (
-          <ExternalTile
-            icon={<Folder className="w-7 h-7 text-indigo-500" aria-hidden="true" />}
-            iconBg="bg-indigo-500/10"
-            title="Obieg dokumentów"
-            description="Workflow dokumentów firmowych (Documenso)"
-            href="https://dokumenty.myperformance.pl"
-          />
-        )}
-        {isSuperAdmin(session) && (
-          <ExternalTile
-            icon={<FileSignature className="w-7 h-7 text-fuchsia-500" aria-hidden="true" />}
-            iconBg="bg-fuchsia-500/10"
-            title="Documenso"
-            description="Elektroniczne podpisy i szablony dokumentów"
-            href="https://sign.myperformance.pl"
-          />
-        )}
-        {isSuperAdmin(session) && (
-          <ExternalTile
-            icon={<MessageSquare className="w-7 h-7 text-cyan-500" aria-hidden="true" />}
-            iconBg="bg-cyan-500/10"
-            title="Chatwoot"
-            description="Obsługa klienta — SSO przez Keycloak"
-            href="/api/chatwoot/sso"
-          />
-        )}
-        {isSuperAdmin(session) && (
-          <ExternalTile
-            icon={<Mail className="w-7 h-7 text-pink-500" aria-hidden="true" />}
-            iconBg="bg-pink-500/10"
-            title="Listmonk"
-            description="Transakcyjne i marketingowe e-maile"
-            href="https://newsletter.myperformance.pl"
-          />
-        )}
-        {!kadromierzConnected && (
+
+        {showKadromierz && !kadromierzConnected && (
           <Tile
             icon={<Clock className="w-7 h-7 text-orange-500" aria-hidden="true" />}
             iconBg="bg-orange-500/10"
@@ -382,6 +339,132 @@ function TileGrid({ onOpenCalendar }: { onOpenCalendar: () => void }) {
             }}
           />
         )}
+
+        {showSprzedawca && (
+          <ExternalTile
+            icon={<Briefcase className="w-7 h-7 text-sky-500" aria-hidden="true" />}
+            iconBg="bg-sky-500/10"
+            title="Panel Sprzedawcy"
+            description="Oferty, zamówienia, klienci"
+            href="https://panelsprzedawcy.myperformance.pl"
+          />
+        )}
+        {showSerwisant && (
+          <ExternalTile
+            icon={<Wrench className="w-7 h-7 text-rose-500" aria-hidden="true" />}
+            iconBg="bg-rose-500/10"
+            title="Panel Serwisanta"
+            description="Zgłoszenia serwisowe i naprawy"
+            href="https://panelserwisanta.myperformance.pl"
+          />
+        )}
+        {showKierowca && (
+          <ExternalTile
+            icon={<Truck className="w-7 h-7 text-lime-500" aria-hidden="true" />}
+            iconBg="bg-lime-500/10"
+            title="Panel Kierowcy"
+            description="Trasy, dostawy, pojazdy"
+            href="https://panelkierowcy.myperformance.pl"
+          />
+        )}
+
+        {showCerts && (
+          <Tile
+            icon={
+              <FileSignature className="w-7 h-7 text-amber-500" aria-hidden="true" />
+            }
+            iconBg="bg-amber-500/10"
+            title="Certyfikaty klienckie"
+            description="Zarządzanie certyfikatami dostępu do paneli"
+            onClick={() => {
+              window.location.href = "/admin/certificates";
+            }}
+          />
+        )}
+
+        {showUsers && (
+          <Tile
+            icon={<Users className="w-7 h-7 text-violet-500" aria-hidden="true" />}
+            iconBg="bg-violet-500/10"
+            title="Użytkownicy"
+            description="Zarządzanie kontami, rolami i uprawnieniami"
+            onClick={() => {
+              window.location.href = "/admin/users";
+            }}
+          />
+        )}
+
+        {showDirectus && (
+          <ExternalTile
+            icon={
+              <Database className="w-7 h-7 text-emerald-500" aria-hidden="true" />
+            }
+            iconBg="bg-emerald-500/10"
+            title="Directus"
+            description="Zarządzanie treścią i danymi aplikacji (SSO)"
+            href="https://cms.myperformance.pl"
+          />
+        )}
+
+        {showDocumenso && (
+          <ExternalTile
+            icon={<FileSignature className="w-7 h-7 text-fuchsia-500" aria-hidden="true" />}
+            iconBg="bg-fuchsia-500/10"
+            title="Documenso"
+            description="Panel dokumentów, szablony i podpisy (SSO)"
+            href="https://sign.myperformance.pl"
+          />
+        )}
+
+        {showChatwoot && (
+          <ExternalTile
+            icon={<MessageSquare className="w-7 h-7 text-cyan-500" aria-hidden="true" />}
+            iconBg="bg-cyan-500/10"
+            title="Chatwoot"
+            description="Obsługa klienta — SSO przez Keycloak"
+            href="/api/chatwoot/sso"
+            sameTab
+          />
+        )}
+
+        {showUsesend && (
+          <ExternalTile
+            icon={<Mail className="w-7 h-7 text-pink-500" aria-hidden="true" />}
+            iconBg="bg-pink-500/10"
+            title="Usesend"
+            description="Wysyłka e-maili — transakcyjne i newslettery (SSO)"
+            href="https://mail.myperformance.pl"
+          />
+        )}
+
+        {showKeycloak && (
+          <ExternalTile
+            icon={<KeyRound className="w-7 h-7 text-indigo-500" aria-hidden="true" />}
+            iconBg="bg-indigo-500/10"
+            title="Keycloak"
+            description="Konsola administracyjna Keycloak (SSO)"
+            href="https://auth.myperformance.pl/admin/master/console/"
+          />
+        )}
+
+        {showStepCa && (
+          <ExternalTile
+            icon={<ShieldCheck className="w-7 h-7 text-teal-500" aria-hidden="true" />}
+            iconBg="bg-teal-500/10"
+            title="Step CA"
+            description="Infrastruktura PKI — prowizjonerzy i certyfikaty"
+            href="https://ca.myperformance.pl"
+          />
+        )}
+
+        {!anyVisible && (
+          <Card padding="lg" className="col-span-full text-center">
+            <p className="text-sm text-[var(--text-muted)]">
+              Nie masz jeszcze dostępu do żadnej sekcji. Skontaktuj się z administratorem,
+              aby uzyskać uprawnienia.
+            </p>
+          </Card>
+        )}
       </div>
     </div>
   );
@@ -394,6 +477,7 @@ function ExternalTile({
   description,
   href,
   disabled,
+  sameTab,
 }: {
   icon: React.ReactNode;
   iconBg: string;
@@ -401,10 +485,15 @@ function ExternalTile({
   description: string;
   href?: string;
   disabled?: boolean;
+  sameTab?: boolean;
 }) {
   const handleClick = () => {
     if (disabled || !href) return;
-    window.open(href, "_blank", "noopener,noreferrer");
+    if (sameTab) {
+      window.location.href = href;
+    } else {
+      window.open(href, "_blank", "noopener,noreferrer");
+    }
   };
   return (
     <Tile
@@ -417,7 +506,7 @@ function ExternalTile({
         !disabled && href ? (
           <span className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--accent)]">
             <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
-            Otwórz w nowej karcie
+            {sameTab ? "Otwórz" : "Otwórz w nowej karcie"}
           </span>
         ) : disabled ? (
           <span className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--text-muted)]">

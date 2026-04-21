@@ -19,7 +19,7 @@ cp infrastructure/traefik/dynamic-mtls.yml /data/coolify/proxy/dynamic/mtls.yml
 #    - traefik.http.routers.<name>.middlewares=mtls-required@file,<inne>@docker
 #
 #    Ustaw to przez edycję Docker Compose w Coolify UI dla każdej aplikacji
-#    panel-sprzedawca / panel-serwisant / panel-kierowca / panel-dokumenty.
+#    panel-sprzedawca / panel-serwisant / panel-kierowca.
 
 # 4. Skrypt HUPuje Traefika automatycznie; przy dodawaniu samego mtls.yml:
 docker kill --signal=HUP $(docker ps -qf name=coolify-proxy)

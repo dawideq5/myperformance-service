@@ -14,7 +14,7 @@ export default async function AdminUsersPage() {
   }
 
   if (!canAccessAdminPanel(session)) {
-    redirect("/dashboard");
+    redirect("/forbidden");
   }
 
   return (

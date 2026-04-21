@@ -127,36 +127,6 @@ services:
     depends_on:
       - keycloak
 
-  panel-dokumenty:
-    build:
-      context: ./panels/dokumenty
-      dockerfile: Dockerfile
-    container_name: myperformance_panel_dokumenty_dev
-    ports:
-      - "3004:3000"
-    env_file:
-      - .env
-    environment:
-      - NODE_ENV=development
-      - NEXT_TELEMETRY_DISABLED=1
-      - NEXTAUTH_URL=http://localhost:3004
-      - KEYCLOAK_ISSUER=http://localhost:8080/realms/MyPerformance
-      - KEYCLOAK_URL=http://localhost:8080
-      - NEXT_PUBLIC_KEYCLOAK_URL=http://localhost:8080
-      - NEXT_PUBLIC_KEYCLOAK_ISSUER=http://localhost:8080/realms/MyPerformance
-      - KEYCLOAK_CLIENT_ID=panel-dokumenty
-      - KEYCLOAK_CLIENT_SECRET=${PANEL_DOKUMENTY_CLIENT_SECRET}
-      - KEYCLOAK_SERVICE_CLIENT_ID=${KEYCLOAK_SERVICE_CLIENT_ID}
-      - KEYCLOAK_SERVICE_CLIENT_SECRET=${KEYCLOAK_SERVICE_CLIENT_SECRET}
-      - DOCUMENSO_URL=${DOCUMENSO_URL}
-      - DOCUMENSO_API_KEY=${DOCUMENSO_API_KEY}
-      - DOCUMENSO_WEBHOOK_SECRET=${DOCUMENSO_WEBHOOK_SECRET}
-      - NEXT_PUBLIC_DOCUMENSO_URL=${DOCUMENSO_URL}
-    extra_hosts:
-      - "localhost:host-gateway"
-    depends_on:
-      - keycloak
-
   keycloak:
     image: quay.io/keycloak/keycloak:26.6.1
     container_name: myperformance_keycloak_dev

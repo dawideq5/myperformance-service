@@ -1,6 +1,7 @@
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
 import { redirect } from "next/navigation";
+import { canAccessDocuments } from "@/lib/admin-auth";
 import { computeDocumensoStats, listDocumentsForEmail } from "@/lib/documenso";
 import { MojeDokumentyClient } from "./MojeDokumentyClient";
 
@@ -10,6 +11,7 @@ export const dynamic = "force-dynamic";
 export default async function MojeDokumentyPage() {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) redirect("/login");
+  if (!canAccessDocuments(session)) redirect("/forbidden");
 
   const documents = await listDocumentsForEmail(session.user.email);
   const stats = computeDocumensoStats(documents);

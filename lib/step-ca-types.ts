@@ -1,4 +1,4 @@
-export type PanelRole = "sprzedawca" | "serwisant" | "kierowca" | "dokumenty_access";
+export type PanelRole = "sprzedawca" | "serwisant" | "kierowca";
 
 export interface IssuedCertificate {
   id: string;

@@ -4,7 +4,6 @@ const ROLE_LABELS: Record<string, string> = {
   sprzedawca: "Panel Sprzedawcy",
   serwisant: "Panel Serwisanta",
   kierowca: "Panel Kierowcy",
-  dokumenty_access: "Obieg dokumentów",
 };
 
 function rolesLabelOf(roles: string[]): string {

@@ -49,7 +49,6 @@ const ROLES = [
   { value: "sprzedawca", label: "Sprzedawca" },
   { value: "serwisant", label: "Serwisant" },
   { value: "kierowca", label: "Kierowca" },
-  { value: "dokumenty_access", label: "Obieg dokumentów" },
 ] as const;
 
 const PRESETS = [30, 90, 365, 730, 1825];

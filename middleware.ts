@@ -7,8 +7,6 @@ import { MIDDLEWARE_USERINFO_CACHE_TTL_MS } from "@/lib/constants";
 
 export const runtime = "nodejs";
 
-// In-memory cache: token hash → { valid, expiresAt }
-// Avoids a Keycloak userinfo round-trip on every single request.
 const userinfoCache = new Map<string, { valid: boolean; expiresAt: number }>();
 
 function tokenCacheKey(accessToken: string): string {
@@ -26,13 +24,6 @@ function getIssuerForMiddleware(): string | null {
   return `${trimSlash(keycloakUrl)}/realms/${realm}`;
 }
 
-/**
- * Behind a TLS-terminating reverse proxy (Traefik/Caddy) the incoming
- * connection to Next.js is HTTP, so `req.url` is reconstructed as
- * `http://<host>` while the browser Origin is `https://<host>`. Comparing
- * full origins would always mismatch and return 403. Compare host only,
- * and honor the forwarded host when present.
- */
 function getExpectedHost(req: Request): string | null {
   const forwardedHost = req.headers.get("x-forwarded-host");
   if (forwardedHost) return forwardedHost.split(",")[0].trim();
@@ -68,11 +59,64 @@ function isSameOrigin(req: Request): boolean {
     return originHost === expectedHost;
   }
 
-  // Some browsers omit Origin on same-origin XHR. Fall back to Referer.
   const referer = req.headers.get("referer");
   if (!referer) return false;
   const refererHost = extractHost(referer);
   return refererHost === expectedHost;
+}
+
+interface TokenPayload {
+  realm_access?: { roles?: string[] };
+  resource_access?: Record<string, { roles?: string[] }>;
+}
+
+function decodePayload(jwt: string): TokenPayload | null {
+  try {
+    const parts = jwt.split(".");
+    if (parts.length < 2) return null;
+    return JSON.parse(Buffer.from(parts[1], "base64url").toString("utf-8"));
+  } catch {
+    return null;
+  }
+}
+
+function collectRoles(accessToken: string): string[] {
+  const payload = decodePayload(accessToken);
+  if (!payload) return [];
+  const realm = payload.realm_access?.roles ?? [];
+  const resource = payload.resource_access ?? {};
+  const all: string[] = [...realm];
+  for (const v of Object.values(resource)) {
+    if (Array.isArray(v?.roles)) all.push(...v.roles);
+  }
+  return all;
+}
+
+const SUPERADMIN_ROLES = new Set(["realm-admin", "manage-realm", "admin"]);
+
+/**
+ * Defense-in-depth route guards enforced at the edge. Server-side `page.tsx`
+ * also re-checks these via admin-auth helpers so that even if a session
+ * bypasses the middleware (e.g., during SSR prefetch from cached HTML), the
+ * page returns a redirect to /forbidden.
+ *
+ * Paths are matched with `startsWith` so nested routes inherit the guard.
+ */
+const ROLE_GUARDS: Array<{ path: string; anyOf: string[] }> = [
+  { path: "/admin/users", anyOf: ["manage_users"] },
+  { path: "/admin/certificates", anyOf: ["certificates_admin"] },
+  { path: "/api/admin/users", anyOf: ["manage_users"] },
+  { path: "/api/admin/certificates", anyOf: ["certificates_admin"] },
+  { path: "/dashboard/moje-dokumenty", anyOf: ["documents_user"] },
+];
+
+function findMatchingGuard(pathname: string) {
+  return ROLE_GUARDS.find((g) => pathname === g.path || pathname.startsWith(`${g.path}/`));
+}
+
+function hasAny(roles: string[], wanted: string[]): boolean {
+  if (roles.some((r) => SUPERADMIN_ROLES.has(r))) return true;
+  return wanted.some((r) => roles.includes(r));
 }
 
 export default withAuth(
@@ -80,9 +124,6 @@ export default withAuth(
     const token = req.nextauth.token;
     const pathname = req.nextUrl.pathname;
 
-    // Defense-in-depth: reject state-changing API calls with mismatched Origin.
-    // Session cookie is sameSite=lax so real cross-site POSTs are already blocked,
-    // but this catches misconfigured CORS and leaks of bearer-style reuse.
     if (
       (pathname.startsWith("/api/account") ||
         pathname.startsWith("/api/admin")) &&
@@ -119,6 +160,19 @@ export default withAuth(
     }
 
     const accessToken = token.accessToken as string;
+
+    // Role-based guard — evaluated BEFORE userinfo network call for speed.
+    const guard = findMatchingGuard(pathname);
+    if (guard) {
+      const roles = collectRoles(accessToken);
+      if (!hasAny(roles, guard.anyOf)) {
+        if (isApi) {
+          return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+        }
+        return NextResponse.redirect(new URL("/forbidden", req.url));
+      }
+    }
+
     const cacheKey = tokenCacheKey(accessToken);
     const now = Date.now();
     const cached = userinfoCache.get(cacheKey);
@@ -161,7 +215,6 @@ export default withAuth(
         return NextResponse.redirect(new URL("/api/auth/logout", req.url));
       }
     } catch (e) {
-      // Do not block on network failure — Keycloak may be temporarily unreachable
       console.error("[middleware] Keycloak userinfo check failed", e);
     }
 

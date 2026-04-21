@@ -4,14 +4,14 @@ import { authOptions } from "@/app/auth";
 import { auditLog, issueClientCertificate, listCertificates, recordCertificate } from "@/lib/step-ca";
 import { sendCertificateByEmail } from "@/lib/cert-delivery";
 import { getClientIp, rateLimit } from "@/lib/rate-limit";
+import { canManageCertificates } from "@/lib/admin-auth";
 
 export const runtime = "nodejs";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
   if (!session) return { ok: false as const, status: 401 };
-  const roles = (session.user as { roles?: string[] } | undefined)?.roles ?? [];
-  if (!roles.includes("admin")) return { ok: false as const, status: 403 };
+  if (!canManageCertificates(session)) return { ok: false as const, status: 403 };
   return { ok: true as const };
 }
 
@@ -50,7 +50,7 @@ export async function POST(req: Request) {
   if (typeof commonName !== "string" || typeof email !== "string" || rawRoles.length === 0) {
     return NextResponse.json({ error: "Missing fields" }, { status: 400 });
   }
-  const allowed = ["sprzedawca", "serwisant", "kierowca", "dokumenty_access"] as const;
+  const allowed = ["sprzedawca", "serwisant", "kierowca"] as const;
   const roles = Array.from(new Set(rawRoles));
   if (roles.some((r) => !allowed.includes(r as (typeof allowed)[number]))) {
     return NextResponse.json({ error: "Invalid role" }, { status: 400 });
