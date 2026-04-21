@@ -1,9 +1,9 @@
 interface Props {
-  searchParams?: { reason?: string };
+  searchParams: Promise<{ reason?: string }>;
 }
 
-export default function DeviceBlockedPage({ searchParams }: Props) {
-  const reason = searchParams?.reason;
+export default async function DeviceBlockedPage({ searchParams }: Props) {
+  const { reason } = await searchParams;
   return (
     <main
       className="min-h-screen flex items-center justify-center p-8"
