@@ -63,7 +63,7 @@ const ROLES = [
   { name: "chatwoot_agent",      description: "Agent obsługi klienta w Chatwoot",                      default: false },
   { name: "chatwoot_admin",      description: "Administrator Chatwoot",                                default: false },
 
-  { name: "usesend_admin",       description: "Administrator platformy e-mail (Listmonk / Usesend)",    default: false },
+  { name: "postal_admin",        description: "Administrator platformy e-mail (Postal)",                default: false },
 
   { name: "keycloak_admin",      description: "Konsola administracyjna Keycloak",                       default: false },
 
@@ -152,12 +152,12 @@ const CLIENTS = [
 
   // New clients to add
   {
-    clientId: "usesend", name: "Usesend",
+    clientId: "postal", name: "Postal",
     publicClient: false, standardFlow: true,
-    rootUrl: "https://mail.myperformance.pl",
-    redirectUris: ["https://mail.myperformance.pl/*"],
+    rootUrl: "https://newsletter.myperformance.pl",
+    redirectUris: ["https://newsletter.myperformance.pl/*"],
     webOrigins: ["+"],
-    description: "Usesend — wysyłka e-maili (transakcyjne + newslettery)",
+    description: "Postal — serwer pocztowy (transakcyjne + newslettery)",
   },
   {
     clientId: "stepca-oidc", name: "step-ca (OIDC provisioner)",

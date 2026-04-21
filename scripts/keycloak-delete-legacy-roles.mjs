@@ -6,6 +6,7 @@
  *   - documents_user    (tab "Moje dokumenty" usunięta, funkcja odpada z dashboardu)
  *   - directus_access   (Directus staje się admin-only → używamy directus_admin)
  *   - usesend_user      (Listmonk/Usesend staje się admin-only → usesend_admin)
+ *   - usesend_admin     (zastąpione przez postal_admin — migracja Listmonk/Usesend → Postal)
  *   - stepca_user       (step-ca self-service widoczne tylko dla stepca_admin)
  *
  * Zanim usunie rolę, zdejmuje ją z `default-roles-<realm>` composite
@@ -22,6 +23,7 @@ const ROLES_TO_DELETE = [
   "documents_user",
   "directus_access",
   "usesend_user",
+  "usesend_admin",
   "stepca_user",
 ];
 

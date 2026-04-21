@@ -5,7 +5,7 @@ import { ApiError } from "@/lib/api-utils";
  * Realm-wide role catalog.
  *
  * Shape: `<service>_user` grants read/basic use, `<service>_admin` grants
- * elevated/management rights. Niektóre usługi (Directus, Listmonk, step-ca)
+ * elevated/management rights. Niektóre usługi (Directus, Postal, step-ca)
  * są admin-only — nie mają odpowiednika `_user`.
  *
  * Roles with `default: true` belong to `default-roles-myperformance` and
@@ -41,8 +41,8 @@ export const ROLES = {
   CHATWOOT_AGENT: "chatwoot_agent",
   CHATWOOT_ADMIN: "chatwoot_admin",
 
-  // Listmonk / Usesend (email platform) — admin-only
-  USESEND_ADMIN: "usesend_admin",
+  // Postal (transactional + newsletter sender) — admin-only
+  POSTAL_ADMIN: "postal_admin",
 
   // Keycloak (admin console)
   KEYCLOAK_ADMIN: "keycloak_admin",
@@ -78,7 +78,7 @@ export const ROLE_CATALOG: RoleSpec[] = [
   { name: ROLES.CHATWOOT_AGENT, description: "Agent obsługi klienta w Chatwoot", default: false },
   { name: ROLES.CHATWOOT_ADMIN, description: "Administrator Chatwoot (konfiguracja, użytkownicy, webhooki)", default: false },
 
-  { name: ROLES.USESEND_ADMIN, description: "Administrator platformy e-mail (Listmonk / Usesend)", default: false },
+  { name: ROLES.POSTAL_ADMIN, description: "Administrator platformy e-mail (Postal)", default: false },
 
   { name: ROLES.KEYCLOAK_ADMIN, description: "Konsola administracyjna Keycloak", default: false },
 
@@ -181,10 +181,10 @@ export function canAccessChatwootAsAdmin(
   return hasRole(session, ROLES.CHATWOOT_ADMIN);
 }
 
-export function canAccessUsesend(
+export function canAccessPostal(
   session: Session | null | undefined,
 ): boolean {
-  return hasRole(session, ROLES.USESEND_ADMIN);
+  return hasRole(session, ROLES.POSTAL_ADMIN);
 }
 
 export function canAccessKeycloakAdmin(

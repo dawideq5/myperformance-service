@@ -40,8 +40,8 @@ import {
   canAccessKadromierz,
   canAccessKeycloakAdmin,
   canAccessPanel,
+  canAccessPostal,
   canAccessStepCa,
-  canAccessUsesend,
   canManageCertificates,
 } from "@/lib/admin-auth";
 import { cn } from "@/lib/utils";
@@ -257,7 +257,7 @@ function TileGrid({ onOpenCalendar }: { onOpenCalendar: () => void }) {
   const showDocumensoAdmin = canAccessDocumensoAsAdmin(session);
   const showChatwootAgent = canAccessChatwootAsAgent(session);
   const showChatwootAdmin = canAccessChatwootAsAdmin(session);
-  const showUsesend = canAccessUsesend(session);
+  const showPostal = canAccessPostal(session);
   const showKeycloak = canAccessKeycloakAdmin(session);
   const showStepCa = canAccessStepCa(session);
   const showCerts = canManageCertificates(session);
@@ -269,7 +269,7 @@ function TileGrid({ onOpenCalendar }: { onOpenCalendar: () => void }) {
   const anyVisible =
     showCalendar || showKadromierz || showDirectus ||
     showDocumensoUser || showDocumensoAdmin ||
-    showChatwootAgent || showChatwootAdmin || showUsesend || showKeycloak ||
+    showChatwootAgent || showChatwootAdmin || showPostal || showKeycloak ||
     showStepCa || showCerts || showUsers || showSprzedawca ||
     showSerwisant || showKierowca;
 
@@ -437,12 +437,12 @@ function TileGrid({ onOpenCalendar }: { onOpenCalendar: () => void }) {
           />
         )}
 
-        {showUsesend && (
+        {showPostal && (
           <ExternalTile
             icon={<Mail className="w-7 h-7 text-pink-500" aria-hidden="true" />}
             iconBg="bg-pink-500/10"
-            title="Listmonk"
-            description="Wysyłka e-maili — transakcyjne i newslettery"
+            title="Postal"
+            description="Serwer pocztowy — transakcyjne i newslettery"
             href="https://newsletter.myperformance.pl"
           />
         )}

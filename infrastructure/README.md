@@ -10,7 +10,7 @@ Reference docker-compose files and Docker build contexts for every self-hosted s
 | `keycloak/Dockerfile` | Custom Keycloak 26.6.1 image with the Keycloakify theme baked in (replaces the runtime `theme-fetcher` pattern). | Build via Coolify Application (Dockerfile build pack) against this repo subpath. |
 | `documenso/docker-compose.yml` | Documenso + Postgres sidecar, self-signed signing cert auto-provisioned on volume. Keycloak OIDC SSO + webhook signing envs. Subdomain `sign.myperformance.pl`. | Coolify Service. |
 | `chatwoot/docker-compose.yml` | Chatwoot (Rails + Sidekiq) + Postgres (pgvector) + Redis. Subdomain `chat.myperformance.pl`. | Coolify Service. |
-| `listmonk/docker-compose.yml` | Listmonk transactional + newsletter sender (+ Postgres sidecar). Subdomain `mail.myperformance.pl`. Replaces the earlier Plunk service, which redirected to the OVHcloud placeholder whenever `APP_URI` drifted from the public FQDN. | Coolify Service. |
+| Postal (mail server) | Installed bare-metal on the VPS via `postalserver/install` (host networking + MariaDB + Caddy). `newsletter.myperformance.pl` proxied through Traefik. Replaces Listmonk (which itself replaced Plunk). | Bare-metal on VPS (not Coolify). |
 | `step-ca/docker-compose.yml` | Smallstep step-ca — internal CA that issues browser client certificates for cert-gated panels. Subdomain `ca.myperformance.pl`. | Coolify Service. |
 | `traefik/dynamic-mtls.yml` | Traefik v3 dynamic config enabling mTLS middleware + TLS options for the four cert-gated subdomains (`panelsprzedawcy`, `panelserwisanta`, `panelkierowcy`, `dokumenty`). | Dropped into Traefik's dynamic provider directory on the VPS. |
 
