@@ -1,10 +1,9 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import {
-  ArrowLeft,
   Briefcase,
   Calendar,
   Clock,
@@ -12,7 +11,6 @@ import {
   ExternalLink,
   FileSignature,
   KeyRound,
-  LayoutGrid,
   Mail,
   MessageSquare,
   Plug,
@@ -23,10 +21,8 @@ import {
 } from "lucide-react";
 
 import { AppHeader } from "@/components/AppHeader";
-import { Button, Card, PageShell } from "@/components/ui";
-import { WelcomeAnimation } from "@/components/WelcomeAnimation";
+import { Card, PageShell } from "@/components/ui";
 import { AccountProvider, useAccount } from "@/app/account/AccountProvider";
-import { CalendarTab } from "@/app/account/components/CalendarTab";
 import { KadromierzWorkWidget } from "./components/KadromierzWorkWidget";
 import { useAuthRedirect } from "@/hooks/useAuthRedirect";
 import {
@@ -46,14 +42,8 @@ import {
 } from "@/lib/admin-auth";
 import { cn } from "@/lib/utils";
 
-const WELCOME_KEY = "welcome-pending";
-
-type DashboardView = "home" | "calendar";
-type WelcomeStage = "resolving" | "playing" | "revealing" | "done";
-
 interface DashboardClientProps {
-  firstName: string;
-  lastName: string;
+  userLabel?: string;
   email?: string;
 }
 
@@ -67,183 +57,25 @@ export function DashboardClient(props: DashboardClientProps) {
   );
 }
 
-function DashboardBody({ firstName, lastName, email }: DashboardClientProps) {
-  const fullName = [firstName, lastName].filter(Boolean).join(" ").trim();
-  const userLabel = fullName || email || "";
-  const headingLabel = fullName || email || "Użytkowniku";
-
+function DashboardBody({ userLabel, email }: DashboardClientProps) {
   const { data: session } = useSession();
   const { softLogout } = useAuthRedirect();
-
-  const [stage, setStage] = useState<WelcomeStage>("resolving");
-  const [view, setView] = useState<DashboardView>("home");
-  const consumedRef = useRef(false);
-
-  useEffect(() => {
-    if (consumedRef.current) return;
-    consumedRef.current = true;
-    if (typeof window === "undefined") {
-      setStage("done");
-      return;
-    }
-    const pending =
-      window.sessionStorage.getItem(WELCOME_KEY) === "1" && !!firstName;
-    if (pending) window.sessionStorage.removeItem(WELCOME_KEY);
-    setStage(pending ? "playing" : "done");
-  }, [firstName]);
 
   useEffect(() => {
     if (session?.error === "RefreshTokenExpired") void softLogout();
   }, [session?.error, softLogout]);
 
-  const handleRevealPanel = useCallback(() => setStage("revealing"), []);
-  const handleAnimationDone = useCallback(() => setStage("done"), []);
-
-  const panelVisible = stage === "done" || stage === "revealing";
-  const calendarVisible = canAccessCalendar(session);
-
   return (
-    <>
-      <div
-        aria-hidden={!panelVisible}
-        style={{
-          opacity: panelVisible ? 1 : 0,
-          transition: "opacity 700ms cubic-bezier(0.65, 0, 0.35, 1)",
-          pointerEvents: panelVisible ? "auto" : "none",
-          willChange: panelVisible ? "auto" : "opacity",
-        }}
-      >
-        <PageShell
-          maxWidth="xl"
-          header={<AppHeader userLabel={userLabel} userSubLabel={email} />}
-        >
-          <section className="mb-8">
-            <h1 className="text-3xl font-bold tracking-tight text-[var(--text-main)]">
-              {headingLabel}
-            </h1>
-          </section>
-
-          <div className="flex gap-6 items-start">
-            <Sidebar view={view} onSelect={setView} calendarVisible={calendarVisible} />
-            <main className="flex-1 min-w-0">
-              <ViewSwitcher
-                view={view}
-                onOpenCalendar={() => setView("calendar")}
-              />
-            </main>
-          </div>
-        </PageShell>
-      </div>
-
-      {(stage === "playing" || stage === "revealing") && (
-        <WelcomeAnimation
-          firstName={firstName}
-          lastName={lastName}
-          onRevealPanel={handleRevealPanel}
-          onDone={handleAnimationDone}
-        />
-      )}
-    </>
-  );
-}
-
-function Sidebar({
-  view,
-  onSelect,
-  calendarVisible,
-}: {
-  view: DashboardView;
-  onSelect: (next: DashboardView) => void;
-  calendarVisible: boolean;
-}) {
-  const expanded = view !== "home";
-
-  const items: Array<{
-    id: DashboardView;
-    label: string;
-    icon: React.ReactNode;
-    visible: boolean;
-  }> = [
-    {
-      id: "home",
-      label: "Dashboard",
-      icon: <LayoutGrid className="w-5 h-5" aria-hidden="true" />,
-      visible: true,
-    },
-    {
-      id: "calendar",
-      label: "Kalendarz",
-      icon: <Calendar className="w-5 h-5" aria-hidden="true" />,
-      visible: calendarVisible,
-    },
-  ];
-
-  return (
-    <aside
-      aria-label="Nawigacja sekcji"
-      className={cn(
-        "overflow-hidden transition-[max-width,opacity,margin] duration-500 ease-[cubic-bezier(0.65,0,0.35,1)] flex-shrink-0",
-        expanded
-          ? "max-w-[240px] opacity-100"
-          : "max-w-0 opacity-0 pointer-events-none",
-      )}
-      aria-hidden={!expanded}
+    <PageShell
+      maxWidth="xl"
+      header={<AppHeader userLabel={userLabel} userSubLabel={email} />}
     >
-      <nav className="w-[220px]">
-        <Card padding="sm">
-          <ul className="space-y-1">
-            {items.filter((i) => i.visible).map((item) => {
-              const active = item.id === view;
-              const isHome = item.id === "home";
-              return (
-                <li key={item.id}>
-                  <button
-                    type="button"
-                    onClick={() => onSelect(item.id)}
-                    aria-current={active ? "page" : undefined}
-                    className={cn(
-                      "w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors text-left",
-                      active
-                        ? "bg-[var(--accent)]/10 text-[var(--accent)]"
-                        : "text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-main)]",
-                    )}
-                  >
-                    {isHome ? (
-                      <ArrowLeft className="w-4 h-4" aria-hidden="true" />
-                    ) : (
-                      item.icon
-                    )}
-                    <span>{item.label}</span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </Card>
-      </nav>
-    </aside>
+      <TileGrid />
+    </PageShell>
   );
 }
 
-function ViewSwitcher({
-  view,
-  onOpenCalendar,
-}: {
-  view: DashboardView;
-  onOpenCalendar: () => void;
-}) {
-  return (
-    <div key={view} className="animate-tab-in">
-      {view === "home" ? (
-        <TileGrid onOpenCalendar={onOpenCalendar} />
-      ) : (
-        <CalendarView />
-      )}
-    </div>
-  );
-}
-
-function TileGrid({ onOpenCalendar }: { onOpenCalendar: () => void }) {
+function TileGrid() {
   const { googleStatus, kadromierzStatus, status } = useAccount();
   const { data: session } = useSession();
   const accountLoading = status === "loading" || status === "idle";
@@ -284,23 +116,12 @@ function TileGrid({ onOpenCalendar }: { onOpenCalendar: () => void }) {
             title="Kalendarz"
             description={
               googleConnected
-                ? "Twoje wydarzenia i Google Calendar"
-                : "Wymaga integracji z Google"
+                ? "Twoje wydarzenia, Google Calendar, Kadromierz"
+                : "Konfiguracja Google / Kadromierz i wydarzenia"
             }
-            disabled={accountLoading || !googleConnected}
-            footer={
-              !accountLoading && !googleConnected ? (
-                <Link
-                  href="/account?tab=integrations"
-                  className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--accent)] hover:underline"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <Plug className="w-3.5 h-3.5" aria-hidden="true" />
-                  Skonfiguruj Google
-                </Link>
-              ) : null
-            }
-            onClick={onOpenCalendar}
+            onClick={() => {
+              window.location.href = "/dashboard/calendar";
+            }}
           />
         )}
 
@@ -580,49 +401,4 @@ function Tile({
       {footer && <div className="relative">{footer}</div>}
     </div>
   );
-}
-
-function CalendarView() {
-  const { googleStatus, status } = useAccount();
-  const accountLoading = status === "loading" || status === "idle";
-  const googleConnected = googleStatus?.connected === true;
-
-  if (accountLoading) {
-    return (
-      <Card
-        padding="lg"
-        className="min-h-[360px] flex items-center justify-center"
-      >
-        <p className="text-sm text-[var(--text-muted)]">Ładowanie kalendarza…</p>
-      </Card>
-    );
-  }
-
-  if (!googleConnected) {
-    return (
-      <Card padding="lg" className="text-center">
-        <div className="flex flex-col items-center gap-4 py-8 opacity-80">
-          <div className="w-14 h-14 rounded-2xl bg-blue-500/10 flex items-center justify-center">
-            <Calendar className="w-7 h-7 text-blue-500" aria-hidden="true" />
-          </div>
-          <div>
-            <h2 className="text-lg font-semibold text-[var(--text-main)]">
-              Kalendarz jest nieaktywny
-            </h2>
-            <p className="mt-1 text-sm text-[var(--text-muted)] max-w-md mx-auto">
-              Aby korzystać z kalendarza, podłącz konto Google w ustawieniach
-              integracji.
-            </p>
-          </div>
-          <Link href="/account?tab=integrations" className="inline-block">
-            <Button leftIcon={<Plug className="w-4 h-4" aria-hidden="true" />}>
-              Skonfiguruj integrację Google
-            </Button>
-          </Link>
-        </div>
-      </Card>
-    );
-  }
-
-  return <CalendarTab />;
 }

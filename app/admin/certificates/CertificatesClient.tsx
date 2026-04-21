@@ -5,8 +5,10 @@ import Link from "next/link";
 import {
   Activity,
   ArrowLeft,
+  Fingerprint,
   FileSignature,
   Mail,
+  RotateCcw,
   ShieldCheck,
   ShieldX,
 } from "lucide-react";
@@ -462,43 +464,247 @@ function ListPanel({
             </thead>
             <tbody>
               {certs.map((c) => (
-                <tr
+                <CertRow
                   key={c.id}
-                  className="border-b border-[var(--border-subtle)]/50 hover:bg-[var(--bg-main)]/50"
-                >
-                  <td className="py-3 px-3 text-[var(--text-main)]">{c.subject}</td>
-                  <td className="py-3 px-3 text-[var(--text-muted)]">{c.role}</td>
-                  <td className="py-3 px-3 text-[var(--text-muted)]">{c.email}</td>
-                  <td className="py-3 px-3 text-[var(--text-muted)]">
-                    {new Date(c.notAfter).toLocaleDateString("pl-PL")}
-                  </td>
-                  <td className="py-3 px-3">
-                    {c.revokedAt ? (
-                      <Badge tone="danger">unieważniony</Badge>
-                    ) : (
-                      <Badge tone="success">aktywny</Badge>
-                    )}
-                  </td>
-                  <td className="py-3 px-3 text-right">
-                    {!c.revokedAt && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        loading={revoking === c.id}
-                        leftIcon={<ShieldX className="w-4 h-4 text-red-500" />}
-                        onClick={() => revoke(c.id)}
-                      >
-                        Unieważnij
-                      </Button>
-                    )}
-                  </td>
-                </tr>
+                  cert={c}
+                  revoking={revoking === c.id}
+                  onRevoke={() => revoke(c.id)}
+                />
               ))}
             </tbody>
           </table>
         </div>
       )}
     </Card>
+  );
+}
+
+interface DeviceBinding {
+  serialNumber: string;
+  hash: string;
+  components: Record<string, string>;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  lastDeniedAt?: string;
+  lastDenial?: {
+    at: string;
+    ip?: string;
+    userAgent?: string;
+    diff: { field: string; before: string; after: string }[];
+  };
+}
+
+const BINDING_FIELD_LABELS: Record<string, string> = {
+  userAgent: "Przeglądarka (User-Agent)",
+  platform: "System operacyjny",
+  browserBrand: "Rodzaj przeglądarki",
+  acceptLanguage: "Preferowany język",
+  mobile: "Tryb mobilny",
+};
+
+function CertRow({
+  cert,
+  revoking,
+  onRevoke,
+}: {
+  cert: IssuedCertificate;
+  revoking: boolean;
+  onRevoke: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [binding, setBinding] = useState<DeviceBinding | null>(null);
+  const [bindingError, setBindingError] = useState<string | null>(null);
+  const [bindingLoading, setBindingLoading] = useState(false);
+  const [resetting, setResetting] = useState(false);
+
+  const loadBinding = useCallback(async () => {
+    setBindingLoading(true);
+    setBindingError(null);
+    try {
+      const res = await fetch(
+        `/api/admin/certificates/${encodeURIComponent(cert.id)}/binding`,
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setBinding((data.binding as DeviceBinding) ?? null);
+    } catch (err) {
+      setBindingError(
+        err instanceof Error ? err.message : "Nie udało się pobrać powiązania",
+      );
+    } finally {
+      setBindingLoading(false);
+    }
+  }, [cert.id]);
+
+  useEffect(() => {
+    if (expanded && !binding && !bindingLoading && !bindingError) {
+      void loadBinding();
+    }
+  }, [expanded, binding, bindingLoading, bindingError, loadBinding]);
+
+  async function resetBinding() {
+    if (
+      !confirm(
+        "Zresetować powiązanie urządzenia? Kolejne użycie certyfikatu stworzy nowy odcisk.",
+      )
+    ) {
+      return;
+    }
+    setResetting(true);
+    try {
+      const res = await fetch(
+        `/api/admin/certificates/${encodeURIComponent(cert.id)}/binding`,
+        { method: "DELETE" },
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setBinding(null);
+    } catch (err) {
+      setBindingError(
+        err instanceof Error ? err.message : "Nie udało się zresetować",
+      );
+    } finally {
+      setResetting(false);
+    }
+  }
+
+  const hasDenial = !!binding?.lastDenial;
+
+  return (
+    <>
+      <tr className="border-b border-[var(--border-subtle)]/50 hover:bg-[var(--bg-main)]/50">
+        <td className="py-3 px-3 text-[var(--text-main)]">
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            className="flex items-center gap-2 hover:text-[var(--accent)]"
+          >
+            <Fingerprint
+              className={`w-3.5 h-3.5 transition-transform ${expanded ? "rotate-90" : ""}`}
+              aria-hidden="true"
+            />
+            <span>{cert.subject}</span>
+          </button>
+        </td>
+        <td className="py-3 px-3 text-[var(--text-muted)]">{cert.role}</td>
+        <td className="py-3 px-3 text-[var(--text-muted)]">{cert.email}</td>
+        <td className="py-3 px-3 text-[var(--text-muted)]">
+          {new Date(cert.notAfter).toLocaleDateString("pl-PL")}
+        </td>
+        <td className="py-3 px-3">
+          {cert.revokedAt ? (
+            <Badge tone="danger">unieważniony</Badge>
+          ) : (
+            <Badge tone="success">aktywny</Badge>
+          )}
+        </td>
+        <td className="py-3 px-3 text-right">
+          {!cert.revokedAt && (
+            <Button
+              variant="ghost"
+              size="sm"
+              loading={revoking}
+              leftIcon={<ShieldX className="w-4 h-4 text-red-500" />}
+              onClick={onRevoke}
+            >
+              Unieważnij
+            </Button>
+          )}
+        </td>
+      </tr>
+      {expanded && (
+        <tr className="border-b border-[var(--border-subtle)]/50 bg-[var(--bg-main)]/40">
+          <td colSpan={6} className="py-4 px-3">
+            {bindingLoading ? (
+              <p className="text-xs text-[var(--text-muted)]">
+                Ładowanie powiązania urządzenia…
+              </p>
+            ) : bindingError ? (
+              <Alert tone="error">{bindingError}</Alert>
+            ) : !binding ? (
+              <p className="text-xs text-[var(--text-muted)]">
+                Brak powiązanego urządzenia. Certyfikat jeszcze nie został
+                użyty — pierwsze poprawne użycie utworzy odcisk urządzenia.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--text-muted)]">
+                  <Fingerprint className="w-3.5 h-3.5" aria-hidden="true" />
+                  <span>
+                    Pierwsze użycie:{" "}
+                    <span className="text-[var(--text-main)]">
+                      {new Date(binding.firstSeenAt).toLocaleString("pl-PL")}
+                    </span>
+                  </span>
+                  <span>•</span>
+                  <span>
+                    Ostatnie użycie:{" "}
+                    <span className="text-[var(--text-main)]">
+                      {new Date(binding.lastSeenAt).toLocaleString("pl-PL")}
+                    </span>
+                  </span>
+                  {binding.lastDeniedAt && (
+                    <>
+                      <span>•</span>
+                      <span className="text-red-400">
+                        Ostatnia odmowa:{" "}
+                        {new Date(binding.lastDeniedAt).toLocaleString("pl-PL")}
+                      </span>
+                    </>
+                  )}
+                </div>
+                <div className="grid sm:grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                  {Object.entries(binding.components).map(([k, v]) => (
+                    <div key={k} className="flex justify-between gap-2">
+                      <span className="text-[var(--text-muted)]">
+                        {BINDING_FIELD_LABELS[k] ?? k}
+                      </span>
+                      <span
+                        className="text-[var(--text-main)] truncate"
+                        title={v}
+                      >
+                        {v || "—"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                {hasDenial && binding.lastDenial && (
+                  <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-3 text-xs">
+                    <p className="font-semibold text-red-300 mb-2">
+                      Odrzucone użycie z innego urządzenia
+                    </p>
+                    <ul className="space-y-1">
+                      {binding.lastDenial.diff.map((d) => (
+                        <li key={d.field} className="text-[var(--text-muted)]">
+                          <span className="text-[var(--text-main)] font-medium">
+                            {BINDING_FIELD_LABELS[d.field] ?? d.field}:
+                          </span>{" "}
+                          <span className="text-red-300">„{d.after}"</span>{" "}
+                          zamiast{" "}
+                          <span className="text-emerald-300">
+                            „{d.before}"
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                <div className="flex justify-end">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    leftIcon={<RotateCcw className="w-4 h-4" aria-hidden="true" />}
+                    loading={resetting}
+                    onClick={resetBinding}
+                  >
+                    Zresetuj powiązanie
+                  </Button>
+                </div>
+              </div>
+            )}
+          </td>
+        </tr>
+      )}
+    </>
   );
 }
 

@@ -3,6 +3,10 @@ import { dirname } from "node:path";
 import { Pool, type PoolClient } from "pg";
 import { getOptionalEnv } from "@/lib/env";
 import type { IssuedCertificate } from "@/lib/step-ca-types";
+import type {
+  DeviceFingerprintComponents,
+  FingerprintDiff,
+} from "@/lib/device-fingerprint";
 
 export type AuditEvent = {
   ts: string;
@@ -66,6 +70,16 @@ async function ensureSchema(client: PoolClient): Promise<void> {
     );
     CREATE INDEX IF NOT EXISTS audit_events_ts_idx
       ON audit_events (ts DESC);
+
+    CREATE TABLE IF NOT EXISTS cert_device_bindings (
+      serial_number  TEXT PRIMARY KEY,
+      hash           TEXT NOT NULL,
+      components     JSONB NOT NULL,
+      first_seen_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+      last_seen_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+      last_denied_at TIMESTAMPTZ NULL,
+      last_denial    JSONB NULL
+    );
   `);
 }
 
@@ -262,6 +276,109 @@ export async function appendAudit(ev: AuditEvent): Promise<void> {
       `INSERT INTO audit_events (ts, actor, action, subject, ok, error)
        VALUES ($1,$2,$3,$4,$5,$6)`,
       [ev.ts, ev.actor, ev.action, ev.subject ?? null, ev.ok, ev.error ?? null]
+    );
+  });
+}
+
+export interface CertDeviceBinding {
+  serialNumber: string;
+  hash: string;
+  components: DeviceFingerprintComponents;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  lastDeniedAt?: string;
+  lastDenial?: {
+    at: string;
+    ip?: string;
+    userAgent?: string;
+    diff: FingerprintDiff[];
+  };
+}
+
+function mapRowToBinding(r: {
+  serial_number: string;
+  hash: string;
+  components: DeviceFingerprintComponents;
+  first_seen_at: Date;
+  last_seen_at: Date;
+  last_denied_at: Date | null;
+  last_denial: CertDeviceBinding["lastDenial"] | null;
+}): CertDeviceBinding {
+  return {
+    serialNumber: r.serial_number,
+    hash: r.hash,
+    components: r.components,
+    firstSeenAt: r.first_seen_at.toISOString(),
+    lastSeenAt: r.last_seen_at.toISOString(),
+    lastDeniedAt: r.last_denied_at ? r.last_denied_at.toISOString() : undefined,
+    lastDenial: r.last_denial ?? undefined,
+  };
+}
+
+export async function getDeviceBinding(
+  serial: string,
+): Promise<CertDeviceBinding | null> {
+  if (!getDatabaseUrl()) return null;
+  return withClient(async (c) => {
+    const res = await c.query(
+      `SELECT serial_number, hash, components, first_seen_at, last_seen_at,
+              last_denied_at, last_denial
+         FROM cert_device_bindings
+         WHERE serial_number = $1
+         LIMIT 1`,
+      [serial],
+    );
+    return res.rows.length === 0 ? null : mapRowToBinding(res.rows[0]);
+  });
+}
+
+export async function upsertDeviceBinding(
+  serial: string,
+  hash: string,
+  components: DeviceFingerprintComponents,
+): Promise<void> {
+  if (!getDatabaseUrl()) return;
+  await withClient(async (c) => {
+    await c.query(
+      `INSERT INTO cert_device_bindings (serial_number, hash, components)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (serial_number) DO UPDATE SET
+         last_seen_at = now()
+      `,
+      [serial, hash, JSON.stringify(components)],
+    );
+  });
+}
+
+export async function recordDeviceBindingDenial(
+  serial: string,
+  diff: FingerprintDiff[],
+  ip?: string,
+  userAgent?: string,
+): Promise<void> {
+  if (!getDatabaseUrl()) return;
+  await withClient(async (c) => {
+    const denial = {
+      at: new Date().toISOString(),
+      ip,
+      userAgent,
+      diff,
+    };
+    await c.query(
+      `UPDATE cert_device_bindings
+          SET last_denied_at = now(), last_denial = $2
+        WHERE serial_number = $1`,
+      [serial, JSON.stringify(denial)],
+    );
+  });
+}
+
+export async function resetDeviceBinding(serial: string): Promise<void> {
+  if (!getDatabaseUrl()) return;
+  await withClient(async (c) => {
+    await c.query(
+      `DELETE FROM cert_device_bindings WHERE serial_number = $1`,
+      [serial],
     );
   });
 }

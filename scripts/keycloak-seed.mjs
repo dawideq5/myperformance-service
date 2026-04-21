@@ -7,7 +7,7 @@
  *  2. All realm roles from lib/admin-auth.ts (ROLE_CATALOG) + legacy
  *     panel roles (sprzedawca, serwisant, kierowca) and their admin twins.
  *  3. `default-roles-myperformance` composite — every user auto-gets
- *     app_user, account_user, calendar_user, kadromierz_user.
+ *     app_user, kadromierz_user.
  *
  * Usage:
  *   KEYCLOAK_URL=https://auth.myperformance.pl \
@@ -47,8 +47,6 @@ function requireEnv(name) {
 const ROLES = [
   // defaults (auto-granted)
   { name: "app_user",            description: "Dostęp do dashboardu",                                 default: true  },
-  { name: "account_user",        description: "Samoobsługa konta (2FA, integracje)",                   default: true  },
-  { name: "calendar_user",       description: "Kalendarz Google w dashboardzie",                       default: true  },
   { name: "kadromierz_user",     description: "Kadromierz (grafik, ewidencja czasu)",                  default: true  },
 
   // gated

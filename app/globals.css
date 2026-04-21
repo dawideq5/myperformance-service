@@ -12,20 +12,9 @@
   --accent: #6366f1;
 }
 
-html.light {
-  --bg-main: #f8f9fc;
-  --bg-card: #ffffff;
-  --bg-header: #ffffff;
-  --border-subtle: #e8eaf0;
-  --text-main: #1a1a2e;
-  --text-muted: #5a5a6e;
-  --accent: #4f46e5;
-}
-
 body {
   color: var(--text-main);
   background-color: var(--bg-main);
-  transition: background-color 0.4s cubic-bezier(0.4, 0, 0.2, 1), color 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
@@ -45,18 +34,6 @@ body {
   to   { opacity: 1; transform: translateY(0); }
 }
 
-@keyframes rotate {
-  0%   { transform: rotate(0); }
-  100% { transform: rotate(360deg); }
-}
-
-@keyframes tilt {
-  0%   { transform: rotate(0deg); }
-  25%  { transform: rotate(-10deg); }
-  75%  { transform: rotate(10deg); }
-  100% { transform: rotate(0deg); }
-}
-
 @layer utilities {
   .animate-fade-in  { animation: fade-in 0.25s ease-out; }
   .animate-slide-up { animation: slide-up 0.3s ease-out; }
@@ -68,62 +45,3 @@ body {
     @apply border-[var(--border-subtle)];
   }
 }
-
-/* Theme Toggle Switch */
-.switch {
-  font-size: 17px;
-  position: relative;
-  display: inline-block;
-  width: 64px;
-  height: 34px;
-}
-
-.switch input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.slider {
-  position: absolute;
-  cursor: pointer;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background-color: #73C0FC;
-  transition: .4s;
-  border-radius: 30px;
-}
-
-.slider:before {
-  position: absolute;
-  content: "";
-  height: 30px;
-  width: 30px;
-  border-radius: 20px;
-  left: 2px;
-  bottom: 2px;
-  z-index: 2;
-  background-color: #e8e8e8;
-  transition: .4s;
-}
-
-.sun svg {
-  position: absolute;
-  top: 6px; left: 36px;
-  z-index: 1;
-  width: 24px; height: 24px;
-}
-
-.moon svg {
-  fill: #73C0FC;
-  position: absolute;
-  top: 5px; left: 5px;
-  z-index: 1;
-  width: 24px; height: 24px;
-}
-
-.switch:hover .sun svg  { animation: rotate 15s linear infinite; }
-.switch:hover .moon svg { animation: tilt 5s linear infinite; }
-
-.input:checked + .slider { background-color: #183153; }
-.input:focus  + .slider  { box-shadow: 0 0 1px #183153; }
-.input:checked + .slider:before { transform: translateX(30px); }

@@ -3,12 +3,23 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: light dark;
+  color-scheme: dark;
+  --bg-main: #0a0a0f;
+  --bg-card: #12121a;
+  --bg-header: #0f0f16;
+  --border-subtle: #1e1e2e;
+  --text-main: #f1f1f4;
+  --text-muted: #6b6b7b;
+  --accent: #6366f1;
 }
 
 html, body {
   font-family: Inter, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
-  background: rgb(15 23 42);
-  color: rgb(226 232 240);
+  background: var(--bg-main);
+  color: var(--text-main);
+}
+
+body {
+  min-height: 100vh;
 }

@@ -1,7 +1,6 @@
 "use client";
 
 import { SessionProvider, useSession, signOut } from "next-auth/react";
-import { ThemeProvider } from "@/components/ThemeProvider";
 import { useEffect } from "react";
 
 function SessionGuard({ children }: { children: React.ReactNode }) {
@@ -26,9 +25,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
       refetchInterval={5 * 60}
       refetchOnWindowFocus={true}
     >
-      <ThemeProvider>
-        <SessionGuard>{children}</SessionGuard>
-      </ThemeProvider>
+      <SessionGuard>{children}</SessionGuard>
     </SessionProvider>
   );
 }

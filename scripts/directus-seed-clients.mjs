@@ -100,7 +100,7 @@ const COLLECTION = {
 // Seed data — 15 services from the enterprise spec
 // ---------------------------------------------------------------------------
 const CLIENTS = [
-  { sort:  1, name: "Kalendarz",             slug: "kalendarz",            category: "service",     fqdn: "https://myperformance.pl/dashboard/kalendarz", icon: "Calendar",     keycloak_client_id: "mp-calendar",     sso_enabled: false, required_roles: ["calendar_user"]              },
+  { sort:  1, name: "Kalendarz",             slug: "kalendarz",            category: "service",     fqdn: "https://myperformance.pl/dashboard/calendar",  icon: "Calendar",     keycloak_client_id: "mp-calendar",     sso_enabled: false, required_roles: []                             },
   { sort:  2, name: "Directus CMS",          slug: "directus",             category: "admin",       fqdn: "https://cms.myperformance.pl",                 icon: "Database",     keycloak_client_id: "directus",         sso_enabled: true,  required_roles: ["directus_admin"]             },
   { sort:  3, name: "Certyfikaty klienckie", slug: "certyfikaty-klienckie", category: "admin",      fqdn: "https://myperformance.pl/admin/certificates", icon: "ShieldCheck",  keycloak_client_id: "mp-certificates", sso_enabled: false, required_roles: ["certificates_admin"]         },
   { sort:  4, name: "Panel sprzedawcy",      slug: "panel-sprzedawcy",     category: "panel",       fqdn: "https://panelsprzedawcy.myperformance.pl",    icon: "ShoppingCart", keycloak_client_id: "panel-sprzedawca",  sso_enabled: true,  required_roles: ["sprzedawca", "sprzedawca_admin"] },
@@ -115,7 +115,7 @@ const CLIENTS = [
   { sort: 13, name: "Keycloak",              slug: "keycloak",             category: "admin",       fqdn: "https://auth.myperformance.pl",               icon: "KeyRound",     keycloak_client_id: "mp-keycloak",     sso_enabled: true,  required_roles: ["keycloak_admin"]             },
   { sort: 14, name: "Step CA",               slug: "step-ca",              category: "admin",       fqdn: "https://myperformance.pl/dashboard/step-ca",  icon: "ShieldCheck",  keycloak_client_id: "stepca-oidc",     sso_enabled: true,  required_roles: ["stepca_admin"]               },
   { sort: 15, name: "Użytkownicy",           slug: "uzytkownicy",          category: "admin",       fqdn: "https://myperformance.pl/admin/users",        icon: "Users",        keycloak_client_id: "mp-users",        sso_enabled: false, required_roles: ["manage_users"]               },
-  { sort: 16, name: "Zarządzanie kontem",    slug: "zarzadzanie-kontem",   category: "service",     fqdn: "https://myperformance.pl/account",            icon: "UserCog",      keycloak_client_id: "mp-account",      sso_enabled: false, required_roles: ["account_user"]               },
+  { sort: 16, name: "Zarządzanie kontem",    slug: "zarzadzanie-kontem",   category: "service",     fqdn: "https://myperformance.pl/account",            icon: "UserCog",      keycloak_client_id: "mp-account",      sso_enabled: false, required_roles: []                             },
 ];
 
 // ---------------------------------------------------------------------------

@@ -35,10 +35,6 @@ function LoginContent() {
   const handleLogin = useCallback(async () => {
     setSubmitting(true);
     try {
-      // Flag consumed by /dashboard to play the welcome animation after a fresh login.
-      if (typeof window !== "undefined") {
-        window.sessionStorage.setItem("welcome-pending", "1");
-      }
       await signIn("keycloak", { callbackUrl });
     } finally {
       setSubmitting(false);

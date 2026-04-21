@@ -107,6 +107,24 @@ export async function POST(request: Request) {
       crypto.getRandomValues(challengeBuffer);
       const challenge = Buffer.from(challengeBuffer).toString("base64url");
 
+      const rawAttachment = (body as { attachment?: string }).attachment;
+      const attachment =
+        rawAttachment === "platform" || rawAttachment === "cross-platform"
+          ? rawAttachment
+          : undefined;
+
+      const authenticatorSelection: Record<string, unknown> = {
+        // Dla passkeys (Touch ID, Windows Hello) residentKey musi być
+        // `required`, inaczej macOS zapamiętuje klucz jako zewnętrzny
+        // i na logowaniu oferuje wyłącznie „klucz sprzętowy".
+        residentKey: attachment === "platform" ? "required" : "preferred",
+        requireResidentKey: attachment === "platform",
+        userVerification: "required",
+      };
+      if (attachment) {
+        authenticatorSelection.authenticatorAttachment = attachment;
+      }
+
       return createSuccessResponse({
         options: {
           challenge,
@@ -122,10 +140,7 @@ export async function POST(request: Request) {
           ],
           timeout: 60_000,
           attestation: "none",
-          authenticatorSelection: {
-            residentKey: "preferred",
-            userVerification: "required",
-          },
+          authenticatorSelection,
           extensions: { credProps: true },
         },
         challenge,
@@ -133,13 +148,15 @@ export async function POST(request: Request) {
     }
 
     if (action === "register") {
-      const { credential, label } = body as {
+      const { credential, label, attachment } = body as {
         credential?: {
           id: string;
           attestationObject: string;
           publicKey?: string;
+          transports?: string[];
         };
         label?: string;
+        attachment?: "platform" | "cross-platform";
       };
 
       if (!credential?.id || !credential.attestationObject) {
@@ -184,6 +201,16 @@ export async function POST(request: Request) {
           }
         }
 
+        // Platform authenticator → wymuszamy transport `internal`, aby
+        // Keycloak poprawnie oznaczył credential jako biometryczny (inaczej
+        // przeglądarka oferuje tylko tryb „klucz sprzętowy").
+        const transports =
+          attachment === "platform"
+            ? ["internal"]
+            : credential.transports && credential.transports.length > 0
+              ? credential.transports
+              : undefined;
+
         const webauthnCredential = {
           type: "webauthn",
           userLabel: label || "Klucz bezpieczeństwa",
@@ -193,6 +220,8 @@ export async function POST(request: Request) {
             counter: 0,
             aaguid: extractAaguid(credential.attestationObject),
             attestationStatementFormat: "none",
+            ...(transports ? { transports } : {}),
+            ...(attachment ? { authenticatorAttachment: attachment } : {}),
           }),
           secretData: JSON.stringify({}),
         };

@@ -25,6 +25,9 @@ const ROLES_TO_DELETE = [
   "usesend_user",
   "usesend_admin",
   "stepca_user",
+  // 2026-04-21: zwinięte w domyślne — każdy uwierzytelniony user ma te uprawnienia
+  "calendar_user",
+  "account_user",
 ];
 
 function requireEnv(name) {

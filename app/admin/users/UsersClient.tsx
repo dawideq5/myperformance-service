@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   AlertTriangle,
+  ArrowLeft,
   Ban,
   Check,
   KeyRound,
@@ -345,6 +346,15 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
       maxWidth="2xl"
       header={<AppHeader userLabel={userLabel} userSubLabel={userEmail} />}
     >
+      <div className="mb-6">
+        <Link
+          href="/dashboard"
+          className="inline-flex items-center gap-2 text-sm font-medium text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors"
+        >
+          <ArrowLeft className="w-4 h-4" aria-hidden="true" />
+          Powrót do dashboardu
+        </Link>
+      </div>
       <section className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-[var(--text-main)]">

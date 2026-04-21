@@ -1,4 +1,29 @@
 services:
+  # Nginx sidecar trims Documenso's upstream UI for "regular user" role:
+  #  - redirects the local password signin form straight to OIDC
+  #  - injects CSS that hides enterprise / branding / org / token / webhook
+  #    settings tabs so the profile is pure "sign documents we send you"
+  # Traefik targets this service (port 3000) instead of Documenso directly.
+  frontdoor:
+    image: 'nginx:1.27-alpine'
+    depends_on:
+      documenso:
+        condition: service_healthy
+    environment:
+      - SERVICE_FQDN_FRONTDOOR_3000=sign.myperformance.pl
+    expose:
+      - '3000'
+    volumes:
+      - './nginx.conf:/etc/nginx/nginx.conf:ro'
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "wget -q -O - http://127.0.0.1:3000/ >/dev/null 2>&1 || exit 1"
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+
   documenso:
     image: 'documenso/documenso:latest'
     user: "0:0"
@@ -6,7 +31,6 @@ services:
       database:
         condition: service_healthy
     environment:
-      - SERVICE_FQDN_DOCUMENSO_3000=sign.myperformance.pl
       - 'NEXTAUTH_URL=${SERVICE_URL_DOCUMENSO}'
       - 'NEXTAUTH_SECRET=${SERVICE_BASE64_AUTHSECRET}'
       - 'NEXT_PRIVATE_ENCRYPTION_KEY=${SERVICE_BASE64_ENCRYPTIONKEY}'
@@ -32,6 +56,8 @@ services:
       - 'NEXT_PRIVATE_OIDC_CLIENT_SECRET=${NEXT_PRIVATE_OIDC_CLIENT_SECRET}'
       - 'NEXT_PRIVATE_OIDC_ALLOW_SIGNUP=${NEXT_PRIVATE_OIDC_ALLOW_SIGNUP:-true}'
       - 'NEXT_PRIVATE_OIDC_SKIP_VERIFY=${NEXT_PRIVATE_OIDC_SKIP_VERIFY:-false}'
+      # Lock local-password auth — we expose only the OIDC button via nginx rewrite.
+      - 'NEXT_PRIVATE_DISABLE_CREDENTIAL_SIGNIN=${NEXT_PRIVATE_DISABLE_CREDENTIAL_SIGNIN:-true}'
 
       # === Webhook signing (for dokumenty panel realtime events) ===
       - 'NEXT_PRIVATE_WEBHOOK_SECRET=${NEXT_PRIVATE_WEBHOOK_SECRET}'

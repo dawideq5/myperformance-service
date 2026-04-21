@@ -15,12 +15,6 @@ import { ApiError } from "@/lib/api-utils";
 export const ROLES = {
   APP_USER: "app_user",
 
-  // Calendar (Google)
-  CALENDAR_USER: "calendar_user",
-
-  // Konto / self-service (always granted; every authed user has it)
-  ACCOUNT_USER: "account_user",
-
   // Management consoles
   MANAGE_USERS: "manage_users",
 
@@ -62,9 +56,6 @@ export interface RoleSpec {
 
 export const ROLE_CATALOG: RoleSpec[] = [
   { name: ROLES.APP_USER, description: "Dostęp do dashboardu (wymagany dla każdego uwierzytelnionego użytkownika)", default: true },
-  { name: ROLES.ACCOUNT_USER, description: "Samoobsługa konta (2FA, WebAuthn, integracje) — domyślnie dla wszystkich", default: true },
-
-  { name: ROLES.CALENDAR_USER, description: "Kalendarz Google w dashboardzie", default: true },
 
   { name: ROLES.MANAGE_USERS, description: "Zarządzanie kontami użytkowników w panelu /admin/users", default: false },
   { name: ROLES.CERTIFICATES_ADMIN, description: "Wydawanie i odwoływanie certyfikatów klienckich (step-ca)", default: false },
@@ -214,7 +205,9 @@ export function canAccessKadromierz(
 export function canAccessCalendar(
   session: Session | null | undefined,
 ): boolean {
-  return hasRole(session, ROLES.CALENDAR_USER);
+  // Kalendarz jest częścią bazowego doświadczenia dashboardu —
+  // dostęp ma każdy uwierzytelniony użytkownik.
+  return !!session?.user;
 }
 
 function assertSession(

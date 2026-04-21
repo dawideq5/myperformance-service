@@ -67,7 +67,7 @@ export const accountService = {
 
   getWebAuthnKeys: () => api.get<{ keys: WebAuthnKey[] }>("/api/account/webauthn"),
 
-  getWebAuthnOptions: () =>
+  getWebAuthnOptions: (attachment?: "platform" | "cross-platform") =>
     api.post<
       {
         options: {
@@ -82,8 +82,8 @@ export const accountService = {
         };
         challenge: string;
       },
-      { action: "get-options" }
-    >("/api/account/webauthn", { action: "get-options" }),
+      { action: "get-options"; attachment?: "platform" | "cross-platform" }
+    >("/api/account/webauthn", { action: "get-options", attachment }),
 
   registerWebAuthn: (payload: {
     credential: {
@@ -94,10 +94,16 @@ export const accountService = {
       transports?: string[];
     };
     label: string;
+    attachment?: "platform" | "cross-platform";
   }) =>
     api.post<
       { success: boolean },
-      { action: "register"; credential: typeof payload.credential; label: string }
+      {
+        action: "register";
+        credential: typeof payload.credential;
+        label: string;
+        attachment?: "platform" | "cross-platform";
+      }
     >("/api/account/webauthn", { action: "register", ...payload }),
 
   deleteWebAuthnKey: (credentialId: string) =>

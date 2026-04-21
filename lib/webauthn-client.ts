@@ -20,8 +20,10 @@ function base64UrlToBuf(b64url: string): ArrayBuffer {
   return out.buffer;
 }
 
+export type WebAuthnAttachment = "platform" | "cross-platform";
+
 export interface EnrollInput {
-  challenge: string; // base64url
+  challenge: string;
   rpName: string;
   rpId?: string;
   user: { id: string; name: string; displayName: string };
@@ -34,10 +36,15 @@ export interface EnrollInput {
 
 export interface EnrollResult {
   id: string;
-  attestationObject: string; // base64url
-  clientDataJSON: string; // base64url
-  publicKey?: string; // base64url when exposed via getPublicKey()
+  attestationObject: string;
+  clientDataJSON: string;
+  publicKey?: string;
   transports?: string[];
+  /**
+   * Reported by `credential.response.getPublicKeyAlgorithm()` when available —
+   * useful for telemetry but not required by Keycloak.
+   */
+  publicKeyAlgorithm?: number;
 }
 
 export async function enrollWebAuthnCredential(
@@ -80,6 +87,10 @@ export async function enrollWebAuthnCredential(
     typeof response.getTransports === "function"
       ? response.getTransports()
       : undefined;
+  const publicKeyAlgorithm =
+    typeof response.getPublicKeyAlgorithm === "function"
+      ? response.getPublicKeyAlgorithm()
+      : undefined;
 
   return {
     id: bufToBase64Url(credential.rawId),
@@ -87,5 +98,6 @@ export async function enrollWebAuthnCredential(
     clientDataJSON: bufToBase64Url(response.clientDataJSON),
     publicKey: pubKey ? bufToBase64Url(pubKey) : undefined,
     transports,
+    publicKeyAlgorithm: publicKeyAlgorithm ?? undefined,
   };
 }

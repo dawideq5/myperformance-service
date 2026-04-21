@@ -5,17 +5,6 @@ import { DashboardClient } from "./DashboardClient";
 
 export const dynamic = "force-dynamic";
 
-function splitName(name: string | null | undefined): {
-  firstName: string;
-  lastName: string;
-} {
-  if (!name) return { firstName: "", lastName: "" };
-  const parts = name.trim().split(/\s+/);
-  if (parts.length === 0) return { firstName: "", lastName: "" };
-  if (parts.length === 1) return { firstName: parts[0], lastName: "" };
-  return { firstName: parts[0], lastName: parts.slice(1).join(" ") };
-}
-
 export default async function DashboardPage() {
   const session = await getServerSession(authOptions);
 
@@ -23,14 +12,10 @@ export default async function DashboardPage() {
     redirect("/login");
   }
 
-  const { firstName, lastName } = splitName(session.user.name);
-  const email = session.user.email ?? undefined;
-
   return (
     <DashboardClient
-      firstName={firstName || email || "Użytkowniku"}
-      lastName={lastName}
-      email={email}
+      userLabel={session.user.name ?? session.user.email ?? undefined}
+      email={session.user.email ?? undefined}
     />
   );
 }

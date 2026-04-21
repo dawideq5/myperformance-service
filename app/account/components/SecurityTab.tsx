@@ -642,6 +642,8 @@ function TotpSetupDialog({
   );
 }
 
+type AttachmentChoice = "platform" | "cross-platform";
+
 function WebAuthnEnrollDialog({
   open,
   onClose,
@@ -652,18 +654,16 @@ function WebAuthnEnrollDialog({
   onSuccess: () => void | Promise<void>;
 }) {
   const id = useId();
+  const [attachment, setAttachment] = useState<AttachmentChoice | null>(null);
   const [label, setLabel] = useState("");
   const [status, setStatus] = useState<"idle" | "prompting" | "saving">("idle");
   const [error, setError] = useState<string | null>(null);
 
   const title = "Rejestracja klucza bezpieczeństwa";
-  const defaultLabel = "Klucz bezpieczeństwa";
-  const placeholder = "np. YubiKey biurowy";
-  const description =
-    "Podłącz klucz sprzętowy (np. YubiKey) lub użyj klucza Passkey wbudowanego w przeglądarkę / urządzenie. Po zatwierdzeniu przeglądarka poprosi o potwierdzenie tożsamości.";
 
   useEffect(() => {
     if (!open) {
+      setAttachment(null);
       setLabel("");
       setStatus("idle");
       setError(null);
@@ -672,11 +672,16 @@ function WebAuthnEnrollDialog({
 
   const enroll = async (e: FormEvent) => {
     e.preventDefault();
+    if (!attachment) return;
+    const defaultLabel =
+      attachment === "platform"
+        ? "Biometria (Touch ID / Windows Hello)"
+        : "Klucz sprzętowy";
     const trimmed = label.trim() || defaultLabel;
     setError(null);
     setStatus("prompting");
     try {
-      const { options } = await accountService.getWebAuthnOptions();
+      const { options } = await accountService.getWebAuthnOptions(attachment);
       const rpId =
         typeof window !== "undefined" ? window.location.hostname : undefined;
       const credential = await enrollWebAuthnCredential({
@@ -694,6 +699,7 @@ function WebAuthnEnrollDialog({
       await accountService.registerWebAuthn({
         credential,
         label: trimmed,
+        attachment,
       });
       await onSuccess();
     } catch (err) {
@@ -716,43 +722,91 @@ function WebAuthnEnrollDialog({
       labelledById={id}
       size="md"
     >
-      <form onSubmit={enroll} className="space-y-4">
-        <p className="text-sm text-[var(--text-muted)]">{description}</p>
-        <Input
-          label="Nazwa klucza"
-          value={label}
-          onChange={(e) => setLabel(e.target.value)}
-          placeholder={placeholder}
-          disabled={busy}
-          hint="Pomoże rozpoznać klucz w ustawieniach"
-        />
-
-        {status === "prompting" && (
-          <Alert tone="info">
-            <span className="inline-flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4" aria-hidden="true" />
-              Potwierdź rejestrację na urządzeniu…
-            </span>
-          </Alert>
-        )}
-
-        {error && <Alert tone="error">{error}</Alert>}
-
-        <div className="flex gap-3">
-          <Button
+      {attachment === null ? (
+        <div className="space-y-4">
+          <p className="text-sm text-[var(--text-muted)]">
+            Wybierz rodzaj klucza. Biometria loguje Cię jednym gestem (Touch ID,
+            Windows Hello, klucz Android). Klucz sprzętowy wymaga fizycznego
+            urządzenia USB/NFC (np. YubiKey).
+          </p>
+          <button
             type="button"
-            variant="secondary"
-            onClick={onClose}
-            disabled={busy}
-            className="flex-1"
+            onClick={() => setAttachment("platform")}
+            className="w-full text-left p-4 rounded-xl border border-[var(--border-subtle)] hover:border-[var(--accent)]/40 hover:bg-[var(--bg-main)] transition-colors"
           >
-            Anuluj
-          </Button>
-          <Button type="submit" loading={busy} className="flex-1">
-            Zarejestruj klucz
-          </Button>
+            <p className="text-sm font-semibold text-[var(--text-main)]">
+              Biometria / Passkey
+            </p>
+            <p className="text-xs text-[var(--text-muted)] mt-1">
+              Touch ID, Face ID, Windows Hello — najwygodniejsza opcja na
+              prywatnym laptopie lub telefonie.
+            </p>
+          </button>
+          <button
+            type="button"
+            onClick={() => setAttachment("cross-platform")}
+            className="w-full text-left p-4 rounded-xl border border-[var(--border-subtle)] hover:border-[var(--accent)]/40 hover:bg-[var(--bg-main)] transition-colors"
+          >
+            <p className="text-sm font-semibold text-[var(--text-main)]">
+              Klucz sprzętowy
+            </p>
+            <p className="text-xs text-[var(--text-muted)] mt-1">
+              Przenośny klucz USB / NFC (YubiKey, Titan, SoloKey).
+            </p>
+          </button>
+          <div className="flex justify-end pt-2">
+            <Button type="button" variant="secondary" onClick={onClose}>
+              Anuluj
+            </Button>
+          </div>
         </div>
-      </form>
+      ) : (
+        <form onSubmit={enroll} className="space-y-4">
+          <p className="text-sm text-[var(--text-muted)]">
+            {attachment === "platform"
+              ? "Potwierdź rejestrację biometrią (Touch ID, Face ID, Windows Hello)."
+              : "Podłącz klucz sprzętowy przez USB lub przyłóż NFC — przeglądarka poprosi o potwierdzenie."}
+          </p>
+          <Input
+            label="Nazwa"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder={
+              attachment === "platform"
+                ? "np. MacBook Pro Touch ID"
+                : "np. YubiKey biurowy"
+            }
+            disabled={busy}
+            hint="Pomoże rozpoznać klucz w ustawieniach"
+          />
+
+          {status === "prompting" && (
+            <Alert tone="info">
+              <span className="inline-flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4" aria-hidden="true" />
+                Potwierdź rejestrację na urządzeniu…
+              </span>
+            </Alert>
+          )}
+
+          {error && <Alert tone="error">{error}</Alert>}
+
+          <div className="flex gap-3">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setAttachment(null)}
+              disabled={busy}
+              className="flex-1"
+            >
+              Wstecz
+            </Button>
+            <Button type="submit" loading={busy} className="flex-1">
+              Zarejestruj
+            </Button>
+          </div>
+        </form>
+      )}
     </Dialog>
   );
 }

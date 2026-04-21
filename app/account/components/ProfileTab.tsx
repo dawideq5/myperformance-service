@@ -21,8 +21,6 @@ import {
   Input,
 } from "@/components/ui";
 import { PhoneInput } from "@/components/PhoneInput";
-import { ThemeToggle } from "@/components/ThemeToggle";
-import { useTheme } from "@/components/ThemeProvider";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 
 import { useAccount } from "../AccountProvider";
@@ -76,7 +74,6 @@ function ReadonlyField({
 
 export function ProfileTab() {
   const { profile, patchProfile, refetchProfile } = useAccount();
-  const { theme } = useTheme();
   const phoneId = useId();
 
   const [editing, setEditing] = useState(false);
@@ -358,29 +355,6 @@ export function ProfileTab() {
         </Card>
       )}
 
-      <Card padding="md">
-        <div className="mb-6">
-          <h2 className="text-lg font-semibold text-[var(--text-main)]">
-            Wygląd aplikacji
-          </h2>
-          <p className="text-sm text-[var(--text-muted)]">Preferencje motywu</p>
-        </div>
-        <div className="flex items-center justify-between p-4 bg-[var(--bg-main)] border border-[var(--border-subtle)] rounded-xl">
-          <div>
-            <p className="text-sm font-medium text-[var(--text-main)]">
-              Tryb ciemny
-            </p>
-            <p className="text-xs text-[var(--text-muted)]">
-              {theme === "dark" ? "Włączony" : "Wyłączony"}
-            </p>
-          </div>
-          <ThemeToggle />
-        </div>
-        <p className="text-xs text-[var(--text-muted)] mt-3">
-          Motyw jest zapisywany w Twoim profilu i stosowany przy każdym
-          logowaniu.
-        </p>
-      </Card>
     </div>
   );
 }
