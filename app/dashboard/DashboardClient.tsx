@@ -32,10 +32,11 @@ import { useAuthRedirect } from "@/hooks/useAuthRedirect";
 import {
   canAccessAdminPanel,
   canAccessCalendar,
-  canAccessChatwoot,
+  canAccessChatwootAsAdmin,
+  canAccessChatwootAsAgent,
   canAccessDirectus,
-  canAccessDocuments,
-  canAccessDocumenso,
+  canAccessDocumensoAsAdmin,
+  canAccessDocumensoAsUser,
   canAccessKadromierz,
   canAccessKeycloakAdmin,
   canAccessPanel,
@@ -250,11 +251,12 @@ function TileGrid({ onOpenCalendar }: { onOpenCalendar: () => void }) {
   const kadromierzConnected = kadromierzStatus?.connected === true;
 
   const showCalendar = canAccessCalendar(session);
-  const showDocuments = canAccessDocuments(session);
   const showKadromierz = canAccessKadromierz(session);
   const showDirectus = canAccessDirectus(session);
-  const showDocumenso = canAccessDocumenso(session);
-  const showChatwoot = canAccessChatwoot(session);
+  const showDocumensoUser = canAccessDocumensoAsUser(session);
+  const showDocumensoAdmin = canAccessDocumensoAsAdmin(session);
+  const showChatwootAgent = canAccessChatwootAsAgent(session);
+  const showChatwootAdmin = canAccessChatwootAsAdmin(session);
   const showUsesend = canAccessUsesend(session);
   const showKeycloak = canAccessKeycloakAdmin(session);
   const showStepCa = canAccessStepCa(session);
@@ -265,8 +267,9 @@ function TileGrid({ onOpenCalendar }: { onOpenCalendar: () => void }) {
   const showKierowca = canAccessPanel(session, "kierowca");
 
   const anyVisible =
-    showCalendar || showDocuments || showKadromierz || showDirectus ||
-    showDocumenso || showChatwoot || showUsesend || showKeycloak ||
+    showCalendar || showKadromierz || showDirectus ||
+    showDocumensoUser || showDocumensoAdmin ||
+    showChatwootAgent || showChatwootAdmin || showUsesend || showKeycloak ||
     showStepCa || showCerts || showUsers || showSprzedawca ||
     showSerwisant || showKierowca;
 
@@ -298,20 +301,6 @@ function TileGrid({ onOpenCalendar }: { onOpenCalendar: () => void }) {
               ) : null
             }
             onClick={onOpenCalendar}
-          />
-        )}
-
-        {showDocuments && (
-          <Tile
-            icon={
-              <FileSignature className="w-7 h-7 text-purple-500" aria-hidden="true" />
-            }
-            iconBg="bg-purple-500/10"
-            title="Moje dokumenty"
-            description="Dokumenty do podpisu i podpisane (Documenso)"
-            onClick={() => {
-              window.location.href = "/dashboard/moje-dokumenty";
-            }}
           />
         )}
 
@@ -406,22 +395,43 @@ function TileGrid({ onOpenCalendar }: { onOpenCalendar: () => void }) {
           />
         )}
 
-        {showDocumenso && (
+        {showDocumensoUser && (
           <ExternalTile
-            icon={<FileSignature className="w-7 h-7 text-fuchsia-500" aria-hidden="true" />}
-            iconBg="bg-fuchsia-500/10"
-            title="Documenso"
-            description="Panel dokumentów, szablony i podpisy (SSO)"
+            icon={<FileSignature className="w-7 h-7 text-purple-500" aria-hidden="true" />}
+            iconBg="bg-purple-500/10"
+            title="Moje dokumenty"
+            description="Twoje dokumenty do podpisu i już podpisane (Documenso)"
             href="https://sign.myperformance.pl"
           />
         )}
 
-        {showChatwoot && (
+        {showDocumensoAdmin && (
+          <ExternalTile
+            icon={<FileSignature className="w-7 h-7 text-fuchsia-500" aria-hidden="true" />}
+            iconBg="bg-fuchsia-500/10"
+            title="Documenso — administracja"
+            description="Szablony, webhooki, użytkownicy (SSO)"
+            href="https://sign.myperformance.pl/admin"
+          />
+        )}
+
+        {showChatwootAgent && (
+          <ExternalTile
+            icon={<MessageSquare className="w-7 h-7 text-sky-500" aria-hidden="true" />}
+            iconBg="bg-sky-500/10"
+            title="Chatwoot — agent"
+            description="Obsługa rozmów z klientami (SSO przez Keycloak)"
+            href="/api/chatwoot/sso"
+            sameTab
+          />
+        )}
+
+        {showChatwootAdmin && (
           <ExternalTile
             icon={<MessageSquare className="w-7 h-7 text-cyan-500" aria-hidden="true" />}
             iconBg="bg-cyan-500/10"
-            title="Chatwoot"
-            description="Obsługa klienta — SSO przez Keycloak"
+            title="Chatwoot — administracja"
+            description="Konfiguracja, użytkownicy, webhooki (SSO)"
             href="/api/chatwoot/sso"
             sameTab
           />
@@ -431,9 +441,9 @@ function TileGrid({ onOpenCalendar }: { onOpenCalendar: () => void }) {
           <ExternalTile
             icon={<Mail className="w-7 h-7 text-pink-500" aria-hidden="true" />}
             iconBg="bg-pink-500/10"
-            title="Usesend"
-            description="Wysyłka e-maili — transakcyjne i newslettery (SSO)"
-            href="https://mail.myperformance.pl"
+            title="Listmonk"
+            description="Wysyłka e-maili — transakcyjne i newslettery"
+            href="https://newsletter.myperformance.pl"
           />
         )}
 
@@ -448,12 +458,14 @@ function TileGrid({ onOpenCalendar }: { onOpenCalendar: () => void }) {
         )}
 
         {showStepCa && (
-          <ExternalTile
+          <Tile
             icon={<ShieldCheck className="w-7 h-7 text-teal-500" aria-hidden="true" />}
             iconBg="bg-teal-500/10"
             title="Step CA"
-            description="Infrastruktura PKI — prowizjonerzy i certyfikaty"
-            href="https://ca.myperformance.pl"
+            description="Infrastruktura PKI — prowizjonerzy, root cert, self-service"
+            onClick={() => {
+              window.location.href = "/dashboard/step-ca";
+            }}
           />
         )}
 

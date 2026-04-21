@@ -107,7 +107,7 @@ const ROLE_GUARDS: Array<{ path: string; anyOf: string[] }> = [
   { path: "/admin/certificates", anyOf: ["certificates_admin"] },
   { path: "/api/admin/users", anyOf: ["manage_users"] },
   { path: "/api/admin/certificates", anyOf: ["certificates_admin"] },
-  { path: "/dashboard/moje-dokumenty", anyOf: ["documents_user"] },
+  { path: "/dashboard/step-ca", anyOf: ["stepca_admin"] },
 ];
 
 function findMatchingGuard(pathname: string) {

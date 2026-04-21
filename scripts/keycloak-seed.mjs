@@ -7,7 +7,7 @@
  *  2. All realm roles from lib/admin-auth.ts (ROLE_CATALOG) + legacy
  *     panel roles (sprzedawca, serwisant, kierowca) and their admin twins.
  *  3. `default-roles-myperformance` composite — every user auto-gets
- *     app_user, account_user, calendar_user, documents_user, kadromierz_user.
+ *     app_user, account_user, calendar_user, kadromierz_user.
  *
  * Usage:
  *   KEYCLOAK_URL=https://auth.myperformance.pl \
@@ -49,14 +49,12 @@ const ROLES = [
   { name: "app_user",            description: "Dostęp do dashboardu",                                 default: true  },
   { name: "account_user",        description: "Samoobsługa konta (2FA, integracje)",                   default: true  },
   { name: "calendar_user",       description: "Kalendarz Google w dashboardzie",                       default: true  },
-  { name: "documents_user",      description: "Moje dokumenty (Documenso)",                            default: true  },
   { name: "kadromierz_user",     description: "Kadromierz (grafik, ewidencja czasu)",                  default: true  },
 
   // gated
   { name: "manage_users",        description: "/admin/users — zarządzanie kontami",                    default: false },
   { name: "certificates_admin",  description: "Wystawianie i odwoływanie certyfikatów klienckich",     default: false },
 
-  { name: "directus_access",     description: "Dostęp do Directus CMS (jak zwykły użytkownik)",         default: false },
   { name: "directus_admin",      description: "Administrator Directus CMS",                            default: false },
 
   { name: "documenso_user",      description: "Dostęp do Documenso (użytkownik końcowy)",              default: false },
@@ -65,13 +63,11 @@ const ROLES = [
   { name: "chatwoot_agent",      description: "Agent obsługi klienta w Chatwoot",                      default: false },
   { name: "chatwoot_admin",      description: "Administrator Chatwoot",                                default: false },
 
-  { name: "usesend_user",        description: "Panel Usesend (wysyłka transakcyjna, szablony)",        default: false },
-  { name: "usesend_admin",       description: "Administrator Usesend",                                 default: false },
+  { name: "usesend_admin",       description: "Administrator platformy e-mail (Listmonk / Usesend)",    default: false },
 
   { name: "keycloak_admin",      description: "Konsola administracyjna Keycloak",                       default: false },
 
-  { name: "stepca_user",         description: "Samodzielne wydawanie certyfikatów (OIDC provisioner)",  default: false },
-  { name: "stepca_admin",        description: "Administrator step-ca (provisionery, polityki)",        default: false },
+  { name: "stepca_admin",        description: "Administrator step-ca (provisionery, polityki, self-service)", default: false },
 
   // panel realm-roles — used by both the mTLS panels and dashboard gating
   { name: "sprzedawca",          description: "Dostęp do panelu sprzedawcy",                           default: false },
@@ -175,7 +171,6 @@ const CLIENTS = [
 
   // Virtual clients — no SSO login flow, exist for Directus clients seed + RBAC readability
   { clientId: "mp-calendar",    name: "Kalendarz",               description: "Kalendarz Google (usługa dashboardu)",           publicClient: true,  standardFlow: false, bearerOnly: true },
-  { clientId: "mp-documents",   name: "Moje dokumenty",          description: "Dokumenty użytkownika (usługa dashboardu)",      publicClient: true,  standardFlow: false, bearerOnly: true },
   { clientId: "mp-certificates", name: "Certyfikaty klienckie",  description: "Wydawanie certyfikatów mTLS (usługa dashboardu)", publicClient: true,  standardFlow: false, bearerOnly: true },
   { clientId: "mp-kadromierz",  name: "Kadromierz",              description: "Integracja Kadromierz (usługa dashboardu)",      publicClient: true,  standardFlow: false, bearerOnly: true },
   { clientId: "mp-users",       name: "Użytkownicy",             description: "Zarządzanie użytkownikami (usługa dashboardu)",  publicClient: true,  standardFlow: false, bearerOnly: true },

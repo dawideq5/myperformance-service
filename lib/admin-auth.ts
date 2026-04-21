@@ -5,8 +5,8 @@ import { ApiError } from "@/lib/api-utils";
  * Realm-wide role catalog.
  *
  * Shape: `<service>_user` grants read/basic use, `<service>_admin` grants
- * elevated/management rights. Where a service has no natural split, only
- * the `*_user` role is declared.
+ * elevated/management rights. Niektóre usługi (Directus, Listmonk, step-ca)
+ * są admin-only — nie mają odpowiednika `_user`.
  *
  * Roles with `default: true` belong to `default-roles-myperformance` and
  * are auto-granted to every authenticated user. Everything else is gated
@@ -17,9 +17,6 @@ export const ROLES = {
 
   // Calendar (Google)
   CALENDAR_USER: "calendar_user",
-
-  // Moje dokumenty (Documenso viewer/signer for end users)
-  DOCUMENTS_USER: "documents_user",
 
   // Konto / self-service (always granted; every authed user has it)
   ACCOUNT_USER: "account_user",
@@ -33,27 +30,24 @@ export const ROLES = {
   // Kadromierz
   KADROMIERZ_USER: "kadromierz_user",
 
-  // Directus CMS
-  DIRECTUS_ACCESS: "directus_access",
+  // Directus CMS (admin-only)
   DIRECTUS_ADMIN: "directus_admin",
 
-  // Documenso (admin UI at sign.myperformance.pl)
+  // Documenso: user = własne dokumenty, admin = konsola Documenso
   DOCUMENSO_USER: "documenso_user",
   DOCUMENSO_ADMIN: "documenso_admin",
 
-  // Chatwoot
+  // Chatwoot: agent = obsługa klienta, admin = konfiguracja
   CHATWOOT_AGENT: "chatwoot_agent",
   CHATWOOT_ADMIN: "chatwoot_admin",
 
-  // Usesend (email platform, replaces Listmonk)
-  USESEND_USER: "usesend_user",
+  // Listmonk / Usesend (email platform) — admin-only
   USESEND_ADMIN: "usesend_admin",
 
   // Keycloak (admin console)
   KEYCLOAK_ADMIN: "keycloak_admin",
 
-  // Step CA (cert issuance via OIDC provisioner + ops)
-  STEPCA_USER: "stepca_user",
+  // Step CA — admin-only (panel diagnostyczny + self-service cert)
   STEPCA_ADMIN: "stepca_admin",
 } as const;
 
@@ -71,28 +65,24 @@ export const ROLE_CATALOG: RoleSpec[] = [
   { name: ROLES.ACCOUNT_USER, description: "Samoobsługa konta (2FA, WebAuthn, integracje) — domyślnie dla wszystkich", default: true },
 
   { name: ROLES.CALENDAR_USER, description: "Kalendarz Google w dashboardzie", default: true },
-  { name: ROLES.DOCUMENTS_USER, description: "Moje dokumenty (podpisywanie przez Documenso)", default: true },
 
   { name: ROLES.MANAGE_USERS, description: "Zarządzanie kontami użytkowników w panelu /admin/users", default: false },
   { name: ROLES.CERTIFICATES_ADMIN, description: "Wydawanie i odwoływanie certyfikatów klienckich (step-ca)", default: false },
   { name: ROLES.KADROMIERZ_USER, description: "Integracja Kadromierz (grafik, ewidencja czasu)", default: true },
 
-  { name: ROLES.DIRECTUS_ACCESS, description: "Dostęp do Directus CMS (tylko do odczytu / uprawnienia jak w Directus)", default: false },
   { name: ROLES.DIRECTUS_ADMIN, description: "Administrator Directus CMS", default: false },
 
-  { name: ROLES.DOCUMENSO_USER, description: "Zalogowanie do Documenso jako zwykły użytkownik", default: false },
+  { name: ROLES.DOCUMENSO_USER, description: "Zalogowanie do Documenso jako zwykły użytkownik (własne dokumenty)", default: false },
   { name: ROLES.DOCUMENSO_ADMIN, description: "Administrator Documenso (szablony, webhooki, użytkownicy)", default: false },
 
   { name: ROLES.CHATWOOT_AGENT, description: "Agent obsługi klienta w Chatwoot", default: false },
   { name: ROLES.CHATWOOT_ADMIN, description: "Administrator Chatwoot (konfiguracja, użytkownicy, webhooki)", default: false },
 
-  { name: ROLES.USESEND_USER, description: "Dostęp do panelu Usesend (wysyłka transakcyjna, szablony)", default: false },
-  { name: ROLES.USESEND_ADMIN, description: "Administrator Usesend (domeny, API keys, billing)", default: false },
+  { name: ROLES.USESEND_ADMIN, description: "Administrator platformy e-mail (Listmonk / Usesend)", default: false },
 
   { name: ROLES.KEYCLOAK_ADMIN, description: "Konsola administracyjna Keycloak", default: false },
 
-  { name: ROLES.STEPCA_USER, description: "Samodzielne wydawanie certyfikatów klienckich (OIDC provisioner)", default: false },
-  { name: ROLES.STEPCA_ADMIN, description: "Administrator step-ca (provisionery, polityki)", default: false },
+  { name: ROLES.STEPCA_ADMIN, description: "Administrator step-ca (provisionery, polityki, self-service cert)", default: false },
 ];
 
 /**
@@ -164,25 +154,37 @@ export function canAccessAdminPanel(
 export function canAccessDirectus(
   session: Session | null | undefined,
 ): boolean {
-  return hasAnyRole(session, [ROLES.DIRECTUS_ACCESS, ROLES.DIRECTUS_ADMIN]);
+  return hasRole(session, ROLES.DIRECTUS_ADMIN);
 }
 
-export function canAccessDocumenso(
+export function canAccessDocumensoAsUser(
   session: Session | null | undefined,
 ): boolean {
-  return hasAnyRole(session, [ROLES.DOCUMENSO_USER, ROLES.DOCUMENSO_ADMIN]);
+  return hasRole(session, ROLES.DOCUMENSO_USER);
 }
 
-export function canAccessChatwoot(
+export function canAccessDocumensoAsAdmin(
   session: Session | null | undefined,
 ): boolean {
-  return hasAnyRole(session, [ROLES.CHATWOOT_AGENT, ROLES.CHATWOOT_ADMIN]);
+  return hasRole(session, ROLES.DOCUMENSO_ADMIN);
+}
+
+export function canAccessChatwootAsAgent(
+  session: Session | null | undefined,
+): boolean {
+  return hasRole(session, ROLES.CHATWOOT_AGENT);
+}
+
+export function canAccessChatwootAsAdmin(
+  session: Session | null | undefined,
+): boolean {
+  return hasRole(session, ROLES.CHATWOOT_ADMIN);
 }
 
 export function canAccessUsesend(
   session: Session | null | undefined,
 ): boolean {
-  return hasAnyRole(session, [ROLES.USESEND_USER, ROLES.USESEND_ADMIN]);
+  return hasRole(session, ROLES.USESEND_ADMIN);
 }
 
 export function canAccessKeycloakAdmin(
@@ -194,7 +196,7 @@ export function canAccessKeycloakAdmin(
 export function canAccessStepCa(
   session: Session | null | undefined,
 ): boolean {
-  return hasAnyRole(session, [ROLES.STEPCA_USER, ROLES.STEPCA_ADMIN]);
+  return hasRole(session, ROLES.STEPCA_ADMIN);
 }
 
 export function canManageCertificates(
@@ -213,12 +215,6 @@ export function canAccessCalendar(
   session: Session | null | undefined,
 ): boolean {
   return hasRole(session, ROLES.CALENDAR_USER);
-}
-
-export function canAccessDocuments(
-  session: Session | null | undefined,
-): boolean {
-  return hasRole(session, ROLES.DOCUMENTS_USER);
 }
 
 function assertSession(
@@ -244,14 +240,5 @@ export function requireCertificates(
   assertSession(session);
   if (!canManageCertificates(session)) {
     throw ApiError.forbidden("Missing role: certificates_admin");
-  }
-}
-
-export function requireDocuments(
-  session: Session | null | undefined,
-): asserts session is Session & { accessToken: string } {
-  assertSession(session);
-  if (!canAccessDocuments(session)) {
-    throw ApiError.forbidden("Missing role: documents_user");
   }
 }
