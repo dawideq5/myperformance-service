@@ -1,3 +1,4 @@
+import { Pool } from "pg";
 import { getOptionalEnv } from "@/lib/env";
 
 export type DocumensoStatus =
@@ -210,6 +211,58 @@ export interface DocumensoDocumentStats {
   completed: number;
   declined: number;
   expired: number;
+}
+
+export type DocumensoRole = "USER" | "ADMIN";
+
+let documensoPool: Pool | null = null;
+
+function getDocumensoPool(): Pool | null {
+  const url = getOptionalEnv("DOCUMENSO_DB_URL");
+  if (!url) return null;
+  if (!documensoPool) {
+    documensoPool = new Pool({
+      connectionString: url,
+      max: 3,
+      idleTimeoutMillis: 30_000,
+      connectionTimeoutMillis: 10_000,
+    });
+    documensoPool.on("error", (err) => {
+      console.error("[documenso] pg pool error:", err.message);
+    });
+  }
+  return documensoPool;
+}
+
+/**
+ * Sync the Documenso `User.roles` array to match the desired global role.
+ *
+ * Documenso stores roles as a Postgres `Role[]` enum column; `ADMIN` gates
+ * access to `/admin`. Dashboard tiles determine the intent: clicking the
+ * admin tile elevates the user to `[USER, ADMIN]`, clicking the user tile
+ * demotes to `[USER]`. No-op if the user has never signed into Documenso
+ * (row does not exist yet — it will be created by the OIDC flow as USER
+ * and synced on the next tile click).
+ */
+export async function syncDocumensoUserRole(
+  email: string,
+  role: DocumensoRole,
+): Promise<"updated" | "noop" | "skipped"> {
+  const pool = getDocumensoPool();
+  if (!pool) return "skipped";
+  const rolesArray = role === "ADMIN" ? ["USER", "ADMIN"] : ["USER"];
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      `UPDATE "User"
+          SET roles = $2::"Role"[]
+        WHERE LOWER(email) = LOWER($1)`,
+      [email, rolesArray],
+    );
+    return (res.rowCount ?? 0) > 0 ? "updated" : "noop";
+  } finally {
+    client.release();
+  }
 }
 
 export function computeDocumensoStats(docs: DocumensoDocument[]): DocumensoDocumentStats {

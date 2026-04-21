@@ -401,7 +401,7 @@ function TileGrid({ onOpenCalendar }: { onOpenCalendar: () => void }) {
             iconBg="bg-purple-500/10"
             title="Documenso - użytkownik"
             description="Twoje dokumenty do podpisu i już podpisane (Documenso)"
-            href="https://sign.myperformance.pl"
+            href="/api/documenso/sso?role=user"
           />
         )}
 
@@ -411,7 +411,7 @@ function TileGrid({ onOpenCalendar }: { onOpenCalendar: () => void }) {
             iconBg="bg-fuchsia-500/10"
             title="Documenso - administrator"
             description="Szablony, webhooki, użytkownicy (SSO)"
-            href="https://sign.myperformance.pl/admin"
+            href="/api/documenso/sso?role=admin"
           />
         )}
 
@@ -421,8 +421,7 @@ function TileGrid({ onOpenCalendar }: { onOpenCalendar: () => void }) {
             iconBg="bg-sky-500/10"
             title="Chatwoot — agent"
             description="Obsługa rozmów z klientami (SSO przez Keycloak)"
-            href="/api/chatwoot/sso"
-            sameTab
+            href="/api/chatwoot/sso?role=agent"
           />
         )}
 
@@ -432,8 +431,7 @@ function TileGrid({ onOpenCalendar }: { onOpenCalendar: () => void }) {
             iconBg="bg-cyan-500/10"
             title="Chatwoot - administrator"
             description="Konfiguracja, użytkownicy, webhooki (SSO)"
-            href="/api/chatwoot/sso"
-            sameTab
+            href="/api/chatwoot/sso?role=admin"
           />
         )}
 

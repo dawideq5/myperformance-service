@@ -1,0 +1,145 @@
+services:
+  # Generates /config/postal.yml from env vars on every boot (idempotent).
+  # Separate container so the main services can depend on healthcheck
+  # `service_completed_successfully`. Uses the same image as postal to avoid
+  # pulling an extra base layer.
+  config-init:
+    image: 'ghcr.io/postalserver/postal:3.3.5'
+    entrypoint: ['/bin/sh', '-c']
+    command:
+      - |
+        set -eu
+        mkdir -p /config
+        if [ ! -f /config/signing.key ]; then
+          openssl genrsa -out /config/signing.key 2048
+        fi
+        cat > /config/postal.yml <<EOF
+        version: 2
+        postal:
+          web_hostname: ${POSTAL_WEB_HOSTNAME:-newsletter.myperformance.pl}
+          web_protocol: https
+          smtp_hostname: ${POSTAL_SMTP_HOSTNAME:-newsletter.myperformance.pl}
+        main_db:
+          host: mariadb
+          port: 3306
+          username: postal
+          password: ${SERVICE_PASSWORD_MARIADB}
+          database: postal
+        message_db:
+          host: mariadb
+          port: 3306
+          username: postal
+          password: ${SERVICE_PASSWORD_MARIADB}
+          prefix: postal
+        smtp_server:
+          default_bind_address: "0.0.0.0"
+        dns:
+          mx_records:
+            - mx.${POSTAL_WEB_HOSTNAME:-newsletter.myperformance.pl}
+          spf_include: spf.${POSTAL_WEB_HOSTNAME:-newsletter.myperformance.pl}
+          return_path_domain: rp.${POSTAL_WEB_HOSTNAME:-newsletter.myperformance.pl}
+          route_domain: routes.${POSTAL_WEB_HOSTNAME:-newsletter.myperformance.pl}
+          track_domain: track.${POSTAL_WEB_HOSTNAME:-newsletter.myperformance.pl}
+        smtp:
+          host: 127.0.0.1
+          port: 2525
+          from_name: Postal
+          from_address: newsletter@${POSTAL_WEB_HOSTNAME:-newsletter.myperformance.pl}
+        rails:
+          secret_key: ${SERVICE_BASE64_128_RAILSSECRET}
+        web_server:
+          default_bind_address: 0.0.0.0
+          default_port: 5000
+        EOF
+        echo "[config-init] wrote /config/postal.yml"
+    environment:
+      - 'POSTAL_WEB_HOSTNAME=${POSTAL_WEB_HOSTNAME:-newsletter.myperformance.pl}'
+      - 'POSTAL_SMTP_HOSTNAME=${POSTAL_SMTP_HOSTNAME:-newsletter.myperformance.pl}'
+      - 'SERVICE_PASSWORD_MARIADB=${SERVICE_PASSWORD_MARIADB}'
+      - 'SERVICE_BASE64_128_RAILSSECRET=${SERVICE_BASE64_128_RAILSSECRET}'
+    volumes:
+      - 'postal-config:/config'
+    restart: 'no'
+
+  mariadb:
+    image: 'mariadb:10.11'
+    environment:
+      - 'MARIADB_ROOT_PASSWORD=${SERVICE_PASSWORD_MARIADBROOT}'
+      - 'MARIADB_DATABASE=postal'
+      - 'MARIADB_USER=postal'
+      - 'MARIADB_PASSWORD=${SERVICE_PASSWORD_MARIADB}'
+    command:
+      - '--character-set-server=utf8mb4'
+      - '--collation-server=utf8mb4_unicode_ci'
+      - '--innodb-flush-log-at-trx-commit=2'
+      - '--max-connections=200'
+    volumes:
+      - 'postal-mariadb-data:/var/lib/mysql'
+    healthcheck:
+      test: ['CMD-SHELL', 'healthcheck.sh --connect --innodb_initialized']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+
+  # One-shot migrator. Postal is a Rails app; `postal initialize` creates/updates
+  # both main_db and message_db schemas. Safe to re-run.
+  migrator:
+    image: 'ghcr.io/postalserver/postal:3.3.5'
+    command: ['postal', 'initialize']
+    depends_on:
+      config-init:
+        condition: service_completed_successfully
+      mariadb:
+        condition: service_healthy
+    volumes:
+      - 'postal-config:/config'
+    restart: 'no'
+
+  web:
+    image: 'ghcr.io/postalserver/postal:3.3.5'
+    command: ['postal', 'web-server']
+    environment:
+      - SERVICE_FQDN_POSTAL_5000=newsletter.myperformance.pl
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+    volumes:
+      - 'postal-config:/config'
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:5000/login >/dev/null 2>&1 || exit 1']
+      interval: 15s
+      timeout: 10s
+      retries: 12
+      start_period: 60s
+    restart: unless-stopped
+
+  smtp:
+    image: 'ghcr.io/postalserver/postal:3.3.5'
+    command: ['postal', 'smtp-server']
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+    cap_add:
+      - NET_BIND_SERVICE
+    ports:
+      - '25:25'
+      - '465:465'
+      - '587:587'
+    volumes:
+      - 'postal-config:/config'
+    restart: unless-stopped
+
+  worker:
+    image: 'ghcr.io/postalserver/postal:3.3.5'
+    command: ['postal', 'worker']
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+    volumes:
+      - 'postal-config:/config'
+    restart: unless-stopped
+
+volumes:
+  postal-config:
+  postal-mariadb-data:

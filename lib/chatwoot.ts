@@ -1,26 +1,21 @@
 import { getOptionalEnv } from "@/lib/env";
 
+export type ChatwootRole = "administrator" | "agent";
+
 interface Config {
   baseUrl: string;
   platformToken: string;
   accountId: number;
-  defaultRole: "administrator" | "agent";
 }
 
 function getConfig(): Config {
   const baseUrl = (getOptionalEnv("CHATWOOT_URL") ?? "").trim().replace(/\/$/, "");
   const platformToken = (getOptionalEnv("CHATWOOT_PLATFORM_TOKEN") ?? "").trim();
   const accountId = Number(getOptionalEnv("CHATWOOT_ACCOUNT_ID") ?? "1");
-  const role = (getOptionalEnv("CHATWOOT_DEFAULT_ROLE") ?? "agent").trim();
   if (!baseUrl || !platformToken) {
     throw new Error("Chatwoot SSO not configured (CHATWOOT_URL, CHATWOOT_PLATFORM_TOKEN)");
   }
-  return {
-    baseUrl,
-    platformToken,
-    accountId,
-    defaultRole: role === "administrator" ? "administrator" : "agent",
-  };
+  return { baseUrl, platformToken, accountId };
 }
 
 async function platformFetch(path: string, init: RequestInit = {}): Promise<Response> {
@@ -40,6 +35,12 @@ interface ChatwootUser {
   id: number;
   email: string;
   name?: string;
+}
+
+interface AccountUserRow {
+  account_id: number;
+  user_id: number;
+  role: ChatwootRole;
 }
 
 async function findUserByEmail(email: string): Promise<ChatwootUser | null> {
@@ -68,15 +69,46 @@ async function createUser(email: string, name: string): Promise<ChatwootUser> {
   return (await res.json()) as ChatwootUser;
 }
 
-async function ensureAccountMembership(userId: number): Promise<void> {
+async function getCurrentMembershipRole(userId: number): Promise<ChatwootRole | null> {
   const cfg = getConfig();
-  const res = await platformFetch(`/platform/api/v1/accounts/${cfg.accountId}/account_users`, {
-    method: "POST",
-    body: JSON.stringify({ user_id: userId, role: cfg.defaultRole }),
-  });
-  if (res.status === 422) return;
-  if (!res.ok) {
-    throw new Error(`Chatwoot account membership failed: ${res.status}`);
+  const res = await platformFetch(`/platform/api/v1/users/${userId}`);
+  if (!res.ok) return null;
+  const data = (await res.json()) as ChatwootUser & { accounts?: AccountUserRow[] };
+  const match = (data.accounts ?? []).find((a) => a.account_id === cfg.accountId);
+  return match?.role ?? null;
+}
+
+async function syncAccountMembership(userId: number, desired: ChatwootRole): Promise<void> {
+  const cfg = getConfig();
+  const current = await getCurrentMembershipRole(userId);
+
+  if (current === desired) return;
+
+  if (current) {
+    // Chatwoot Platform API has no UPDATE for account_users; drop membership
+    // then recreate with the desired role.
+    const del = await platformFetch(
+      `/platform/api/v1/accounts/${cfg.accountId}/account_users`,
+      {
+        method: "DELETE",
+        body: JSON.stringify({ user_id: userId }),
+      },
+    );
+    if (!del.ok && del.status !== 404) {
+      throw new Error(`Chatwoot drop membership failed: ${del.status}`);
+    }
+  }
+
+  const create = await platformFetch(
+    `/platform/api/v1/accounts/${cfg.accountId}/account_users`,
+    {
+      method: "POST",
+      body: JSON.stringify({ user_id: userId, role: desired }),
+    },
+  );
+  if (create.status === 422) return;
+  if (!create.ok) {
+    throw new Error(`Chatwoot account membership failed: ${create.status}`);
   }
 }
 
@@ -95,10 +127,14 @@ function cryptoPassword(): string {
   return Array.from(buf, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-export async function provisionSsoLoginUrl(email: string, name: string): Promise<string> {
+export async function provisionSsoLoginUrl(
+  email: string,
+  name: string,
+  role: ChatwootRole,
+): Promise<string> {
   const existing = await findUserByEmail(email);
   const user = existing ?? (await createUser(email, name));
-  await ensureAccountMembership(user.id);
+  await syncAccountMembership(user.id, role);
   return await getSsoUrl(user.id);
 }
 
