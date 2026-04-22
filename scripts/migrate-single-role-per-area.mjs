@@ -36,7 +36,7 @@ const AREAS = [
     prefix: "chatwoot_",
     roles: [
       { name: "chatwoot_agent", priority: 10 },
-      { name: "chatwoot_admin", priority: 90 },
+      { name: "chatwoot_administrator", priority: 90 },
     ],
   },
   {
@@ -44,8 +44,8 @@ const AREAS = [
     prefix: "moodle_",
     roles: [
       { name: "moodle_student", priority: 10 },
-      { name: "moodle_teacher", priority: 50 },
-      { name: "moodle_admin", priority: 90 },
+      { name: "moodle_editingteacher", priority: 50 },
+      { name: "moodle_manager", priority: 90 },
     ],
   },
   {

@@ -60,7 +60,7 @@ const ROLES = [
   { name: "documenso_admin",     description: "Documenso: administrator",                              default: false },
 
   { name: "chatwoot_agent",      description: "Agent obsługi klienta w Chatwoot",                      default: false },
-  { name: "chatwoot_admin",      description: "Administrator Chatwoot",                                default: false },
+  { name: "chatwoot_administrator", description: "Administrator Chatwoot",                             default: false },
 
   { name: "postal_admin",        description: "Administrator platformy e-mail (Postal)",                default: false },
 
@@ -68,9 +68,9 @@ const ROLES = [
 
   { name: "stepca_admin",        description: "Administrator step-ca (provisionery, polityki, self-service)", default: false },
 
-  { name: "moodle_student",      description: "Moodle: uczeń (kursy przypisane do konta)",            default: false },
-  { name: "moodle_teacher",      description: "Moodle: nauczyciel (kursy, ocenianie, raporty)",       default: false },
-  { name: "moodle_admin",        description: "Moodle: administrator instancji (konfig, pluginy)",    default: false },
+  { name: "moodle_student",        description: "Moodle: uczeń (kursy przypisane do konta)",            default: false },
+  { name: "moodle_editingteacher", description: "Moodle: editing teacher (kursy, ocenianie, raporty)",  default: false },
+  { name: "moodle_manager",        description: "Moodle: manager (konfig, pluginy, użytkownicy)",       default: false },
 
   { name: "knowledge_user",      description: "Baza wiedzy (Outline): czytanie i edycja artykułów",   default: true  },
   { name: "knowledge_admin",     description: "Baza wiedzy (Outline): administrator",                 default: false },

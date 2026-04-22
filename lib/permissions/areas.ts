@@ -2,13 +2,15 @@
  * Rejestr obszarów uprawnień (areas).
  *
  * Area = jeden spójny obszar dostępu, z wymuszoną relacją **0..1 roli per
- * user**. Przykład: "chatwoot" ma role `chatwoot_agent` i `chatwoot_admin`
+ * user**. Przykład: "chatwoot" ma role `chatwoot_agent` i `chatwoot_administrator`
  * w KC + ewentualne custom role Chatwoot — użytkownik dostaje co najwyżej
  * jedną z nich. Nigdy nie pojawią się równocześnie `documenso_user` +
  * `documenso_admin` — drugi przypisany kasuje pierwszy.
  *
- * Zasada nazewnicza: realm role zaczyna się od prefiksu `<areaId>_`. Custom
- * role tworzone przez panel mają prefiks `<areaId>_custom_<slug>`.
+ * Zasada nazewnicza: realm role zaczyna się od prefiksu `<areaId>_`, a sufiks
+ * odpowiada natywnemu identyfikatorowi roli w aplikacji (np. Moodle używa
+ * shortname `editingteacher`, więc KC role to `moodle_editingteacher`).
+ * Custom role tworzone przez panel mają prefiks `<areaId>_custom_<slug>`.
  */
 
 export type AreaProviderKind = "keycloak-only" | "native";
@@ -55,7 +57,7 @@ export const AREAS: PermissionArea[] = [
         nativeRoleId: "agent",
       },
       {
-        name: "chatwoot_admin",
+        name: "chatwoot_administrator",
         description: "Administrator konta Chatwoot — konfiguracja, webhooki, role.",
         priority: 90,
         nativeRoleId: "administrator",
@@ -77,14 +79,14 @@ export const AREAS: PermissionArea[] = [
         nativeRoleId: "student",
       },
       {
-        name: "moodle_teacher",
-        description: "Nauczyciel — tworzenie kursów, ocenianie.",
+        name: "moodle_editingteacher",
+        description: "Nauczyciel (edytujący) — tworzenie kursów, ocenianie.",
         priority: 50,
         nativeRoleId: "editingteacher",
       },
       {
-        name: "moodle_admin",
-        description: "Administrator Moodla — konfiguracja, pluginy, użytkownicy.",
+        name: "moodle_manager",
+        description: "Manager — pełny dostęp do konfiguracji, pluginów, użytkowników.",
         priority: 90,
         nativeRoleId: "manager",
       },

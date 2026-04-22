@@ -549,5 +549,18 @@ export const permissionAreaService = {
       },
       typeof payload
     >("/api/admin/bulk/area-role", payload),
+
+  reset: (id: string) =>
+    api.post<
+      {
+        areaId: string;
+        seedCount: number;
+        results: Array<{
+          name: string;
+          action: "created" | "updated" | "ok";
+        }>;
+      },
+      Record<string, never>
+    >(`/api/admin/areas/${encodeURIComponent(id)}/reset`, {}),
 };
 

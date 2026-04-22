@@ -36,9 +36,9 @@ export const ROLES = {
   DOCUMENSO_HANDLER: "documenso_handler",
   DOCUMENSO_ADMIN: "documenso_admin",
 
-  // Chatwoot: agent = obsługa klienta, admin = konfiguracja
+  // Chatwoot: agent = obsługa klienta, administrator = konfiguracja
   CHATWOOT_AGENT: "chatwoot_agent",
-  CHATWOOT_ADMIN: "chatwoot_admin",
+  CHATWOOT_ADMIN: "chatwoot_administrator",
 
   // Postal (transactional + newsletter sender) — admin-only
   POSTAL_ADMIN: "postal_admin",
@@ -49,10 +49,10 @@ export const ROLES = {
   // Step CA — admin-only (panel diagnostyczny + self-service cert)
   STEPCA_ADMIN: "stepca_admin",
 
-  // Moodle (LMS — szkolenia wewnętrzne)
+  // Moodle (LMS — szkolenia wewnętrzne) — nazwy mapowane 1:1 na Moodle shortnames.
   MOODLE_STUDENT: "moodle_student",
-  MOODLE_TEACHER: "moodle_teacher",
-  MOODLE_ADMIN: "moodle_admin",
+  MOODLE_TEACHER: "moodle_editingteacher",
+  MOODLE_ADMIN: "moodle_manager",
 
   // Knowledge base (Outline wiki — procedury, zasady)
   KNOWLEDGE_USER: "knowledge_user",
@@ -91,8 +91,8 @@ export const ROLE_CATALOG: RoleSpec[] = [
   { name: ROLES.STEPCA_ADMIN, description: "Administrator step-ca (provisionery, polityki, self-service cert)", default: false },
 
   { name: ROLES.MOODLE_STUDENT, description: "Moodle: uczeń (kursy, szkolenia przypisane do konta)", default: false },
-  { name: ROLES.MOODLE_TEACHER, description: "Moodle: nauczyciel (tworzenie kursów, ocenianie, raporty)", default: false },
-  { name: ROLES.MOODLE_ADMIN, description: "Moodle: administrator (konfiguracja instancji, użytkownicy, pluginy)", default: false },
+  { name: ROLES.MOODLE_TEACHER, description: "Moodle: editing teacher (tworzenie kursów, ocenianie, raporty)", default: false },
+  { name: ROLES.MOODLE_ADMIN, description: "Moodle: manager (konfiguracja instancji, użytkownicy, pluginy)", default: false },
 
   { name: ROLES.KNOWLEDGE_USER, description: "Baza wiedzy (Outline): czytanie i tworzenie artykułów procedur i zasad", default: true },
   { name: ROLES.KNOWLEDGE_ADMIN, description: "Baza wiedzy (Outline): administrator (kolekcje, użytkownicy, integracje)", default: false },

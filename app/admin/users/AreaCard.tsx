@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Pencil, Plus, Trash2, Users } from "lucide-react";
+import { Pencil, Plus, RotateCcw, Trash2, Users } from "lucide-react";
 
 import { Alert, Badge, Button } from "@/components/ui";
 import { ApiRequestError } from "@/lib/api-client";
@@ -27,6 +27,7 @@ export function AreaCard({ areaId, canBulk, onOpenBulk, onAfterChange }: AreaCar
   const [editingRole, setEditingRole] = useState<AreaDetailRole | null>(null);
   const [creating, setCreating] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const [resetting, setResetting] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -71,6 +72,31 @@ export function AreaCard({ areaId, canBulk, onOpenBulk, onAfterChange }: AreaCar
     [areaId, refresh, onAfterChange],
   );
 
+  const factoryReset = useCallback(async () => {
+    if (
+      !window.confirm(
+        "Przywrócić role fabryczne dla tego obszaru? Operacja jest idempotentna — odtworzy brakujące seed role i zaktualizuje ich opisy. Nie narusza przypisań userów ani ról custom.",
+      )
+    ) {
+      return;
+    }
+    setResetting(true);
+    setError(null);
+    try {
+      await permissionAreaService.reset(areaId);
+      await refresh();
+      onAfterChange?.();
+    } catch (err) {
+      setError(
+        err instanceof ApiRequestError
+          ? err.message
+          : "Nie udało się przywrócić ról fabrycznych",
+      );
+    } finally {
+      setResetting(false);
+    }
+  }, [areaId, refresh, onAfterChange]);
+
   if (loading && !detail) {
     return (
       <p className="text-sm text-[var(--text-muted)] py-4">Ładowanie…</p>
@@ -113,6 +139,16 @@ export function AreaCard({ areaId, canBulk, onOpenBulk, onAfterChange }: AreaCar
         >
           Bulk: przypisz rolę
         </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          leftIcon={<RotateCcw className="w-4 h-4" aria-hidden="true" />}
+          onClick={() => void factoryReset()}
+          loading={resetting}
+          title="Odtwórz seed role dla tego obszaru w Keycloaku (idempotentnie)"
+        >
+          Reset do fabrycznych
+        </Button>
       </div>
 
       <ul className="divide-y divide-[var(--border-subtle)] border border-[var(--border-subtle)] rounded-lg bg-[var(--bg-surface)]">
@@ -121,13 +157,21 @@ export function AreaCard({ areaId, canBulk, onOpenBulk, onAfterChange }: AreaCar
             Brak ról seedowanych dla tego obszaru.
           </li>
         )}
-        {roles.map((r) => (
+        {roles.map((r) => {
+          const primaryName = r.native?.name ?? r.kcRoleName;
+          const showSlug = r.native?.name && r.native.name !== r.kcRoleName;
+          return (
           <li key={r.kcRoleName} className="px-3 py-2.5 flex items-start gap-3">
             <div className="flex-1 min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="font-mono text-sm text-[var(--text-main)]">
-                  {r.kcRoleName}
+                <span className="font-medium text-sm text-[var(--text-main)]">
+                  {primaryName}
                 </span>
+                {showSlug && (
+                  <span className="font-mono text-[11px] text-[var(--text-muted)] px-1.5 py-0.5 rounded bg-[var(--bg-main)] border border-[var(--border-subtle)]">
+                    {r.kcRoleName}
+                  </span>
+                )}
                 {r.isSeeded && <Badge tone="neutral">seed</Badge>}
                 {r.isCustom && <Badge tone="info">custom</Badge>}
                 {r.native?.systemDefined && <Badge tone="warning">system</Badge>}
@@ -140,12 +184,9 @@ export function AreaCard({ areaId, canBulk, onOpenBulk, onAfterChange }: AreaCar
                   {r.description}
                 </p>
               )}
-              {r.native && (
+              {r.native && r.native.permissions.length > 0 && (
                 <p className="text-xs text-[var(--text-muted)] mt-1">
-                  Natywne: <span className="text-[var(--text-main)]">{r.native.name}</span>
-                  {r.native.permissions.length > 0 && (
-                    <> · {r.native.permissions.length} uprawnień</>
-                  )}
+                  {r.native.permissions.length} uprawnień natywnych
                 </p>
               )}
             </div>
@@ -180,7 +221,8 @@ export function AreaCard({ areaId, canBulk, onOpenBulk, onAfterChange }: AreaCar
               )}
             </div>
           </li>
-        ))}
+          );
+        })}
       </ul>
 
       {orphanNativeRoles.length > 0 && (

@@ -30,10 +30,10 @@ function requireEnv(name) {
 // resolvowania TS. Zmiany w AREAS wymagają aktualizacji tu.
 const AREA_ROLES = [
   { name: "chatwoot_agent", description: "Agent obsługi klienta — rozmowy, kontakty." },
-  { name: "chatwoot_admin", description: "Administrator konta Chatwoot — konfiguracja, webhooki, role." },
+  { name: "chatwoot_administrator", description: "Administrator konta Chatwoot — konfiguracja, webhooki, role." },
   { name: "moodle_student", description: "Uczeń — dostęp do przypisanych kursów." },
-  { name: "moodle_teacher", description: "Nauczyciel — tworzenie kursów, ocenianie." },
-  { name: "moodle_admin", description: "Administrator Moodla — konfiguracja, pluginy, użytkownicy." },
+  { name: "moodle_editingteacher", description: "Nauczyciel (edytujący) — tworzenie kursów, ocenianie." },
+  { name: "moodle_manager", description: "Manager — pełny dostęp do konfiguracji, pluginów, użytkowników." },
   { name: "directus_admin", description: "Pełny dostęp do Directus." },
   { name: "documenso_user", description: "Pracownik — podpisuje własne dokumenty." },
   { name: "documenso_handler", description: "Obsługa dokumentów (księgowa) — wysyła i śledzi obieg." },

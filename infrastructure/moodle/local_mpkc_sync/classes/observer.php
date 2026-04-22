@@ -7,17 +7,17 @@ defined('MOODLE_INTERNAL') || die();
  * Syncs two things from the Keycloak ID token on every OIDC login:
  *
  *   1. user.confirmed ← email_verified claim
- *   2. siteadmins     ← realm role `moodle_admin`
+ *   2. siteadmins     ← realm role `moodle_manager`
  *
  * The realm roles live in the JWT's realm_access.roles array. We promote
- * a user to Moodle siteadmin iff they have `moodle_admin`, and demote them
+ * a user to Moodle siteadmin iff they have `moodle_manager`, and demote them
  * if they lose it. Teachers/students are handled at course-level enrolment
  * by Moodle admins — Moodle's "Manager" role isn't a useful system-wide
- * proxy for `moodle_teacher`.
+ * proxy for `moodle_editingteacher`.
  */
 class observer {
 
-    private const KC_ADMIN_ROLE = 'moodle_admin';
+    private const KC_ADMIN_ROLE = 'moodle_manager';
 
     public static function on_login(\core\event\user_loggedin $event): void {
         global $DB, $CFG;

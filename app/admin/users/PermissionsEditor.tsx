@@ -175,7 +175,7 @@ export function PermissionsEditor({
                         <Badge tone="warning">provider offline</Badge>
                       )}
                       {area.provider === "native" && !area.supportsCustomRoles && (
-                        <Badge tone="neutral">read-only</Badge>
+                        <Badge tone="neutral">role systemowe</Badge>
                       )}
                     </span>
                     <span className="block text-xs text-[var(--text-muted)] mt-0.5 truncate">
