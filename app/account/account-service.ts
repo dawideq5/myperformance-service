@@ -135,6 +135,14 @@ export const moodleService = {
   getStatus: () => api.get<MoodleStatus>("/api/integrations/moodle/status"),
   getEvents: () =>
     api.get<{ events: CalendarEvent[] }>("/api/integrations/moodle/events"),
+  disconnect: () =>
+    api.post<{ ok: boolean; connected: boolean }>(
+      "/api/integrations/moodle/disconnect",
+    ),
+  reconnect: () =>
+    api.post<{ ok: boolean; connected: boolean }>(
+      "/api/integrations/moodle/reconnect",
+    ),
 };
 
 export const googleService = {

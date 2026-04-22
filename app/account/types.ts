@@ -60,6 +60,7 @@ export interface MoodleStatus {
   connected: boolean;
   configured?: boolean;
   hasRole?: boolean;
+  userDisconnected?: boolean;
   moodleUserId?: number;
   fullname?: string;
   username?: string;

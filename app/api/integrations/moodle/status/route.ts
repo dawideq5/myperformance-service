@@ -6,6 +6,7 @@ import {
   canAccessMoodleAsStudent,
   canAccessMoodleAsTeacher,
 } from "@/lib/admin-auth";
+import { keycloak } from "@/lib/keycloak";
 import { getUserByEmail, isMoodleConfigured } from "@/lib/moodle";
 
 export const runtime = "nodejs";
@@ -30,6 +31,28 @@ export async function GET() {
   if (!email) {
     return NextResponse.json({ connected: false, configured: true, hasRole });
   }
+
+  // Dashboard-side opt-out: if the user disconnected the Moodle calendar,
+  // respect that and don't flip "connected" back on automatically.
+  let userDisconnected = false;
+  if (session.accessToken) {
+    try {
+      const userId = await keycloak.getUserIdFromToken(session.accessToken);
+      const serviceToken = await keycloak.getServiceAccountToken();
+      const userResp = await keycloak.adminRequest(
+        `/users/${userId}`,
+        serviceToken,
+      );
+      if (userResp.ok) {
+        const user = await userResp.json();
+        const flag = user.attributes?.moodle_calendar_connected?.[0];
+        if (flag === "false") userDisconnected = true;
+      }
+    } catch {
+      // best-effort — if KC lookup fails, default to the provisioning check below
+    }
+  }
+
   try {
     const user = await getUserByEmail(email);
     if (!user) {
@@ -41,9 +64,10 @@ export async function GET() {
       });
     }
     return NextResponse.json({
-      connected: true,
+      connected: !userDisconnected,
       configured: true,
       hasRole,
+      userDisconnected,
       moodleUserId: user.id,
       fullname: user.fullname,
       username: user.username,

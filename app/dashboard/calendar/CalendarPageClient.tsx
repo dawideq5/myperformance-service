@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
   Calendar,
@@ -8,6 +8,7 @@ import {
   Clock,
   GraduationCap,
   Plug,
+  Unplug,
 } from "lucide-react";
 
 import { AppHeader } from "@/components/AppHeader";
@@ -15,10 +16,11 @@ import {
   Badge,
   Button,
   Card,
-  PageShell,
 } from "@/components/ui";
+import { PageShell } from "@/components/ui";
 import { AccountProvider, useAccount } from "@/app/account/AccountProvider";
 import { CalendarTab } from "@/app/account/components/CalendarTab";
+import { moodleService } from "@/app/account/account-service";
 import { useAuthRedirect } from "@/hooks/useAuthRedirect";
 
 interface CalendarPageClientProps {
@@ -37,7 +39,8 @@ export function CalendarPageClient(props: CalendarPageClientProps) {
 }
 
 function CalendarPageBody({ userLabel, userEmail }: CalendarPageClientProps) {
-  const { googleStatus, kadromierzStatus, moodleStatus, status } = useAccount();
+  const { googleStatus, kadromierzStatus, moodleStatus, refetchMoodleStatus, status } =
+    useAccount();
   const { softLogout } = useAuthRedirect();
 
   useEffect(() => {
@@ -51,6 +54,27 @@ function CalendarPageBody({ userLabel, userEmail }: CalendarPageClientProps) {
   const kadromierzConnected = kadromierzStatus?.connected === true;
   const moodleHasRole = moodleStatus?.hasRole === true;
   const moodleConnected = moodleStatus?.connected === true;
+  const moodleDisconnected = moodleStatus?.userDisconnected === true;
+
+  const [moodleBusy, setMoodleBusy] = useState(false);
+  const toggleMoodle = useCallback(async () => {
+    setMoodleBusy(true);
+    try {
+      if (moodleDisconnected) {
+        await moodleService.reconnect();
+      } else {
+        await moodleService.disconnect();
+      }
+      await refetchMoodleStatus();
+    } finally {
+      setMoodleBusy(false);
+    }
+  }, [moodleDisconnected, refetchMoodleStatus]);
+
+  const integrationCount =
+    (googleConnected ? 1 : 0) +
+    (kadromierzConnected ? 1 : 0) +
+    (moodleConnected ? 1 : 0);
 
   return (
     <PageShell
@@ -66,12 +90,13 @@ function CalendarPageBody({ userLabel, userEmail }: CalendarPageClientProps) {
     >
       <section className="mb-6">
         <p className="text-sm text-[var(--text-muted)]">
-          Twoje wydarzenia z Google Calendar oraz zmiany z Kadromierza w jednym
-          widoku. Zsynchronizowane dane pochodzą bezpośrednio z podłączonych kont.
+          {integrationCount > 0
+            ? "Twoje wydarzenia łącznie z podłączonymi integracjami. Możesz dodawać własne i w dowolnym momencie włączać/wyłączać synchronizację."
+            : "Dodawaj własne wydarzenia albo podłącz integracje (Google, Kadromierz, Akademia), by wszystko wyświetlać w jednym miejscu."}
         </p>
       </section>
 
-      <section className="mb-6 grid gap-4 md:grid-cols-2">
+      <section className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <IntegrationCard
           icon={<Calendar className="w-6 h-6 text-blue-500" aria-hidden="true" />}
           iconBg="bg-blue-500/10"
@@ -83,8 +108,8 @@ function CalendarPageBody({ userLabel, userEmail }: CalendarPageClientProps) {
           }
           connected={googleConnected}
           loading={accountLoading}
-          ctaHref="/account?tab=integrations"
-          ctaLabel={googleConnected ? "Ustawienia" : "Połącz Google"}
+          primaryHref="/account?tab=integrations"
+          primaryLabel={googleConnected ? "Ustawienia" : "Połącz Google"}
         />
         <IntegrationCard
           icon={<Clock className="w-6 h-6 text-orange-500" aria-hidden="true" />}
@@ -97,54 +122,53 @@ function CalendarPageBody({ userLabel, userEmail }: CalendarPageClientProps) {
           }
           connected={kadromierzConnected}
           loading={accountLoading}
-          ctaHref="/account?tab=integrations"
-          ctaLabel={kadromierzConnected ? "Ustawienia" : "Skonfiguruj"}
+          primaryHref="/account?tab=integrations"
+          primaryLabel={kadromierzConnected ? "Ustawienia" : "Skonfiguruj"}
         />
         {moodleHasRole && (
           <IntegrationCard
-            icon={<GraduationCap className="w-6 h-6 text-amber-500" aria-hidden="true" />}
+            icon={
+              <GraduationCap
+                className="w-6 h-6 text-amber-500"
+                aria-hidden="true"
+              />
+            }
             iconBg="bg-amber-500/10"
             title="Akademia — kalendarz"
             description={
-              moodleConnected
-                ? "Terminy szkoleń, zadań i wydarzeń kursów z Moodle"
-                : moodleStatus?.reason === "not_provisioned"
-                  ? "Zaloguj się raz do Akademii, aby zainicjalizować konto"
-                  : "Akademia niedostępna — sprawdź połączenie sieciowe"
+              moodleDisconnected
+                ? "Integracja wyłączona — ponownie włącz, aby widzieć terminy szkoleń"
+                : moodleConnected
+                  ? "Terminy szkoleń, zadań i wydarzeń kursów z Moodle"
+                  : moodleStatus?.reason === "not_provisioned"
+                    ? "Zaloguj się raz do Akademii, aby zainicjalizować konto"
+                    : "Akademia niedostępna — sprawdź połączenie sieciowe"
             }
             connected={moodleConnected}
             loading={accountLoading}
-            ctaHref="https://moodle.myperformance.pl/"
-            ctaLabel={moodleConnected ? "Otwórz Akademię" : "Zaloguj się"}
+            primaryHref="https://moodle.myperformance.pl/"
+            primaryLabel={moodleConnected ? "Otwórz Akademię" : "Zaloguj się"}
+            secondaryLabel={
+              moodleDisconnected
+                ? "Włącz integrację"
+                : moodleConnected
+                  ? "Odłącz"
+                  : undefined
+            }
+            secondaryIcon={
+              moodleDisconnected ? (
+                <Plug className="w-4 h-4" aria-hidden="true" />
+              ) : (
+                <Unplug className="w-4 h-4" aria-hidden="true" />
+              )
+            }
+            onSecondary={toggleMoodle}
+            secondaryLoading={moodleBusy}
           />
         )}
       </section>
 
-      {googleConnected ? (
-        <CalendarTab />
-      ) : (
-        <Card padding="lg" className="text-center">
-          <div className="flex flex-col items-center gap-4 py-6">
-            <div className="w-14 h-14 rounded-2xl bg-blue-500/10 flex items-center justify-center">
-              <Calendar className="w-7 h-7 text-blue-500" aria-hidden="true" />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold text-[var(--text-main)]">
-                Podłącz Google, aby zobaczyć wydarzenia
-              </h2>
-              <p className="mt-1 text-sm text-[var(--text-muted)] max-w-md mx-auto">
-                Po podłączeniu konta Google zobaczysz tutaj wszystkie wydarzenia
-                oraz zmiany Kadromierza (jeśli jest skonfigurowany).
-              </p>
-            </div>
-            <Link href="/account?tab=integrations">
-              <Button leftIcon={<Plug className="w-4 h-4" aria-hidden="true" />}>
-                Skonfiguruj integracje
-              </Button>
-            </Link>
-          </div>
-        </Card>
-      )}
+      <CalendarTab />
     </PageShell>
   );
 }
@@ -156,8 +180,12 @@ function IntegrationCard({
   description,
   connected,
   loading,
-  ctaHref,
-  ctaLabel,
+  primaryHref,
+  primaryLabel,
+  secondaryLabel,
+  secondaryIcon,
+  onSecondary,
+  secondaryLoading,
 }: {
   icon: React.ReactNode;
   iconBg: string;
@@ -165,17 +193,24 @@ function IntegrationCard({
   description: string;
   connected: boolean;
   loading: boolean;
-  ctaHref: string;
-  ctaLabel: string;
+  primaryHref: string;
+  primaryLabel: string;
+  secondaryLabel?: string;
+  secondaryIcon?: React.ReactNode;
+  onSecondary?: () => void | Promise<void>;
+  secondaryLoading?: boolean;
 }) {
+  const isExternal = /^https?:\/\//.test(primaryHref);
   return (
     <Card padding="md" className="flex flex-col gap-4">
       <div className="flex items-start gap-3">
-        <div className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ${iconBg}`}>
+        <div
+          className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ${iconBg}`}
+        >
           {icon}
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <h3 className="text-base font-semibold text-[var(--text-main)]">
               {title}
             </h3>
@@ -190,16 +225,41 @@ function IntegrationCard({
           <p className="text-sm text-[var(--text-muted)] mt-1">{description}</p>
         </div>
       </div>
-      <div className="flex justify-end">
-        <Link href={ctaHref}>
+      <div className="flex justify-end flex-wrap gap-2">
+        {secondaryLabel && onSecondary && (
           <Button
             size="sm"
-            variant={connected ? "secondary" : "primary"}
-            leftIcon={<Plug className="w-4 h-4" aria-hidden="true" />}
+            variant="ghost"
+            loading={!!secondaryLoading}
+            leftIcon={secondaryIcon}
+            onClick={() => {
+              void onSecondary();
+            }}
           >
-            {ctaLabel}
+            {secondaryLabel}
           </Button>
-        </Link>
+        )}
+        {isExternal ? (
+          <a href={primaryHref} target="_blank" rel="noopener noreferrer">
+            <Button
+              size="sm"
+              variant={connected ? "secondary" : "primary"}
+              leftIcon={<Plug className="w-4 h-4" aria-hidden="true" />}
+            >
+              {primaryLabel}
+            </Button>
+          </a>
+        ) : (
+          <Link href={primaryHref}>
+            <Button
+              size="sm"
+              variant={connected ? "secondary" : "primary"}
+              leftIcon={<Plug className="w-4 h-4" aria-hidden="true" />}
+            >
+              {primaryLabel}
+            </Button>
+          </Link>
+        )}
       </div>
     </Card>
   );
