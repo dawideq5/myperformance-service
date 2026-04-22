@@ -15,7 +15,9 @@ import { ApiRequestError } from "@/lib/api-client";
 import {
   adminUserService,
   permissionAreaService,
+  roleTemplateService,
   type AreaSummary,
+  type RoleTemplate,
 } from "@/app/account/account-service";
 
 interface InviteDialogProps {
@@ -33,6 +35,8 @@ export function InviteDialog({ open, onClose, onInvited }: InviteDialogProps) {
   const [lastName, setLastName] = useState("");
   const [areas, setAreas] = useState<AreaSummary[] | null>(null);
   const [areaRoles, setAreaRoles] = useState<Record<string, string | null>>({});
+  const [templates, setTemplates] = useState<RoleTemplate[]>([]);
+  const [appliedTemplateId, setAppliedTemplateId] = useState<string>("");
   const [loadingAreas, setLoadingAreas] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,23 +48,47 @@ export function InviteDialog({ open, onClose, onInvited }: InviteDialogProps) {
     setFirstName("");
     setLastName("");
     setAreaRoles({});
+    setAppliedTemplateId("");
     setError(null);
     setTimeout(() => emailRef.current?.focus(), 50);
     setLoadingAreas(true);
-    permissionAreaService
-      .list()
-      .then((res) => {
-        setAreas(res.areas);
+    Promise.all([
+      permissionAreaService.list(),
+      roleTemplateService.list().catch(() => ({ templates: [] })),
+    ])
+      .then(([areasRes, tplRes]) => {
+        setAreas(areasRes.areas);
         const map: Record<string, string | null> = {};
-        for (const a of res.areas) map[a.id] = null;
+        for (const a of areasRes.areas) map[a.id] = null;
         setAreaRoles(map);
+        setTemplates(tplRes.templates);
       })
       .catch(() => {
-        // non-fatal — invite can proceed without role pre-selection
         setAreas([]);
       })
       .finally(() => setLoadingAreas(false));
   }, [open]);
+
+  const applyTemplate = useCallback(
+    (tplId: string) => {
+      setAppliedTemplateId(tplId);
+      if (!tplId) {
+        const map: Record<string, string | null> = {};
+        for (const a of areas ?? []) map[a.id] = null;
+        setAreaRoles(map);
+        return;
+      }
+      const tpl = templates.find((t) => t.id === tplId);
+      if (!tpl) return;
+      const map: Record<string, string | null> = {};
+      for (const a of areas ?? []) map[a.id] = null;
+      for (const ar of tpl.areaRoles) {
+        if (map[ar.areaId] !== undefined) map[ar.areaId] = ar.roleName;
+      }
+      setAreaRoles(map);
+    },
+    [areas, templates],
+  );
 
   const roleCount = useMemo(
     () => Object.values(areaRoles).filter(Boolean).length,
@@ -170,6 +198,26 @@ export function InviteDialog({ open, onClose, onInvited }: InviteDialogProps) {
               opcjonalne — możesz zmienić później
             </span>
           </div>
+          {templates.length > 0 && (
+            <div className="mb-3 flex items-center gap-2">
+              <label className="text-xs text-[var(--text-muted)] flex-shrink-0">
+                Zastosuj szablon:
+              </label>
+              <select
+                value={appliedTemplateId}
+                onChange={(e) => applyTemplate(e.target.value)}
+                className="flex-1 px-2 py-1.5 rounded-md bg-[var(--bg-main)] border border-[var(--border-subtle)] text-xs text-[var(--text-main)]"
+              >
+                <option value="">— nie stosuj —</option>
+                {templates.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                    {t.description ? ` — ${t.description}` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           {loadingAreas ? (
             <p className="text-xs text-[var(--text-muted)]">
               Ładowanie aplikacji…

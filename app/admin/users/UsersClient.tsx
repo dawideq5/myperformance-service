@@ -402,6 +402,13 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
           </p>
         </div>
         <div className="flex gap-2">
+          <Link
+            href="/admin/templates"
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-md text-sm border border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-surface)] transition-colors"
+          >
+            <Shield className="w-4 h-4" aria-hidden="true" />
+            Szablony ról
+          </Link>
           <Button
             leftIcon={<UserPlus className="w-4 h-4" aria-hidden="true" />}
             onClick={() => setInviteOpen(true)}

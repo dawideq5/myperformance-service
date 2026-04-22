@@ -515,6 +515,83 @@ export interface AreaDetail {
   nativePermissions: AreaDetailNativePermission[];
 }
 
+// ---------------------------------------------------------------------------
+// Role templates — named bundles of per-area role assignments
+// ---------------------------------------------------------------------------
+
+export interface RoleTemplateAssignment {
+  areaId: string;
+  roleName: string | null;
+}
+
+export interface RoleTemplate {
+  id: string;
+  name: string;
+  description: string;
+  icon: string | null;
+  areaRoles: RoleTemplateAssignment[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const roleTemplateService = {
+  list: () =>
+    api.get<{ templates: RoleTemplate[] }>("/api/admin/role-templates"),
+
+  create: (payload: {
+    name: string;
+    description?: string;
+    icon?: string | null;
+    areaRoles: RoleTemplateAssignment[];
+  }) =>
+    api.post<{ template: RoleTemplate }, typeof payload>(
+      "/api/admin/role-templates",
+      payload,
+    ),
+
+  update: (
+    id: string,
+    payload: {
+      name?: string;
+      description?: string;
+      icon?: string | null;
+      areaRoles?: RoleTemplateAssignment[];
+    },
+  ) =>
+    api.patch<{ template: RoleTemplate }, typeof payload>(
+      `/api/admin/role-templates/${encodeURIComponent(id)}`,
+      payload,
+    ),
+
+  remove: (id: string) =>
+    api.delete<{ ok: boolean }>(
+      `/api/admin/role-templates/${encodeURIComponent(id)}`,
+    ),
+
+  apply: (id: string, userIds: string[]) =>
+    api.post<
+      {
+        templateId: string;
+        totalUsers: number;
+        results: Array<{
+          userId: string;
+          assignments: Array<{
+            areaId: string;
+            status: "ok" | "failed";
+            error?: string;
+            added?: string[];
+            removed?: string[];
+            nativeSync?: "ok" | "skipped" | "failed";
+          }>;
+        }>;
+      },
+      { userIds: string[] }
+    >(
+      `/api/admin/role-templates/${encodeURIComponent(id)}/apply`,
+      { userIds },
+    ),
+};
+
 export const permissionAreaService = {
   list: () => api.get<{ areas: AreaSummary[] }>("/api/admin/areas"),
 
