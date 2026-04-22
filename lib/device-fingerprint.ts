@@ -133,12 +133,14 @@ export function canonicalSerial(raw: string | null | undefined): string {
   if (!raw) return "";
   const cleaned = String(raw).trim().replace(/[\s:_-]/g, "");
   if (!cleaned) return "";
-  if (/^[0-9]+$/.test(cleaned)) {
-    try {
-      return BigInt(cleaned).toString(16).toLowerCase();
-    } catch {
-      return cleaned.toLowerCase();
-    }
+  try {
+    // Hex input: node-forge may prepend 00 to encode a positive ASN.1 INTEGER
+    // whose MSB is 1. BigInt round-trip strips the padding so both sides
+    // agree. Decimal input (Traefik) also round-trips via toString(16).
+    const isHex = /[a-f]/i.test(cleaned);
+    const value = BigInt(isHex ? "0x" + cleaned : cleaned);
+    return value.toString(16).toLowerCase();
+  } catch {
+    return cleaned.toLowerCase();
   }
-  return cleaned.toLowerCase();
 }

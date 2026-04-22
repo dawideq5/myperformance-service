@@ -68,20 +68,21 @@ function safeDecode(value: string): string {
 
 /**
  * Canonicalise a serial string to lowercase hex digits only, stripping
- * separators (`:`, whitespace, `_`, `-`). Decimal inputs are converted via
- * BigInt → toString(16). Anything already hex stays hex.
+ * separators (`:`, whitespace, `_`, `-`). Always round-trip through BigInt
+ * so leading zeros (node-forge pads `00` on positive INTEGERs whose MSB
+ * is 1) are removed, making decimal (Traefik) and hex (node-forge) inputs
+ * match byte-for-byte.
  */
 export function canonicalSerial(raw: string): string {
   const cleaned = raw.trim().replace(/[\s:_-]/g, "");
   if (!cleaned) return "";
-  if (/^[0-9]+$/.test(cleaned) && cleaned.length > 0) {
-    try {
-      return BigInt(cleaned).toString(16).toLowerCase();
-    } catch {
-      return cleaned.toLowerCase();
-    }
+  try {
+    const isHex = /[a-f]/i.test(cleaned);
+    const value = BigInt(isHex ? "0x" + cleaned : cleaned);
+    return value.toString(16).toLowerCase();
+  } catch {
+    return cleaned.toLowerCase();
   }
-  return cleaned.toLowerCase();
 }
 
 /**
