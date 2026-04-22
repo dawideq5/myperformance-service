@@ -11,9 +11,11 @@ import {
 } from "@/lib/device-fingerprint";
 import {
   getDeviceBinding,
+  recordBindingEvent,
   recordDeviceBindingDenial,
   upsertDeviceBinding,
 } from "@/lib/persistence";
+import { emitBindingEvent } from "@/lib/binding-events";
 
 export const runtime = "nodejs";
 
@@ -80,18 +82,52 @@ export async function POST(req: Request) {
   const current = { hash, components: normalisedComponents };
 
   const existing = await getDeviceBinding(serial);
+  const now = new Date().toISOString();
   if (!existing) {
     await upsertDeviceBinding(serial, current.hash, current.components);
+    await recordBindingEvent({
+      serialNumber: serial,
+      kind: "created",
+      ip,
+      userAgent: current.components.userAgent,
+      components: current.components,
+    });
+    emitBindingEvent({
+      kind: "created",
+      serialNumber: serial,
+      at: now,
+      ip,
+      userAgent: current.components.userAgent,
+      components: current.components,
+    });
     return NextResponse.json({ ok: true, firstUse: true });
   }
 
   if (existing.hash === current.hash) {
+    // Heartbeat — update last_seen_at only; don't flood events/SSE.
     await upsertDeviceBinding(serial, current.hash, current.components);
     return NextResponse.json({ ok: true, firstUse: false });
   }
 
   const diff = diffFingerprints(existing.components, current.components);
   await recordDeviceBindingDenial(serial, diff, ip, current.components.userAgent);
+  await recordBindingEvent({
+    serialNumber: serial,
+    kind: "denied",
+    ip,
+    userAgent: current.components.userAgent,
+    components: current.components,
+    diff,
+  });
+  emitBindingEvent({
+    kind: "denied",
+    serialNumber: serial,
+    at: now,
+    ip,
+    userAgent: current.components.userAgent,
+    components: current.components,
+    diff,
+  });
   return NextResponse.json(
     {
       ok: false,

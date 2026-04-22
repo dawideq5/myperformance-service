@@ -5,8 +5,11 @@ import { canManageCertificates } from "@/lib/admin-auth";
 import { canonicalSerial } from "@/lib/device-fingerprint";
 import {
   getDeviceBinding,
+  listBindingEvents,
+  recordBindingEvent,
   resetDeviceBinding,
 } from "@/lib/persistence";
+import { emitBindingEvent } from "@/lib/binding-events";
 import { auditLog } from "@/lib/step-ca";
 
 export const runtime = "nodejs";
@@ -28,8 +31,12 @@ export async function GET(
   }
   const { id } = await params;
   const serial = canonicalSerial(id);
-  const binding = serial ? await getDeviceBinding(serial) : null;
-  return NextResponse.json({ binding });
+  if (!serial) return NextResponse.json({ binding: null, events: [] });
+  const [binding, events] = await Promise.all([
+    getDeviceBinding(serial),
+    listBindingEvents(serial, 50),
+  ]);
+  return NextResponse.json({ binding, events });
 }
 
 export async function DELETE(
@@ -47,6 +54,13 @@ export async function DELETE(
   }
   await resetDeviceBinding(serial);
   const actor = auth.session?.user?.email ?? "unknown-admin";
+  await recordBindingEvent({ serialNumber: serial, kind: "reset", actor });
+  emitBindingEvent({
+    kind: "reset",
+    serialNumber: serial,
+    at: new Date().toISOString(),
+    actor,
+  });
   auditLog({
     ts: new Date().toISOString(),
     actor,

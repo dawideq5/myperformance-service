@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   Activity,
@@ -8,7 +8,9 @@ import {
   Fingerprint,
   FileSignature,
   Mail,
+  Radio,
   RotateCcw,
+  ShieldAlert,
   ShieldCheck,
   ShieldX,
 } from "lucide-react";
@@ -28,6 +30,18 @@ import {
   type TabDefinition,
 } from "@/components/ui";
 import type { IssuedCertificate } from "@/lib/step-ca";
+
+type BindingEventKind = "created" | "seen" | "denied" | "reset";
+interface LiveBindingEvent {
+  kind: BindingEventKind;
+  serialNumber: string;
+  at: string;
+  ip?: string;
+  userAgent?: string;
+  components?: Record<string, string>;
+  diff?: { field: string; before: string; after: string }[];
+  actor?: string;
+}
 
 type CaStatus = {
   online: boolean;
@@ -71,6 +85,8 @@ export function CertificatesClient({ initialCerts }: { initialCerts: IssuedCerti
   const [certs, setCerts] = useState(initialCerts);
   const [caStatus, setCaStatus] = useState<CaStatus | null>(null);
   const [audit, setAudit] = useState<AuditEvent[]>([]);
+  const [lastEvent, setLastEvent] = useState<LiveBindingEvent | null>(null);
+  const [liveConnected, setLiveConnected] = useState(false);
 
   const refreshAll = useCallback(async () => {
     try {
@@ -93,6 +109,23 @@ export function CertificatesClient({ initialCerts }: { initialCerts: IssuedCerti
     const iv = setInterval(refreshAll, 30000);
     return () => clearInterval(iv);
   }, [refreshAll]);
+
+  useEffect(() => {
+    const source = new EventSource("/api/admin/certificates/events", {
+      withCredentials: true,
+    });
+    source.addEventListener("ready", () => setLiveConnected(true));
+    source.addEventListener("binding", (ev) => {
+      try {
+        const data = JSON.parse((ev as MessageEvent).data) as LiveBindingEvent;
+        setLastEvent(data);
+      } catch {
+        // ignore malformed payload
+      }
+    });
+    source.onerror = () => setLiveConnected(false);
+    return () => source.close();
+  }, []);
 
   const tabs: TabDefinition<CertTabId>[] = useMemo(
     () => [
@@ -134,7 +167,12 @@ export function CertificatesClient({ initialCerts }: { initialCerts: IssuedCerti
           </h1>
         </>
       }
-      right={<CaStatusBadge status={caStatus} />}
+      right={
+        <div className="flex items-center gap-3">
+          <LiveBadge connected={liveConnected} />
+          <CaStatusBadge status={caStatus} />
+        </div>
+      }
     />
   );
 
@@ -156,7 +194,11 @@ export function CertificatesClient({ initialCerts }: { initialCerts: IssuedCerti
             <IssuePanel onIssued={refreshAll} />
           </TabPanel>
           <TabPanel tabId="list" active={tab === "list"}>
-            <ListPanel certs={certs} onChange={refreshAll} />
+            <ListPanel
+              certs={certs}
+              onChange={refreshAll}
+              lastEvent={lastEvent}
+            />
           </TabPanel>
           <TabPanel tabId="audit" active={tab === "audit"}>
             <AuditPanel audit={audit} />
@@ -164,6 +206,25 @@ export function CertificatesClient({ initialCerts }: { initialCerts: IssuedCerti
         </div>
       </div>
     </PageShell>
+  );
+}
+
+function LiveBadge({ connected }: { connected: boolean }) {
+  return (
+    <div
+      className="hidden sm:flex items-center gap-1.5 text-xs text-[var(--text-muted)]"
+      title={
+        connected
+          ? "Połączenie real-time — zdarzenia powiązań aktualizują się na żywo"
+          : "Brak połączenia real-time — aktualizacje przychodzą co 30 s przez polling"
+      }
+    >
+      <Radio
+        className={`w-3 h-3 ${connected ? "text-emerald-400 animate-pulse" : "text-[var(--text-muted)]"}`}
+        aria-hidden="true"
+      />
+      <span>{connected ? "LIVE" : "offline"}</span>
+    </div>
   );
 }
 
@@ -407,9 +468,11 @@ function IssuePanel({ onIssued }: { onIssued: () => Promise<void> }) {
 function ListPanel({
   certs,
   onChange,
+  lastEvent,
 }: {
   certs: IssuedCertificate[];
   onChange: () => Promise<void>;
+  lastEvent: LiveBindingEvent | null;
 }) {
   const [revoking, setRevoking] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -470,6 +533,7 @@ function ListPanel({
                   cert={c}
                   revoking={revoking === c.id}
                   onRevoke={() => revoke(c.id)}
+                  lastEvent={lastEvent}
                 />
               ))}
             </tbody>
@@ -495,6 +559,17 @@ interface DeviceBinding {
   };
 }
 
+interface BindingEventRow {
+  id: string;
+  ts: string;
+  kind: BindingEventKind;
+  ip?: string;
+  userAgent?: string;
+  components?: Record<string, string>;
+  diff?: { field: string; before: string; after: string }[];
+  actor?: string;
+}
+
 const BINDING_FIELD_LABELS: Record<string, string> = {
   userAgent: "Przeglądarka (User-Agent)",
   platform: "System operacyjny",
@@ -503,21 +578,72 @@ const BINDING_FIELD_LABELS: Record<string, string> = {
   mobile: "Tryb mobilny",
 };
 
+const EVENT_LABELS: Record<BindingEventKind, string> = {
+  created: "Powiązanie utworzone",
+  seen: "Użycie",
+  denied: "Próba z innego urządzenia odrzucona",
+  reset: "Powiązanie zresetowane",
+};
+
+function eventTone(
+  kind: BindingEventKind,
+): "success" | "danger" | "neutral" | "warning" {
+  switch (kind) {
+    case "created":
+      return "success";
+    case "denied":
+      return "danger";
+    case "reset":
+      return "warning";
+    default:
+      return "neutral";
+  }
+}
+
+function summariseBinding(
+  binding: DeviceBinding | null,
+): { label: string; tone: "success" | "danger" | "neutral"; hint?: string } {
+  if (!binding) {
+    return {
+      label: "Niepowiązany",
+      tone: "neutral",
+      hint: "Certyfikat jeszcze nie został użyty — pierwsze poprawne użycie utworzy odcisk urządzenia.",
+    };
+  }
+  if (binding.lastDeniedAt) {
+    return {
+      label: "Powiązany + próby obce",
+      tone: "danger",
+      hint: `Ostatnia próba z innego urządzenia: ${new Date(binding.lastDeniedAt).toLocaleString("pl-PL")}`,
+    };
+  }
+  return {
+    label: "Powiązany",
+    tone: "success",
+    hint: `Ostatnie użycie: ${new Date(binding.lastSeenAt).toLocaleString("pl-PL")}`,
+  };
+}
+
 function CertRow({
   cert,
   revoking,
   onRevoke,
+  lastEvent,
 }: {
   cert: IssuedCertificate;
   revoking: boolean;
   onRevoke: () => void;
+  lastEvent: LiveBindingEvent | null;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [binding, setBinding] = useState<DeviceBinding | null>(null);
+  const [events, setEvents] = useState<BindingEventRow[]>([]);
   const [bindingError, setBindingError] = useState<string | null>(null);
   const [bindingLoading, setBindingLoading] = useState(false);
   const [bindingLoaded, setBindingLoaded] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [flashKind, setFlashKind] = useState<BindingEventKind | null>(null);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadBinding = useCallback(async () => {
     setBindingLoading(true);
@@ -538,6 +664,7 @@ function CertRow({
       }
       const data = await res.json();
       setBinding((data.binding as DeviceBinding) ?? null);
+      setEvents((data.events as BindingEventRow[]) ?? []);
       setBindingLoaded(true);
     } catch (err) {
       setBindingError(
@@ -548,13 +675,34 @@ function CertRow({
     }
   }, [cert.id]);
 
-  // Load binding once per expand; `bindingLoaded` breaks the loop when the
-  // server legitimately returns { binding: null } (cert not yet used).
   useEffect(() => {
     if (expanded && !bindingLoaded && !bindingLoading && !bindingError) {
       void loadBinding();
     }
   }, [expanded, bindingLoaded, bindingLoading, bindingError, loadBinding]);
+
+  // React to live SSE events for THIS cert's serial.
+  useEffect(() => {
+    if (!lastEvent) return;
+    if (lastEvent.serialNumber !== cert.serialNumber) return;
+
+    setFlashKind(lastEvent.kind);
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => setFlashKind(null), 6_000);
+
+    // Trigger a refetch whether or not the row is expanded — the compact
+    // row badge also reflects live binding status.
+    void loadBinding();
+  }, [lastEvent, cert.serialNumber, loadBinding]);
+
+  // First fetch: mount-time, so the collapsed status badge works without expand.
+  useEffect(() => {
+    if (!bindingLoaded && !bindingLoading) void loadBinding();
+  }, [bindingLoaded, bindingLoading, loadBinding]);
+
+  useEffect(() => () => {
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+  }, []);
 
   async function resetBinding() {
     if (
@@ -571,8 +719,7 @@ function CertRow({
         { method: "DELETE", credentials: "same-origin", cache: "no-store" },
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setBinding(null);
-      setBindingLoaded(true);
+      await loadBinding();
     } catch (err) {
       setBindingError(
         err instanceof Error ? err.message : "Nie udało się zresetować",
@@ -582,11 +729,21 @@ function CertRow({
     }
   }
 
-  const hasDenial = !!binding?.lastDenial;
+  const bindingSummary = summariseBinding(binding);
+  const flashClass =
+    flashKind === "denied"
+      ? "ring-1 ring-red-400/50 bg-red-500/5"
+      : flashKind === "created"
+        ? "ring-1 ring-emerald-400/50 bg-emerald-500/5"
+        : flashKind === "reset"
+          ? "ring-1 ring-amber-400/50 bg-amber-500/5"
+          : "";
 
   return (
     <>
-      <tr className="border-b border-[var(--border-subtle)]/50 hover:bg-[var(--bg-main)]/50">
+      <tr
+        className={`border-b border-[var(--border-subtle)]/50 hover:bg-[var(--bg-main)]/50 transition-all ${flashClass}`}
+      >
         <td className="py-3 px-3 text-[var(--text-main)]">
           <button
             type="button"
@@ -599,6 +756,26 @@ function CertRow({
             />
             <span>{cert.subject}</span>
           </button>
+          <div className="mt-1 flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
+            <Badge tone={bindingSummary.tone}>
+              {bindingSummary.label}
+            </Badge>
+            {flashKind && (
+              <span
+                className={`inline-flex items-center gap-1 ${
+                  flashKind === "denied"
+                    ? "text-red-300"
+                    : flashKind === "created"
+                      ? "text-emerald-300"
+                      : "text-amber-300"
+                } animate-pulse`}
+                title="Zdarzenie odebrane z cert-gate w czasie rzeczywistym"
+              >
+                <Radio className="w-3 h-3" aria-hidden="true" />
+                {EVENT_LABELS[flashKind]}
+              </span>
+            )}
+          </div>
         </td>
         <td className="py-3 px-3 text-[var(--text-muted)]">{cert.role}</td>
         <td className="py-3 px-3 text-[var(--text-muted)]">{cert.email}</td>
@@ -629,97 +806,191 @@ function CertRow({
       {expanded && (
         <tr className="border-b border-[var(--border-subtle)]/50 bg-[var(--bg-main)]/40">
           <td colSpan={6} className="py-4 px-3">
-            {bindingLoading ? (
-              <p className="text-xs text-[var(--text-muted)]">
-                Ładowanie powiązania urządzenia…
-              </p>
-            ) : bindingError ? (
-              <Alert tone="error">{bindingError}</Alert>
-            ) : !binding ? (
-              <p className="text-xs text-[var(--text-muted)]">
-                Brak powiązanego urządzenia. Certyfikat jeszcze nie został
-                użyty — pierwsze poprawne użycie utworzy odcisk urządzenia.
-              </p>
-            ) : (
-              <div className="space-y-3">
-                <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--text-muted)]">
-                  <Fingerprint className="w-3.5 h-3.5" aria-hidden="true" />
-                  <span>
-                    Pierwsze użycie:{" "}
-                    <span className="text-[var(--text-main)]">
-                      {new Date(binding.firstSeenAt).toLocaleString("pl-PL")}
-                    </span>
-                  </span>
-                  <span>•</span>
-                  <span>
-                    Ostatnie użycie:{" "}
-                    <span className="text-[var(--text-main)]">
-                      {new Date(binding.lastSeenAt).toLocaleString("pl-PL")}
-                    </span>
-                  </span>
-                  {binding.lastDeniedAt && (
-                    <>
-                      <span>•</span>
-                      <span className="text-red-400">
-                        Ostatnia odmowa:{" "}
-                        {new Date(binding.lastDeniedAt).toLocaleString("pl-PL")}
-                      </span>
-                    </>
-                  )}
-                </div>
-                <div className="grid sm:grid-cols-2 gap-x-4 gap-y-1 text-xs">
-                  {Object.entries(binding.components).map(([k, v]) => (
-                    <div key={k} className="flex justify-between gap-2">
-                      <span className="text-[var(--text-muted)]">
-                        {BINDING_FIELD_LABELS[k] ?? k}
-                      </span>
-                      <span
-                        className="text-[var(--text-main)] truncate"
-                        title={v}
-                      >
-                        {v || "—"}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-                {hasDenial && binding.lastDenial && (
-                  <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-3 text-xs">
-                    <p className="font-semibold text-red-300 mb-2">
-                      Odrzucone użycie z innego urządzenia
-                    </p>
-                    <ul className="space-y-1">
-                      {binding.lastDenial.diff.map((d) => (
-                        <li key={d.field} className="text-[var(--text-muted)]">
-                          <span className="text-[var(--text-main)] font-medium">
-                            {BINDING_FIELD_LABELS[d.field] ?? d.field}:
-                          </span>{" "}
-                          <span className="text-red-300">„{d.after}"</span>{" "}
-                          zamiast{" "}
-                          <span className="text-emerald-300">
-                            „{d.before}"
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                <div className="flex justify-end">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    leftIcon={<RotateCcw className="w-4 h-4" aria-hidden="true" />}
-                    loading={resetting}
-                    onClick={resetBinding}
-                  >
-                    Zresetuj powiązanie
-                  </Button>
-                </div>
-              </div>
-            )}
+            <BindingDetails
+              binding={binding}
+              events={events}
+              loading={bindingLoading}
+              error={bindingError}
+              resetting={resetting}
+              onReset={resetBinding}
+            />
           </td>
         </tr>
       )}
     </>
+  );
+}
+
+function BindingDetails({
+  binding,
+  events,
+  loading,
+  error,
+  resetting,
+  onReset,
+}: {
+  binding: DeviceBinding | null;
+  events: BindingEventRow[];
+  loading: boolean;
+  error: string | null;
+  resetting: boolean;
+  onReset: () => void;
+}) {
+  if (loading && !binding) {
+    return (
+      <p className="text-xs text-[var(--text-muted)]">
+        Ładowanie powiązania urządzenia…
+      </p>
+    );
+  }
+  if (error) return <Alert tone="error">{error}</Alert>;
+
+  const denialEvents = events.filter((e) => e.kind === "denied");
+
+  return (
+    <div className="space-y-4">
+      {binding ? (
+        <section className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-main)]/60 p-4">
+          <header className="flex items-center gap-2 text-sm text-[var(--text-main)] mb-3">
+            <ShieldCheck className="w-4 h-4 text-emerald-400" aria-hidden="true" />
+            <span className="font-medium">Powiązane urządzenie</span>
+            <Badge tone={binding.lastDeniedAt ? "danger" : "success"}>
+              {binding.lastDeniedAt ? "są próby obce" : "stabilne"}
+            </Badge>
+          </header>
+          <dl className="grid sm:grid-cols-2 gap-x-6 gap-y-1.5 text-xs">
+            <BindingField
+              label="Pierwsze użycie"
+              value={new Date(binding.firstSeenAt).toLocaleString("pl-PL")}
+            />
+            <BindingField
+              label="Ostatnie użycie"
+              value={new Date(binding.lastSeenAt).toLocaleString("pl-PL")}
+            />
+            {Object.entries(binding.components).map(([k, v]) => (
+              <BindingField
+                key={k}
+                label={BINDING_FIELD_LABELS[k] ?? k}
+                value={v || "—"}
+                truncate
+              />
+            ))}
+          </dl>
+          <div className="mt-4 flex justify-end">
+            <Button
+              variant="secondary"
+              size="sm"
+              leftIcon={<RotateCcw className="w-4 h-4" aria-hidden="true" />}
+              loading={resetting}
+              onClick={onReset}
+            >
+              Zresetuj powiązanie
+            </Button>
+          </div>
+        </section>
+      ) : (
+        <section className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-main)]/60 p-4">
+          <p className="text-xs text-[var(--text-muted)]">
+            Brak powiązanego urządzenia. Certyfikat jeszcze nie został użyty —
+            pierwsze poprawne użycie utworzy odcisk urządzenia. Status
+            zaktualizuje się automatycznie, gdy to nastąpi.
+          </p>
+        </section>
+      )}
+
+      {denialEvents.length > 0 && (
+        <section className="rounded-xl border border-red-500/30 bg-red-500/5 p-4">
+          <header className="flex items-center gap-2 text-sm text-red-200 mb-3">
+            <ShieldAlert className="w-4 h-4" aria-hidden="true" />
+            <span className="font-medium">
+              Próby powiązania z innych urządzeń
+            </span>
+            <Badge tone="danger">{denialEvents.length}</Badge>
+          </header>
+          <ul className="space-y-2">
+            {denialEvents.slice(0, 10).map((ev) => (
+              <li
+                key={ev.id}
+                className="text-xs border-l border-red-500/40 pl-3 py-1"
+              >
+                <p className="text-red-200 font-mono">
+                  {new Date(ev.ts).toLocaleString("pl-PL")}
+                  {ev.ip ? ` • ${ev.ip}` : ""}
+                </p>
+                {ev.diff && ev.diff.length > 0 && (
+                  <ul className="mt-1 space-y-0.5">
+                    {ev.diff.map((d) => (
+                      <li key={d.field} className="text-[var(--text-muted)]">
+                        <span className="text-[var(--text-main)]">
+                          {BINDING_FIELD_LABELS[d.field] ?? d.field}:
+                        </span>{" "}
+                        <span className="text-red-300">„{d.after}"</span>{" "}
+                        zamiast{" "}
+                        <span className="text-emerald-300">„{d.before}"</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </li>
+            ))}
+          </ul>
+          {denialEvents.length > 10 && (
+            <p className="text-[11px] text-[var(--text-muted)] mt-2">
+              Pokazano 10 najnowszych z {denialEvents.length}.
+            </p>
+          )}
+        </section>
+      )}
+
+      {events.length > 0 && (
+        <section className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-main)]/40 p-4">
+          <header className="flex items-center gap-2 text-sm text-[var(--text-muted)] mb-3">
+            <Activity className="w-4 h-4" aria-hidden="true" />
+            <span className="font-medium">Oś czasu zdarzeń</span>
+            <Badge tone="neutral">{events.length}</Badge>
+          </header>
+          <ul className="space-y-1.5 text-xs">
+            {events.slice(0, 20).map((ev) => (
+              <li
+                key={ev.id}
+                className="flex items-start gap-2 text-[var(--text-muted)]"
+              >
+                <Badge tone={eventTone(ev.kind)}>
+                  {EVENT_LABELS[ev.kind]}
+                </Badge>
+                <span className="font-mono whitespace-nowrap">
+                  {new Date(ev.ts).toLocaleString("pl-PL")}
+                </span>
+                {ev.ip && <span>• {ev.ip}</span>}
+                {ev.actor && <span>• {ev.actor}</span>}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+    </div>
+  );
+}
+
+function BindingField({
+  label,
+  value,
+  truncate,
+}: {
+  label: string;
+  value: string;
+  truncate?: boolean;
+}) {
+  return (
+    <div className="flex justify-between gap-3">
+      <dt className="text-[var(--text-muted)]">{label}</dt>
+      <dd
+        className={`text-[var(--text-main)] ${truncate ? "truncate" : ""}`}
+        title={truncate ? value : undefined}
+      >
+        {value}
+      </dd>
+    </div>
   );
 }
 

@@ -80,6 +80,22 @@ async function ensureSchema(client: PoolClient): Promise<void> {
       last_denied_at TIMESTAMPTZ NULL,
       last_denial    JSONB NULL
     );
+
+    CREATE TABLE IF NOT EXISTS cert_binding_events (
+      id             BIGSERIAL PRIMARY KEY,
+      ts             TIMESTAMPTZ NOT NULL DEFAULT now(),
+      serial_number  TEXT NOT NULL,
+      kind           TEXT NOT NULL,
+      ip             TEXT NULL,
+      user_agent     TEXT NULL,
+      components     JSONB NULL,
+      diff           JSONB NULL,
+      actor          TEXT NULL
+    );
+    CREATE INDEX IF NOT EXISTS cert_binding_events_serial_ts_idx
+      ON cert_binding_events (serial_number, ts DESC);
+    CREATE INDEX IF NOT EXISTS cert_binding_events_ts_idx
+      ON cert_binding_events (ts DESC);
   `);
 }
 
@@ -380,6 +396,75 @@ export async function resetDeviceBinding(serial: string): Promise<void> {
       `DELETE FROM cert_device_bindings WHERE serial_number = $1`,
       [serial],
     );
+  });
+}
+
+export interface CertBindingEventRow {
+  id: string;
+  ts: string;
+  serialNumber: string;
+  kind: "created" | "seen" | "denied" | "reset";
+  ip?: string;
+  userAgent?: string;
+  components?: DeviceFingerprintComponents;
+  diff?: FingerprintDiff[];
+  actor?: string;
+}
+
+export async function recordBindingEvent(args: {
+  serialNumber: string;
+  kind: CertBindingEventRow["kind"];
+  ip?: string;
+  userAgent?: string;
+  components?: DeviceFingerprintComponents;
+  diff?: FingerprintDiff[];
+  actor?: string;
+}): Promise<void> {
+  if (!getDatabaseUrl()) return;
+  await withClient(async (c) => {
+    await c.query(
+      `INSERT INTO cert_binding_events
+         (serial_number, kind, ip, user_agent, components, diff, actor)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [
+        args.serialNumber,
+        args.kind,
+        args.ip ?? null,
+        args.userAgent ?? null,
+        args.components ? JSON.stringify(args.components) : null,
+        args.diff ? JSON.stringify(args.diff) : null,
+        args.actor ?? null,
+      ],
+    );
+  });
+}
+
+export async function listBindingEvents(
+  serial: string,
+  limit = 50,
+): Promise<CertBindingEventRow[]> {
+  if (!getDatabaseUrl()) return [];
+  return withClient(async (c) => {
+    const res = await c.query(
+      `SELECT id, ts, serial_number, kind, ip, user_agent, components, diff, actor
+         FROM cert_binding_events
+        WHERE serial_number = $1
+        ORDER BY ts DESC
+        LIMIT $2`,
+      [serial, limit],
+    );
+    return res.rows.map((r) => ({
+      id: String(r.id),
+      ts: (r.ts as Date).toISOString(),
+      serialNumber: r.serial_number as string,
+      kind: r.kind as CertBindingEventRow["kind"],
+      ip: (r.ip as string | null) ?? undefined,
+      userAgent: (r.user_agent as string | null) ?? undefined,
+      components:
+        (r.components as DeviceFingerprintComponents | null) ?? undefined,
+      diff: (r.diff as FingerprintDiff[] | null) ?? undefined,
+      actor: (r.actor as string | null) ?? undefined,
+    }));
   });
 }
 
