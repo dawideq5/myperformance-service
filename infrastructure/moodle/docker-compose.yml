@@ -39,7 +39,7 @@ services:
       retries: 5
 
   moodle:
-    image: bitnami/moodle:4.5
+    image: bitnamilegacy/moodle:5.0.2
     restart: unless-stopped
     depends_on:
       mariadb:
@@ -57,7 +57,11 @@ services:
       MOODLE_SITE_NAME: "MyPerformance Academy"
       MOODLE_LANG: pl
       MOODLE_HOST: moodle.myperformance.pl
-      MOODLE_REVERSEPROXY: "yes"
+      # Must be "no" — Traefik passes Host header through unchanged, and
+      # Moodle's reverseproxy check throws "reverseproxyabused" when the
+      # incoming Host matches wwwroot host (see lib/setuplib.php:737).
+      # SSLProxy alone covers the X-Forwarded-Proto=https detection.
+      MOODLE_REVERSEPROXY: "no"
       MOODLE_SSLPROXY: "yes"
 
       # Admin bootstrap (only used on first install)
@@ -82,8 +86,12 @@ services:
       - moodle-data:/bitnami/moodle
       - moodle-moodledata:/bitnami/moodledata
     labels:
-      # Populated by Coolify on deploy — keep as hint only.
       - "coolify.managed=true"
+      # The bitnami image exposes both 8080 (HTTP) and 8443 (HTTPS) ports.
+      # Traefik can't auto-pick with two ports — pin the loadbalancer to 8080.
+      - "traefik.http.services.moodle-upzcjtn9rcswer2vg2vey5d3-moodle.loadbalancer.server.port=8080"
+      - "traefik.http.routers.http-0-upzcjtn9rcswer2vg2vey5d3-moodle.service=moodle-upzcjtn9rcswer2vg2vey5d3-moodle"
+      - "traefik.http.routers.https-0-upzcjtn9rcswer2vg2vey5d3-moodle.service=moodle-upzcjtn9rcswer2vg2vey5d3-moodle"
     healthcheck:
       test:
         ["CMD", "curl", "-fsS", "http://localhost:8080/login/index.php"]

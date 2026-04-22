@@ -48,6 +48,8 @@ services:
       PORT: "3000"
       SECRET_KEY: ${OUTLINE_SECRET_KEY}
       UTILS_SECRET: ${OUTLINE_UTILS_SECRET}
+      # Required — Outline's Sequelize defaults to TLS, local postgres has none.
+      PGSSLMODE: disable
 
       # Storage
       DATABASE_URL: postgres://outline:${OUTLINE_DB_PASSWORD}@postgres:5432/outline
