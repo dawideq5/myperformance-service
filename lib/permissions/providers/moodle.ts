@@ -208,8 +208,37 @@ export class MoodleProvider implements PermissionProvider {
 
     const user = await this.findOrCreateUser(args.email, args.displayName);
 
-    const allRoles = await moodleCall<MoodleRoleRaw[]>("core_role_get_roles");
-    const byShort = new Map(allRoles.map((r) => [r.shortname, r]));
+    // `core_role_get_roles` failuje w Moodle 5.x ("Nie znaleziono rekordu")
+    // przy pustym contextid. Fallback: używamy hardcoded ID dla canonical
+    // shortnames (są stałe w każdej instalacji Moodla).
+    const FALLBACK_ROLE_IDS: Record<string, number> = {
+      manager: 1,
+      coursecreator: 2,
+      editingteacher: 3,
+      teacher: 4,
+      student: 5,
+      guest: 6,
+      user: 7,
+      frontpage: 8,
+    };
+    let byShort: Map<string, MoodleRoleRaw>;
+    try {
+      const allRoles = await moodleCall<MoodleRoleRaw[]>(
+        "core_role_get_roles",
+      );
+      byShort = new Map(allRoles.map((r) => [r.shortname, r]));
+    } catch {
+      byShort = new Map(
+        Object.entries(FALLBACK_ROLE_IDS).map(([shortname, id]) => [
+          shortname,
+          {
+            id,
+            name: shortname,
+            shortname,
+          } as MoodleRoleRaw,
+        ]),
+      );
+    }
 
     // Usuwamy aktywne system-level assignmenty seed ról (żeby wymusić
     // single-role-per-area na warstwie Moodla).

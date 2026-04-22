@@ -2,6 +2,7 @@ import type { PermissionProvider } from "./providers/types";
 import { ChatwootProvider } from "./providers/chatwoot";
 import { DirectusProvider } from "./providers/directus";
 import { MoodleProvider } from "./providers/moodle";
+import { OutlineProvider } from "./providers/outline";
 
 /**
  * Runtime registry natywnych providerów.
@@ -14,6 +15,7 @@ const INSTANCES: Record<string, PermissionProvider> = {
   chatwoot: new ChatwootProvider(),
   directus: new DirectusProvider(),
   moodle: new MoodleProvider(),
+  outline: new OutlineProvider(),
 };
 
 export function getProvider(id: string | undefined): PermissionProvider | null {

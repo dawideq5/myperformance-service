@@ -136,23 +136,27 @@ export const AREAS: PermissionArea[] = [
     id: "knowledge",
     label: "Baza wiedzy (Outline)",
     description: "Wewnętrzna wiki — procedury, zasady, how-to.",
-    provider: "keycloak-only",
+    provider: "native",
+    nativeProviderId: "outline",
     icon: "BookOpen",
     kcRoles: [
       {
         name: "knowledge_viewer",
         description: "Tylko do odczytu — może czytać artykuły bez edycji.",
         priority: 5,
+        nativeRoleId: "viewer",
       },
       {
         name: "knowledge_user",
         description: "Dostęp do wiki (czytanie + pisanie).",
         priority: 10,
+        nativeRoleId: "member",
       },
       {
         name: "knowledge_admin",
         description: "Administrator Outline (kolekcje, użytkownicy, integracje).",
         priority: 90,
+        nativeRoleId: "admin",
       },
     ],
   },
