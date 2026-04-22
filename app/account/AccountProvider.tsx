@@ -16,11 +16,13 @@ import {
   accountService,
   googleService,
   kadromierzService,
+  moodleService,
 } from "./account-service";
 import type {
   GoogleStatus,
   KadromierzStatus,
   KeycloakSession,
+  MoodleStatus,
   TwoFAStatus,
   UserProfile,
   WebAuthnKey,
@@ -37,6 +39,7 @@ interface AccountContextValue {
   webauthnKeys: WebAuthnKey[];
   googleStatus: GoogleStatus | null;
   kadromierzStatus: KadromierzStatus | null;
+  moodleStatus: MoodleStatus | null;
   currentSessionId: string | undefined;
   refetchAll: () => Promise<void>;
   refetchProfile: () => Promise<void>;
@@ -45,6 +48,7 @@ interface AccountContextValue {
   refetchWebAuthn: () => Promise<void>;
   refetchGoogleStatus: () => Promise<GoogleStatus | null>;
   refetchKadromierzStatus: () => Promise<KadromierzStatus | null>;
+  refetchMoodleStatus: () => Promise<MoodleStatus | null>;
   patchProfile: (profile: UserProfile) => void;
   removeSessionLocally: (id: string) => void;
   setGoogleConnected: (connected: boolean) => void;
@@ -68,6 +72,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   const [googleStatus, setGoogleStatus] = useState<GoogleStatus | null>(null);
   const [kadromierzStatus, setKadromierzStatus] =
     useState<KadromierzStatus | null>(null);
+  const [moodleStatus, setMoodleStatus] = useState<MoodleStatus | null>(null);
 
   const loadedRef = useRef(false);
 
@@ -134,6 +139,17 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const refetchMoodleStatus = useCallback(async () => {
+    try {
+      const data = await moodleService.getStatus();
+      setMoodleStatus(data);
+      return data;
+    } catch (err) {
+      if (err instanceof ApiRequestError && err.isUnauthorized) return null;
+      return null;
+    }
+  }, []);
+
   const refetchAll = useCallback(async () => {
     setStatus("loading");
     setError(null);
@@ -145,6 +161,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
         refetchWebAuthn(),
         refetchGoogleStatus(),
         refetchKadromierzStatus(),
+        refetchMoodleStatus(),
       ]);
       setStatus("ready");
     } catch (err) {
@@ -160,6 +177,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     refetchWebAuthn,
     refetchGoogleStatus,
     refetchKadromierzStatus,
+    refetchMoodleStatus,
   ]);
 
   useEffect(() => {
@@ -205,6 +223,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       webauthnKeys,
       googleStatus,
       kadromierzStatus,
+      moodleStatus,
       currentSessionId,
       refetchAll,
       refetchProfile,
@@ -213,6 +232,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       refetchWebAuthn,
       refetchGoogleStatus,
       refetchKadromierzStatus,
+      refetchMoodleStatus,
       patchProfile,
       removeSessionLocally,
       setGoogleConnected,
@@ -228,6 +248,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       webauthnKeys,
       googleStatus,
       kadromierzStatus,
+      moodleStatus,
       currentSessionId,
       refetchAll,
       refetchProfile,
@@ -236,6 +257,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       refetchWebAuthn,
       refetchGoogleStatus,
       refetchKadromierzStatus,
+      refetchMoodleStatus,
       patchProfile,
       removeSessionLocally,
       setGoogleConnected,

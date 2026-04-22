@@ -1,8 +1,10 @@
 import { api } from "@/lib/api-client";
 import type {
+  CalendarEvent,
   GoogleStatus,
   KadromierzStatus,
   KeycloakSession,
+  MoodleStatus,
   RequiredAction,
   TwoFAStatus,
   UserProfile,
@@ -127,6 +129,12 @@ export const accountService = {
     api.delete<unknown>(
       `/api/account/required-actions?action=${encodeURIComponent(action)}`,
     ),
+};
+
+export const moodleService = {
+  getStatus: () => api.get<MoodleStatus>("/api/integrations/moodle/status"),
+  getEvents: () =>
+    api.get<{ events: CalendarEvent[] }>("/api/integrations/moodle/events"),
 };
 
 export const googleService = {

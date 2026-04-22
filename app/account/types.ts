@@ -56,6 +56,16 @@ export interface KadromierzStatus {
   role?: string | null;
 }
 
+export interface MoodleStatus {
+  connected: boolean;
+  configured?: boolean;
+  hasRole?: boolean;
+  moodleUserId?: number;
+  fullname?: string;
+  username?: string;
+  reason?: "not_provisioned" | "unreachable";
+}
+
 export interface CalendarEvent {
   id: string;
   title: string;
@@ -63,10 +73,11 @@ export interface CalendarEvent {
   startDate: string;
   endDate: string;
   allDay: boolean;
-  source: "manual" | "google" | "kadromierz";
+  source: "manual" | "google" | "kadromierz" | "moodle";
   googleEventId?: string;
   color?: string;
   location?: string;
+  url?: string;
   readOnly?: boolean;
 }
 

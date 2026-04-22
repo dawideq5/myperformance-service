@@ -6,6 +6,7 @@ import {
   Calendar,
   CheckCircle2,
   Clock,
+  GraduationCap,
   Plug,
 } from "lucide-react";
 
@@ -36,7 +37,7 @@ export function CalendarPageClient(props: CalendarPageClientProps) {
 }
 
 function CalendarPageBody({ userLabel, userEmail }: CalendarPageClientProps) {
-  const { googleStatus, kadromierzStatus, status } = useAccount();
+  const { googleStatus, kadromierzStatus, moodleStatus, status } = useAccount();
   const { softLogout } = useAuthRedirect();
 
   useEffect(() => {
@@ -48,6 +49,8 @@ function CalendarPageBody({ userLabel, userEmail }: CalendarPageClientProps) {
   const accountLoading = status === "loading" || status === "idle";
   const googleConnected = googleStatus?.connected === true;
   const kadromierzConnected = kadromierzStatus?.connected === true;
+  const moodleHasRole = moodleStatus?.hasRole === true;
+  const moodleConnected = moodleStatus?.connected === true;
 
   return (
     <PageShell
@@ -97,6 +100,24 @@ function CalendarPageBody({ userLabel, userEmail }: CalendarPageClientProps) {
           ctaHref="/account?tab=integrations"
           ctaLabel={kadromierzConnected ? "Ustawienia" : "Skonfiguruj"}
         />
+        {moodleHasRole && (
+          <IntegrationCard
+            icon={<GraduationCap className="w-6 h-6 text-amber-500" aria-hidden="true" />}
+            iconBg="bg-amber-500/10"
+            title="Akademia — kalendarz"
+            description={
+              moodleConnected
+                ? "Terminy szkoleń, zadań i wydarzeń kursów z Moodle"
+                : moodleStatus?.reason === "not_provisioned"
+                  ? "Zaloguj się raz do Akademii, aby zainicjalizować konto"
+                  : "Akademia niedostępna — sprawdź połączenie sieciowe"
+            }
+            connected={moodleConnected}
+            loading={accountLoading}
+            ctaHref="https://moodle.myperformance.pl/"
+            ctaLabel={moodleConnected ? "Otwórz Akademię" : "Zaloguj się"}
+          />
+        )}
       </section>
 
       {googleConnected ? (

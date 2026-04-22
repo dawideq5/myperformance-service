@@ -44,6 +44,7 @@ import {
 } from "../calendar-service";
 import {
   kadromierzService,
+  moodleService,
   type KadromierzShift,
 } from "../account-service";
 import type { CalendarEvent } from "../types";
@@ -68,6 +69,7 @@ const EMPTY_FORM: EventFormState = {
 };
 
 const KADROMIERZ_COLOR = "#F97316";
+const MOODLE_COLOR = "#F59E0B";
 
 // Kadromierz shifts are read-only projections — render as calendar events
 // so they layer into the existing grid without persisting anywhere.
@@ -257,14 +259,16 @@ function groupEventsByDay(
 }
 
 export function CalendarTab() {
-  const { googleStatus, kadromierzStatus } = useAccount();
+  const { googleStatus, kadromierzStatus, moodleStatus } = useAccount();
   const googleConnected = googleStatus?.connected === true;
   const kadromierzConnected = kadromierzStatus?.connected === true;
+  const moodleConnected = moodleStatus?.connected === true;
 
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [kadromierzShifts, setKadromierzShifts] = useState<CalendarEvent[]>(
     [],
   );
+  const [moodleEvents, setMoodleEvents] = useState<CalendarEvent[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<
@@ -326,6 +330,27 @@ export function CalendarTab() {
       cancelled = true;
     };
   }, [kadromierzConnected]);
+
+  // Fetch Moodle events when the user has a role + a provisioned account.
+  useEffect(() => {
+    if (!moodleConnected) {
+      setMoodleEvents([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const resp = await moodleService.getEvents();
+        if (cancelled) return;
+        setMoodleEvents(resp.events ?? []);
+      } catch {
+        if (!cancelled) setMoodleEvents([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [moodleConnected]);
 
   // Silent background sync + watch-channel ensure on first mount when Google is connected.
   // Webhook delivers real-time updates afterward; this is the cold-open fallback.
@@ -499,8 +524,8 @@ export function CalendarTab() {
 
   const gridDays = useMemo(() => buildMonthGrid(viewDate), [viewDate]);
   const combinedEvents = useMemo(
-    () => [...events, ...kadromierzShifts],
-    [events, kadromierzShifts],
+    () => [...events, ...kadromierzShifts, ...moodleEvents],
+    [events, kadromierzShifts, moodleEvents],
   );
   const eventsByDay = useMemo(
     () => groupEventsByDay(combinedEvents),
@@ -767,15 +792,21 @@ function isKadromierz(event: CalendarEvent): boolean {
   return event.source === "kadromierz";
 }
 
+function isMoodle(event: CalendarEvent): boolean {
+  return event.source === "moodle";
+}
+
 function EventPill({ event }: { event: CalendarEvent }) {
   const isGoogle = isSyncedToGoogle(event);
   const color =
     event.color ||
     (isKadromierz(event)
       ? KADROMIERZ_COLOR
-      : isGoogle
-        ? "#4285F4"
-        : "var(--accent)");
+      : isMoodle(event)
+        ? MOODLE_COLOR
+        : isGoogle
+          ? "#4285F4"
+          : "var(--accent)");
   return (
     <div
       className="flex items-center gap-1 text-[10px] leading-tight rounded-md px-1.5 py-0.5 truncate"
@@ -879,7 +910,8 @@ function DayEventRow({
   const end = parseEventDate(event, "end");
   const isGoogle = isSyncedToGoogle(event);
   const isKadro = isKadromierz(event);
-  const readOnly = event.readOnly || isKadro;
+  const isMood = isMoodle(event);
+  const readOnly = event.readOnly || isKadro || isMood;
 
   const timeLabel = event.allDay
     ? "Cały dzień"
@@ -889,9 +921,11 @@ function DayEventRow({
     event.color ||
     (isKadro
       ? KADROMIERZ_COLOR
-      : isGoogle
-        ? "#4285F4"
-        : "var(--accent)");
+      : isMood
+        ? MOODLE_COLOR
+        : isGoogle
+          ? "#4285F4"
+          : "var(--accent)");
 
   return (
     <div className="border border-[var(--border-subtle)] rounded-xl p-3 flex items-start gap-3 bg-[var(--bg-card)]">
@@ -910,6 +944,8 @@ function DayEventRow({
               <Clock className="w-2.5 h-2.5 mr-1" aria-hidden="true" />
               Kadromierz
             </Badge>
+          ) : isMood ? (
+            <Badge tone="warning">Akademia</Badge>
           ) : isGoogle ? (
             <Badge tone="info">
               <Globe className="w-2.5 h-2.5 mr-1" aria-hidden="true" />
