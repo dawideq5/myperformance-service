@@ -252,8 +252,17 @@ export async function POST(request: Request) {
         );
 
         if (!updateRes.ok && updateRes.status !== 204) {
-          throw ApiError.serviceUnavailable(
-            "Nie udało się zarejestrować klucza",
+          const details = await updateRes.text().catch(() => "");
+          console.error(
+            "[webauthn register] KC PUT /users failed:",
+            updateRes.status,
+            details.slice(0, 500),
+          );
+          throw new ApiError(
+            "SERVICE_UNAVAILABLE",
+            "Keycloak odrzucił credential — użyj opcji 'Wymuszone akcje → Rejestracja klucza passkey' z panelu admina (natywny flow Keycloaka).",
+            updateRes.status,
+            details.slice(0, 500),
           );
         }
       });

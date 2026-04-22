@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -22,6 +22,8 @@ import { adminUserService } from "@/app/account/account-service";
 
 interface ActivityLogProps {
   userId: string;
+  /** Auto-refresh co X ms. Gdy 0 lub undefined — bez pollingu. */
+  pollMs?: number;
 }
 
 type UserEvent = {
@@ -33,6 +35,16 @@ type UserEvent = {
   error: string | null;
   details: Record<string, unknown>;
 };
+
+function dedupeEvents(events: UserEvent[]): UserEvent[] {
+  const seen = new Set<string>();
+  return events.filter((e) => {
+    const key = `${e.time}-${e.type}-${e.kind}-${JSON.stringify(e.details)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
 
 function iconFor(type: string): LucideIcon {
   const t = type.toLowerCase();
@@ -86,38 +98,54 @@ function formatTime(t: number | null): string {
   });
 }
 
-export function ActivityLog({ userId }: ActivityLogProps) {
+export function ActivityLog({ userId, pollMs = 5000 }: ActivityLogProps) {
   const [events, setEvents] = useState<UserEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
-  const [filter, setFilter] = useState<"all" | "user" | "admin">("all");
+  const [live, setLive] = useState(true);
+  const prevCountRef = useRef(0);
+  const [newCount, setNewCount] = useState(0);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await adminUserService.listEvents(userId, 100);
-      setEvents(res.events);
-    } catch (err) {
-      setError(
-        err instanceof ApiRequestError
-          ? err.message
-          : "Nie udało się pobrać logów",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [userId]);
+  const load = useCallback(
+    async (background = false) => {
+      if (!background) setLoading(true);
+      setError(null);
+      try {
+        const res = await adminUserService.listEvents(userId, 100);
+        const deduped = dedupeEvents(res.events);
+        if (background && deduped.length > prevCountRef.current) {
+          setNewCount(deduped.length - prevCountRef.current);
+          setTimeout(() => setNewCount(0), 3000);
+        }
+        prevCountRef.current = deduped.length;
+        setEvents(deduped);
+      } catch (err) {
+        if (!background) {
+          setError(
+            err instanceof ApiRequestError
+              ? err.message
+              : "Nie udało się pobrać logów",
+          );
+        }
+      } finally {
+        if (!background) setLoading(false);
+      }
+    },
+    [userId],
+  );
 
   useEffect(() => {
-    void load();
+    void load(false);
   }, [load]);
 
-  const filtered = useMemo(
-    () => (filter === "all" ? events : events.filter((e) => e.kind === filter)),
-    [events, filter],
-  );
+  useEffect(() => {
+    if (!live || !pollMs) return;
+    const t = setInterval(() => {
+      if (!document.hidden) void load(true);
+    }, pollMs);
+    return () => clearInterval(t);
+  }, [live, pollMs, load]);
 
   const toggleExpand = (idx: number) => {
     setExpanded((prev) => {
@@ -131,35 +159,33 @@ export function ActivityLog({ userId }: ActivityLogProps) {
   return (
     <Card padding="none">
       <header className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-[var(--border-subtle)]">
-        <div>
+        <div className="flex items-center gap-2">
           <h3 className="font-semibold text-sm text-[var(--text-main)]">
             Logi aktywności
           </h3>
-          <p className="text-xs text-[var(--text-muted)] mt-0.5">
-            Ostatnie zdarzenia z rejestru Keycloak · user + admin events.
-          </p>
+          {newCount > 0 && (
+            <Badge tone="info">+{newCount} nowych</Badge>
+          )}
+          {live && (
+            <span className="flex items-center gap-1 text-[10px] font-medium text-emerald-500 uppercase tracking-wider">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              live
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex rounded-md border border-[var(--border-subtle)] overflow-hidden">
-            {(["all", "user", "admin"] as const).map((k) => (
-              <button
-                key={k}
-                type="button"
-                onClick={() => setFilter(k)}
-                className={`px-3 py-1 text-xs font-medium transition-colors ${
-                  filter === k
-                    ? "bg-[var(--accent)] text-[var(--accent-fg)]"
-                    : "text-[var(--text-muted)] hover:bg-[var(--bg-main)]"
-                }`}
-              >
-                {k === "all" ? "Wszystkie" : k === "user" ? "User" : "Admin"}
-              </button>
-            ))}
-          </div>
+          <button
+            type="button"
+            onClick={() => setLive((v) => !v)}
+            className="text-xs text-[var(--text-muted)] hover:text-[var(--text-main)]"
+            title={live ? "Pauzuj auto-odświeżanie" : "Wznów auto-odświeżanie"}
+          >
+            {live ? "Pauza" : "Live"}
+          </button>
           <Button
             size="sm"
             variant="ghost"
-            onClick={() => void load()}
+            onClick={() => void load(false)}
             loading={loading}
             leftIcon={<RefreshCw className="w-4 h-4" aria-hidden="true" />}
           >
@@ -174,13 +200,13 @@ export function ActivityLog({ userId }: ActivityLogProps) {
         </div>
       )}
 
-      {filtered.length === 0 && !loading ? (
+      {events.length === 0 && !loading ? (
         <div className="px-4 py-6 text-sm text-[var(--text-muted)] text-center">
-          Brak zdarzeń w tym filtrze.
+          Brak zdarzeń — aktywność pojawi się tu automatycznie.
         </div>
       ) : (
         <ul className="divide-y divide-[var(--border-subtle)] max-h-[60vh] overflow-y-auto">
-          {filtered.map((ev, idx) => {
+          {events.map((ev, idx) => {
             const Icon = iconFor(ev.type);
             const isExpanded = expanded.has(idx);
             const hasDetails = Object.keys(ev.details).length > 0;
@@ -217,9 +243,6 @@ export function ActivityLog({ userId }: ActivityLogProps) {
                       <span className="font-medium text-sm text-[var(--text-main)]">
                         {labelFor(ev)}
                       </span>
-                      <Badge tone={ev.kind === "admin" ? "info" : "neutral"}>
-                        {ev.kind}
-                      </Badge>
                       {ev.clientId && (
                         <span className="font-mono text-[10px] text-[var(--text-muted)] bg-[var(--bg-main)] px-1.5 py-0.5 rounded">
                           {ev.clientId}

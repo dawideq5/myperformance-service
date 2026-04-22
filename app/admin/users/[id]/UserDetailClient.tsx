@@ -39,6 +39,7 @@ import { PermissionsPanel } from "./PermissionsPanel";
 import { SecurityPanel } from "./SecurityPanel";
 import { IntegrationsPanel } from "./IntegrationsPanel";
 import { ActivityLog } from "./ActivityLog";
+import { SessionsCard } from "./SessionsCard";
 
 interface UserDetailClientProps {
   userId: string;
@@ -416,6 +417,7 @@ export function UserDetailClient({
           userId={userId}
           email={user.email}
           emailVerified={user.emailVerified}
+          requiredActions={user.requiredActions}
           onUpdated={() => void refresh()}
         />
       </section>
@@ -428,6 +430,19 @@ export function UserDetailClient({
           </h2>
         </div>
         <IntegrationsPanel userId={userId} />
+      </section>
+
+      <section className="mb-6">
+        <div className="flex items-center gap-2 mb-3">
+          <LogOut className="w-5 h-5 text-[var(--accent)]" aria-hidden="true" />
+          <h2 className="text-lg font-semibold text-[var(--text-main)]">
+            Sesje
+          </h2>
+        </div>
+        <SessionsCard
+          userId={userId}
+          onAllTerminated={() => setNotice("Wszystkie sesje zakończone")}
+        />
       </section>
 
       <section className="mb-6">

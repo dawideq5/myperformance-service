@@ -338,7 +338,9 @@ export class ChatwootProvider implements PermissionProvider {
   ): Promise<ChatwootUser> {
     const existing = await this.findUser(email);
     if (existing) return existing;
-    const password = randomHex(24);
+    // Chatwoot wymusza politykę hasła: min. 1 wielka, 1 mała, 1 cyfra, 1 znak
+    // specjalny. Hex sam w sobie nie spełnia tych warunków.
+    const password = generateStrongPassword();
     const res = await platformFetch(`/platform/api/v1/users`, {
       method: "POST",
       body: JSON.stringify({
@@ -360,4 +362,34 @@ function randomHex(bytes: number): string {
   const buf = new Uint8Array(bytes);
   crypto.getRandomValues(buf);
   return Array.from(buf, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * 24-znakowe hasło spełniające politykę Chatwoot (upper, lower, digit,
+ * special). User nigdy się nim nie loguje — konto Chatwoot jest tylko
+ * proxy, autoryzacja idzie przez SSO.
+ */
+function generateStrongPassword(): string {
+  const upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+  const lower = "abcdefghijkmnpqrstuvwxyz";
+  const digit = "23456789";
+  const special = "!@#$%^&*()_+-=";
+  const all = upper + lower + digit + special;
+
+  const pick = (set: string) => {
+    const i = Math.floor((crypto.getRandomValues(new Uint32Array(1))[0] / 2 ** 32) * set.length);
+    return set[i];
+  };
+
+  const required = [pick(upper), pick(lower), pick(digit), pick(special)];
+  const rest = Array.from({ length: 20 }, () => pick(all));
+  const chars = [...required, ...rest];
+  // Fisher-Yates shuffle — uniknij przewidywalnych pozycji wymaganych klas.
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = Math.floor(
+      (crypto.getRandomValues(new Uint32Array(1))[0] / 2 ** 32) * (i + 1),
+    );
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join("");
 }
