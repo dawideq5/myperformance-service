@@ -27,8 +27,12 @@ export const ROLES = {
   // Directus CMS (admin-only)
   DIRECTUS_ADMIN: "directus_admin",
 
-  // Documenso: user = własne dokumenty, admin = konsola Documenso
+  // Documenso:
+  //   user    = pracownik; widzi własne dokumenty, podpisuje je
+  //   handler = obsługa dokumentów (księgowa); wysyła + śledzi obieg całej org
+  //   admin   = konsola Documenso (szablony, webhooki, użytkownicy)
   DOCUMENSO_USER: "documenso_user",
+  DOCUMENSO_HANDLER: "documenso_handler",
   DOCUMENSO_ADMIN: "documenso_admin",
 
   // Chatwoot: agent = obsługa klienta, admin = konfiguracja
@@ -64,6 +68,7 @@ export const ROLE_CATALOG: RoleSpec[] = [
   { name: ROLES.DIRECTUS_ADMIN, description: "Administrator Directus CMS", default: false },
 
   { name: ROLES.DOCUMENSO_USER, description: "Zalogowanie do Documenso jako zwykły użytkownik (własne dokumenty)", default: false },
+  { name: ROLES.DOCUMENSO_HANDLER, description: "Obsługa dokumentów (księgowa): wysyłanie + zarządzanie obiegiem dokumentów całej organizacji", default: false },
   { name: ROLES.DOCUMENSO_ADMIN, description: "Administrator Documenso (szablony, webhooki, użytkownicy)", default: false },
 
   { name: ROLES.CHATWOOT_AGENT, description: "Agent obsługi klienta w Chatwoot", default: false },
@@ -152,6 +157,12 @@ export function canAccessDocumensoAsUser(
   session: Session | null | undefined,
 ): boolean {
   return hasRole(session, ROLES.DOCUMENSO_USER);
+}
+
+export function canAccessDocumensoAsHandler(
+  session: Session | null | undefined,
+): boolean {
+  return hasRole(session, ROLES.DOCUMENSO_HANDLER);
 }
 
 export function canAccessDocumensoAsAdmin(

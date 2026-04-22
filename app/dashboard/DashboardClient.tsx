@@ -32,6 +32,7 @@ import {
   canAccessChatwootAsAgent,
   canAccessDirectus,
   canAccessDocumensoAsAdmin,
+  canAccessDocumensoAsHandler,
   canAccessDocumensoAsUser,
   canAccessKadromierz,
   canAccessKeycloakAdmin,
@@ -86,6 +87,7 @@ function TileGrid() {
   const showKadromierz = canAccessKadromierz(session);
   const showDirectus = canAccessDirectus(session);
   const showDocumensoUser = canAccessDocumensoAsUser(session);
+  const showDocumensoHandler = canAccessDocumensoAsHandler(session);
   const showDocumensoAdmin = canAccessDocumensoAsAdmin(session);
   const showChatwootAgent = canAccessChatwootAsAgent(session);
   const showChatwootAdmin = canAccessChatwootAsAdmin(session);
@@ -100,7 +102,7 @@ function TileGrid() {
 
   const anyVisible =
     showCalendar || showKadromierz || showDirectus ||
-    showDocumensoUser || showDocumensoAdmin ||
+    showDocumensoUser || showDocumensoHandler || showDocumensoAdmin ||
     showChatwootAgent || showChatwootAdmin || showPostal || showKeycloak ||
     showStepCa || showCerts || showUsers || showSprzedawca ||
     showSerwisant || showKierowca;
@@ -220,9 +222,19 @@ function TileGrid() {
           <ExternalTile
             icon={<FileSignature className="w-7 h-7 text-purple-500" aria-hidden="true" />}
             iconBg="bg-purple-500/10"
-            title="Documenso - użytkownik"
+            title="Documenso — pracownik"
             description="Twoje dokumenty do podpisu i już podpisane (Documenso)"
             href="/api/documenso/sso?role=user"
+          />
+        )}
+
+        {showDocumensoHandler && (
+          <ExternalTile
+            icon={<FileSignature className="w-7 h-7 text-violet-400" aria-hidden="true" />}
+            iconBg="bg-violet-500/10"
+            title="Documenso — obsługa dokumentów"
+            description="Wysyłanie i śledzenie obiegu dokumentów całej organizacji (księgowa)"
+            href="/api/documenso/sso?role=handler"
           />
         )}
 
@@ -230,7 +242,7 @@ function TileGrid() {
           <ExternalTile
             icon={<FileSignature className="w-7 h-7 text-fuchsia-500" aria-hidden="true" />}
             iconBg="bg-fuchsia-500/10"
-            title="Documenso - administrator"
+            title="Documenso — administrator"
             description="Szablony, webhooki, użytkownicy (SSO)"
             href="/api/documenso/sso?role=admin"
           />

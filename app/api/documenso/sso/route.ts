@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
 import {
   canAccessDocumensoAsAdmin,
+  canAccessDocumensoAsHandler,
   canAccessDocumensoAsUser,
 } from "@/lib/admin-auth";
 import { syncDocumensoUserRole, getDocumensoBaseUrl } from "@/lib/documenso";
@@ -19,9 +20,11 @@ export async function GET(req: NextRequest) {
 
   const requested = (req.nextUrl.searchParams.get("role") ?? "").toLowerCase();
   const hasAdmin = canAccessDocumensoAsAdmin(session);
+  const hasHandler = canAccessDocumensoAsHandler(session);
   const hasUser = canAccessDocumensoAsUser(session);
 
   const wantsAdmin = requested === "admin" || requested === "administrator";
+  const wantsHandler = requested === "handler" || requested === "obsluga";
   const wantsUser = requested === "user" || requested === "";
 
   let targetRole: "ADMIN" | "USER";
@@ -33,8 +36,17 @@ export async function GET(req: NextRequest) {
     }
     targetRole = "ADMIN";
     redirectPath = "/admin";
+  } else if (wantsHandler) {
+    if (!hasHandler && !hasAdmin) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    // Handler na poziomie Documenso DB ma USER (native role); panel obsługi
+    // korzysta z Documenso API z admin-tokenem po stronie serwera, więc
+    // widzi całą organizację nie będąc Documenso adminem.
+    targetRole = "USER";
+    redirectPath = "/documents";
   } else if (wantsUser) {
-    if (!hasUser && !hasAdmin) {
+    if (!hasUser && !hasHandler && !hasAdmin) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
     targetRole = "USER";

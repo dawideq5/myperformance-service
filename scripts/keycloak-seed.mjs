@@ -55,8 +55,9 @@ const ROLES = [
 
   { name: "directus_admin",      description: "Administrator Directus CMS",                            default: false },
 
-  { name: "documenso_user",      description: "Dostęp do Documenso (użytkownik końcowy)",              default: false },
-  { name: "documenso_admin",     description: "Administrator Documenso",                               default: false },
+  { name: "documenso_user",      description: "Documenso: pracownik (własne dokumenty)",               default: false },
+  { name: "documenso_handler",   description: "Documenso: obsługa dokumentów (księgowa, obieg org)",   default: false },
+  { name: "documenso_admin",     description: "Documenso: administrator",                              default: false },
 
   { name: "chatwoot_agent",      description: "Agent obsługi klienta w Chatwoot",                      default: false },
   { name: "chatwoot_admin",      description: "Administrator Chatwoot",                                default: false },
