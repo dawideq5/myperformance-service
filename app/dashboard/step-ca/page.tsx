@@ -34,5 +34,12 @@ export default async function StepCaPage() {
   const fingerprint = await fetchRootFingerprint();
   const caUrl = process.env.STEP_CA_PUBLIC_URL || "https://ca.myperformance.pl";
 
-  return <StepCaClient caUrl={caUrl} rootFingerprint={fingerprint} />;
+  return (
+    <StepCaClient
+      caUrl={caUrl}
+      rootFingerprint={fingerprint}
+      userLabel={session.user.name ?? session.user.email ?? undefined}
+      userEmail={session.user.email ?? undefined}
+    />
+  );
 }

@@ -16,16 +16,10 @@ export default async function CertificatesPage() {
   const certs = await listCertificates();
 
   return (
-    <main className="max-w-6xl mx-auto p-8">
-      <header className="mb-8">
-        <h1 className="text-2xl font-semibold text-[var(--text-main)]">Certyfikaty klienckie</h1>
-        <p className="text-sm text-[var(--text-muted)] mt-1">
-          Wystawianie i zarządzanie certyfikatami mTLS dla paneli sprzedawcy, serwisanta
-          oraz kierowcy.
-        </p>
-      </header>
-
-      <CertificatesClient initialCerts={certs} />
-    </main>
+    <CertificatesClient
+      initialCerts={certs}
+      userLabel={session.user?.name ?? session.user?.email ?? undefined}
+      userEmail={session.user?.email ?? undefined}
+    />
   );
 }

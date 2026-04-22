@@ -1,10 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import {
   Activity,
-  ArrowLeft,
   Fingerprint,
   FileSignature,
   Mail,
@@ -23,12 +21,12 @@ import {
   CardHeader,
   Checkbox,
   Input,
-  PageHeader,
   PageShell,
   TabPanel,
   Tabs,
   type TabDefinition,
 } from "@/components/ui";
+import { AppHeader } from "@/components/AppHeader";
 import type { IssuedCertificate } from "@/lib/step-ca";
 
 type BindingEventKind = "created" | "seen" | "denied" | "reset";
@@ -80,7 +78,15 @@ interface IssueResult {
   pkcs12Base64?: string;
 }
 
-export function CertificatesClient({ initialCerts }: { initialCerts: IssuedCertificate[] }) {
+export function CertificatesClient({
+  initialCerts,
+  userLabel,
+  userEmail,
+}: {
+  initialCerts: IssuedCertificate[];
+  userLabel?: string;
+  userEmail?: string;
+}) {
   const [tab, setTab] = useState<CertTabId>("issue");
   const [certs, setCerts] = useState(initialCerts);
   const [caStatus, setCaStatus] = useState<CaStatus | null>(null);
@@ -151,23 +157,12 @@ export function CertificatesClient({ initialCerts }: { initialCerts: IssuedCerti
   );
 
   const header = (
-    <PageHeader
-      left={
-        <>
-          <Link
-            href="/dashboard"
-            className="flex items-center gap-2 text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors"
-          >
-            <ArrowLeft className="w-5 h-5" aria-hidden="true" />
-            <span className="text-sm font-medium">Powrót</span>
-          </Link>
-          <div className="h-6 w-px bg-[var(--border-subtle)]" aria-hidden="true" />
-          <h1 className="text-xl font-bold text-[var(--text-main)]">
-            Certyfikaty klienckie
-          </h1>
-        </>
-      }
-      right={
+    <AppHeader
+      backHref="/dashboard"
+      title="Certyfikaty klienckie"
+      userLabel={userLabel}
+      userSubLabel={userEmail}
+      rightExtras={
         <div className="flex items-center gap-3">
           <LiveBadge connected={liveConnected} />
           <CaStatusBadge status={caStatus} />
@@ -178,6 +173,12 @@ export function CertificatesClient({ initialCerts }: { initialCerts: IssuedCerti
 
   return (
     <PageShell maxWidth="xl" header={header}>
+      <section className="mb-6">
+        <p className="text-sm text-[var(--text-muted)]">
+          Wystawianie i zarządzanie certyfikatami mTLS dla paneli sprzedawcy,
+          serwisanta oraz kierowcy.
+        </p>
+      </section>
       <div className="grid lg:grid-cols-4 gap-6">
         <aside className="lg:col-span-1">
           <Tabs

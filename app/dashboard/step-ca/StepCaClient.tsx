@@ -2,16 +2,23 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Copy, Download, ShieldCheck } from "lucide-react";
+import { Copy, Download, ShieldCheck } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
 import { Button, Card, PageShell } from "@/components/ui";
 
 interface Props {
   caUrl: string;
   rootFingerprint: string | null;
+  userLabel?: string;
+  userEmail?: string;
 }
 
-export function StepCaClient({ caUrl, rootFingerprint }: Props) {
+export function StepCaClient({
+  caUrl,
+  rootFingerprint,
+  userLabel,
+  userEmail,
+}: Props) {
   const rootUrl = `${caUrl.replace(/\/$/, "")}/roots.pem`;
   const [copied, setCopied] = useState<string | null>(null);
 
@@ -32,31 +39,28 @@ export function StepCaClient({ caUrl, rootFingerprint }: Props) {
   const issue = `step ca certificate "user@myperformance.pl" user.crt user.key \\\n  --provisioner keycloak --provisioner-password-file /dev/null`;
 
   return (
-    <PageShell maxWidth="lg" header={<AppHeader userLabel="" userSubLabel="" />}>
-      <div className="mb-6">
-        <Link
-          href="/dashboard"
-          className="inline-flex items-center gap-2 text-sm text-[var(--text-muted)] hover:text-[var(--text-main)]"
-        >
-          <ArrowLeft className="w-4 h-4" aria-hidden="true" />
-          Wróć do dashboardu
-        </Link>
-      </div>
-
-      <header className="mb-8 flex items-start gap-4">
+    <PageShell
+      maxWidth="lg"
+      header={
+        <AppHeader
+          backHref="/dashboard"
+          title="Step CA"
+          userLabel={userLabel}
+          userSubLabel={userEmail}
+        />
+      }
+    >
+      <section className="mb-6 flex items-start gap-4">
         <div className="w-12 h-12 rounded-xl bg-teal-500/10 flex items-center justify-center shrink-0">
           <ShieldCheck className="w-7 h-7 text-teal-500" aria-hidden="true" />
         </div>
-        <div>
-          <h1 className="text-2xl font-semibold text-[var(--text-main)]">Step CA</h1>
-          <p className="text-sm text-[var(--text-muted)] mt-1">
-            Publiczny endpoint <code className="text-[var(--accent)]">{caUrl}</code>{" "}
-            nie udostępnia UI — to serwer PKI wystawiający certyfikaty przez API.
-            Poniżej znajdziesz instrukcje self-service oraz pliki startowe dla klienta{" "}
-            <code>step</code>.
-          </p>
-        </div>
-      </header>
+        <p className="text-sm text-[var(--text-muted)]">
+          Publiczny endpoint <code className="text-[var(--accent)]">{caUrl}</code>{" "}
+          nie udostępnia UI — to serwer PKI wystawiający certyfikaty przez API.
+          Poniżej znajdziesz instrukcje self-service oraz pliki startowe dla
+          klienta <code>step</code>.
+        </p>
+      </section>
 
       <div className="grid grid-cols-1 gap-4">
         <Card padding="lg">
