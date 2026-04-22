@@ -36,6 +36,13 @@ export function Dialog({
 }: DialogProps) {
   const contentRef = useRef<HTMLDivElement | null>(null);
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
+  // Stable handle for onClose — depending on onClose directly would
+  // re-run the effect on every parent re-render and steal focus back to
+  // the dialog shell (breaks typing in inputs).
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     if (!open) return;
@@ -43,7 +50,7 @@ export function Dialog({
     contentRef.current?.focus();
 
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") onCloseRef.current();
     };
     document.addEventListener("keydown", onKey);
 
@@ -55,7 +62,7 @@ export function Dialog({
       document.body.style.overflow = overflow;
       previouslyFocusedRef.current?.focus();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
   if (typeof window === "undefined") return null;

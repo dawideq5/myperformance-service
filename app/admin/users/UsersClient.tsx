@@ -34,6 +34,7 @@ import {
 } from "@/components/ui";
 import { AppHeader } from "@/components/AppHeader";
 import { ApiRequestError } from "@/lib/api-client";
+import { AppPermissionsTab } from "./AppPermissionsTab";
 import { PermissionsTree } from "./PermissionsTree";
 import { UserRolesTab } from "./UserRolesTab";
 import {
@@ -377,6 +378,10 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
 
       <div className="mb-6">
         <PermissionsTree selfId={selfId} />
+      </div>
+
+      <div className="mb-6">
+        <AppPermissionsTab />
       </div>
 
       {error && (

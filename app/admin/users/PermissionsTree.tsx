@@ -10,6 +10,7 @@ import {
 } from "react";
 import {
   ChevronRight,
+  FilePlus,
   Plus,
   Search,
   Shield,
@@ -23,7 +24,9 @@ import {
   Button,
   Card,
   Dialog,
+  FieldWrapper,
   Input,
+  Textarea,
 } from "@/components/ui";
 import { api, ApiRequestError } from "@/lib/api-client";
 
@@ -75,6 +78,7 @@ export function PermissionsTree({ selfId }: { selfId?: string }) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [expandedRoles, setExpandedRoles] = useState<Record<string, boolean>>({});
   const [assignOpen, setAssignOpen] = useState<RoleNode | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<
     { tone: "success" | "error"; message: string } | null
@@ -204,12 +208,20 @@ export function PermissionsTree({ selfId }: { selfId?: string }) {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
+        <div className="flex items-center gap-2 flex-wrap">
           <Badge tone="neutral">
             <UsersIcon className="w-3 h-3 mr-1" aria-hidden="true" />
             {totalUsers} przypisań
           </Badge>
           <Badge tone="neutral">{totalRoles} ról</Badge>
+          <Button
+            size="sm"
+            variant="secondary"
+            leftIcon={<FilePlus className="w-3.5 h-3.5" aria-hidden="true" />}
+            onClick={() => setCreateOpen(true)}
+          >
+            Nowa rola (realm)
+          </Button>
         </div>
       </header>
 
@@ -372,7 +384,113 @@ export function PermissionsTree({ selfId }: { selfId?: string }) {
         onAssign={assignUser}
         pending={pending?.startsWith("assign:") === true}
       />
+      <CreateRealmRoleDialog
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        onCreated={async (msg) => {
+          await load();
+          setFeedback({ tone: "success", message: msg });
+        }}
+      />
     </Card>
+  );
+}
+
+function CreateRealmRoleDialog({
+  open,
+  onClose,
+  onCreated,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onCreated: (message: string) => void | Promise<void>;
+}) {
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (open) {
+      setName("");
+      setDescription("");
+      setError(null);
+    }
+  }, [open]);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = name.trim();
+    if (!/^[a-z][a-z0-9_]*$/.test(trimmed)) {
+      setError(
+        "Nazwa powinna być w formie snake_case — małe litery, cyfry, podkreślniki, zaczynająca się od litery.",
+      );
+      return;
+    }
+    setPending(true);
+    setError(null);
+    try {
+      await api.post("/api/admin/realm-roles", {
+        name: trimmed,
+        description: description.trim(),
+      });
+      await onCreated(`Utworzono rolę realm „${trimmed}".`);
+      onClose();
+    } catch (err) {
+      setError(
+        err instanceof ApiRequestError
+          ? err.message
+          : "Nie udało się utworzyć roli",
+      );
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title="Nowa rola realm"
+      size="md"
+    >
+      <form onSubmit={submit} className="space-y-3">
+        <p className="text-xs text-[var(--text-muted)]">
+          Rola realm to atomowa jednostka uprawnień. Po utworzeniu pojawi się
+          w drzewku w sekcji „Inne role" — możesz następnie przypisać ją do
+          szablonu roli użytkownika albo bezpośrednio użytkownikom.
+        </p>
+        <FieldWrapper id="rrname" label="Nazwa techniczna (snake_case)">
+          <Input
+            id="rrname"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="np. crm_export"
+            required
+            disabled={pending}
+          />
+        </FieldWrapper>
+        <FieldWrapper id="rrdesc" label="Opis">
+          <Textarea
+            id="rrdesc"
+            rows={2}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Krótkie wyjaśnienie — do czego ta rola daje dostęp"
+            disabled={pending}
+          />
+        </FieldWrapper>
+        {error && <Alert tone="error">{error}</Alert>}
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" onClick={onClose} disabled={pending}>
+            Anuluj
+          </Button>
+          <Button type="submit" loading={pending}>
+            Utwórz rolę
+          </Button>
+        </div>
+      </form>
+    </Dialog>
   );
 }
 

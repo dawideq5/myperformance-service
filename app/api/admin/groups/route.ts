@@ -10,12 +10,21 @@ import {
 } from "@/lib/api-utils";
 import { ROLE_CATALOG, requireAdminPanel } from "@/lib/admin-auth";
 
+export interface AdminGroupMember {
+  id: string;
+  username: string;
+  email: string | null;
+  firstName: string | null;
+  lastName: string | null;
+}
+
 export interface AdminGroupSummary {
   id: string;
   name: string;
   description: string | null;
   realmRoles: string[];
   memberCount: number;
+  members: AdminGroupMember[];
 }
 
 const ROLE_NAMES = new Set<string>(ROLE_CATALOG.map((r) => r.name as string));
@@ -33,18 +42,29 @@ async function fetchGroupRoles(
   return data.map((r) => r.name ?? "").filter(Boolean);
 }
 
-async function fetchGroupMemberCount(
+async function fetchGroupMembers(
   id: string,
   token: string,
-): Promise<number> {
+): Promise<AdminGroupMember[]> {
   const res = await keycloak.adminRequest(
-    `/groups/${id}/members/count`,
+    `/groups/${id}/members?max=200`,
     token,
   );
-  if (!res.ok) return 0;
-  const raw = await res.text();
-  const num = Number(raw);
-  return Number.isFinite(num) ? num : 0;
+  if (!res.ok) return [];
+  const raw = (await res.json()) as Array<{
+    id: string;
+    username?: string;
+    email?: string | null;
+    firstName?: string | null;
+    lastName?: string | null;
+  }>;
+  return raw.map((u) => ({
+    id: u.id,
+    username: u.username ?? "",
+    email: u.email ?? null,
+    firstName: u.firstName ?? null,
+    lastName: u.lastName ?? null,
+  }));
 }
 
 export async function GET() {
@@ -72,9 +92,9 @@ export async function GET() {
 
     const groups: AdminGroupSummary[] = await Promise.all(
       raw.map(async (g) => {
-        const [realmRoles, memberCount] = await Promise.all([
+        const [realmRoles, members] = await Promise.all([
           fetchGroupRoles(g.id, token),
-          fetchGroupMemberCount(g.id, token),
+          fetchGroupMembers(g.id, token),
         ]);
         const description = g.attributes?.description?.[0] ?? null;
         return {
@@ -82,7 +102,8 @@ export async function GET() {
           name: g.name,
           description,
           realmRoles,
-          memberCount,
+          memberCount: members.length,
+          members,
         };
       }),
     );
