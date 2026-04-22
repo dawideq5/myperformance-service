@@ -130,12 +130,22 @@ export async function PUT(req: Request, { params }: Ctx) {
       );
     }
 
-    // Instant-logout: kickuj wszystkie sesje gdy:
-    //   - konto zostało wyłączone,
-    //   - administrator unieważnił weryfikację emaila (security event).
+    // Instant-logout: kickuj wszystkie sesje i propaguj do aplikacji przez
+    // KC backchannel logout. Trigger dla każdej zmiany która wpływa na
+    // dane profilu widziane w aplikacjach — inaczej apki mają stare
+    // dane aż do ręcznego logout/login.
+    //
+    //   - konto zostało wyłączone (hard kick, security),
+    //   - administrator unieważnił weryfikację emaila (security event),
+    //   - zmiana firstName / lastName / email (SoT refresh).
+    const profileFieldChanged =
+      (body.firstName !== undefined && body.firstName !== userData.firstName) ||
+      (body.lastName !== undefined && body.lastName !== userData.lastName) ||
+      (body.email !== undefined && body.email !== userData.email);
     const shouldKick =
       body.enabled === false ||
-      (body.emailVerified === false && userData.emailVerified === true);
+      (body.emailVerified === false && userData.emailVerified === true) ||
+      profileFieldChanged;
     if (shouldKick) {
       await keycloak
         .adminRequest(`/users/${id}/logout`, adminToken, { method: "POST" })

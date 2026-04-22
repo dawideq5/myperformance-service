@@ -181,7 +181,28 @@ export async function PUT(request: Request) {
       }
     }
 
-    return createSuccessResponse({ googleDisconnected });
+    // Force KC logout wszystkich sesji gdy dane profilu się zmieniły —
+    // KC backchannel logout propaguje do Moodle/Outline/Chatwoot/etc.,
+    // które przy następnym requescie muszą się zalogować od nowa i
+    // pobiorą fresh claim. Bez tego apki cache'ują stare dane do końca
+    // własnej sesji (cookie niezależne od KC tokena).
+    const isProfileChanged =
+      (firstName !== undefined && firstName !== currentUser.firstName) ||
+      (lastName !== undefined && lastName !== currentUser.lastName) ||
+      isEmailChanged;
+    let sessionsTerminated = false;
+    if (isProfileChanged) {
+      try {
+        await keycloak.adminRequest(`/users/${userId}/logout`, adminToken, {
+          method: "POST",
+        });
+        sessionsTerminated = true;
+      } catch (err) {
+        console.warn("[API /account PUT] session logout failed:", err);
+      }
+    }
+
+    return createSuccessResponse({ googleDisconnected, sessionsTerminated });
   } catch (error) {
     return handleApiError(error);
   }
