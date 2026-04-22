@@ -213,7 +213,14 @@ export interface DocumensoDocumentStats {
   expired: number;
 }
 
-export type DocumensoRole = "USER" | "ADMIN";
+/**
+ * DOCUMENSO_EMPLOYEE — pracownik, który NIE powinien logować się do
+ * Documenso UI (Documenso nie ma row-level widoczności settings, więc
+ * każdy zalogowany user widzi Tokens/Webhooks/Organizations itd.).
+ * Pracownik podpisuje dokumenty wyłącznie przez guest-signing linki
+ * w emailach — to działa bez aktywnego konta.
+ */
+export type DocumensoRole = "USER" | "ADMIN" | "DOCUMENSO_EMPLOYEE";
 
 let documensoPool: Pool | null = null;
 
@@ -247,17 +254,35 @@ function getDocumensoPool(): Pool | null {
 export async function syncDocumensoUserRole(
   email: string,
   role: DocumensoRole,
+  name?: string | null,
 ): Promise<"updated" | "noop" | "skipped"> {
   const pool = getDocumensoPool();
   if (!pool) return "skipped";
   const rolesArray = role === "ADMIN" ? ["USER", "ADMIN"] : ["USER"];
+  // `disabled=true` blokuje login do Documenso UI ale nie łamie
+  // guest-signing flow (odbiorca podpisuje przez tokenized link na email,
+  // bez aktywnego User rekordu).
+  const disabled = role === "DOCUMENSO_EMPLOYEE";
   const client = await pool.connect();
   try {
+    // `name` update tylko gdy podany i nie-pusty — KC jako źródło prawdy,
+    // ale pomijamy puste stringi żeby przy pustym firstName/lastName w KC
+    // nie wymazywać ręcznie wpisanej nazwy.
+    const hasName = typeof name === "string" && name.trim().length > 0;
     const res = await client.query(
-      `UPDATE "User"
-          SET roles = $2::"Role"[]
-        WHERE LOWER(email) = LOWER($1)`,
-      [email, rolesArray],
+      hasName
+        ? `UPDATE "User"
+              SET roles = $2::"Role"[],
+                  disabled = $3,
+                  name = $4
+            WHERE LOWER(email) = LOWER($1)`
+        : `UPDATE "User"
+              SET roles = $2::"Role"[],
+                  disabled = $3
+            WHERE LOWER(email) = LOWER($1)`,
+      hasName
+        ? [email, rolesArray, disabled, name!.trim()]
+        : [email, rolesArray, disabled],
     );
     return (res.rowCount ?? 0) > 0 ? "updated" : "noop";
   } finally {

@@ -7,6 +7,7 @@ import {
   type PermissionArea,
 } from "./areas";
 import { getProvider } from "./registry";
+import { syncDocumensoUserRole } from "@/lib/documenso";
 
 /**
  * Orchestrator przypisywania ról per-area.
@@ -250,6 +251,25 @@ export async function assignUserAreaRole(
         nativeSync = "failed";
         nativeError = err instanceof Error ? err.message : String(err);
       }
+    }
+  } else if (area.id === "documenso" && kcUser.email) {
+    // Documenso jest keycloak-only area (brak provider/types kontraktu),
+    // ale ma bezpośrednią synchronizację stanu `disabled` i `roles[]` w
+    // swojej DB. Bez tego syncu pracownicy z documenso_user dalej mogliby
+    // logować się do Documenso UI i widzieć settings/tokens/webhooks.
+    try {
+      let documensoRole: "USER" | "ADMIN" | "DOCUMENSO_EMPLOYEE";
+      if (toKeep === "documenso_admin") documensoRole = "ADMIN";
+      else if (toKeep === "documenso_handler") documensoRole = "USER";
+      else if (toKeep === "documenso_user")
+        documensoRole = "DOCUMENSO_EMPLOYEE";
+      else documensoRole = "DOCUMENSO_EMPLOYEE"; // null/brak → też zablokuj
+
+      await syncDocumensoUserRole(kcUser.email, documensoRole);
+      nativeSync = "ok";
+    } catch (err) {
+      nativeSync = "failed";
+      nativeError = err instanceof Error ? err.message : String(err);
     }
   }
 

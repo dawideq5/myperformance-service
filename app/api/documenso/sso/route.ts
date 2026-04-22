@@ -55,7 +55,7 @@ export async function GET(req: NextRequest) {
   const baseUrl = getDocumensoBaseUrl() ?? "https://sign.myperformance.pl";
   const dashboardBase = new URL("/", req.url);
 
-  let targetRole: "ADMIN" | "USER";
+  let targetRole: "ADMIN" | "USER" | "DOCUMENSO_EMPLOYEE";
   let redirectUrl: string;
 
   if (persona === "admin") {
@@ -68,12 +68,21 @@ export async function GET(req: NextRequest) {
     dashboardBase.pathname = "/dashboard/documents-handler";
     redirectUrl = dashboardBase.toString();
   } else {
-    targetRole = "USER";
-    redirectUrl = `${baseUrl}/documents`;
+    // documenso_user (pracownik) — suspendsujemy konto Documenso
+    // (disabled=true) aby zablokować login do Documenso UI. Pracownik
+    // podpisuje wyłącznie przez guest-signer email linki (działa bez
+    // aktywnego User rekordu). Dashboard pokazuje „Twoje dokumenty"
+    // poprzez Admin API.
+    targetRole = "DOCUMENSO_EMPLOYEE";
+    dashboardBase.pathname = "/dashboard";
+    dashboardBase.searchParams.set("notice", "documenso-employee-no-ui");
+    redirectUrl = dashboardBase.toString();
   }
 
   try {
-    await syncDocumensoUserRole(email, targetRole);
+    // Przekazujemy name z sesji KC — dzięki temu każde SSO do Documenso
+    // refreshuje User.name zgodnie z aktualnym stanem Keycloaka (KC = SoT).
+    await syncDocumensoUserRole(email, targetRole, session?.user?.name ?? null);
   } catch (err) {
     console.error("[documenso-sso] role sync failed:", err);
   }

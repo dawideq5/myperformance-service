@@ -155,6 +155,17 @@ function generateStrongPassword(): string {
   return chars.join("");
 }
 
+async function updateUserName(userId: number, name: string): Promise<void> {
+  if (!name.trim()) return;
+  await platformFetch(`/platform/api/v1/users/${userId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ name }),
+  }).catch(() => {
+    // Chatwoot Platform API niektóre wersje odrzucają PATCH — non-fatal,
+    // nazwa zostaje z poprzedniego stanu.
+  });
+}
+
 export async function provisionSsoLoginUrl(
   email: string,
   name: string,
@@ -162,6 +173,9 @@ export async function provisionSsoLoginUrl(
 ): Promise<string> {
   const existing = await findUserByEmail(email);
   const user = existing ?? (await createUser(email, name));
+  if (existing && name && existing.name !== name) {
+    await updateUserName(user.id, name);
+  }
   await syncAccountMembership(user.id, role);
   return await getSsoUrl(user.id);
 }
