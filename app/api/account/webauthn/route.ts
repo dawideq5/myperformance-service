@@ -10,30 +10,12 @@ import {
   requireSession,
 } from "@/lib/api-utils";
 import { withAdminContext } from "@/lib/keycloak-admin";
+import { parseAttestationObject } from "@/lib/webauthn-attestation";
 
 const MAX_WEBAUTHN_KEYS = 2;
 
 function base64urlToBase64(value: string): string {
   return value.replace(/-/g, "+").replace(/_/g, "/");
-}
-
-function extractAaguid(attestationObject: string): string {
-  const fallback = "00000000-0000-0000-0000-000000000000";
-  try {
-    const bytes = Uint8Array.from(atob(attestationObject), (c) =>
-      c.charCodeAt(0),
-    );
-    const authDataOffset = 37;
-    if (bytes.length < authDataOffset + 16) return fallback;
-    const aaguidBytes = bytes.slice(authDataOffset, authDataOffset + 16);
-    const hex = Array.from(aaguidBytes)
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
-    if (hex === "00000000000000000000000000000000") return fallback;
-    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-  } catch {
-    return fallback;
-  }
 }
 
 async function fetchAccountCredentials(accessToken: string): Promise<any[]> {
@@ -194,13 +176,28 @@ export async function POST(request: Request) {
           );
         }
 
-        const credentialIdBase64 = base64urlToBase64(credential.id);
+        // Wyekstraktuj pola z attestationObject (CBOR) — Keycloak wymaga
+        // credentialPublicKey w formacie CBOR-encoded COSE key (base64).
+        // Wcześniejsza implementacja wysyłała `credential.publicKey` który
+        // jest SPKI DER (z getPublicKey()) lub undefined dla starszych
+        // przeglądarek — stąd 503 "Keycloak odrzucił credential".
+        let attestation;
+        try {
+          attestation = parseAttestationObject(credential.attestationObject);
+        } catch (err) {
+          console.error("[webauthn register] CBOR parse failed:", err);
+          throw ApiError.badRequest(
+            `Nieprawidłowy attestationObject: ${err instanceof Error ? err.message : "unknown"}`,
+          );
+        }
+
+        const credentialIdBase64 = attestation.credentialIdBase64;
         for (const ex of existing) {
           try {
             const credData = JSON.parse(ex.credentialData || "{}");
             if (
               credData.credentialId === credentialIdBase64 ||
-              credData.credentialId === credential.id
+              credData.credentialId === base64urlToBase64(credential.id)
             ) {
               throw ApiError.conflict(
                 "Ten klucz bezpieczeństwa jest już zarejestrowany",
@@ -225,11 +222,11 @@ export async function POST(request: Request) {
           type: "webauthn",
           userLabel: label || "Klucz bezpieczeństwa",
           credentialData: JSON.stringify({
-            credentialId: credentialIdBase64,
-            credentialPublicKey: credential.publicKey || "",
-            counter: 0,
-            aaguid: extractAaguid(credential.attestationObject),
-            attestationStatementFormat: "none",
+            credentialId: attestation.credentialIdBase64,
+            credentialPublicKey: attestation.credentialPublicKeyBase64,
+            counter: attestation.signCount,
+            aaguid: attestation.aaguid,
+            attestationStatementFormat: attestation.fmt,
             ...(transports ? { transports } : {}),
             ...(attachment ? { authenticatorAttachment: attachment } : {}),
           }),

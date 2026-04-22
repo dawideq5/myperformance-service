@@ -9,6 +9,7 @@ import {
   ShieldAlert,
   Smartphone,
   UserCog,
+  X,
 } from "lucide-react";
 
 import { Alert, Badge, Button, Card, FieldWrapper, Input } from "@/components/ui";
@@ -109,6 +110,28 @@ export function SecurityPanel({
           err instanceof ApiRequestError
             ? err.message
             : "Nie udało się zakolejkować akcji",
+        );
+      } finally {
+        setForceBusy(null);
+      }
+    },
+    [userId, onUpdated],
+  );
+
+  const removeForceAction = useCallback(
+    async (action: string) => {
+      setForceError(null);
+      setForceNotice(null);
+      setForceBusy(`${action}:remove`);
+      try {
+        await adminUserService.removeAction(userId, action);
+        setForceNotice("Wymuszenie anulowane.");
+        onUpdated();
+      } catch (err) {
+        setForceError(
+          err instanceof ApiRequestError
+            ? err.message
+            : "Nie udało się anulować akcji",
         );
       } finally {
         setForceBusy(null);
@@ -430,31 +453,48 @@ export function SecurityPanel({
                   </p>
                 </div>
                 <div className="flex gap-1 flex-shrink-0">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => void runForceAction(a.id, false)}
-                    loading={forceBusy === `${a.id}:queue`}
-                    disabled={!!forceBusy}
-                    title="Dodaj do kolejki required_actions (user wykona przy najbliższym logowaniu)"
-                  >
-                    Kolejka
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => void runForceAction(a.id, true)}
-                    loading={forceBusy === `${a.id}:email`}
-                    disabled={!email || !!forceBusy}
-                    leftIcon={<Mail className="w-3.5 h-3.5" aria-hidden="true" />}
-                    title={
-                      email
-                        ? "Wyślij link na email z natychmiastowym wykonaniem akcji"
-                        : "User nie ma adresu email"
-                    }
-                  >
-                    Email
-                  </Button>
+                  {active ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => void removeForceAction(a.id)}
+                      loading={forceBusy === `${a.id}:remove`}
+                      disabled={!!forceBusy}
+                      leftIcon={<X className="w-3.5 h-3.5" aria-hidden="true" />}
+                      className="text-amber-500 hover:text-amber-600"
+                      title="Anuluj wymuszenie tej akcji"
+                    >
+                      Anuluj
+                    </Button>
+                  ) : (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => void runForceAction(a.id, false)}
+                        loading={forceBusy === `${a.id}:queue`}
+                        disabled={!!forceBusy}
+                        title="Dodaj do kolejki required_actions (user wykona przy najbliższym logowaniu)"
+                      >
+                        Kolejka
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => void runForceAction(a.id, true)}
+                        loading={forceBusy === `${a.id}:email`}
+                        disabled={!email || !!forceBusy}
+                        leftIcon={<Mail className="w-3.5 h-3.5" aria-hidden="true" />}
+                        title={
+                          email
+                            ? "Wyślij link na email z natychmiastowym wykonaniem akcji"
+                            : "User nie ma adresu email"
+                        }
+                      >
+                        Email
+                      </Button>
+                    </>
+                  )}
                 </div>
               </li>
             );

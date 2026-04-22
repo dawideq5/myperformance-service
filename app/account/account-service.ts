@@ -371,6 +371,11 @@ export const adminUserService = {
       payload,
     ),
 
+  removeAction: (id: string, action: string) =>
+    api.delete<{ removed: string }>(
+      `/api/admin/users/${encodeURIComponent(id)}/actions?action=${encodeURIComponent(action)}`,
+    ),
+
   resetPassword: (
     id: string,
     payload: { password?: string; temporary?: boolean; sendEmail?: boolean },

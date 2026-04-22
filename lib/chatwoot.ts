@@ -61,7 +61,9 @@ async function findUserByEmail(email: string): Promise<ChatwootUser | null> {
 }
 
 async function createUser(email: string, name: string): Promise<ChatwootUser> {
-  const password = cryptoPassword();
+  // Chatwoot wymaga hasła: upper+lower+digit+special. User nigdy go nie
+  // wykorzysta — autoryzacja odbywa się przez SSO bridge.
+  const password = generateStrongPassword();
   const res = await platformFetch(`/platform/api/v1/users`, {
     method: "POST",
     body: JSON.stringify({
@@ -129,10 +131,28 @@ async function getSsoUrl(userId: number): Promise<string> {
   return data.url;
 }
 
-function cryptoPassword(): string {
-  const buf = new Uint8Array(24);
-  crypto.getRandomValues(buf);
-  return Array.from(buf, (b) => b.toString(16).padStart(2, "0")).join("");
+function generateStrongPassword(): string {
+  const upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+  const lower = "abcdefghijkmnpqrstuvwxyz";
+  const digit = "23456789";
+  const special = "!@#$%^&*()_+-=";
+  const all = upper + lower + digit + special;
+  const pick = (set: string) =>
+    set[
+      Math.floor(
+        (crypto.getRandomValues(new Uint32Array(1))[0] / 2 ** 32) * set.length,
+      )
+    ];
+  const required = [pick(upper), pick(lower), pick(digit), pick(special)];
+  const rest = Array.from({ length: 20 }, () => pick(all));
+  const chars = [...required, ...rest];
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = Math.floor(
+      (crypto.getRandomValues(new Uint32Array(1))[0] / 2 ** 32) * (i + 1),
+    );
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join("");
 }
 
 export async function provisionSsoLoginUrl(

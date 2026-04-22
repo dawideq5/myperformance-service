@@ -19,6 +19,26 @@ interface ActionPayload {
   sendEmail?: boolean;
 }
 
+export async function DELETE(req: Request, { params }: Ctx) {
+  try {
+    const session = await getServerSession(authOptions);
+    requireAdminPanel(session);
+
+    const { id } = await params;
+    if (!id) throw ApiError.badRequest("Missing user id");
+
+    const url = new URL(req.url);
+    const action = url.searchParams.get("action");
+    if (!action) throw ApiError.badRequest("action query param required");
+
+    const adminToken = await keycloak.getServiceAccountToken();
+    await keycloak.removeUserRequiredAction(adminToken, id, action);
+    return createSuccessResponse({ removed: action });
+  } catch (error) {
+    return handleApiError(error);
+  }
+}
+
 export async function POST(req: Request, { params }: Ctx) {
   try {
     const session = await getServerSession(authOptions);
