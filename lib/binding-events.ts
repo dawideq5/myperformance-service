@@ -35,11 +35,29 @@ function getBus(): EventEmitter {
 }
 
 export function emitBindingEvent(event: BindingEvent): void {
-  getBus().emit("event", event);
+  const bus = getBus();
+  if (process.env.CERT_GATE_DEBUG === "1") {
+    console.log(
+      `[binding-events] emit kind=${event.kind} serial=${event.serialNumber} listeners=${bus.listenerCount("event")}`,
+    );
+  }
+  bus.emit("event", event);
 }
 
 export function subscribeBindingEvents(listener: BindingListener): () => void {
   const bus = getBus();
   bus.on("event", listener);
-  return () => bus.off("event", listener);
+  if (process.env.CERT_GATE_DEBUG === "1") {
+    console.log(
+      `[binding-events] subscribed — total listeners=${bus.listenerCount("event")}`,
+    );
+  }
+  return () => {
+    bus.off("event", listener);
+    if (process.env.CERT_GATE_DEBUG === "1") {
+      console.log(
+        `[binding-events] unsubscribed — total listeners=${bus.listenerCount("event")}`,
+      );
+    }
+  };
 }

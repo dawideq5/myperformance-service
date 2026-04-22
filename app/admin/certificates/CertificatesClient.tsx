@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
+  EyeOff,
   Fingerprint,
   FileSignature,
   Mail,
@@ -93,6 +94,7 @@ export function CertificatesClient({
   const [audit, setAudit] = useState<AuditEvent[]>([]);
   const [lastEvent, setLastEvent] = useState<LiveBindingEvent | null>(null);
   const [liveConnected, setLiveConnected] = useState(false);
+  const lastEventIdRef = useRef<string | null>(null);
 
   const refreshAll = useCallback(async () => {
     try {
@@ -116,6 +118,14 @@ export function CertificatesClient({
     return () => clearInterval(iv);
   }, [refreshAll]);
 
+  // Two parallel channels keep the admin UI current:
+  //
+  //   1. EventSource (SSE)  — zero-latency, best-effort. Disabled silently
+  //      if a proxy buffers the stream.
+  //   2. Polling every 3 s  — authoritative; uses the events table's id as
+  //      cursor so we never miss an event even when SSE is down.
+  //
+  // Both paths feed the same setLastEvent handler so the UI reacts once.
   useEffect(() => {
     const source = new EventSource("/api/admin/certificates/events", {
       withCredentials: true,
@@ -131,6 +141,57 @@ export function CertificatesClient({
     });
     source.onerror = () => setLiveConnected(false);
     return () => source.close();
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function pollOnce() {
+      if (document.visibilityState !== "visible") return;
+      try {
+        const afterParam = lastEventIdRef.current
+          ? `?after=${encodeURIComponent(lastEventIdRef.current)}`
+          : "";
+        const res = await fetch(
+          `/api/admin/certificates/events${afterParam}`,
+          { credentials: "same-origin", cache: "no-store" },
+        );
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as {
+          events: Array<{
+            id: string;
+            ts: string;
+            serialNumber: string;
+            kind: "created" | "seen" | "denied" | "reset";
+            ip?: string;
+            userAgent?: string;
+            components?: Record<string, string>;
+            diff?: { field: string; before: string; after: string }[];
+            actor?: string;
+          }>;
+        };
+        for (const ev of data.events) {
+          setLastEvent({
+            kind: ev.kind,
+            serialNumber: ev.serialNumber,
+            at: ev.ts,
+            ip: ev.ip,
+            userAgent: ev.userAgent,
+            components: ev.components,
+            diff: ev.diff,
+            actor: ev.actor,
+          });
+          lastEventIdRef.current = ev.id;
+        }
+      } catch {
+        // swallow — next tick will retry
+      }
+    }
+    void pollOnce();
+    const iv = setInterval(pollOnce, 3_000);
+    return () => {
+      cancelled = true;
+      clearInterval(iv);
+    };
   }, []);
 
   const tabs: TabDefinition<CertTabId>[] = useMemo(
@@ -476,6 +537,7 @@ function ListPanel({
   lastEvent: LiveBindingEvent | null;
 }) {
   const [revoking, setRevoking] = useState<string | null>(null);
+  const [hiding, setHiding] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function revoke(id: string) {
@@ -495,6 +557,33 @@ function ListPanel({
       setError(err instanceof Error ? err.message : "Nie udało się unieważnić certyfikatu");
     } finally {
       setRevoking(null);
+    }
+  }
+
+  async function hide(id: string) {
+    if (
+      !confirm(
+        "Ukryć unieważniony certyfikat z listy? Pozostanie w audycie, ale zniknie z tego widoku.",
+      )
+    ) {
+      return;
+    }
+    setError(null);
+    setHiding(id);
+    try {
+      const res = await fetch(
+        `/api/admin/certificates/${encodeURIComponent(id)}/hide`,
+        { method: "POST" },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? `HTTP ${res.status}`);
+      }
+      await onChange();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Nie udało się ukryć certyfikatu");
+    } finally {
+      setHiding(null);
     }
   }
 
@@ -533,7 +622,9 @@ function ListPanel({
                   key={c.id}
                   cert={c}
                   revoking={revoking === c.id}
+                  hiding={hiding === c.id}
                   onRevoke={() => revoke(c.id)}
+                  onHide={() => hide(c.id)}
                   lastEvent={lastEvent}
                 />
               ))}
@@ -580,9 +671,9 @@ const BINDING_FIELD_LABELS: Record<string, string> = {
 };
 
 const EVENT_LABELS: Record<BindingEventKind, string> = {
-  created: "Powiązanie utworzone",
+  created: "Urządzenie powiązane",
   seen: "Użycie",
-  denied: "Próba z innego urządzenia odrzucona",
+  denied: "Nieautoryzowany dostęp",
   reset: "Powiązanie zresetowane",
 };
 
@@ -613,9 +704,9 @@ function summariseBinding(
   }
   if (binding.lastDeniedAt) {
     return {
-      label: "Powiązany + próby obce",
+      label: "Powiązany · nieautoryzowany dostęp",
       tone: "danger",
-      hint: `Ostatnia próba z innego urządzenia: ${new Date(binding.lastDeniedAt).toLocaleString("pl-PL")}`,
+      hint: `Ostatnia nieautoryzowana próba: ${new Date(binding.lastDeniedAt).toLocaleString("pl-PL")}`,
     };
   }
   return {
@@ -628,12 +719,16 @@ function summariseBinding(
 function CertRow({
   cert,
   revoking,
+  hiding,
   onRevoke,
+  onHide,
   lastEvent,
 }: {
   cert: IssuedCertificate;
   revoking: boolean;
+  hiding: boolean;
   onRevoke: () => void;
+  onHide: () => void;
   lastEvent: LiveBindingEvent | null;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -791,7 +886,17 @@ function CertRow({
           )}
         </td>
         <td className="py-3 px-3 text-right">
-          {!cert.revokedAt && (
+          {cert.revokedAt ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              loading={hiding}
+              leftIcon={<EyeOff className="w-4 h-4 text-[var(--text-muted)]" />}
+              onClick={onHide}
+            >
+              Ukryj z listy
+            </Button>
+          ) : (
             <Button
               variant="ghost"
               size="sm"
@@ -856,7 +961,9 @@ function BindingDetails({
             <ShieldCheck className="w-4 h-4 text-emerald-400" aria-hidden="true" />
             <span className="font-medium">Powiązane urządzenie</span>
             <Badge tone={binding.lastDeniedAt ? "danger" : "success"}>
-              {binding.lastDeniedAt ? "są próby obce" : "stabilne"}
+              {binding.lastDeniedAt
+                ? "wykryto nieautoryzowany dostęp"
+                : "stabilne"}
             </Badge>
           </header>
           <dl className="grid sm:grid-cols-2 gap-x-6 gap-y-1.5 text-xs">
@@ -904,7 +1011,7 @@ function BindingDetails({
           <header className="flex items-center gap-2 text-sm text-red-200 mb-3">
             <ShieldAlert className="w-4 h-4" aria-hidden="true" />
             <span className="font-medium">
-              Próby powiązania z innych urządzeń
+              Nieautoryzowany dostęp z innego urządzenia
             </span>
             <Badge tone="danger">{denialEvents.length}</Badge>
           </header>

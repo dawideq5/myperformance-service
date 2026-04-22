@@ -54,8 +54,11 @@ async function ensureSchema(client: PoolClient): Promise<void> {
       not_after      TIMESTAMPTZ NOT NULL,
       issued_at      TIMESTAMPTZ NOT NULL,
       revoked_at     TIMESTAMPTZ NULL,
-      revoked_reason TEXT NULL
+      revoked_reason TEXT NULL,
+      hidden_at      TIMESTAMPTZ NULL
     );
+    ALTER TABLE issued_certificates
+      ADD COLUMN IF NOT EXISTS hidden_at TIMESTAMPTZ NULL;
     CREATE INDEX IF NOT EXISTS issued_certificates_issued_at_idx
       ON issued_certificates (issued_at DESC);
 
@@ -258,9 +261,20 @@ export async function listCertificates(): Promise<IssuedCertificate[]> {
     const res = await c.query(
       `SELECT id, subject, role, roles, email, serial_number, not_after, issued_at, revoked_at, revoked_reason
        FROM issued_certificates
+       WHERE hidden_at IS NULL
        ORDER BY issued_at DESC`
     );
     return res.rows.map(mapRowToCert);
+  });
+}
+
+export async function hideCertificate(id: string): Promise<void> {
+  if (!getDatabaseUrl()) return;
+  await withClient(async (c) => {
+    await c.query(
+      `UPDATE issued_certificates SET hidden_at = now() WHERE id = $1`,
+      [id],
+    );
   });
 }
 
@@ -436,6 +450,37 @@ export async function recordBindingEvent(args: {
         args.actor ?? null,
       ],
     );
+  });
+}
+
+export async function listRecentBindingEvents(args: {
+  afterId?: string | null;
+  limit?: number;
+}): Promise<CertBindingEventRow[]> {
+  if (!getDatabaseUrl()) return [];
+  const after = args.afterId ?? "0";
+  const limit = Math.min(args.limit ?? 200, 500);
+  return withClient(async (c) => {
+    const res = await c.query(
+      `SELECT id, ts, serial_number, kind, ip, user_agent, components, diff, actor
+         FROM cert_binding_events
+        WHERE id > $1::bigint
+        ORDER BY id ASC
+        LIMIT $2`,
+      [after, limit],
+    );
+    return res.rows.map((r) => ({
+      id: String(r.id),
+      ts: (r.ts as Date).toISOString(),
+      serialNumber: r.serial_number as string,
+      kind: r.kind as CertBindingEventRow["kind"],
+      ip: (r.ip as string | null) ?? undefined,
+      userAgent: (r.user_agent as string | null) ?? undefined,
+      components:
+        (r.components as DeviceFingerprintComponents | null) ?? undefined,
+      diff: (r.diff as FingerprintDiff[] | null) ?? undefined,
+      actor: (r.actor as string | null) ?? undefined,
+    }));
   });
 }
 

@@ -229,12 +229,14 @@ function TileGrid() {
         )}
 
         {showDocumensoHandler && (
-          <ExternalTile
+          <Tile
             icon={<FileSignature className="w-7 h-7 text-violet-400" aria-hidden="true" />}
             iconBg="bg-violet-500/10"
-            title="Documenso — obsługa dokumentów"
-            description="Wysyłanie i śledzenie obiegu dokumentów całej organizacji (księgowa)"
-            href="/api/documenso/sso?role=handler"
+            title="Obsługa dokumentów"
+            description="Wszystkie dokumenty organizacji w obiegu — status, odbiorcy, wysyłka (księgowa)"
+            onClick={() => {
+              window.location.href = "/dashboard/documents-handler";
+            }}
           />
         )}
 
