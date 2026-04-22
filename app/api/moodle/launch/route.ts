@@ -7,6 +7,7 @@ import {
   canAccessMoodleAsTeacher,
 } from "@/lib/admin-auth";
 import { getOptionalEnv } from "@/lib/env";
+import { getPublicAppUrl } from "@/lib/app-url";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,10 +18,14 @@ export const dynamic = "force-dynamic";
  * student view. SSO itself is handled by the auth_oidc plugin on the
  * Moodle side, so we just 303 to the right page.
  */
-export async function GET(req: NextRequest) {
+export async function GET(_req: NextRequest) {
+  const publicAppUrl = getPublicAppUrl();
   const session = await getServerSession(authOptions);
   if (!session?.user) {
-    return NextResponse.redirect(new URL("/login", req.url), { status: 303 });
+    return NextResponse.redirect(
+      new URL("/login", publicAppUrl),
+      { status: 303 },
+    );
   }
 
   const base = (getOptionalEnv("MOODLE_URL").trim() || "https://moodle.myperformance.pl").replace(/\/$/, "");
@@ -34,7 +39,10 @@ export async function GET(req: NextRequest) {
   else if (hasTeacher) path = "/course/";
   else if (hasStudent) path = "/my/";
   else {
-    return NextResponse.redirect(new URL("/forbidden", req.url), { status: 303 });
+    return NextResponse.redirect(
+      new URL("/forbidden", publicAppUrl),
+      { status: 303 },
+    );
   }
 
   return NextResponse.redirect(`${base}${path}`, { status: 303 });

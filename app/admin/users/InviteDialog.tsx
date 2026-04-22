@@ -103,6 +103,12 @@ export function InviteDialog({ open, onClose, onInvited }: InviteDialogProps) {
         setError("Podaj prawidłowy email");
         return;
       }
+      if (!firstName.trim() || !lastName.trim()) {
+        setError(
+          "Imię i nazwisko są wymagane — Moodle i inne aplikacje ich wymagają.",
+        );
+        return;
+      }
       setLoading(true);
       setError(null);
       try {
@@ -172,14 +178,14 @@ export function InviteDialog({ open, onClose, onInvited }: InviteDialogProps) {
             />
           </FieldWrapper>
           <div className="grid grid-cols-2 gap-3">
-            <FieldWrapper id="invite-first" label="Imię">
+            <FieldWrapper id="invite-first" label="Imię" required>
               <Input
                 id="invite-first"
                 value={firstName}
                 onChange={(e) => setFirstName(e.target.value)}
               />
             </FieldWrapper>
-            <FieldWrapper id="invite-last" label="Nazwisko">
+            <FieldWrapper id="invite-last" label="Nazwisko" required>
               <Input
                 id="invite-last"
                 value={lastName}

@@ -7,6 +7,7 @@ import {
   canAccessDocumensoAsUser,
 } from "@/lib/admin-auth";
 import { syncDocumensoUserRole, getDocumensoBaseUrl } from "@/lib/documenso";
+import { getPublicAppUrl } from "@/lib/app-url";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -48,12 +49,20 @@ export async function GET(req: NextRequest) {
     persona = hasAdmin ? "admin" : hasHandler ? "handler" : hasUser ? "user" : null;
   }
 
+  // NEXT_PUBLIC_APP_URL jest publiczny, `req.url` w Node API routes za
+  // reverse-proxy zwraca wewnętrzny host kontenera (0.0.0.0:3000) —
+  // Safari wtedy odmawia ("zastrzeżony port").
+  const publicAppUrl = getPublicAppUrl();
+
   if (!persona) {
-    return NextResponse.redirect(new URL("/forbidden", req.url), { status: 303 });
+    return NextResponse.redirect(
+      new URL("/forbidden", publicAppUrl),
+      { status: 303 },
+    );
   }
 
   const baseUrl = getDocumensoBaseUrl() ?? "https://sign.myperformance.pl";
-  const dashboardBase = new URL("/", req.url);
+  const dashboardBase = new URL("/", publicAppUrl);
 
   let targetRole: "ADMIN" | "USER" | "DOCUMENSO_EMPLOYEE";
   let redirectUrl: string;

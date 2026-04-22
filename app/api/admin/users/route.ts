@@ -108,6 +108,14 @@ export async function POST(request: Request) {
 
     const firstName = body?.firstName?.trim() || "";
     const lastName = body?.lastName?.trim() || "";
+    // firstName/lastName są wymagane, bo aplikacje (Moodle, Chatwoot,
+    // Documenso) odmawiają/forsują edit profilu dla userów z pustymi
+    // polami. KC jako source of truth — puste tu = puste wszędzie.
+    if (!firstName || !lastName) {
+      throw ApiError.badRequest(
+        "Imię i nazwisko są wymagane — Moodle i inne aplikacje nie zaakceptują pustych danych profilu.",
+      );
+    }
     const username = body?.username?.trim() || email;
     const actions =
       Array.isArray(body?.actions) && body.actions.length > 0
