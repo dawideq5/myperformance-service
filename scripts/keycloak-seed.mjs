@@ -77,11 +77,8 @@ const ROLES = [
 
   // panel realm-roles — used by both the mTLS panels and dashboard gating
   { name: "sprzedawca",          description: "Dostęp do panelu sprzedawcy",                           default: false },
-  { name: "sprzedawca_admin",    description: "Administrator panelu sprzedawcy",                       default: false },
   { name: "serwisant",           description: "Dostęp do panelu serwisanta",                           default: false },
-  { name: "serwisant_admin",     description: "Administrator panelu serwisanta",                       default: false },
   { name: "kierowca",            description: "Dostęp do panelu kierowcy",                             default: false },
-  { name: "kierowca_admin",      description: "Administrator panelu kierowcy",                         default: false },
 ];
 
 // ---------------------------------------------------------------------------

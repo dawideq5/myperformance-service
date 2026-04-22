@@ -35,6 +35,7 @@ import {
 import { AppHeader } from "@/components/AppHeader";
 import { ApiRequestError } from "@/lib/api-client";
 import { PermissionsTree } from "./PermissionsTree";
+import { UserRolesTab } from "./UserRolesTab";
 import {
   adminUserService,
   type AdminIntegrationStatus,
@@ -369,6 +370,10 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
           </Button>
         </div>
       </section>
+
+      <div className="mb-6">
+        <UserRolesTab />
+      </div>
 
       <div className="mb-6">
         <PermissionsTree selfId={selfId} />

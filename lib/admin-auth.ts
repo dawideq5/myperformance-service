@@ -116,12 +116,6 @@ export const PANEL_ROLES = {
 
 export type PanelKey = keyof typeof PANEL_ROLES;
 
-export const PANEL_ADMIN_ROLES: Record<PanelKey, string> = {
-  sprzedawca: "sprzedawca_admin",
-  serwisant: "serwisant_admin",
-  kierowca: "kierowca_admin",
-};
-
 function rolesOf(session: Session | null | undefined): string[] {
   return session?.user?.roles ?? [];
 }
@@ -154,7 +148,7 @@ export function canAccessPanel(
   session: Session | null | undefined,
   panel: PanelKey,
 ): boolean {
-  return hasAnyRole(session, [PANEL_ROLES[panel], PANEL_ADMIN_ROLES[panel]]);
+  return hasRole(session, PANEL_ROLES[panel]);
 }
 
 export function canAccessAdminPanel(

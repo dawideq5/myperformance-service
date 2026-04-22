@@ -51,14 +51,7 @@ const SERVICE_GROUPS: Array<{
     id: "panels",
     label: "Panele mTLS (pracownicze)",
     description: "Cert-gated panele dla ról operacyjnych",
-    roleNames: [
-      "sprzedawca",
-      "sprzedawca_admin",
-      "serwisant",
-      "serwisant_admin",
-      "kierowca",
-      "kierowca_admin",
-    ],
+    roleNames: ["sprzedawca", "serwisant", "kierowca"],
   },
   {
     id: "documenso",
