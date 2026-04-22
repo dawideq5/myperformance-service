@@ -292,7 +292,7 @@ export class DirectusProvider implements PermissionProvider {
     const patch: Record<string, string> = {};
     if (args.firstName && args.firstName !== user.first_name) patch.first_name = args.firstName;
     if (args.lastName && args.lastName !== user.last_name) patch.last_name = args.lastName;
-    if (args.email && args.email.toLowerCase() !== user.email.toLowerCase()) {
+    if (args.email && args.email.toLowerCase() !== (user.email ?? "").toLowerCase()) {
       patch.email = args.email;
     }
     // Directus users mają kolumnę `phone` (dodana w 11.x) — bezpiecznie
