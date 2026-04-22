@@ -1,10 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import {
   AlertTriangle,
   Ban,
   Check,
+  ExternalLink,
   KeyRound,
   Link2,
   Link2Off,
@@ -21,6 +23,8 @@ import {
   UserPlus,
   X,
 } from "lucide-react";
+import { BulkAssignDialog } from "./BulkAssignDialog";
+import { InviteDialog } from "./InviteDialog";
 
 import {
   Alert,
@@ -34,7 +38,6 @@ import {
 } from "@/components/ui";
 import { AppHeader } from "@/components/AppHeader";
 import { ApiRequestError } from "@/lib/api-client";
-import { PermissionsEditor } from "./PermissionsEditor";
 import {
   adminUserService,
   permissionAreaService,
@@ -99,6 +102,7 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
   const [integrations, setIntegrations] = useState<IntegrationsMap>({});
   const [locks, setLocks] = useState<LockMap>({});
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkOpen, setBulkOpen] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -407,25 +411,26 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
         </div>
       </section>
 
-      <PermissionsEditor
-        selectedUsers={selectedUsers}
-        onAfterBulk={() => {
-          clearSelection();
-          setNotice("Bulk assignment zakończony");
-          void refresh();
-        }}
-      />
-
       {selectedIds.size > 0 && (
         <div className="sticky top-2 z-20 mb-4 flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded-lg border border-[var(--accent)] bg-[var(--bg-surface)] shadow-md">
           <div className="text-sm text-[var(--text-main)]">
-            Zaznaczono <strong>{selectedIds.size}</strong> użytkowników — użyj
-            sekcji <em>Uprawnienia</em> powyżej i kliknij &bdquo;Bulk: przypisz
-            rolę&rdquo; w wybranym obszarze.
+            Zaznaczono <strong>{selectedIds.size}</strong> użytkowników —
+            użyj &bdquo;Bulk: przypisz rolę&rdquo; żeby ustawić rolę w wybranej
+            aplikacji dla wszystkich zaznaczonych.
           </div>
-          <Button variant="ghost" size="sm" onClick={clearSelection}>
-            Odznacz wszystkich
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="secondary"
+              leftIcon={<Shield className="w-4 h-4" aria-hidden="true" />}
+              onClick={() => setBulkOpen(true)}
+            >
+              Bulk: przypisz rolę
+            </Button>
+            <Button variant="ghost" size="sm" onClick={clearSelection}>
+              Odznacz
+            </Button>
+          </div>
         </div>
       )}
 
@@ -633,6 +638,14 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex justify-end gap-1">
+                          <Link
+                            href={`/admin/users/${u.id}`}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs bg-[var(--bg-main)] border border-[var(--border-subtle)] text-[var(--text-main)] hover:bg-[var(--bg-surface)]"
+                            title="Otwórz szczegóły i zarządzaj uprawnieniami"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
+                            Otwórz
+                          </Link>
                           <Button
                             variant="ghost"
                             size="sm"
@@ -782,9 +795,15 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
       <InviteDialog
         open={inviteOpen}
         onClose={() => setInviteOpen(false)}
-        onInvited={(email) => {
+        onInvited={({ email, roleAssignmentErrors }) => {
           setInviteOpen(false);
-          setNotice(`Wysłano zaproszenie do ${email}`);
+          if (roleAssignmentErrors.length > 0) {
+            setNotice(
+              `Zaproszenie wysłane do ${email}, ale ${roleAssignmentErrors.length} przypisań ról zawiodło — sprawdź logi.`,
+            );
+          } else {
+            setNotice(`Wysłano zaproszenie do ${email}`);
+          }
           setFirst(0);
           void refresh();
         }}
@@ -835,122 +854,22 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
           setNotice(msg);
         }}
       />
+
+      <BulkAssignDialog
+        open={bulkOpen}
+        users={selectedUsers}
+        onClose={() => setBulkOpen(false)}
+        onDone={() => {
+          setBulkOpen(false);
+          clearSelection();
+          setNotice("Bulk assignment zakończony");
+          void refresh();
+        }}
+      />
     </PageShell>
   );
 }
 
-function InviteDialog({
-  open,
-  onClose,
-  onInvited,
-}: {
-  open: boolean;
-  onClose: () => void;
-  onInvited: (email: string) => void;
-}) {
-  const [email, setEmail] = useState("");
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const emailRef = useRef<HTMLInputElement | null>(null);
-
-  useEffect(() => {
-    if (open) {
-      setEmail("");
-      setFirstName("");
-      setLastName("");
-      setError(null);
-      setTimeout(() => emailRef.current?.focus(), 50);
-    }
-  }, [open]);
-
-  const submit = useCallback(
-    async (e: React.FormEvent) => {
-      e.preventDefault();
-      const trimmedEmail = email.trim();
-      if (!trimmedEmail || !trimmedEmail.includes("@")) {
-        setError("Podaj prawidłowy email");
-        return;
-      }
-      setLoading(true);
-      setError(null);
-      try {
-        await adminUserService.invite({
-          email: trimmedEmail,
-          firstName: firstName.trim() || undefined,
-          lastName: lastName.trim() || undefined,
-        });
-        onInvited(trimmedEmail);
-      } catch (err) {
-        setError(
-          err instanceof ApiRequestError
-            ? err.message
-            : "Nie udało się wysłać zaproszenia",
-        );
-      } finally {
-        setLoading(false);
-      }
-    },
-    [email, firstName, lastName, onInvited],
-  );
-
-  return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      title="Zaproś użytkownika"
-      description="Utworzy konto i wyśle email z linkiem do ustawienia hasła i weryfikacji."
-      labelledById="invite-user-title"
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose} disabled={loading}>
-            Anuluj
-          </Button>
-          <Button
-            type="submit"
-            form="invite-user-form"
-            loading={loading}
-            leftIcon={<Mail className="w-4 h-4" aria-hidden="true" />}
-          >
-            Wyślij zaproszenie
-          </Button>
-        </>
-      }
-    >
-      <form id="invite-user-form" onSubmit={submit} className="space-y-4">
-        {error && <Alert tone="error">{error}</Alert>}
-        <FieldWrapper id="invite-email" label="Email" required>
-          <Input
-            ref={emailRef}
-            id="invite-email"
-            type="email"
-            autoComplete="off"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="jan.kowalski@example.com"
-          />
-        </FieldWrapper>
-        <div className="grid grid-cols-2 gap-3">
-          <FieldWrapper id="invite-first" label="Imię">
-            <Input
-              id="invite-first"
-              value={firstName}
-              onChange={(e) => setFirstName(e.target.value)}
-            />
-          </FieldWrapper>
-          <FieldWrapper id="invite-last" label="Nazwisko">
-            <Input
-              id="invite-last"
-              value={lastName}
-              onChange={(e) => setLastName(e.target.value)}
-            />
-          </FieldWrapper>
-        </div>
-      </form>
-    </Dialog>
-  );
-}
 
 function SessionsDialog({
   user,

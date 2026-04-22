@@ -9,6 +9,8 @@ import {
   handleApiError,
 } from "@/lib/api-utils";
 import { requireAdminPanel } from "@/lib/admin-auth";
+import { getArea } from "@/lib/permissions/areas";
+import { assignUserAreaRole } from "@/lib/permissions/sync";
 
 export interface AdminUserSummary {
   id: string;
@@ -90,6 +92,7 @@ interface InvitePayload {
   username?: string;
   actions?: string[];
   sendEmail?: boolean;
+  areaRoles?: Array<{ areaId: string; roleName: string | null }>;
 }
 
 export async function POST(request: Request) {
@@ -143,6 +146,26 @@ export async function POST(request: Request) {
     const location = createRes.headers.get("location") || "";
     const newId = location.split("/").pop() || "";
 
+    // Pre-assign area roles (if any) before the invite email goes out, tak
+    // żeby user miał uprawnienia przy pierwszym logowaniu.
+    const areaRoles = Array.isArray(body?.areaRoles) ? body.areaRoles : [];
+    const roleAssignmentErrors: Array<{ areaId: string; error: string }> = [];
+    for (const ar of areaRoles) {
+      if (!ar?.areaId || !getArea(ar.areaId)) continue;
+      const roleName =
+        ar.roleName === undefined || ar.roleName === null
+          ? null
+          : String(ar.roleName);
+      try {
+        await assignUserAreaRole({ userId: newId, areaId: ar.areaId, roleName });
+      } catch (err) {
+        roleAssignmentErrors.push({
+          areaId: ar.areaId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
     if (sendEmail && newId) {
       try {
         await keycloak.executeActionsEmail(adminToken, newId, actions, {
@@ -153,7 +176,12 @@ export async function POST(request: Request) {
       }
     }
 
-    return createSuccessResponse({ id: newId, email, invited: sendEmail });
+    return createSuccessResponse({
+      id: newId,
+      email,
+      invited: sendEmail,
+      roleAssignmentErrors,
+    });
   } catch (error) {
     return handleApiError(error);
   }

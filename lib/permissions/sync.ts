@@ -98,17 +98,6 @@ async function ensureRealmRoleExists(
   return (await fetched.json()) as RoleRepresentation;
 }
 
-async function deleteRealmRole(adminToken: string, name: string): Promise<void> {
-  const res = await keycloak.adminRequest(
-    `/roles/${encodeURIComponent(name)}`,
-    adminToken,
-    { method: "DELETE" },
-  );
-  if (!res.ok && res.status !== 404) {
-    throw new Error(`delete realm role ${name} failed: ${res.status}`);
-  }
-}
-
 async function addRolesToUser(
   adminToken: string,
   userId: string,
@@ -319,76 +308,5 @@ export async function getUserAreaAssignments(userId: string): Promise<AreaAssign
   return out;
 }
 
-/**
- * Tworzy realm role w KC dla area i zwraca jej pełne representation.
- * Opcjonalnie zapisuje `nativeRoleId` w attributes (na potrzeby późniejszego
- * mapowania KC→native bez hit w providera).
- */
-export async function ensureCustomAreaRole(
-  adminToken: string,
-  areaId: string,
-  kcRoleName: string,
-  description: string,
-  nativeRoleId?: string,
-): Promise<RoleRepresentation> {
-  const existing = await keycloak.adminRequest(
-    `/roles/${encodeURIComponent(kcRoleName)}`,
-    adminToken,
-  );
-  if (existing.ok) {
-    const role = (await existing.json()) as RoleRepresentation;
-    if (nativeRoleId) {
-      await keycloak.adminRequest(
-        `/roles-by-id/${role.id}`,
-        adminToken,
-        {
-          method: "PUT",
-          body: JSON.stringify({
-            ...role,
-            description,
-            attributes: {
-              nativeRoleId: [nativeRoleId],
-              areaId: [areaId],
-            },
-          }),
-        },
-      );
-    }
-    return role;
-  }
-  const create = await keycloak.adminRequest(`/roles`, adminToken, {
-    method: "POST",
-    body: JSON.stringify({
-      name: kcRoleName,
-      description,
-      attributes: nativeRoleId
-        ? { nativeRoleId: [nativeRoleId], areaId: [areaId] }
-        : { areaId: [areaId] },
-    }),
-  });
-  if (!create.ok && create.status !== 409) {
-    const body = await create.text().catch(() => "");
-    throw new Error(
-      `ensureCustomAreaRole create ${kcRoleName} failed: ${create.status} ${body.slice(0, 200)}`,
-    );
-  }
-  const fetched = await keycloak.adminRequest(
-    `/roles/${encodeURIComponent(kcRoleName)}`,
-    adminToken,
-  );
-  if (!fetched.ok) {
-    throw new Error(`ensureCustomAreaRole fetch ${kcRoleName} failed: ${fetched.status}`);
-  }
-  return (await fetched.json()) as RoleRepresentation;
-}
-
-/**
- * Usuwa realm rolę (helper dla endpointu usuwania custom area role).
- * Uwaga: KC sam odpina ją od userów, więc nie trzeba iterować.
- */
-export async function deleteCustomAreaRole(kcRoleName: string): Promise<void> {
-  const adminToken = await keycloak.getServiceAccountToken();
-  await deleteRealmRole(adminToken, kcRoleName);
-}
 
 export { listAllRealmRoles, listUserRealmRoles, getKcUser };

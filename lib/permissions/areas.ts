@@ -320,17 +320,11 @@ export function pickHighestPriorityRole(
   return matches.reduce((best, cur) => (cur.priority > best.priority ? cur : best));
 }
 
-/** Konwencja nazwy KC roli dla custom role. Slug sanitowany. */
-export function customRoleKcName(areaId: string, slug: string): string {
-  const normalized = slug
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .slice(0, 60);
-  const areaPart = areaId.replace(/-/g, "_");
-  return `${areaPart}_custom_${normalized || "role"}`;
-}
-
+/**
+ * Detektor legacy custom-role names — konwencja `<areaId>_custom_<slug>` była
+ * używana przed przejściem na ściśle kanoniczny katalog ról. Zostaje jako
+ * safety check dla starych danych (sprzątanych przez keycloak-reset-to-native.mjs).
+ */
 export function isCustomRoleKcName(name: string): boolean {
   return /^[a-z][a-z0-9_]*_custom_[a-z0-9_]+$/.test(name);
 }

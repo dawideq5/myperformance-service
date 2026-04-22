@@ -301,11 +301,17 @@ export const adminUserService = {
     username?: string;
     actions?: string[];
     sendEmail?: boolean;
+    areaRoles?: Array<{ areaId: string; roleName: string | null }>;
   }) =>
-    api.post<{ id: string; email: string; invited: boolean }, typeof payload>(
-      "/api/admin/users",
-      payload,
-    ),
+    api.post<
+      {
+        id: string;
+        email: string;
+        invited: boolean;
+        roleAssignmentErrors: Array<{ areaId: string; error: string }>;
+      },
+      typeof payload
+    >("/api/admin/users", payload),
 
   get: (id: string) =>
     api.get<AdminUserSummary & { attributes: Record<string, string[]> }>(
@@ -493,37 +499,6 @@ export const permissionAreaService = {
   detail: (id: string) =>
     api.get<AreaDetail>(`/api/admin/areas/${encodeURIComponent(id)}`),
 
-  createRole: (
-    id: string,
-    payload: { name: string; description?: string; permissions: string[] },
-  ) =>
-    api.post<
-      {
-        role: {
-          kcRoleName: string;
-          kcRoleId: string;
-          nativeRoleId: string | null;
-          description: string;
-        };
-      },
-      typeof payload
-    >(`/api/admin/areas/${encodeURIComponent(id)}/roles`, payload),
-
-  updateRole: (
-    id: string,
-    roleId: string,
-    payload: { name?: string; description?: string; permissions?: string[] },
-  ) =>
-    api.patch<{ ok: boolean; isSeed: boolean }, typeof payload>(
-      `/api/admin/areas/${encodeURIComponent(id)}/roles/${encodeURIComponent(roleId)}`,
-      payload,
-    ),
-
-  deleteRole: (id: string, roleId: string) =>
-    api.delete<{ ok: boolean }>(
-      `/api/admin/areas/${encodeURIComponent(id)}/roles/${encodeURIComponent(roleId)}`,
-    ),
-
   bulkAssign: (payload: {
     userIds: string[];
     areaId: string;
@@ -549,18 +524,5 @@ export const permissionAreaService = {
       },
       typeof payload
     >("/api/admin/bulk/area-role", payload),
-
-  reset: (id: string) =>
-    api.post<
-      {
-        areaId: string;
-        seedCount: number;
-        results: Array<{
-          name: string;
-          action: "created" | "updated" | "ok";
-        }>;
-      },
-      Record<string, never>
-    >(`/api/admin/areas/${encodeURIComponent(id)}/reset`, {}),
 };
 
