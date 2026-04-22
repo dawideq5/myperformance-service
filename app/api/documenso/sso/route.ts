@@ -62,30 +62,23 @@ export async function GET(req: NextRequest) {
   }
 
   const baseUrl = getDocumensoBaseUrl() ?? "https://sign.myperformance.pl";
-  const dashboardBase = new URL("/", publicAppUrl);
 
-  let targetRole: "ADMIN" | "USER" | "DOCUMENSO_EMPLOYEE";
+  let targetRole: "ADMIN" | "USER";
   let redirectUrl: string;
 
   if (persona === "admin") {
     targetRole = "ADMIN";
     redirectUrl = `${baseUrl}/admin`;
   } else if (persona === "handler") {
-    // Handler operates from the dashboard-side view backed by the
-    // Documenso admin API token. DB role stays USER.
+    // Handler — pełne UI Documenso (szablony, webhooki, kontakty org),
+    // ale bez admin panelu.
     targetRole = "USER";
-    dashboardBase.pathname = "/dashboard/documents-handler";
-    redirectUrl = dashboardBase.toString();
+    redirectUrl = `${baseUrl}/templates`;
   } else {
-    // documenso_user (pracownik) — suspendsujemy konto Documenso
-    // (disabled=true) aby zablokować login do Documenso UI. Pracownik
-    // podpisuje wyłącznie przez guest-signer email linki (działa bez
-    // aktywnego User rekordu). Dashboard pokazuje „Twoje dokumenty"
-    // poprzez Admin API.
-    targetRole = "DOCUMENSO_EMPLOYEE";
-    dashboardBase.pathname = "/dashboard";
-    dashboardBase.searchParams.set("notice", "documenso-employee-no-ui");
-    redirectUrl = dashboardBase.toString();
+    // documenso_user (pracownik) — loguje do Documenso, widzi własne
+    // dokumenty w inboxie. Rola USER (nie ADMIN) więc nie ma /admin.
+    targetRole = "USER";
+    redirectUrl = `${baseUrl}/inbox`;
   }
 
   try {

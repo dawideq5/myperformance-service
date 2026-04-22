@@ -41,6 +41,19 @@ export interface AssignUserRoleArgs {
   roleId: string | null;
 }
 
+export interface ProfileSyncArgs {
+  /** Aktualny email w Keycloak (source-of-truth). */
+  email: string;
+  /** Poprzedni email jeśli się zmienił (do lookup istniejącego rekordu). */
+  previousEmail?: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  /** Pełne imię i nazwisko (fallback gdy firstName/lastName puste). */
+  displayName?: string | null;
+  /** Numer telefonu (KC attribute `phoneNumber`). */
+  phone?: string | null;
+}
+
 export interface PermissionProvider {
   readonly id: string;
   readonly label: string;
@@ -73,6 +86,13 @@ export interface PermissionProvider {
 
   /** Aktualny id roli usera w aplikacji natywnej, lub null. */
   getUserRole(email: string): Promise<string | null>;
+
+  /**
+   * Synchronizuje dane profilowe usera (email, imię, nazwisko, telefon)
+   * z Keycloak do aplikacji natywnej. Bez-op jeśli provider nie potrafi
+   * zaktualizować danego pola. Używane przy zmianie profilu w KC.
+   */
+  syncUserProfile(args: ProfileSyncArgs): Promise<void>;
 }
 
 export class ProviderNotConfiguredError extends Error {

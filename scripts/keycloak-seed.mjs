@@ -132,25 +132,26 @@ const CLIENTS = [
     clientId: "documenso", name: "Documenso",
     publicClient: false, standardFlow: true,
     rootUrl: "https://sign.myperformance.pl",
-    redirectUris: ["https://sign.myperformance.pl/*"],
-    webOrigins: ["+"],
-    description: "Documenso — podpisy elektroniczne",
+    // NextAuth v4 pattern używany przez Documenso self-host: /api/auth/callback/oidc
+    redirectUris: [
+      "https://sign.myperformance.pl/api/auth/callback/oidc",
+      "https://sign.myperformance.pl/api/auth/callback/keycloak",
+    ],
+    webOrigins: ["https://sign.myperformance.pl"],
+    description: "Documenso — e-podpis (NEXT_PRIVATE_OIDC_*); callback /api/auth/callback/oidc",
   },
-  {
-    clientId: "chatwoot", name: "Chatwoot",
-    publicClient: false, standardFlow: true,
-    rootUrl: "https://chat.myperformance.pl",
-    redirectUris: ["https://chat.myperformance.pl/*"],
-    webOrigins: ["+"],
-    description: "Chatwoot — obsługa klienta",
-  },
+  // Chatwoot Community nie ma natywnego OIDC. Zamiast oauth2-proxy
+  // używamy dashboardowego SSO bridge: /api/chatwoot/sso wywołuje
+  // Chatwoot Platform API (POST /auth/sign_in_token) i tworzy
+  // pre-authenticated session cookie — bez rotacji klienta w Keycloak.
   {
     clientId: "directus", name: "Directus CMS",
     publicClient: false, standardFlow: true,
     rootUrl: "https://cms.myperformance.pl",
-    redirectUris: ["https://cms.myperformance.pl/*"],
-    webOrigins: ["+"],
-    description: "Directus — CMS / dane aplikacji",
+    // Directus openid driver: /auth/login/<provider>/callback
+    redirectUris: ["https://cms.myperformance.pl/auth/login/keycloak/callback"],
+    webOrigins: ["https://cms.myperformance.pl"],
+    description: "Directus — CMS (AUTH_KEYCLOAK_DRIVER=openid); callback /auth/login/keycloak/callback",
   },
 
   // New clients to add
@@ -175,33 +176,23 @@ const CLIENTS = [
     clientId: "moodle", name: "Moodle LMS",
     publicClient: false, standardFlow: true,
     rootUrl: "https://moodle.myperformance.pl",
+    // auth_oidc (Microsoft o365-moodle) callback: /auth/oidc/
     redirectUris: [
       "https://moodle.myperformance.pl/auth/oidc/",
       "https://moodle.myperformance.pl/auth/oidc/*",
     ],
     webOrigins: ["https://moodle.myperformance.pl"],
-    description: "Moodle LMS — OIDC login via auth_oidc plugin; role→capability mapping set w Moodle admin",
+    description: "Moodle LMS — OIDC login via auth_oidc plugin (Microsoft/o365-moodle); role mapping ręczne w Moodle (OAuth2 robi auth, nie authz)",
   },
   {
     clientId: "outline", name: "Outline (baza wiedzy)",
     publicClient: false, standardFlow: true,
     rootUrl: "https://knowledge.myperformance.pl",
-    redirectUris: [
-      "https://knowledge.myperformance.pl/auth/oidc.callback",
-      "https://knowledge.myperformance.pl/auth/oidc.callback*",
-    ],
+    // Outline natywne OIDC — callback: /auth/oidc.callback
+    redirectUris: ["https://knowledge.myperformance.pl/auth/oidc.callback"],
     webOrigins: ["https://knowledge.myperformance.pl"],
-    description: "Outline wiki — natywne OIDC; claim preferred_username mapuje użytkownika",
+    description: "Outline wiki — OIDC env OIDC_AUTH_URI/OIDC_TOKEN_URI/OIDC_USERINFO_URI; role sync przez dashboard providerem",
   },
-
-  // Virtual clients — no SSO login flow, exist for Directus clients seed + RBAC readability
-  { clientId: "mp-calendar",    name: "Kalendarz",               description: "Kalendarz Google (usługa dashboardu)",           publicClient: true,  standardFlow: false, bearerOnly: true },
-  { clientId: "mp-certificates", name: "Certyfikaty klienckie",  description: "Wydawanie certyfikatów mTLS (usługa dashboardu)", publicClient: true,  standardFlow: false, bearerOnly: true },
-  { clientId: "mp-kadromierz",  name: "Kadromierz",              description: "Integracja Kadromierz (usługa dashboardu)",      publicClient: true,  standardFlow: false, bearerOnly: true },
-  { clientId: "mp-users",       name: "Użytkownicy",             description: "Zarządzanie użytkownikami (usługa dashboardu)",  publicClient: true,  standardFlow: false, bearerOnly: true },
-  { clientId: "mp-account",     name: "Zarządzanie kontem",      description: "Samoobsługa konta (usługa dashboardu)",          publicClient: true,  standardFlow: false, bearerOnly: true },
-  { clientId: "mp-keycloak",    name: "Keycloak",                description: "Konsola administracyjna Keycloak",               publicClient: true,  standardFlow: false, bearerOnly: true },
-  { clientId: "mp-stepca",      name: "Step CA",                 description: "Infrastruktura PKI (step-ca)",                   publicClient: true,  standardFlow: false, bearerOnly: true },
 ];
 
 // ---------------------------------------------------------------------------
@@ -437,12 +428,61 @@ async function ensureAudienceMappers(token, clientId, c) {
   }
 }
 
+// Klienci, którzy zostali usunięci z katalogu (historyczne `mp-*` wirtualne).
+// Są one kasowane przy każdym uruchomieniu seed — bo istniały tylko jako
+// "readability hint" w Directusie, nie służyły do SSO.
+// Klienci do skasowania przed seedem. Dwie kategorie:
+//   1. Wirtualne `mp-*` — historyczne "tab hints", nie służyły do SSO.
+//   2. Klienci aplikacyjni — kasujemy, żeby wymusić odtworzenie z oficjalnymi
+//      (zbadanymi) redirect URI i scopes. Nowe secrety trzeba rozpropagować
+//      do Coolify env vars tych aplikacji (robi to osobny skrypt
+//      `scripts/push-client-secrets.mjs`).
+const OBSOLETE_CLIENTS = [
+  "mp-account",
+  "mp-calendar",
+  "mp-certificates",
+  "mp-documents",
+  "mp-kadromierz",
+  "mp-keycloak",
+  "mp-stepca",
+  "mp-users",
+  // Legacy alias — `chatwoot` staje się `chatwoot-proxy` (via oauth2-proxy).
+  "chatwoot",
+  // Klienci aplikacyjni — kasujemy i odtwarzamy z poprawnymi redirect URI.
+  "directus",
+  "documenso",
+  "moodle",
+  "outline",
+  "postal",
+  "stepca-oidc",
+  // Zrezygnowano z oauth2-proxy dla Chatwoota — used dashboard SSO bridge.
+  "chatwoot-proxy",
+];
+
+async function deleteObsoleteClients(token) {
+  for (const clientId of OBSOLETE_CLIENTS) {
+    const list = await kc(`/clients?clientId=${encodeURIComponent(clientId)}`, token);
+    const existing = (await list.json()) || [];
+    if (!existing.length) continue;
+    const del = await kc(`/clients/${existing[0].id}`, token, { method: "DELETE" });
+    if (del.ok) {
+      console.log(`[client] deleted obsolete ${clientId}`);
+    } else if (del.status !== 404) {
+      const body = await del.text();
+      console.warn(`[client] failed delete ${clientId}: ${del.status} ${body.slice(0, 200)}`);
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 async function main() {
   console.log(`[keycloak-seed] realm=${REALM} url=${KEYCLOAK_URL}`);
   const token = await getAdminToken();
+
+  // 0) delete obsolete clients (mp-*, legacy aliases)
+  await deleteObsoleteClients(token);
 
   // 1) roles
   for (const r of ROLES) {

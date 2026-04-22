@@ -9,6 +9,7 @@ import {
   handleApiError,
 } from "@/lib/api-utils";
 import { requireAdminPanel } from "@/lib/admin-auth";
+import { propagateProfileFromKc } from "@/lib/permissions/sync";
 
 interface Ctx {
   params: Promise<{ id: string }>;
@@ -152,6 +153,24 @@ export async function PUT(req: Request, { params }: Ctx) {
         .catch((err) => {
           console.warn("[admin/users PUT] forced logout failed:", err);
         });
+    }
+
+    // Profile propagation do natywnych aplikacji (Moodle/Chatwoot/Outline/
+    // Directus/Documenso) — uruchamiamy best-effort po każdej zmianie pól
+    // profilu lub telefonu. `previousEmail` pozwala znaleźć rekord jeśli
+    // email się zmienił.
+    const phoneChanged =
+      body.attributes &&
+      (Array.isArray(body.attributes.phoneNumber) ||
+        body.attributes.phoneNumber === null);
+    if (profileFieldChanged || phoneChanged) {
+      const previousEmail =
+        body.email !== undefined && body.email !== userData.email
+          ? userData.email
+          : undefined;
+      await propagateProfileFromKc(id, { previousEmail }).catch((err) => {
+        console.warn("[admin/users PUT] profile propagation failed:", err);
+      });
     }
 
     return createSuccessResponse({ ok: true });

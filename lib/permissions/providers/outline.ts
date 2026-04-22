@@ -4,6 +4,7 @@ import type {
   NativePermission,
   NativeRole,
   PermissionProvider,
+  ProfileSyncArgs,
 } from "./types";
 import {
   ProviderNotConfiguredError,
@@ -211,6 +212,23 @@ export class OutlineProvider implements PermissionProvider {
     if (!user) return null;
     if (user.isSuspended) return null;
     return user.role;
+  }
+
+  async syncUserProfile(args: ProfileSyncArgs): Promise<void> {
+    if (!this.isConfigured()) return;
+    const lookup = args.previousEmail ?? args.email;
+    const user = await this.findUser(lookup);
+    if (!user) return; // JIT — zostanie utworzony przy pierwszym SSO.
+    const updates: Record<string, string> = {};
+    const fullName =
+      [args.firstName, args.lastName].filter(Boolean).join(" ").trim() ||
+      args.displayName ||
+      "";
+    if (fullName && fullName !== user.name) updates.name = fullName;
+    // Outline /api/users.update wspiera tylko {id, name, avatarUrl}. Email
+    // zmienia się tylko przez admin panel lub migrację SSO.
+    if (Object.keys(updates).length === 0) return;
+    await outlineFetch("/api/users.update", { id: user.id, ...updates });
   }
 
   private async findUser(email: string): Promise<OutlineUser | null> {

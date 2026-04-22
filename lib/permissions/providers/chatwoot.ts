@@ -4,6 +4,7 @@ import type {
   NativePermission,
   NativeRole,
   PermissionProvider,
+  ProfileSyncArgs,
 } from "./types";
 import { ProviderNotConfiguredError } from "./types";
 
@@ -314,6 +315,29 @@ export class ChatwootProvider implements PermissionProvider {
     if (!membership) return null;
     if (membership.custom_role_id) return String(membership.custom_role_id);
     return membership.role;
+  }
+
+  async syncUserProfile(args: ProfileSyncArgs): Promise<void> {
+    if (!this.isConfigured()) return;
+    const lookup = args.previousEmail ?? args.email;
+    const user = await this.findUser(lookup);
+    if (!user) return;
+    const patch: Record<string, string> = {};
+    const fullName =
+      [args.firstName, args.lastName].filter(Boolean).join(" ").trim() ||
+      args.displayName ||
+      "";
+    if (fullName && fullName !== user.name) patch.name = fullName;
+    if (args.email && args.email.toLowerCase() !== user.email?.toLowerCase()) {
+      patch.email = args.email;
+    }
+    // Chatwoot User nie trzyma telefonu (numery są na poziomie Contact
+    // w inboxach, nie na user). Pomijamy phone.
+    if (Object.keys(patch).length === 0) return;
+    await platformFetch(`/platform/api/v1/users/${user.id}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    });
   }
 
   private async findUser(email: string): Promise<ChatwootUser | null> {

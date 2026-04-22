@@ -34,6 +34,12 @@ interface KcUser {
   username?: string;
   firstName?: string;
   lastName?: string;
+  attributes?: Record<string, string[] | undefined>;
+}
+
+function getPhone(u: KcUser): string | null {
+  const v = u.attributes?.phoneNumber?.[0] ?? u.attributes?.phone?.[0];
+  return typeof v === "string" && v.trim() ? v.trim() : null;
 }
 
 async function listAllRealmRoles(adminToken: string): Promise<RoleRepresentation[]> {
@@ -62,7 +68,12 @@ async function listUserRealmRoles(
 }
 
 async function getKcUser(adminToken: string, userId: string): Promise<KcUser> {
-  const res = await keycloak.adminRequest(`/users/${userId}`, adminToken);
+  // `userProfileMetadata=true` wymusza zwrócenie pełnego `attributes` (w tym
+  // phoneNumber), które domyślnie jest pomijane w Keycloak 26.x.
+  const res = await keycloak.adminRequest(
+    `/users/${userId}?userProfileMetadata=true`,
+    adminToken,
+  );
   if (!res.ok) {
     throw new Error(`getKcUser ${userId} failed: ${res.status}`);
   }
@@ -246,6 +257,22 @@ export async function assignUserAreaRole(
           displayName,
           roleId: nativeRoleId,
         });
+        // Zawsze odśwież profil z KC jako SoT. Best-effort — błąd nie
+        // przekreśla sukcesu role-assign.
+        await provider
+          .syncUserProfile({
+            email: kcUser.email,
+            firstName: kcUser.firstName ?? null,
+            lastName: kcUser.lastName ?? null,
+            displayName,
+            phone: getPhone(kcUser),
+          })
+          .catch((err) => {
+            console.warn(
+              `[sync] syncUserProfile ${area.nativeProviderId} failed for ${kcUser.email}:`,
+              err instanceof Error ? err.message : err,
+            );
+          });
         nativeSync = "ok";
       } catch (err) {
         nativeSync = "failed";
@@ -253,19 +280,17 @@ export async function assignUserAreaRole(
       }
     }
   } else if (area.id === "documenso" && kcUser.email) {
-    // Documenso jest keycloak-only area (brak provider/types kontraktu),
-    // ale ma bezpośrednią synchronizację stanu `disabled` i `roles[]` w
-    // swojej DB. Bez tego syncu pracownicy z documenso_user dalej mogliby
-    // logować się do Documenso UI i widzieć settings/tokens/webhooks.
+    // Documenso jest keycloak-only area. Sync `roles[]`: admin → [USER,ADMIN],
+    // handler/user → [USER]. Po usunięciu DOCUMENSO_EMPLOYEE (2026-04-23)
+    // nie blokujemy loginu — każda persona korzysta z Documenso UI.
     try {
-      let documensoRole: "USER" | "ADMIN" | "DOCUMENSO_EMPLOYEE";
-      if (toKeep === "documenso_admin") documensoRole = "ADMIN";
-      else if (toKeep === "documenso_handler") documensoRole = "USER";
-      else if (toKeep === "documenso_user")
-        documensoRole = "DOCUMENSO_EMPLOYEE";
-      else documensoRole = "DOCUMENSO_EMPLOYEE"; // null/brak → też zablokuj
-
-      await syncDocumensoUserRole(kcUser.email, documensoRole);
+      const documensoRole: "USER" | "ADMIN" =
+        toKeep === "documenso_admin" ? "ADMIN" : "USER";
+      const displayName =
+        [kcUser.firstName, kcUser.lastName].filter(Boolean).join(" ").trim() ||
+        kcUser.username ||
+        null;
+      await syncDocumensoUserRole(kcUser.email, documensoRole, displayName);
       nativeSync = "ok";
     } catch (err) {
       nativeSync = "failed";
@@ -328,5 +353,76 @@ export async function getUserAreaAssignments(userId: string): Promise<AreaAssign
   return out;
 }
 
+
+/**
+ * Dla podanego usera KC: iteruje wszystkie area z natywnym providerem
+ * oraz area `documenso` (keycloak-only + DB sync) i wywołuje
+ * `syncUserProfile` — upewnia się, że imię/nazwisko/email/telefon
+ * są zsynchronizowane w każdej aplikacji natywnej. Używane po zmianie
+ * profilu w KC (event listener / cron reconciliation / manual refresh).
+ */
+export interface ProfilePropagationResult {
+  areaId: string;
+  status: "ok" | "skipped" | "failed";
+  error?: string;
+}
+export async function propagateProfileFromKc(
+  userId: string,
+  opts: { previousEmail?: string } = {},
+): Promise<ProfilePropagationResult[]> {
+  const adminToken = await keycloak.getServiceAccountToken();
+  const kcUser = await getKcUser(adminToken, userId);
+  if (!kcUser.email) return [{ areaId: "*", status: "skipped" }];
+
+  const displayName =
+    [kcUser.firstName, kcUser.lastName].filter(Boolean).join(" ").trim() ||
+    kcUser.username ||
+    kcUser.email;
+  const phone = getPhone(kcUser);
+
+  const results: ProfilePropagationResult[] = [];
+
+  for (const area of AREAS) {
+    if (area.provider !== "native") continue;
+    const provider = getProvider(area.nativeProviderId);
+    if (!provider || !provider.isConfigured()) {
+      results.push({ areaId: area.id, status: "skipped" });
+      continue;
+    }
+    try {
+      await provider.syncUserProfile({
+        email: kcUser.email,
+        previousEmail: opts.previousEmail,
+        firstName: kcUser.firstName ?? null,
+        lastName: kcUser.lastName ?? null,
+        displayName,
+        phone,
+      });
+      results.push({ areaId: area.id, status: "ok" });
+    } catch (err) {
+      results.push({
+        areaId: area.id,
+        status: "failed",
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  // Documenso (keycloak-only area) ma własny DB sync — imię + email
+  // (guest-signing jest po emailu, więc musimy ciągnąć rename).
+  try {
+    const { syncDocumensoUserRole } = await import("@/lib/documenso");
+    await syncDocumensoUserRole(kcUser.email, "USER", displayName);
+    results.push({ areaId: "documenso", status: "ok" });
+  } catch (err) {
+    results.push({
+      areaId: "documenso",
+      status: "failed",
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  return results;
+}
 
 export { listAllRealmRoles, listUserRealmRoles, getKcUser };

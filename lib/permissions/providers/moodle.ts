@@ -4,6 +4,7 @@ import type {
   NativePermission,
   NativeRole,
   PermissionProvider,
+  ProfileSyncArgs,
 } from "./types";
 import { ProviderNotConfiguredError, ProviderUnsupportedError } from "./types";
 
@@ -292,6 +293,22 @@ export class MoodleProvider implements PermissionProvider {
     const shortnames = (user.roles ?? []).map((r) => r.shortname);
     const primary = shortnames.find((s) => MANAGED_SHORTNAMES.has(s));
     return primary ?? shortnames[0] ?? null;
+  }
+
+  async syncUserProfile(args: ProfileSyncArgs): Promise<void> {
+    if (!this.isConfigured()) return;
+    const lookup = args.previousEmail ?? args.email;
+    const user = await this.findUser(lookup);
+    if (!user) return; // Brak w Moodle — sync przy najbliższym SSO loginie.
+    const update: Record<string, string | number> = { id: user.id };
+    if (args.firstName) update.firstname = args.firstName;
+    if (args.lastName) update.lastname = args.lastName;
+    if (args.email && args.email.toLowerCase() !== user.email?.toLowerCase()) {
+      update.email = args.email;
+    }
+    if (args.phone) update.phone1 = args.phone;
+    if (Object.keys(update).length === 1) return; // Tylko id — nic do zmiany.
+    await moodleCall("core_user_update_users", { users: [update] });
   }
 
   private async findUser(email: string): Promise<MoodleUserRaw | null> {

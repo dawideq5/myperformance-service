@@ -214,13 +214,16 @@ export interface DocumensoDocumentStats {
 }
 
 /**
- * DOCUMENSO_EMPLOYEE — pracownik, który NIE powinien logować się do
- * Documenso UI (Documenso nie ma row-level widoczności settings, więc
- * każdy zalogowany user widzi Tokens/Webhooks/Organizations itd.).
- * Pracownik podpisuje dokumenty wyłącznie przez guest-signing linki
- * w emailach — to działa bez aktywnego konta.
+ * Documenso role — natywny enum `Role` w DB. Mapowanie KC → Documenso:
+ *   documenso_admin   → ADMIN (pełne /admin + pełne UI)
+ *   documenso_handler → USER  (pełne UI bez /admin)
+ *   documenso_user    → USER  (pełne UI bez /admin, landing /inbox)
+ *
+ * Historycznie istniał DOCUMENSO_EMPLOYEE który suspendował konto
+ * (disabled=true) — zostało usunięte 2026-04-23: każda persona z rolą
+ * documenso_* ma dostęp do Documenso UI, różnicę robi landing URL.
  */
-export type DocumensoRole = "USER" | "ADMIN" | "DOCUMENSO_EMPLOYEE";
+export type DocumensoRole = "USER" | "ADMIN";
 
 let documensoPool: Pool | null = null;
 
@@ -259,30 +262,28 @@ export async function syncDocumensoUserRole(
   const pool = getDocumensoPool();
   if (!pool) return "skipped";
   const rolesArray = role === "ADMIN" ? ["USER", "ADMIN"] : ["USER"];
-  // `disabled=true` blokuje login do Documenso UI ale nie łamie
-  // guest-signing flow (odbiorca podpisuje przez tokenized link na email,
-  // bez aktywnego User rekordu).
-  const disabled = role === "DOCUMENSO_EMPLOYEE";
   const client = await pool.connect();
   try {
     // `name` update tylko gdy podany i nie-pusty — KC jako źródło prawdy,
     // ale pomijamy puste stringi żeby przy pustym firstName/lastName w KC
     // nie wymazywać ręcznie wpisanej nazwy.
     const hasName = typeof name === "string" && name.trim().length > 0;
+    // Zawsze `disabled=false` — DOCUMENSO_EMPLOYEE został wycofany
+    // 2026-04-23 (wszystkie persony logują się do Documenso UI).
     const res = await client.query(
       hasName
         ? `UPDATE "User"
               SET roles = $2::"Role"[],
-                  disabled = $3,
-                  name = $4
+                  disabled = false,
+                  name = $3
             WHERE LOWER(email) = LOWER($1)`
         : `UPDATE "User"
               SET roles = $2::"Role"[],
-                  disabled = $3
+                  disabled = false
             WHERE LOWER(email) = LOWER($1)`,
       hasName
-        ? [email, rolesArray, disabled, name!.trim()]
-        : [email, rolesArray, disabled],
+        ? [email, rolesArray, name!.trim()]
+        : [email, rolesArray],
     );
     return (res.rowCount ?? 0) > 0 ? "updated" : "noop";
   } finally {

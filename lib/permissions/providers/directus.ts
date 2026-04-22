@@ -4,6 +4,7 @@ import type {
   NativePermission,
   NativeRole,
   PermissionProvider,
+  ProfileSyncArgs,
 } from "./types";
 import { ProviderNotConfiguredError } from "./types";
 
@@ -281,6 +282,39 @@ export class DirectusProvider implements PermissionProvider {
     if (!this.isConfigured()) return null;
     const user = await this.findUserByEmail(email);
     return user?.role ?? null;
+  }
+
+  async syncUserProfile(args: ProfileSyncArgs): Promise<void> {
+    if (!this.isConfigured()) return;
+    const lookup = args.previousEmail ?? args.email;
+    const user = await this.findUserByEmail(lookup);
+    if (!user) return; // Directus tworzy przy SSO first-login.
+    const patch: Record<string, string> = {};
+    if (args.firstName && args.firstName !== user.first_name) patch.first_name = args.firstName;
+    if (args.lastName && args.lastName !== user.last_name) patch.last_name = args.lastName;
+    if (args.email && args.email.toLowerCase() !== user.email.toLowerCase()) {
+      patch.email = args.email;
+    }
+    // Directus users mają kolumnę `phone` (dodana w 11.x) — bezpiecznie
+    // wyślemy patch.phone tylko gdy została podana; jeżeli kolumna nie
+    // istnieje, Directus zwróci 400 i złapiemy.
+    if (args.phone) patch.phone = args.phone;
+    if (Object.keys(patch).length === 0) return;
+    await directusFetch(`/users/${encodeURIComponent(user.id)}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }).catch((err) => {
+      // Jeżeli kolumna phone nie istnieje — retry bez niej.
+      if (args.phone && /phone/i.test(String(err))) {
+        delete patch.phone;
+        if (Object.keys(patch).length === 0) return;
+        return directusFetch(`/users/${encodeURIComponent(user.id)}`, {
+          method: "PATCH",
+          body: JSON.stringify(patch),
+        });
+      }
+      throw err;
+    });
   }
 
   private async findUserByEmail(email: string): Promise<DirectusUserRaw | null> {
