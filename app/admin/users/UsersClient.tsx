@@ -34,15 +34,14 @@ import {
 } from "@/components/ui";
 import { AppHeader } from "@/components/AppHeader";
 import { ApiRequestError } from "@/lib/api-client";
-import { AppPermissionsTab } from "./AppPermissionsTab";
-import { PermissionsTree } from "./PermissionsTree";
-import { UserRolesTab } from "./UserRolesTab";
+import { PermissionsEditor } from "./PermissionsEditor";
 import {
   adminUserService,
+  permissionAreaService,
   type AdminIntegrationStatus,
-  type AdminRole,
   type AdminUserSession,
   type AdminUserSummary,
+  type AreaSummary,
 } from "@/app/account/account-service";
 
 interface UsersClientProps {
@@ -99,6 +98,7 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
   const [presence, setPresence] = useState<PresenceMap>({});
   const [integrations, setIntegrations] = useState<IntegrationsMap>({});
   const [locks, setLocks] = useState<LockMap>({});
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -342,6 +342,41 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
     [first, total],
   );
 
+  const selectedUsers = useMemo(
+    () => users.filter((u) => selectedIds.has(u.id)),
+    [users, selectedIds],
+  );
+
+  const toggleSelected = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleAllOnPage = useCallback(() => {
+    setSelectedIds((prev) => {
+      const allIds = users.map((u) => u.id);
+      const allSelected = allIds.every((id) => prev.has(id));
+      if (allSelected) {
+        const next = new Set(prev);
+        for (const id of allIds) next.delete(id);
+        return next;
+      }
+      const next = new Set(prev);
+      for (const id of allIds) next.add(id);
+      return next;
+    });
+  }, [users]);
+
+  const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
+
+  const allOnPageSelected =
+    users.length > 0 && users.every((u) => selectedIds.has(u.id));
+  const someOnPageSelected = users.some((u) => selectedIds.has(u.id));
+
   return (
     <PageShell
       maxWidth="2xl"
@@ -372,17 +407,27 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
         </div>
       </section>
 
-      <div className="mb-6">
-        <UserRolesTab />
-      </div>
+      <PermissionsEditor
+        selectedUsers={selectedUsers}
+        onAfterBulk={() => {
+          clearSelection();
+          setNotice("Bulk assignment zakończony");
+          void refresh();
+        }}
+      />
 
-      <div className="mb-6">
-        <PermissionsTree selfId={selfId} />
-      </div>
-
-      <div className="mb-6">
-        <AppPermissionsTab />
-      </div>
+      {selectedIds.size > 0 && (
+        <div className="sticky top-2 z-20 mb-4 flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded-lg border border-[var(--accent)] bg-[var(--bg-surface)] shadow-md">
+          <div className="text-sm text-[var(--text-main)]">
+            Zaznaczono <strong>{selectedIds.size}</strong> użytkowników — użyj
+            sekcji <em>Uprawnienia</em> powyżej i kliknij &bdquo;Bulk: przypisz
+            rolę&rdquo; w wybranym obszarze.
+          </div>
+          <Button variant="ghost" size="sm" onClick={clearSelection}>
+            Odznacz wszystkich
+          </Button>
+        </div>
+      )}
 
       {error && (
         <div className="mb-4">
@@ -430,6 +475,21 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
           <table className="w-full text-sm">
             <thead className="border-b border-[var(--border-subtle)]">
               <tr className="text-left text-xs uppercase tracking-wider text-[var(--text-muted)]">
+                <th className="px-3 py-3 font-medium w-[40px]">
+                  <input
+                    type="checkbox"
+                    checked={allOnPageSelected}
+                    ref={(el) => {
+                      if (el) {
+                        el.indeterminate =
+                          someOnPageSelected && !allOnPageSelected;
+                      }
+                    }}
+                    onChange={toggleAllOnPage}
+                    aria-label="Zaznacz wszystkich na stronie"
+                    className="rounded border-[var(--border-subtle)]"
+                  />
+                </th>
                 <th className="px-4 py-3 font-medium">Użytkownik</th>
                 <th className="px-4 py-3 font-medium">Email</th>
                 <th className="px-4 py-3 font-medium">Status</th>
@@ -441,13 +501,13 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
             <tbody>
               {loading && users.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-10 text-center text-[var(--text-muted)]">
+                  <td colSpan={7} className="px-4 py-10 text-center text-[var(--text-muted)]">
                     <Loader2 className="w-5 h-5 animate-spin inline-block" aria-hidden="true" />
                   </td>
                 </tr>
               ) : users.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-10 text-center text-[var(--text-muted)]">
+                  <td colSpan={7} className="px-4 py-10 text-center text-[var(--text-muted)]">
                     Brak użytkowników spełniających kryteria.
                   </td>
                 </tr>
@@ -464,8 +524,19 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
                   return (
                     <tr
                       key={u.id}
-                      className="border-b border-[var(--border-subtle)] last:border-b-0 hover:bg-[var(--bg-main)]"
+                      className={`border-b border-[var(--border-subtle)] last:border-b-0 hover:bg-[var(--bg-main)] ${
+                        selectedIds.has(u.id) ? "bg-[var(--bg-main)]" : ""
+                      }`}
                     >
+                      <td className="px-3 py-3">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(u.id)}
+                          onChange={() => toggleSelected(u.id)}
+                          aria-label={`Zaznacz ${u.email ?? u.username}`}
+                          className="rounded border-[var(--border-subtle)]"
+                        />
+                      </td>
                       <td className="px-4 py-3">
                         <div className="font-medium text-[var(--text-main)]">
                           {fullName(u)}
@@ -734,12 +805,13 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
         }}
       />
 
-      <RolesDialog
+      <AreaRoleDialog
         user={rolesFor}
         onClose={() => setRolesFor(null)}
         onSaved={() => {
           setRolesFor(null);
           setNotice("Role zaktualizowane");
+          void refresh();
         }}
       />
 
@@ -1266,7 +1338,7 @@ function PasswordResetDialog({
   );
 }
 
-function RolesDialog({
+function AreaRoleDialog({
   user,
   onClose,
   onSaved,
@@ -1275,85 +1347,82 @@ function RolesDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [roles, setRoles] = useState<AdminRole[]>([]);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [initial, setInitial] = useState<Set<string>>(new Set());
+  const [areas, setAreas] = useState<AreaSummary[]>([]);
+  const [initial, setInitial] = useState<Record<string, string | null>>({});
+  const [selected, setSelected] = useState<Record<string, string | null>>({});
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
-    setRoles([]);
-    setSelected(new Set());
-    setInitial(new Set());
+    setAreas([]);
+    setSelected({});
+    setInitial({});
     setError(null);
     setLoading(true);
-    adminUserService
-      .listRoles(user.id)
-      .then((res) => {
-        setRoles(res.roles);
-        const assigned = new Set(
-          res.roles.filter((r) => r.assigned).map((r) => r.name),
-        );
-        setSelected(assigned);
-        setInitial(new Set(assigned));
+    Promise.all([
+      permissionAreaService.list(),
+      adminUserService.listAreaAssignments(user.id),
+    ])
+      .then(([listRes, assignRes]) => {
+        setAreas(listRes.areas);
+        const map: Record<string, string | null> = {};
+        for (const a of listRes.areas) map[a.id] = null;
+        for (const a of assignRes.assignments) map[a.areaId] = a.roleName;
+        setInitial(map);
+        setSelected({ ...map });
       })
       .catch((err) =>
         setError(
           err instanceof ApiRequestError
             ? err.message
-            : "Nie udało się pobrać ról",
+            : "Nie udało się pobrać przypisań",
         ),
       )
       .finally(() => setLoading(false));
   }, [user]);
 
-  const toggle = (name: string) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(name)) next.delete(name);
-      else next.add(name);
-      return next;
-    });
-  };
-
-  const diff = useMemo(() => {
-    const add: string[] = [];
-    const remove: string[] = [];
-    for (const name of selected) if (!initial.has(name)) add.push(name);
-    for (const name of initial) if (!selected.has(name)) remove.push(name);
-    return { add, remove };
+  const changes = useMemo(() => {
+    const out: Array<{ areaId: string; roleName: string | null }> = [];
+    for (const areaId of Object.keys(selected)) {
+      if (selected[areaId] !== initial[areaId]) {
+        out.push({ areaId, roleName: selected[areaId] });
+      }
+    }
+    return out;
   }, [selected, initial]);
 
-  const dirty = diff.add.length > 0 || diff.remove.length > 0;
+  const dirty = changes.length > 0;
 
   const save = useCallback(async () => {
     if (!user || !dirty) return;
     setSaving(true);
     setError(null);
     try {
-      await adminUserService.updateRoles(user.id, diff);
+      for (const ch of changes) {
+        await adminUserService.setAreaRole(user.id, ch);
+      }
       onSaved();
     } catch (err) {
       setError(
         err instanceof ApiRequestError
           ? err.message
-          : "Nie udało się zapisać ról",
+          : "Nie udało się zapisać zmian",
       );
     } finally {
       setSaving(false);
     }
-  }, [user, dirty, diff, onSaved]);
+  }, [user, dirty, changes, onSaved]);
 
   return (
     <Dialog
       open={!!user}
       onClose={onClose}
       size="lg"
-      title={user ? `Role: ${fullName(user)}` : ""}
-      description="Realm roles — RBAC"
-      labelledById="roles-title"
+      title={user ? `Uprawnienia: ${fullName(user)}` : ""}
+      description="Jedna rola per obszar (single-role-per-area)."
+      labelledById="area-role-title"
       footer={
         <>
           <Button variant="ghost" onClick={onClose} disabled={saving}>
@@ -1365,7 +1434,7 @@ function RolesDialog({
             disabled={!dirty}
             leftIcon={<Shield className="w-4 h-4" aria-hidden="true" />}
           >
-            Zapisz {dirty && `(${diff.add.length}+ / ${diff.remove.length}-)`}
+            Zapisz {dirty && `(${changes.length} zmian)`}
           </Button>
         </>
       }
@@ -1377,44 +1446,80 @@ function RolesDialog({
       )}
       {loading ? (
         <p className="text-sm text-[var(--text-muted)]">Ładowanie…</p>
-      ) : roles.length === 0 ? (
+      ) : areas.length === 0 ? (
         <p className="text-sm text-[var(--text-muted)]">
-          Brak dostępnych ról.
+          Brak obszarów uprawnień.
         </p>
       ) : (
-        <ul className="space-y-1 max-h-[60vh] overflow-y-auto">
-          {roles.map((r) => (
-            <li
-              key={r.id}
-              className="flex items-start gap-3 px-3 py-2 rounded-lg border border-[var(--border-subtle)] hover:bg-[var(--bg-main)]"
-            >
-              <input
-                type="checkbox"
-                checked={selected.has(r.name)}
-                onChange={() => toggle(r.name)}
-                className="mt-1 rounded border-[var(--border-subtle)]"
-                id={`role-${r.id}`}
-              />
-              <label
-                htmlFor={`role-${r.id}`}
-                className="flex-1 cursor-pointer"
+        <ul className="space-y-2 max-h-[65vh] overflow-y-auto">
+          {areas.map((a) => {
+            const current = selected[a.id] ?? null;
+            const hasChange = current !== (initial[a.id] ?? null);
+            return (
+              <li
+                key={a.id}
+                className="px-3 py-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)]"
               >
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-[var(--text-main)]">
-                    {r.name}
-                  </span>
-                  {r.composite && (
-                    <Badge tone="info">kompozytowa</Badge>
-                  )}
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <div>
+                    <span className="font-medium text-sm text-[var(--text-main)]">
+                      {a.label}
+                    </span>
+                    {hasChange && (
+                      <Badge tone="info" className="ml-2">
+                        zmiana
+                      </Badge>
+                    )}
+                  </div>
+                  <Badge tone={a.provider === "native" ? "info" : "neutral"}>
+                    {a.provider === "native" ? "native" : "KC-only"}
+                  </Badge>
                 </div>
-                {r.description && (
-                  <p className="text-xs text-[var(--text-muted)] mt-0.5">
-                    {r.description}
-                  </p>
-                )}
-              </label>
-            </li>
-          ))}
+                <div className="space-y-1">
+                  <label className="flex items-center gap-2 text-sm text-[var(--text-muted)] cursor-pointer">
+                    <input
+                      type="radio"
+                      name={`area-${a.id}`}
+                      checked={current === null}
+                      onChange={() =>
+                        setSelected((prev) => ({ ...prev, [a.id]: null }))
+                      }
+                    />
+                    <span>— brak roli —</span>
+                  </label>
+                  {a.seedRoles.map((r) => (
+                    <label
+                      key={r.name}
+                      className="flex items-start gap-2 text-sm cursor-pointer"
+                    >
+                      <input
+                        type="radio"
+                        name={`area-${a.id}`}
+                        checked={current === r.name}
+                        onChange={() =>
+                          setSelected((prev) => ({
+                            ...prev,
+                            [a.id]: r.name,
+                          }))
+                        }
+                        className="mt-1"
+                      />
+                      <span className="flex-1">
+                        <span className="font-mono text-xs text-[var(--text-main)]">
+                          {r.name}
+                        </span>
+                        {r.description && (
+                          <span className="block text-xs text-[var(--text-muted)]">
+                            {r.description}
+                          </span>
+                        )}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
     </Dialog>

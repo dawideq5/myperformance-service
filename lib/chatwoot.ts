@@ -1,5 +1,13 @@
 import { getOptionalEnv } from "@/lib/env";
 
+/**
+ * Chatwoot SSO bridge.
+ *
+ * Provisionuje konto w Chatwoot (idempotentnie), ustawia członkostwo
+ * w account_users z żądaną rolą (agent | administrator) i zwraca magic
+ * link SSO. Zarządzanie custom_roles + live permissions przeniesione
+ * do lib/permissions/providers/chatwoot.ts.
+ */
 export type ChatwootRole = "administrator" | "agent";
 
 interface Config {
@@ -136,99 +144,4 @@ export async function provisionSsoLoginUrl(
   const user = existing ?? (await createUser(email, name));
   await syncAccountMembership(user.id, role);
   return await getSsoUrl(user.id);
-}
-
-export interface ChatwootCustomRole {
-  id: number;
-  name: string;
-  description: string | null;
-  permissions: string[];
-  account_id?: number;
-}
-
-export async function listCustomRoles(): Promise<ChatwootCustomRole[]> {
-  const cfg = getConfig();
-  const res = await platformFetch(`/api/v1/accounts/${cfg.accountId}/custom_roles`);
-  if (!res.ok) {
-    throw new Error(`Chatwoot custom_roles list failed: ${res.status}`);
-  }
-  const raw = (await res.json()) as ChatwootCustomRole[] | { data?: ChatwootCustomRole[] };
-  return Array.isArray(raw) ? raw : raw.data ?? [];
-}
-
-export async function createCustomRole(args: {
-  name: string;
-  description?: string;
-  permissions: string[];
-}): Promise<ChatwootCustomRole> {
-  const cfg = getConfig();
-  const res = await platformFetch(
-    `/api/v1/accounts/${cfg.accountId}/custom_roles`,
-    {
-      method: "POST",
-      body: JSON.stringify({
-        name: args.name,
-        description: args.description ?? "",
-        permissions: args.permissions,
-      }),
-    },
-  );
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`Chatwoot custom_role create failed: ${res.status} ${body.slice(0, 200)}`);
-  }
-  return (await res.json()) as ChatwootCustomRole;
-}
-
-export async function updateCustomRole(
-  id: number,
-  args: { name?: string; description?: string; permissions?: string[] },
-): Promise<ChatwootCustomRole> {
-  const cfg = getConfig();
-  const res = await platformFetch(
-    `/api/v1/accounts/${cfg.accountId}/custom_roles/${id}`,
-    { method: "PATCH", body: JSON.stringify(args) },
-  );
-  if (!res.ok) {
-    throw new Error(`Chatwoot custom_role update failed: ${res.status}`);
-  }
-  return (await res.json()) as ChatwootCustomRole;
-}
-
-export async function deleteCustomRole(id: number): Promise<void> {
-  const cfg = getConfig();
-  const res = await platformFetch(
-    `/api/v1/accounts/${cfg.accountId}/custom_roles/${id}`,
-    { method: "DELETE" },
-  );
-  if (!res.ok && res.status !== 404) {
-    throw new Error(`Chatwoot custom_role delete failed: ${res.status}`);
-  }
-}
-
-/**
- * Capability list Chatwoot exposes to custom roles. Mirrored from the
- * admin UI's presets — keep in sync when Chatwoot ships new abilities.
- * See https://github.com/chatwoot/chatwoot/blob/develop/app/models/custom_role.rb
- */
-export const CHATWOOT_PERMISSIONS: Array<{
-  key: string;
-  label: string;
-  group: "rozmowy" | "kontakty" | "raporty" | "kanały" | "zespoły";
-}> = [
-  { key: "conversation_manage", label: "Zarządzanie rozmowami (wszystkie)", group: "rozmowy" },
-  { key: "conversation_unassigned_manage", label: "Rozmowy nieprzypisane", group: "rozmowy" },
-  { key: "conversation_participating_manage", label: "Rozmowy, w których jesteś", group: "rozmowy" },
-  { key: "contact_manage", label: "Zarządzanie kontaktami", group: "kontakty" },
-  { key: "report_manage", label: "Dostęp do raportów", group: "raporty" },
-  { key: "knowledge_base_manage", label: "Baza wiedzy (Chatwoot)", group: "raporty" },
-];
-
-export function isConfigured(): boolean {
-  try {
-    getConfig();
-    return true;
-  } catch {
-    return false;
-  }
 }

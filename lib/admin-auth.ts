@@ -1,5 +1,6 @@
 import type { Session } from "next-auth";
 import { ApiError } from "@/lib/api-utils";
+import { AREAS, findAreaForRole } from "@/lib/permissions/areas";
 
 /**
  * Realm-wide role catalog.
@@ -285,4 +286,42 @@ export function requireCertificates(
   if (!canManageCertificates(session)) {
     throw ApiError.forbidden("Missing role: certificates_admin");
   }
+}
+
+/**
+ * Sprawdza, czy zbiór ról zawiera >1 rolę w ramach tego samego area.
+ * Single-role-per-area: użytkownik może mieć maksymalnie jedną rolę
+ * w każdym obszarze. Używane przez UI + API walidatory.
+ */
+export function assertSingleRolePerArea(roleNames: readonly string[]): void {
+  const byArea = new Map<string, string[]>();
+  for (const name of roleNames) {
+    const area = findAreaForRole(name);
+    if (!area) continue;
+    const bucket = byArea.get(area.id) ?? [];
+    bucket.push(name);
+    byArea.set(area.id, bucket);
+  }
+  const violations: Array<{ areaId: string; roles: string[] }> = [];
+  for (const [areaId, roles] of byArea) {
+    if (roles.length > 1) violations.push({ areaId, roles });
+  }
+  if (violations.length > 0) {
+    const msg = violations
+      .map((v) => `${v.areaId}: ${v.roles.join(", ")}`)
+      .join("; ");
+    throw ApiError.badRequest(`Single-role-per-area violated — ${msg}`);
+  }
+}
+
+/**
+ * Zwraca listę wszystkich zarejestrowanych realm ról z AREAS registry.
+ * Używane przez middleware do generowania ROLE_GUARDS.
+ */
+export function getAllAreaRoleNames(): string[] {
+  const names = new Set<string>();
+  for (const area of AREAS) {
+    for (const r of area.kcRoles) names.add(r.name);
+  }
+  return Array.from(names);
 }

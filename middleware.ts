@@ -5,6 +5,7 @@ import { DEFAULT_KEYCLOAK_REALM } from "@/lib/keycloak-constants";
 import { trimSlash } from "@/lib/utils";
 import { MIDDLEWARE_USERINFO_CACHE_TTL_MS } from "@/lib/constants";
 import { log } from "@/lib/logger";
+import { getArea, listAreaKcRoleNames } from "@/lib/permissions/areas";
 
 export const runtime = "nodejs";
 
@@ -98,27 +99,31 @@ function collectRoles(accessToken: string): string[] {
 const SUPERADMIN_ROLES = new Set(["realm-admin", "manage-realm", "admin"]);
 
 /**
- * Defense-in-depth route guards enforced at the edge. Server-side `page.tsx`
- * also re-checks these via admin-auth helpers so that even if a session
- * bypasses the middleware (e.g., during SSR prefetch from cached HTML), the
- * page returns a redirect to /forbidden.
- *
- * Paths are matched with `startsWith` so nested routes inherit the guard.
+ * Defense-in-depth route guards enforced at the edge. Role lists są generowane
+ * z `lib/permissions/areas` — dodanie nowej roli do area automatycznie
+ * poszerza guard bez edycji middleware'a.
  */
+function areaRoles(
+  areaId: string,
+  filter?: (name: string) => boolean,
+): string[] {
+  const area = getArea(areaId);
+  if (!area) return [];
+  const names = listAreaKcRoleNames(area);
+  return filter ? names.filter(filter) : names;
+}
+
 const ROLE_GUARDS: Array<{ path: string; anyOf: string[] }> = [
-  { path: "/admin/users", anyOf: ["manage_users"] },
-  { path: "/admin/certificates", anyOf: ["certificates_admin"] },
-  { path: "/api/admin/users", anyOf: ["manage_users"] },
-  { path: "/api/admin/certificates", anyOf: ["certificates_admin"] },
-  { path: "/dashboard/step-ca", anyOf: ["stepca_admin"] },
+  { path: "/admin/users", anyOf: areaRoles("admin") },
+  { path: "/admin/certificates", anyOf: areaRoles("stepca", (n) => n === "certificates_admin") },
+  { path: "/api/admin/users", anyOf: areaRoles("admin") },
+  { path: "/api/admin/certificates", anyOf: areaRoles("stepca", (n) => n === "certificates_admin") },
+  { path: "/dashboard/step-ca", anyOf: areaRoles("stepca", (n) => n === "stepca_admin") },
   {
     path: "/dashboard/documents-handler",
-    anyOf: ["documenso_handler", "documenso_admin"],
+    anyOf: areaRoles("documenso", (n) => n !== "documenso_user"),
   },
-  {
-    path: "/api/integrations/moodle",
-    anyOf: ["moodle_student", "moodle_teacher", "moodle_admin"],
-  },
+  { path: "/api/integrations/moodle", anyOf: areaRoles("moodle") },
 ];
 
 function findMatchingGuard(pathname: string) {

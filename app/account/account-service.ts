@@ -390,5 +390,164 @@ export const adminUserService = {
     api.post<{ ok: boolean }>(
       `/api/admin/users/${encodeURIComponent(id)}/unlock`,
     ),
+
+  listAreaAssignments: (id: string) =>
+    api.get<{ assignments: Array<{ areaId: string; roleName: string | null }> }>(
+      `/api/admin/users/${encodeURIComponent(id)}/area-role`,
+    ),
+
+  setAreaRole: (
+    id: string,
+    payload: { areaId: string; roleName: string | null },
+  ) =>
+    api.post<
+      {
+        result: {
+          areaId: string;
+          removed: string[];
+          added: string[];
+          nativeSync: "ok" | "skipped" | "failed";
+          nativeError?: string;
+        };
+      },
+      typeof payload
+    >(`/api/admin/users/${encodeURIComponent(id)}/area-role`, payload),
+};
+
+// ---------------------------------------------------------------------------
+// Permission areas — registry of app integrations + per-area RBAC
+// ---------------------------------------------------------------------------
+
+export interface AreaSummarySeedRole {
+  name: string;
+  description: string;
+  priority: number;
+  nativeRoleId: string | null;
+  userCount: number;
+}
+
+export interface AreaSummary {
+  id: string;
+  label: string;
+  description: string;
+  icon: string | null;
+  provider: "keycloak-only" | "native";
+  nativeProviderId: string | null;
+  nativeConfigured: boolean;
+  supportsCustomRoles: boolean;
+  seedRoles: AreaSummarySeedRole[];
+  totalAssignedUsers: number;
+}
+
+export interface AreaDetailRole {
+  kcRoleName: string;
+  kcRoleId: string;
+  description: string;
+  priority: number;
+  isSeeded: boolean;
+  isCustom: boolean;
+  userCount: number;
+  native: {
+    id: string;
+    name: string;
+    description: string | null;
+    permissions: string[];
+    systemDefined: boolean;
+    userCount: number | null;
+  } | null;
+}
+
+export interface AreaDetailNativePermission {
+  key: string;
+  label: string;
+  group: string;
+  description?: string;
+}
+
+export interface AreaDetail {
+  area: {
+    id: string;
+    label: string;
+    description: string;
+    icon: string | null;
+    provider: "keycloak-only" | "native";
+    nativeProviderId: string | null;
+    nativeConfigured: boolean;
+    supportsCustomRoles: boolean;
+  };
+  roles: AreaDetailRole[];
+  orphanNativeRoles: Array<{
+    id: string;
+    name: string;
+    description: string | null;
+    permissions: string[];
+    systemDefined: boolean;
+    userCount: number | null;
+  }>;
+  nativePermissions: AreaDetailNativePermission[];
+}
+
+export const permissionAreaService = {
+  list: () => api.get<{ areas: AreaSummary[] }>("/api/admin/areas"),
+
+  detail: (id: string) =>
+    api.get<AreaDetail>(`/api/admin/areas/${encodeURIComponent(id)}`),
+
+  createRole: (
+    id: string,
+    payload: { name: string; description?: string; permissions: string[] },
+  ) =>
+    api.post<
+      {
+        role: {
+          kcRoleName: string;
+          kcRoleId: string;
+          nativeRoleId: string | null;
+          description: string;
+        };
+      },
+      typeof payload
+    >(`/api/admin/areas/${encodeURIComponent(id)}/roles`, payload),
+
+  updateRole: (
+    id: string,
+    roleId: string,
+    payload: { name?: string; description?: string; permissions?: string[] },
+  ) =>
+    api.patch<{ ok: boolean; isSeed: boolean }, typeof payload>(
+      `/api/admin/areas/${encodeURIComponent(id)}/roles/${encodeURIComponent(roleId)}`,
+      payload,
+    ),
+
+  deleteRole: (id: string, roleId: string) =>
+    api.delete<{ ok: boolean }>(
+      `/api/admin/areas/${encodeURIComponent(id)}/roles/${encodeURIComponent(roleId)}`,
+    ),
+
+  bulkAssign: (payload: {
+    userIds: string[];
+    areaId: string;
+    roleName: string | null;
+  }) =>
+    api.post<
+      {
+        total: number;
+        ok: number;
+        failed: number;
+        results: Array<
+          | {
+              userId: string;
+              status: "ok";
+              areaId: string;
+              removed: string[];
+              added: string[];
+              nativeSync: "ok" | "skipped" | "failed";
+              nativeError?: string;
+            }
+          | { userId: string; status: "failed"; error: string }
+        >;
+      },
+      typeof payload
+    >("/api/admin/bulk/area-role", payload),
 };
 
