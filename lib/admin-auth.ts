@@ -47,6 +47,11 @@ export const ROLES = {
 
   // Step CA — admin-only (panel diagnostyczny + self-service cert)
   STEPCA_ADMIN: "stepca_admin",
+
+  // Moodle (LMS — szkolenia wewnętrzne)
+  MOODLE_STUDENT: "moodle_student",
+  MOODLE_TEACHER: "moodle_teacher",
+  MOODLE_ADMIN: "moodle_admin",
 } as const;
 
 export type AppRole = (typeof ROLES)[keyof typeof ROLES];
@@ -79,6 +84,10 @@ export const ROLE_CATALOG: RoleSpec[] = [
   { name: ROLES.KEYCLOAK_ADMIN, description: "Konsola administracyjna Keycloak", default: false },
 
   { name: ROLES.STEPCA_ADMIN, description: "Administrator step-ca (provisionery, polityki, self-service cert)", default: false },
+
+  { name: ROLES.MOODLE_STUDENT, description: "Moodle: uczeń (kursy, szkolenia przypisane do konta)", default: false },
+  { name: ROLES.MOODLE_TEACHER, description: "Moodle: nauczyciel (tworzenie kursów, ocenianie, raporty)", default: false },
+  { name: ROLES.MOODLE_ADMIN, description: "Moodle: administrator (konfiguracja instancji, użytkownicy, pluginy)", default: false },
 ];
 
 /**
@@ -187,6 +196,24 @@ export function canAccessPostal(
   session: Session | null | undefined,
 ): boolean {
   return hasRole(session, ROLES.POSTAL_ADMIN);
+}
+
+export function canAccessMoodleAsStudent(
+  session: Session | null | undefined,
+): boolean {
+  return hasRole(session, ROLES.MOODLE_STUDENT);
+}
+
+export function canAccessMoodleAsTeacher(
+  session: Session | null | undefined,
+): boolean {
+  return hasRole(session, ROLES.MOODLE_TEACHER);
+}
+
+export function canAccessMoodleAsAdmin(
+  session: Session | null | undefined,
+): boolean {
+  return hasRole(session, ROLES.MOODLE_ADMIN);
 }
 
 export function canAccessKeycloakAdmin(

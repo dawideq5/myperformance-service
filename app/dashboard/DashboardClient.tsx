@@ -10,10 +10,13 @@ import {
   Database,
   ExternalLink,
   FileSignature,
+  GraduationCap,
   KeyRound,
+  Library,
   Mail,
   MessageSquare,
   Plug,
+  School,
   ShieldCheck,
   Truck,
   Users,
@@ -36,6 +39,9 @@ import {
   canAccessDocumensoAsUser,
   canAccessKadromierz,
   canAccessKeycloakAdmin,
+  canAccessMoodleAsAdmin,
+  canAccessMoodleAsStudent,
+  canAccessMoodleAsTeacher,
   canAccessPanel,
   canAccessPostal,
   canAccessStepCa,
@@ -89,6 +95,9 @@ function TileGrid() {
   const showDocumensoUser = canAccessDocumensoAsUser(session);
   const showDocumensoHandler = canAccessDocumensoAsHandler(session);
   const showDocumensoAdmin = canAccessDocumensoAsAdmin(session);
+  const showMoodleStudent = canAccessMoodleAsStudent(session);
+  const showMoodleTeacher = canAccessMoodleAsTeacher(session);
+  const showMoodleAdmin = canAccessMoodleAsAdmin(session);
   const showChatwootAgent = canAccessChatwootAsAgent(session);
   const showChatwootAdmin = canAccessChatwootAsAdmin(session);
   const showPostal = canAccessPostal(session);
@@ -103,6 +112,7 @@ function TileGrid() {
   const anyVisible =
     showCalendar || showKadromierz || showDirectus ||
     showDocumensoUser || showDocumensoHandler || showDocumensoAdmin ||
+    showMoodleStudent || showMoodleTeacher || showMoodleAdmin ||
     showChatwootAgent || showChatwootAdmin || showPostal || showKeycloak ||
     showStepCa || showCerts || showUsers || showSprzedawca ||
     showSerwisant || showKierowca;
@@ -277,6 +287,36 @@ function TileGrid() {
             title="Postal"
             description="Serwer pocztowy — transakcyjne i newslettery"
             href="https://postal.myperformance.pl"
+          />
+        )}
+
+        {showMoodleStudent && (
+          <ExternalTile
+            icon={<Library className="w-7 h-7 text-amber-400" aria-hidden="true" />}
+            iconBg="bg-amber-500/10"
+            title="Akademia — uczeń"
+            description="Twoje kursy i szkolenia przypisane przez prowadzącego (Moodle)"
+            href="https://moodle.myperformance.pl/my/"
+          />
+        )}
+
+        {showMoodleTeacher && (
+          <ExternalTile
+            icon={<School className="w-7 h-7 text-amber-500" aria-hidden="true" />}
+            iconBg="bg-amber-500/10"
+            title="Akademia — nauczyciel"
+            description="Tworzenie kursów, ocenianie, raporty uczniów (Moodle)"
+            href="https://moodle.myperformance.pl/course/"
+          />
+        )}
+
+        {showMoodleAdmin && (
+          <ExternalTile
+            icon={<GraduationCap className="w-7 h-7 text-orange-500" aria-hidden="true" />}
+            iconBg="bg-orange-500/10"
+            title="Akademia — administrator"
+            description="Konfiguracja instancji, użytkownicy, pluginy, role (Moodle)"
+            href="https://moodle.myperformance.pl/admin/"
           />
         )}
 

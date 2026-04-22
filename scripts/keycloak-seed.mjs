@@ -68,6 +68,10 @@ const ROLES = [
 
   { name: "stepca_admin",        description: "Administrator step-ca (provisionery, polityki, self-service)", default: false },
 
+  { name: "moodle_student",      description: "Moodle: uczeń (kursy przypisane do konta)",            default: false },
+  { name: "moodle_teacher",      description: "Moodle: nauczyciel (kursy, ocenianie, raporty)",       default: false },
+  { name: "moodle_admin",        description: "Moodle: administrator instancji (konfig, pluginy)",    default: false },
+
   // panel realm-roles — used by both the mTLS panels and dashboard gating
   { name: "sprzedawca",          description: "Dostęp do panelu sprzedawcy",                           default: false },
   { name: "sprzedawca_admin",    description: "Administrator panelu sprzedawcy",                       default: false },
@@ -166,6 +170,17 @@ const CLIENTS = [
     webOrigins: [],
     description: "Prowizjoner OIDC step-ca — samoobsługowe wydawanie certów dla użytkowników",
     attributes: { "pkce.code.challenge.method": "S256" },
+  },
+  {
+    clientId: "moodle", name: "Moodle LMS",
+    publicClient: false, standardFlow: true,
+    rootUrl: "https://moodle.myperformance.pl",
+    redirectUris: [
+      "https://moodle.myperformance.pl/auth/oidc/",
+      "https://moodle.myperformance.pl/auth/oidc/*",
+    ],
+    webOrigins: ["https://moodle.myperformance.pl"],
+    description: "Moodle LMS — OIDC login via auth_oidc plugin; role→capability mapping set w Moodle admin",
   },
 
   // Virtual clients — no SSO login flow, exist for Directus clients seed + RBAC readability

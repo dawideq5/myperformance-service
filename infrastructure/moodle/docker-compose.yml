@@ -1,0 +1,98 @@
+# MyPerformance Academy — Moodle LMS
+#
+# Deployed in Coolify as a docker-compose application (not a pre-made service)
+# because we need custom env + persistent volumes + init for the OIDC plugin.
+#
+# One-time setup in Coolify UI after the app lands:
+#   1. Set FQDN on the `moodle` service to https://moodle.myperformance.pl
+#      (SERVICE_FQDN_MOODLE_8080 is only read on first create; update via UI).
+#   2. Trigger a deploy.
+#   3. Wait for the `/login/index.php` endpoint to return 200 — first boot
+#      can take 5–10 minutes as Moodle installs its schema.
+#   4. Log in as admin (MOODLE_USERNAME / MOODLE_PASSWORD) and install the
+#      OIDC plugin (auth_oidc). Point it at auth.myperformance.pl with the
+#      client id `moodle` (seeded via keycloak-seed.mjs).
+#
+# Auth plumbing: OIDC claims `roles` map to Moodle system roles:
+#   moodle_admin  → Manager / Admin
+#   moodle_teacher → Editing Teacher (system context)
+#   moodle_student → Authenticated user (default)
+
+services:
+  mariadb:
+    image: mariadb:10.11
+    restart: unless-stopped
+    environment:
+      MARIADB_USER: moodle
+      MARIADB_PASSWORD: ${MOODLE_DB_PASSWORD}
+      MARIADB_DATABASE: moodle
+      MARIADB_ROOT_PASSWORD: ${MOODLE_DB_ROOT_PASSWORD}
+      MARIADB_CHARACTER_SET: utf8mb4
+      MARIADB_COLLATE: utf8mb4_unicode_ci
+    volumes:
+      - moodle-mariadb:/var/lib/mysql
+    healthcheck:
+      test:
+        ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  moodle:
+    image: bitnami/moodle:4.5
+    restart: unless-stopped
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    environment:
+      # Database
+      MOODLE_DATABASE_TYPE: mariadb
+      MOODLE_DATABASE_HOST: mariadb
+      MOODLE_DATABASE_PORT_NUMBER: "3306"
+      MOODLE_DATABASE_USER: moodle
+      MOODLE_DATABASE_NAME: moodle
+      MOODLE_DATABASE_PASSWORD: ${MOODLE_DB_PASSWORD}
+
+      # Site
+      MOODLE_SITE_NAME: "MyPerformance Academy"
+      MOODLE_LANG: pl
+      MOODLE_HOST: moodle.myperformance.pl
+      MOODLE_REVERSEPROXY: "yes"
+      MOODLE_SSLPROXY: "yes"
+
+      # Admin bootstrap (only used on first install)
+      MOODLE_USERNAME: admin
+      MOODLE_PASSWORD: ${MOODLE_ADMIN_PASSWORD}
+      MOODLE_EMAIL: ${MOODLE_ADMIN_EMAIL:-noreply@myperformance.pl}
+
+      # Performance
+      MOODLE_SKIP_BOOTSTRAP: "no"
+      BITNAMI_DEBUG: "false"
+
+      # SMTP — route through Postal so school notifications hit the same
+      # audit/delivery path as everything else.
+      MOODLE_SMTP_HOST: ${SMTP_HOST:-smtp-iut9wf1rz9ey54g7lbkje0je}
+      MOODLE_SMTP_PORT: ${SMTP_PORT:-25}
+      MOODLE_SMTP_USER: ${SMTP_USER:-}
+      MOODLE_SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      MOODLE_SMTP_PROTOCOL: ${SMTP_PROTOCOL:-}
+    expose:
+      - "8080"
+    volumes:
+      - moodle-data:/bitnami/moodle
+      - moodle-moodledata:/bitnami/moodledata
+    labels:
+      # Populated by Coolify on deploy — keep as hint only.
+      - "coolify.managed=true"
+    healthcheck:
+      test:
+        ["CMD", "curl", "-fsS", "http://localhost:8080/login/index.php"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 300s
+
+volumes:
+  moodle-mariadb:
+  moodle-data:
+  moodle-moodledata:
