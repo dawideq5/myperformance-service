@@ -97,12 +97,18 @@ function TileGrid() {
   const showDocumensoUser = canAccessDocumensoAsUser(session);
   const showDocumensoHandler = canAccessDocumensoAsHandler(session);
   const showDocumensoAdmin = canAccessDocumensoAsAdmin(session);
+  const showDocumenso =
+    showDocumensoUser || showDocumensoHandler || showDocumensoAdmin;
+
   const showMoodleStudent = canAccessMoodleAsStudent(session);
   const showMoodleTeacher = canAccessMoodleAsTeacher(session);
   const showMoodleAdmin = canAccessMoodleAsAdmin(session);
+  const showMoodle = showMoodleStudent || showMoodleTeacher || showMoodleAdmin;
+
   const showKnowledge = canAccessKnowledgeBase(session);
   const showChatwootAgent = canAccessChatwootAsAgent(session);
   const showChatwootAdmin = canAccessChatwootAsAdmin(session);
+  const showChatwoot = showChatwootAgent || showChatwootAdmin;
   const showPostal = canAccessPostal(session);
   const showKeycloak = canAccessKeycloakAdmin(session);
   const showStepCa = canAccessStepCa(session);
@@ -114,10 +120,8 @@ function TileGrid() {
 
   const anyVisible =
     showCalendar || showKadromierz || showDirectus ||
-    showDocumensoUser || showDocumensoHandler || showDocumensoAdmin ||
-    showMoodleStudent || showMoodleTeacher || showMoodleAdmin ||
-    showKnowledge ||
-    showChatwootAgent || showChatwootAdmin || showPostal || showKeycloak ||
+    showDocumenso || showMoodle || showKnowledge ||
+    showChatwoot || showPostal || showKeycloak ||
     showStepCa || showCerts || showUsers || showSprzedawca ||
     showSerwisant || showKierowca;
 
@@ -232,55 +236,33 @@ function TileGrid() {
           />
         )}
 
-        {showDocumensoUser && (
+        {showDocumenso && (
           <ExternalTile
             icon={<FileSignature className="w-7 h-7 text-purple-500" aria-hidden="true" />}
             iconBg="bg-purple-500/10"
-            title="Documenso — pracownik"
-            description="Twoje dokumenty do podpisu i już podpisane (Documenso)"
-            href="/api/documenso/sso?role=user"
+            title="Dokumenty"
+            description={
+              showDocumensoAdmin
+                ? "Pełna konsola Documenso — szablony, webhooki, użytkownicy"
+                : showDocumensoHandler
+                  ? "Obieg dokumentów organizacji — wysyłka, status, podpisy"
+                  : "Twoje dokumenty do podpisu i już podpisane"
+            }
+            href="/api/documenso/sso"
           />
         )}
 
-        {showDocumensoHandler && (
-          <Tile
-            icon={<FileSignature className="w-7 h-7 text-violet-400" aria-hidden="true" />}
-            iconBg="bg-violet-500/10"
-            title="Obsługa dokumentów"
-            description="Wszystkie dokumenty organizacji w obiegu — status, odbiorcy, wysyłka (księgowa)"
-            onClick={() => {
-              window.location.href = "/dashboard/documents-handler";
-            }}
-          />
-        )}
-
-        {showDocumensoAdmin && (
-          <ExternalTile
-            icon={<FileSignature className="w-7 h-7 text-fuchsia-500" aria-hidden="true" />}
-            iconBg="bg-fuchsia-500/10"
-            title="Documenso — administrator"
-            description="Szablony, webhooki, użytkownicy (SSO)"
-            href="/api/documenso/sso?role=admin"
-          />
-        )}
-
-        {showChatwootAgent && (
+        {showChatwoot && (
           <ExternalTile
             icon={<MessageSquare className="w-7 h-7 text-sky-500" aria-hidden="true" />}
             iconBg="bg-sky-500/10"
-            title="Chatwoot — agent"
-            description="Obsługa rozmów z klientami (SSO przez Keycloak)"
-            href="/api/chatwoot/sso?role=agent"
-          />
-        )}
-
-        {showChatwootAdmin && (
-          <ExternalTile
-            icon={<MessageSquare className="w-7 h-7 text-cyan-500" aria-hidden="true" />}
-            iconBg="bg-cyan-500/10"
-            title="Chatwoot - administrator"
-            description="Konfiguracja, użytkownicy, webhooki (SSO)"
-            href="/api/chatwoot/sso?role=admin"
+            title="Chatwoot"
+            description={
+              showChatwootAdmin
+                ? "Konfiguracja platformy, użytkownicy, webhooki"
+                : "Rozmowy z klientami — omnichannel inbox"
+            }
+            href="/api/chatwoot/sso"
           />
         )}
 
@@ -294,33 +276,27 @@ function TileGrid() {
           />
         )}
 
-        {showMoodleStudent && (
+        {showMoodle && (
           <ExternalTile
-            icon={<Library className="w-7 h-7 text-amber-400" aria-hidden="true" />}
+            icon={
+              showMoodleAdmin ? (
+                <GraduationCap className="w-7 h-7 text-orange-500" aria-hidden="true" />
+              ) : showMoodleTeacher ? (
+                <School className="w-7 h-7 text-amber-500" aria-hidden="true" />
+              ) : (
+                <Library className="w-7 h-7 text-amber-400" aria-hidden="true" />
+              )
+            }
             iconBg="bg-amber-500/10"
-            title="Akademia — uczeń"
-            description="Twoje kursy i szkolenia przypisane przez prowadzącego (Moodle)"
-            href="https://moodle.myperformance.pl/my/"
-          />
-        )}
-
-        {showMoodleTeacher && (
-          <ExternalTile
-            icon={<School className="w-7 h-7 text-amber-500" aria-hidden="true" />}
-            iconBg="bg-amber-500/10"
-            title="Akademia — nauczyciel"
-            description="Tworzenie kursów, ocenianie, raporty uczniów (Moodle)"
-            href="https://moodle.myperformance.pl/course/"
-          />
-        )}
-
-        {showMoodleAdmin && (
-          <ExternalTile
-            icon={<GraduationCap className="w-7 h-7 text-orange-500" aria-hidden="true" />}
-            iconBg="bg-orange-500/10"
-            title="Akademia — administrator"
-            description="Konfiguracja instancji, użytkownicy, pluginy, role (Moodle)"
-            href="https://moodle.myperformance.pl/admin/"
+            title="MyPerformance — Akademia"
+            description={
+              showMoodleAdmin
+                ? "Konsola administracyjna — konfiguracja, użytkownicy, pluginy"
+                : showMoodleTeacher
+                  ? "Twoje kursy do prowadzenia, ocenianie, raporty"
+                  : "Twoje kursy i szkolenia"
+            }
+            href="/api/moodle/launch"
           />
         )}
 

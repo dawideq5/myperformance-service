@@ -11,6 +11,16 @@ import { syncDocumensoUserRole, getDocumensoBaseUrl } from "@/lib/documenso";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+type Persona = "admin" | "handler" | "user";
+
+function parseRoleParam(raw: string | null): Persona | null {
+  const v = (raw ?? "").toLowerCase();
+  if (v === "admin" || v === "administrator") return "admin";
+  if (v === "handler" || v === "obsluga") return "handler";
+  if (v === "user") return "user";
+  return null;
+}
+
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
   const email = session?.user?.email;
@@ -18,52 +28,55 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const requested = (req.nextUrl.searchParams.get("role") ?? "").toLowerCase();
   const hasAdmin = canAccessDocumensoAsAdmin(session);
   const hasHandler = canAccessDocumensoAsHandler(session);
   const hasUser = canAccessDocumensoAsUser(session);
 
-  const wantsAdmin = requested === "admin" || requested === "administrator";
-  const wantsHandler = requested === "handler" || requested === "obsluga";
-  const wantsUser = requested === "user" || requested === "";
+  // Highest-privilege-first selection. Query param can pin a specific
+  // persona (used by legacy tiles / deep links); otherwise we pick the
+  // best role the user actually has.
+  const requested = parseRoleParam(req.nextUrl.searchParams.get("role"));
+  let persona: Persona | null;
 
-  let targetRole: "ADMIN" | "USER";
-  let redirectPath: string;
-
-  if (wantsAdmin) {
-    if (!hasAdmin) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-    targetRole = "ADMIN";
-    redirectPath = "/admin";
-  } else if (wantsHandler) {
-    if (!hasHandler && !hasAdmin) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-    // Handler na poziomie Documenso DB ma USER (native role); panel obsługi
-    // korzysta z Documenso API z admin-tokenem po stronie serwera, więc
-    // widzi całą organizację nie będąc Documenso adminem.
-    targetRole = "USER";
-    redirectPath = "/documents";
-  } else if (wantsUser) {
-    if (!hasUser && !hasHandler && !hasAdmin) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-    targetRole = "USER";
-    redirectPath = "/documents";
+  if (requested) {
+    if (requested === "admin" && !hasAdmin) persona = null;
+    else if (requested === "handler" && !hasHandler && !hasAdmin) persona = null;
+    else if (requested === "user" && !hasUser && !hasHandler && !hasAdmin)
+      persona = null;
+    else persona = requested;
   } else {
-    return NextResponse.json({ error: "Invalid role" }, { status: 400 });
+    persona = hasAdmin ? "admin" : hasHandler ? "handler" : hasUser ? "user" : null;
+  }
+
+  if (!persona) {
+    return NextResponse.redirect(new URL("/forbidden", req.url), { status: 303 });
   }
 
   const baseUrl = getDocumensoBaseUrl() ?? "https://sign.myperformance.pl";
+  const dashboardBase = new URL("/", req.url);
+
+  let targetRole: "ADMIN" | "USER";
+  let redirectUrl: string;
+
+  if (persona === "admin") {
+    targetRole = "ADMIN";
+    redirectUrl = `${baseUrl}/admin`;
+  } else if (persona === "handler") {
+    // Handler operates from the dashboard-side view backed by the
+    // Documenso admin API token. DB role stays USER.
+    targetRole = "USER";
+    dashboardBase.pathname = "/dashboard/documents-handler";
+    redirectUrl = dashboardBase.toString();
+  } else {
+    targetRole = "USER";
+    redirectUrl = `${baseUrl}/documents`;
+  }
 
   try {
     await syncDocumensoUserRole(email, targetRole);
   } catch (err) {
-    // DB sync is best-effort — on failure, log and still redirect. The user
-    // may end up with a stale role, but we do not want to block login.
     console.error("[documenso-sso] role sync failed:", err);
   }
 
-  return NextResponse.redirect(`${baseUrl}${redirectPath}`, { status: 303 });
+  return NextResponse.redirect(redirectUrl, { status: 303 });
 }

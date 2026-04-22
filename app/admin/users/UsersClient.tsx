@@ -34,6 +34,7 @@ import {
 } from "@/components/ui";
 import { AppHeader } from "@/components/AppHeader";
 import { ApiRequestError } from "@/lib/api-client";
+import { PermissionsTree } from "./PermissionsTree";
 import {
   adminUserService,
   type AdminIntegrationStatus,
@@ -354,7 +355,9 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
       <section className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-sm text-[var(--text-muted)]">
-            Zarządzaj kontami użytkowników realmu Keycloak.
+            Zarządzaj kontami użytkowników realmu Keycloak — zobacz kto ma
+            jakie uprawnienia w drzewku lub edytuj konkretnego użytkownika z
+            listy poniżej.
           </p>
         </div>
         <div className="flex gap-2">
@@ -366,6 +369,10 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
           </Button>
         </div>
       </section>
+
+      <div className="mb-6">
+        <PermissionsTree selfId={selfId} />
+      </div>
 
       {error && (
         <div className="mb-4">

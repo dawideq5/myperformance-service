@@ -111,6 +111,14 @@ const ROLE_GUARDS: Array<{ path: string; anyOf: string[] }> = [
   { path: "/api/admin/users", anyOf: ["manage_users"] },
   { path: "/api/admin/certificates", anyOf: ["certificates_admin"] },
   { path: "/dashboard/step-ca", anyOf: ["stepca_admin"] },
+  {
+    path: "/dashboard/documents-handler",
+    anyOf: ["documenso_handler", "documenso_admin"],
+  },
+  {
+    path: "/api/integrations/moodle",
+    anyOf: ["moodle_student", "moodle_teacher", "moodle_admin"],
+  },
 ];
 
 function findMatchingGuard(pathname: string) {
