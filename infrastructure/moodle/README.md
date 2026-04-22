@@ -6,6 +6,28 @@
 **Realm Keycloak:** `MyPerformance`, klient `moodle` (seed przez `scripts/keycloak-seed.mjs`)
 **Role realm:** `moodle_student`, `moodle_teacher`, `moodle_admin` (non-default — admin przypisuje ręcznie w `/admin/users`)
 
+## `local_mpkc_sync` plugin
+
+In-repo copy at `./local_mpkc_sync/` ships Moodle's Keycloak-sync observer.
+On each OIDC login it:
+
+- mirrors `email_verified` claim → `user.confirmed`
+- promotes/demotes Moodle siteadmin based on realm role `moodle_admin`
+  (guards against demoting the last remaining admin)
+
+Install-time copy into Moodle and run upgrade:
+```bash
+cp -r infrastructure/moodle/local_mpkc_sync /bitnami/moodle/local/
+chown -R daemon:daemon /bitnami/moodle/local/mpkc_sync
+php /bitnami/moodle/admin/cli/upgrade.php --non-interactive
+```
+
+After install always reset perms because CLI scripts run as root:
+```bash
+chown -R daemon:daemon /bitnami/moodledata
+find /bitnami/moodledata -type d -exec chmod 02775 {} \;
+```
+
 ## Status
 
 - [x] Compose w repo
