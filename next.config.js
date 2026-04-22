@@ -88,6 +88,13 @@ const securityHeaders = [
 const nextConfig = {
   reactStrictMode: true,
   output: "standalone",
+  // mysql2 używa dynamicznego wymagania natywnych bindingów — bundler
+  // Next'a go tree-shakuje/przekształca błędnie. Marking as server-external
+  // packuje go tak jak `pg`.
+  serverExternalPackages: ["mysql2"],
+  outputFileTracingIncludes: {
+    "/api/integrations/moodle/**": ["./node_modules/mysql2/**/*"],
+  },
   poweredByHeader: false,
   compress: true,
   productionBrowserSourceMaps: false,
