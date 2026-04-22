@@ -54,13 +54,17 @@ export async function POST() {
         const errText = await calResp.text();
         console.error("[Calendar Google Sync] Failed:", calResp.status, errText);
         if (calResp.status === 401) {
-          // 409 (not 401): user's NextAuth session is fine; only the linked
-          // Google broker token needs re-consent. A 401 here would trigger the
-          // global unauthorized handler and sign the user out of the whole app.
-          return NextResponse.json(
-            { error: "Google token expired. Please reconnect your Google account.", needsReconnect: true },
-            { status: 409 }
-          );
+          // Return 200 with `needsReconnect: true` — 4xx/5xx here would
+          // trip the global fetch error handler and also show as "Failed
+          // to load resource" in browser devtools. Frontend reads the
+          // flag and prompts re-consent without console noise.
+          return NextResponse.json({
+            synced: 0,
+            total: 0,
+            events: [],
+            needsReconnect: true,
+            reason: "google_token_expired",
+          });
         }
         return NextResponse.json(
           { error: "Failed to fetch Google Calendar events" },

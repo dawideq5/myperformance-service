@@ -4,13 +4,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+  Activity,
   ArrowLeft,
   Ban,
   Check,
   KeyRound,
+  Link2,
   Loader2,
   LogOut,
-  Mail,
   Pencil,
   Send,
   Shield,
@@ -35,6 +36,9 @@ import {
 } from "@/app/account/account-service";
 
 import { PermissionsPanel } from "./PermissionsPanel";
+import { SecurityPanel } from "./SecurityPanel";
+import { IntegrationsPanel } from "./IntegrationsPanel";
+import { ActivityLog } from "./ActivityLog";
 
 interface UserDetailClientProps {
   userId: string;
@@ -79,7 +83,8 @@ export function UserDetailClient({
     firstName: string;
     lastName: string;
     email: string;
-  }>({ firstName: "", lastName: "", email: "" });
+    phone: string;
+  }>({ firstName: "", lastName: "", email: "", phone: "" });
   const [pendingAction, setPendingAction] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -92,6 +97,7 @@ export function UserDetailClient({
         firstName: res.firstName ?? "",
         lastName: res.lastName ?? "",
         email: res.email ?? "",
+        phone: res.attributes?.phone?.[0] ?? "",
       });
     } catch (err) {
       setError(
@@ -121,7 +127,8 @@ export function UserDetailClient({
     return (
       profileDraft.firstName !== (user.firstName ?? "") ||
       profileDraft.lastName !== (user.lastName ?? "") ||
-      profileDraft.email !== (user.email ?? "")
+      profileDraft.email !== (user.email ?? "") ||
+      profileDraft.phone !== (user.attributes?.phone?.[0] ?? "")
     );
   }, [profileDraft, user]);
 
@@ -130,10 +137,19 @@ export function UserDetailClient({
     setSavingProfile(true);
     setError(null);
     try {
+      const phoneChanged =
+        profileDraft.phone !== (user.attributes?.phone?.[0] ?? "");
       await adminUserService.update(userId, {
         firstName: profileDraft.firstName,
         lastName: profileDraft.lastName,
         email: profileDraft.email,
+        ...(phoneChanged && {
+          attributes: {
+            phone: profileDraft.phone.trim()
+              ? [profileDraft.phone.trim()]
+              : null,
+          },
+        }),
       });
       setNotice("Profil zaktualizowany");
       await refresh();
@@ -166,51 +182,6 @@ export function UserDetailClient({
       setPendingAction(null);
     }
   }, [user, isSelf, userId, refresh]);
-
-  const sendPasswordReset = useCallback(async () => {
-    if (!user?.email) return;
-    if (!window.confirm(`Wysłać link resetu hasła do ${user.email}?`)) return;
-    setPendingAction("password");
-    setError(null);
-    try {
-      await adminUserService.resetPassword(userId, {
-        sendEmail: true,
-        temporary: false,
-      });
-      setNotice(`Wysłano link resetu hasła do ${user.email}`);
-    } catch (err) {
-      setError(
-        err instanceof ApiRequestError
-          ? err.message
-          : "Nie udało się wysłać linku",
-      );
-    } finally {
-      setPendingAction(null);
-    }
-  }, [user, userId]);
-
-  const sendVerifyEmail = useCallback(async () => {
-    if (!user?.email) return;
-    if (!window.confirm(`Wysłać link weryfikacji emaila do ${user.email}?`))
-      return;
-    setPendingAction("verify");
-    setError(null);
-    try {
-      await adminUserService.sendActions(userId, {
-        actions: ["VERIFY_EMAIL"],
-        sendEmail: true,
-      });
-      setNotice(`Wysłano link weryfikacji emaila do ${user.email}`);
-    } catch (err) {
-      setError(
-        err instanceof ApiRequestError
-          ? err.message
-          : "Nie udało się wysłać linku",
-      );
-    } finally {
-      setPendingAction(null);
-    }
-  }, [user, userId]);
 
   const logoutAll = useCallback(async () => {
     if (!user) return;
@@ -373,26 +344,6 @@ export function UserDetailClient({
           <Button
             variant="secondary"
             size="sm"
-            onClick={() => void sendPasswordReset()}
-            loading={pendingAction === "password"}
-            disabled={!user.email || !!pendingAction}
-            leftIcon={<KeyRound className="w-4 h-4" aria-hidden="true" />}
-          >
-            Reset hasła (email)
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => void sendVerifyEmail()}
-            loading={pendingAction === "verify"}
-            disabled={!user.email || !!pendingAction}
-            leftIcon={<Mail className="w-4 h-4" aria-hidden="true" />}
-          >
-            Weryfikuj email
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
             onClick={() => void logoutAll()}
             loading={pendingAction === "logout"}
             disabled={!!pendingAction}
@@ -454,6 +405,41 @@ export function UserDetailClient({
         />
       </section>
 
+      <section className="mb-6">
+        <div className="flex items-center gap-2 mb-3">
+          <KeyRound className="w-5 h-5 text-[var(--accent)]" aria-hidden="true" />
+          <h2 className="text-lg font-semibold text-[var(--text-main)]">
+            Bezpieczeństwo
+          </h2>
+        </div>
+        <SecurityPanel
+          userId={userId}
+          email={user.email}
+          emailVerified={user.emailVerified}
+          onUpdated={() => void refresh()}
+        />
+      </section>
+
+      <section className="mb-6">
+        <div className="flex items-center gap-2 mb-3">
+          <Link2 className="w-5 h-5 text-[var(--accent)]" aria-hidden="true" />
+          <h2 className="text-lg font-semibold text-[var(--text-main)]">
+            Integracje
+          </h2>
+        </div>
+        <IntegrationsPanel userId={userId} />
+      </section>
+
+      <section className="mb-6">
+        <div className="flex items-center gap-2 mb-3">
+          <Activity className="w-5 h-5 text-[var(--accent)]" aria-hidden="true" />
+          <h2 className="text-lg font-semibold text-[var(--text-main)]">
+            Logi aktywności
+          </h2>
+        </div>
+        <ActivityLog userId={userId} />
+      </section>
+
       <section>
         <div className="flex items-center gap-2 mb-3">
           <Pencil className="w-5 h-5 text-[var(--accent)]" aria-hidden="true" />
@@ -481,13 +467,24 @@ export function UserDetailClient({
                 }
               />
             </FieldWrapper>
-            <FieldWrapper id="pr-email" label="Email" className="md:col-span-2">
+            <FieldWrapper id="pr-email" label="Email">
               <Input
                 id="pr-email"
                 type="email"
                 value={profileDraft.email}
                 onChange={(e) =>
                   setProfileDraft((d) => ({ ...d, email: e.target.value }))
+                }
+              />
+            </FieldWrapper>
+            <FieldWrapper id="pr-phone" label="Telefon">
+              <Input
+                id="pr-phone"
+                type="tel"
+                placeholder="+48 ..."
+                value={profileDraft.phone}
+                onChange={(e) =>
+                  setProfileDraft((d) => ({ ...d, phone: e.target.value }))
                 }
               />
             </FieldWrapper>
@@ -501,6 +498,7 @@ export function UserDetailClient({
                   firstName: user.firstName ?? "",
                   lastName: user.lastName ?? "",
                   email: user.email ?? "",
+                  phone: user.attributes?.phone?.[0] ?? "",
                 })
               }
               disabled={!profileDirty || savingProfile}

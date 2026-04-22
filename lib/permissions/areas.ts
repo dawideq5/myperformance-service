@@ -140,6 +140,11 @@ export const AREAS: PermissionArea[] = [
     icon: "BookOpen",
     kcRoles: [
       {
+        name: "knowledge_viewer",
+        description: "Tylko do odczytu — może czytać artykuły bez edycji.",
+        priority: 5,
+      },
+      {
         name: "knowledge_user",
         description: "Dostęp do wiki (czytanie + pisanie).",
         priority: 10,

@@ -125,10 +125,20 @@ export async function POST(request: Request) {
         authenticatorSelection.authenticatorAttachment = attachment;
       }
 
+      // Explicit RP ID — must match the origin eTLD+1. Without it Safari
+      // intermittently rejects registration on subdomains (e.g. www.).
+      let rpId: string | undefined;
+      try {
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
+        if (appUrl) rpId = new URL(appUrl).hostname;
+      } catch {
+        /* fall through, browser defaults to origin */
+      }
+
       return createSuccessResponse({
         options: {
           challenge,
-          rp: { name: "MyPerformance" },
+          rp: rpId ? { name: "MyPerformance", id: rpId } : { name: "MyPerformance" },
           user: {
             id: Buffer.from(userId).toString("base64url"),
             name: userName,

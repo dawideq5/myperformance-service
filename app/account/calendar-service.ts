@@ -23,6 +23,8 @@ export interface GoogleSyncResponse {
   synced: number;
   total: number;
   events: CalendarEvent[];
+  needsReconnect?: boolean;
+  reason?: string;
 }
 
 export const calendarService = {

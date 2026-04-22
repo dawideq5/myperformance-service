@@ -59,6 +59,9 @@ interface UpdatePayload {
   firstName?: string;
   lastName?: string;
   email?: string;
+  emailVerified?: boolean;
+  /** Attribute values keyed by attr name. `null` removes the attribute. */
+  attributes?: Record<string, string[] | null>;
 }
 
 export async function PUT(req: Request, { params }: Ctx) {
@@ -98,6 +101,19 @@ export async function PUT(req: Request, { params }: Ctx) {
     if (body.firstName !== undefined) nextBody.firstName = body.firstName;
     if (body.lastName !== undefined) nextBody.lastName = body.lastName;
     if (body.email !== undefined) nextBody.email = body.email;
+    if (body.emailVerified !== undefined)
+      nextBody.emailVerified = body.emailVerified;
+    if (body.attributes && typeof body.attributes === "object") {
+      const merged = { ...(userData.attributes ?? {}) } as Record<
+        string,
+        string[]
+      >;
+      for (const [key, value] of Object.entries(body.attributes)) {
+        if (value === null) delete merged[key];
+        else if (Array.isArray(value)) merged[key] = value;
+      }
+      nextBody.attributes = merged;
+    }
 
     const res = await keycloak.adminRequest(`/users/${id}`, adminToken, {
       method: "PUT",
@@ -114,11 +130,17 @@ export async function PUT(req: Request, { params }: Ctx) {
       );
     }
 
-    if (body.enabled === false) {
+    // Instant-logout: kickuj wszystkie sesje gdy:
+    //   - konto zostało wyłączone,
+    //   - administrator unieważnił weryfikację emaila (security event).
+    const shouldKick =
+      body.enabled === false ||
+      (body.emailVerified === false && userData.emailVerified === true);
+    if (shouldKick) {
       await keycloak
         .adminRequest(`/users/${id}/logout`, adminToken, { method: "POST" })
         .catch((err) => {
-          console.warn("[admin/users PUT] logout after disable failed:", err);
+          console.warn("[admin/users PUT] forced logout failed:", err);
         });
     }
 

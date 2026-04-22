@@ -8,7 +8,7 @@ import { Alert, Button } from "@/components/ui";
 
 const ERROR_MESSAGES: Record<string, string> = {
   OAuthSignin: "Nie udało się rozpocząć logowania. Spróbuj ponownie.",
-  OAuthCallback: "Keycloak zwrócił błąd podczas logowania. Spróbuj ponownie.",
+  OAuthCallback: "Serwer autoryzacji zwrócił błąd podczas logowania. Spróbuj ponownie.",
   OAuthCreateAccount: "Nie udało się utworzyć konta z danych dostawcy.",
   Callback: "Nie udało się zakończyć procesu logowania.",
   AccessDenied: "Nie masz uprawnień do tej aplikacji.",
@@ -58,7 +58,7 @@ function LoginContent() {
             Witaj z powrotem
           </h2>
           <p className="text-sm text-[var(--text-muted)] mt-1 mb-6">
-            Zaloguj się bezpiecznie przez Keycloak
+            Zaloguj się przez MyPerformance ID
           </p>
 
           {errorMessage && (

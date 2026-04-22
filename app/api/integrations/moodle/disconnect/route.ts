@@ -32,7 +32,7 @@ export async function POST() {
 
   const update = await keycloak.adminRequest(`/users/${userId}`, serviceToken, {
     method: "PUT",
-    body: JSON.stringify({ attributes: attrs }),
+    body: JSON.stringify({ ...user, attributes: attrs }),
   });
   if (!update.ok) {
     return NextResponse.json({ error: "user_update_failed" }, { status: 502 });

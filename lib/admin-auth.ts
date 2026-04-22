@@ -55,6 +55,7 @@ export const ROLES = {
   MOODLE_ADMIN: "moodle_manager",
 
   // Knowledge base (Outline wiki — procedury, zasady)
+  KNOWLEDGE_VIEWER: "knowledge_viewer",
   KNOWLEDGE_USER: "knowledge_user",
   KNOWLEDGE_ADMIN: "knowledge_admin",
 } as const;
@@ -94,6 +95,7 @@ export const ROLE_CATALOG: RoleSpec[] = [
   { name: ROLES.MOODLE_TEACHER, description: "Moodle: editing teacher (tworzenie kursów, ocenianie, raporty)", default: false },
   { name: ROLES.MOODLE_ADMIN, description: "Moodle: manager (konfiguracja instancji, użytkownicy, pluginy)", default: false },
 
+  { name: ROLES.KNOWLEDGE_VIEWER, description: "Baza wiedzy (Outline): tylko do odczytu — bez możliwości edycji", default: false },
   { name: ROLES.KNOWLEDGE_USER, description: "Baza wiedzy (Outline): czytanie i tworzenie artykułów procedur i zasad", default: true },
   { name: ROLES.KNOWLEDGE_ADMIN, description: "Baza wiedzy (Outline): administrator (kolekcje, użytkownicy, integracje)", default: false },
 ];

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   BookOpen,
@@ -29,6 +29,8 @@ import {
   permissionAreaService,
   type AreaSummary,
 } from "@/app/account/account-service";
+
+const DEFAULT_AREA_IDS = new Set(["core", "kadromierz", "knowledge"]);
 
 const ICON_MAP: Record<string, LucideIcon> = {
   MessageSquare,
@@ -120,6 +122,15 @@ export function PermissionsPanel({ userId, onChanged }: PermissionsPanelProps) {
     [userId, onChanged],
   );
 
+  const defaultAreas = useMemo(
+    () => areas.filter((a) => DEFAULT_AREA_IDS.has(a.id)),
+    [areas],
+  );
+  const appAreas = useMemo(
+    () => areas.filter((a) => !DEFAULT_AREA_IDS.has(a.id)),
+    [areas],
+  );
+
   if (loading) {
     return (
       <Card padding="md">
@@ -134,9 +145,7 @@ export function PermissionsPanel({ userId, onChanged }: PermissionsPanelProps) {
     return <Alert tone="error">{error}</Alert>;
   }
 
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-      {areas.map((a) => {
+  const renderArea = (a: AreaSummary) => {
         const Icon = ICON_MAP[a.icon ?? ""] ?? Shield;
         const st = state[a.id] ?? { current: null, saving: false };
         const offline = a.provider === "native" && !a.nativeConfigured;
@@ -233,7 +242,46 @@ export function PermissionsPanel({ userId, onChanged }: PermissionsPanelProps) {
             </div>
           </Card>
         );
-      })}
+  };
+
+  return (
+    <div className="space-y-6">
+      {defaultAreas.length > 0 && (
+        <section>
+          <div className="flex items-center gap-2 mb-2">
+            <LogIn className="w-4 h-4 text-[var(--text-muted)]" aria-hidden="true" />
+            <h3 className="text-sm font-semibold text-[var(--text-main)]">
+              Podstawowe uprawnienia
+            </h3>
+            <Badge tone="neutral">auto-przypisane przy logowaniu</Badge>
+          </div>
+          <p className="text-xs text-[var(--text-muted)] mb-3">
+            Role domyślne — każdy użytkownik po aktywacji konta otrzymuje je
+            automatycznie. Można je nadpisać indywidualnie.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {defaultAreas.map(renderArea)}
+          </div>
+        </section>
+      )}
+
+      {appAreas.length > 0 && (
+        <section>
+          <div className="flex items-center gap-2 mb-2">
+            <ShieldCheck className="w-4 h-4 text-[var(--text-muted)]" aria-hidden="true" />
+            <h3 className="text-sm font-semibold text-[var(--text-main)]">
+              Uprawnienia w aplikacjach
+            </h3>
+          </div>
+          <p className="text-xs text-[var(--text-muted)] mb-3">
+            Wybierz rolę startową w każdej aplikacji. Zmiany są synchronizowane
+            natychmiast do Keycloaka i natywnego systemu (gdy provider dostępny).
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {appAreas.map(renderArea)}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

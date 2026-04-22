@@ -325,11 +325,28 @@ export const adminUserService = {
       firstName?: string;
       lastName?: string;
       email?: string;
+      emailVerified?: boolean;
+      attributes?: Record<string, string[] | null>;
     },
   ) =>
     api.put<{ ok: boolean }, typeof payload>(
       `/api/admin/users/${encodeURIComponent(id)}`,
       payload,
+    ),
+
+  listEvents: (id: string, max = 50) =>
+    api.get<{
+      events: Array<{
+        kind: "user" | "admin";
+        type: string;
+        time: number | null;
+        clientId: string | null;
+        ipAddress: string | null;
+        error: string | null;
+        details: Record<string, unknown>;
+      }>;
+    }>(
+      `/api/admin/users/${encodeURIComponent(id)}/events?max=${max}`,
     ),
 
   remove: (id: string) =>
