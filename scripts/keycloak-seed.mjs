@@ -72,6 +72,9 @@ const ROLES = [
   { name: "moodle_teacher",      description: "Moodle: nauczyciel (kursy, ocenianie, raporty)",       default: false },
   { name: "moodle_admin",        description: "Moodle: administrator instancji (konfig, pluginy)",    default: false },
 
+  { name: "knowledge_user",      description: "Baza wiedzy (Outline): czytanie i edycja artykułów",   default: true  },
+  { name: "knowledge_admin",     description: "Baza wiedzy (Outline): administrator",                 default: false },
+
   // panel realm-roles — used by both the mTLS panels and dashboard gating
   { name: "sprzedawca",          description: "Dostęp do panelu sprzedawcy",                           default: false },
   { name: "sprzedawca_admin",    description: "Administrator panelu sprzedawcy",                       default: false },
@@ -181,6 +184,17 @@ const CLIENTS = [
     ],
     webOrigins: ["https://moodle.myperformance.pl"],
     description: "Moodle LMS — OIDC login via auth_oidc plugin; role→capability mapping set w Moodle admin",
+  },
+  {
+    clientId: "outline", name: "Outline (baza wiedzy)",
+    publicClient: false, standardFlow: true,
+    rootUrl: "https://knowledge.myperformance.pl",
+    redirectUris: [
+      "https://knowledge.myperformance.pl/auth/oidc.callback",
+      "https://knowledge.myperformance.pl/auth/oidc.callback*",
+    ],
+    webOrigins: ["https://knowledge.myperformance.pl"],
+    description: "Outline wiki — natywne OIDC; claim preferred_username mapuje użytkownika",
   },
 
   // Virtual clients — no SSO login flow, exist for Directus clients seed + RBAC readability

@@ -52,6 +52,10 @@ export const ROLES = {
   MOODLE_STUDENT: "moodle_student",
   MOODLE_TEACHER: "moodle_teacher",
   MOODLE_ADMIN: "moodle_admin",
+
+  // Knowledge base (Outline wiki — procedury, zasady)
+  KNOWLEDGE_USER: "knowledge_user",
+  KNOWLEDGE_ADMIN: "knowledge_admin",
 } as const;
 
 export type AppRole = (typeof ROLES)[keyof typeof ROLES];
@@ -88,6 +92,9 @@ export const ROLE_CATALOG: RoleSpec[] = [
   { name: ROLES.MOODLE_STUDENT, description: "Moodle: uczeń (kursy, szkolenia przypisane do konta)", default: false },
   { name: ROLES.MOODLE_TEACHER, description: "Moodle: nauczyciel (tworzenie kursów, ocenianie, raporty)", default: false },
   { name: ROLES.MOODLE_ADMIN, description: "Moodle: administrator (konfiguracja instancji, użytkownicy, pluginy)", default: false },
+
+  { name: ROLES.KNOWLEDGE_USER, description: "Baza wiedzy (Outline): czytanie i tworzenie artykułów procedur i zasad", default: true },
+  { name: ROLES.KNOWLEDGE_ADMIN, description: "Baza wiedzy (Outline): administrator (kolekcje, użytkownicy, integracje)", default: false },
 ];
 
 /**
@@ -214,6 +221,18 @@ export function canAccessMoodleAsAdmin(
   session: Session | null | undefined,
 ): boolean {
   return hasRole(session, ROLES.MOODLE_ADMIN);
+}
+
+export function canAccessKnowledgeBase(
+  session: Session | null | undefined,
+): boolean {
+  return hasRole(session, ROLES.KNOWLEDGE_USER);
+}
+
+export function canAccessKnowledgeAdmin(
+  session: Session | null | undefined,
+): boolean {
+  return hasRole(session, ROLES.KNOWLEDGE_ADMIN);
 }
 
 export function canAccessKeycloakAdmin(

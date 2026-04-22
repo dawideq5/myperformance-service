@@ -4,6 +4,7 @@ import { Suspense, useEffect } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import {
+  BookMarked,
   Briefcase,
   Calendar,
   Clock,
@@ -39,6 +40,7 @@ import {
   canAccessDocumensoAsUser,
   canAccessKadromierz,
   canAccessKeycloakAdmin,
+  canAccessKnowledgeBase,
   canAccessMoodleAsAdmin,
   canAccessMoodleAsStudent,
   canAccessMoodleAsTeacher,
@@ -98,6 +100,7 @@ function TileGrid() {
   const showMoodleStudent = canAccessMoodleAsStudent(session);
   const showMoodleTeacher = canAccessMoodleAsTeacher(session);
   const showMoodleAdmin = canAccessMoodleAsAdmin(session);
+  const showKnowledge = canAccessKnowledgeBase(session);
   const showChatwootAgent = canAccessChatwootAsAgent(session);
   const showChatwootAdmin = canAccessChatwootAsAdmin(session);
   const showPostal = canAccessPostal(session);
@@ -113,6 +116,7 @@ function TileGrid() {
     showCalendar || showKadromierz || showDirectus ||
     showDocumensoUser || showDocumensoHandler || showDocumensoAdmin ||
     showMoodleStudent || showMoodleTeacher || showMoodleAdmin ||
+    showKnowledge ||
     showChatwootAgent || showChatwootAdmin || showPostal || showKeycloak ||
     showStepCa || showCerts || showUsers || showSprzedawca ||
     showSerwisant || showKierowca;
@@ -317,6 +321,16 @@ function TileGrid() {
             title="Akademia — administrator"
             description="Konfiguracja instancji, użytkownicy, pluginy, role (Moodle)"
             href="https://moodle.myperformance.pl/admin/"
+          />
+        )}
+
+        {showKnowledge && (
+          <ExternalTile
+            icon={<BookMarked className="w-7 h-7 text-teal-400" aria-hidden="true" />}
+            iconBg="bg-teal-500/10"
+            title="Baza wiedzy"
+            description="Procedury, zasady, how-to — wewnętrzna wiki zespołu (Outline)"
+            href="https://knowledge.myperformance.pl"
           />
         )}
 
