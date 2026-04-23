@@ -5,31 +5,33 @@ import { signIn } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Calendar,
-  CheckCircle2,
+  Check,
   ChevronRight,
   Clock,
+  GraduationCap,
   Globe,
   Info,
   Settings,
-  Shield as ShieldIcon,
-  ShieldCheck,
   X,
 } from "lucide-react";
 
 import {
   Alert,
+  Badge,
   Button,
   Card,
   CardHeader,
-  Checkbox,
-  Dialog,
   Input,
 } from "@/components/ui";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { ApiRequestError } from "@/lib/api-client";
 
 import { useAccount } from "../AccountProvider";
-import { googleService, kadromierzService } from "../account-service";
+import {
+  googleService,
+  kadromierzService,
+  moodleService,
+} from "../account-service";
 
 const ERROR_MESSAGES: Record<string, string> = {
   access_denied:
@@ -46,17 +48,165 @@ function resolveErrorMessage(code: string | null): string | null {
   return ERROR_MESSAGES[code] ?? `Błąd: ${code}`;
 }
 
+type TileStatus =
+  | { tone: "ok"; label: string }
+  | { tone: "warning"; label: string }
+  | { tone: "idle"; label: string };
+
+/**
+ * A single integration card with a unified layout: icon + title + status +
+ * primary action ("Skonfiguruj" / "Odłącz"). Children render any
+ * integration-specific body (feature list, feedback, secondary forms).
+ */
+function IntegrationTile({
+  title,
+  description,
+  icon,
+  iconBg,
+  connected,
+  status,
+  configureLabel = "Skonfiguruj",
+  disconnectLabel = "Odłącz",
+  onConfigure,
+  onDisconnect,
+  configuring,
+  disconnecting,
+  canConfigure = true,
+  canDisconnect = true,
+  secondary,
+  children,
+}: {
+  title: string;
+  description: string;
+  icon: React.ReactNode;
+  iconBg: string;
+  connected: boolean;
+  status?: TileStatus;
+  configureLabel?: string;
+  disconnectLabel?: string;
+  onConfigure?: () => void;
+  onDisconnect?: () => void;
+  configuring?: boolean;
+  disconnecting?: boolean;
+  canConfigure?: boolean;
+  canDisconnect?: boolean;
+  secondary?: React.ReactNode;
+  children?: React.ReactNode;
+}) {
+  const [confirming, setConfirming] = useState(false);
+
+  useEffect(() => {
+    if (!connected) setConfirming(false);
+  }, [connected]);
+
+  const toneClass =
+    status?.tone === "ok"
+      ? "text-green-500"
+      : status?.tone === "warning"
+        ? "text-yellow-500"
+        : "text-[var(--text-muted)]";
+
+  return (
+    <Card padding="md">
+      <CardHeader
+        icon={icon}
+        iconBgClassName={iconBg}
+        title={title}
+        description={
+          status ? (
+            <span className={toneClass}>{status.label}</span>
+          ) : (
+            description
+          )
+        }
+        action={
+          connected ? (
+            confirming ? (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-[var(--text-muted)]">
+                  Na pewno?
+                </span>
+                <Button
+                  variant="danger"
+                  size="sm"
+                  loading={disconnecting}
+                  onClick={() => {
+                    if (onDisconnect) onDisconnect();
+                  }}
+                  disabled={!canDisconnect}
+                >
+                  Tak, odłącz
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setConfirming(false)}
+                  disabled={disconnecting}
+                >
+                  Anuluj
+                </Button>
+              </div>
+            ) : (
+              <Button
+                variant="secondary"
+                leftIcon={<X className="w-4 h-4" aria-hidden="true" />}
+                onClick={() => setConfirming(true)}
+                className="border-red-500/30 text-red-500 hover:bg-red-500/10"
+                disabled={!canDisconnect}
+              >
+                {disconnectLabel}
+              </Button>
+            )
+          ) : (
+            <Button
+              loading={configuring}
+              rightIcon={
+                !configuring && (
+                  <ChevronRight className="w-4 h-4" aria-hidden="true" />
+                )
+              }
+              onClick={onConfigure}
+              disabled={!canConfigure || !onConfigure}
+            >
+              {configureLabel}
+            </Button>
+          )
+        }
+      />
+      {(description || secondary || children) && (
+        <div className="mt-6 space-y-4">
+          {status && (
+            <p className="text-sm text-[var(--text-muted)]">{description}</p>
+          )}
+          {secondary}
+          {children}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 export function IntegrationsTab() {
-  const { googleStatus, setGoogleConnected, refetchProfile, refetchGoogleStatus } =
-    useAccount();
+  return (
+    <div className="space-y-6">
+      <GoogleCard />
+      <KadromierzCard />
+      <MoodleCard />
+    </div>
+  );
+}
+
+function GoogleCard() {
+  const {
+    googleStatus,
+    setGoogleConnected,
+    refetchProfile,
+    refetchGoogleStatus,
+  } = useAccount();
   const googleConnected = googleStatus?.connected === true;
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const [modalOpen, setModalOpen] = useState(false);
-  const [featureEmail, setFeatureEmail] = useState(true);
-  const [featureCalendar, setFeatureCalendar] = useState(true);
-  const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -114,24 +264,9 @@ export function IntegrationsTab() {
     })();
   }, [searchParams, router, refetchGoogleStatus, refetchProfile]);
 
-  const handleOpenModal = useCallback(() => {
-    setError(null);
-    setSuccess(null);
-    setFeatureEmail(true);
-    setFeatureCalendar(true);
-    setModalOpen(true);
-  }, []);
-
-  const connectAction = useAsyncAction(
+  const configureAction = useAsyncAction(
     async () => {
-      const features: string[] = [];
-      if (featureEmail) features.push("email_verification");
-      if (featureCalendar) features.push("calendar");
-      if (features.length === 0) {
-        throw new Error("Zaznacz przynajmniej jedną funkcję.");
-      }
-      await googleService.saveFeatures(features);
-      setModalOpen(false);
+      await googleService.saveFeatures(["email_verification", "calendar"]);
       await signIn(
         "keycloak",
         {
@@ -165,248 +300,82 @@ export function IntegrationsTab() {
         setGoogleConnected(false);
         setSuccess(null);
         setError(null);
-        setConfirmingDisconnect(false);
         void refetchGoogleStatus();
         void refetchProfile();
       },
     },
   );
 
-  const handleDisconnect = useCallback(() => {
-    if (confirmingDisconnect) {
-      disconnectAction.run();
-    } else {
-      setConfirmingDisconnect(true);
-    }
-  }, [confirmingDisconnect, disconnectAction]);
-
   const errorMessage = resolveErrorMessage(error);
 
   return (
-    <div className="space-y-6">
-      <Card padding="md">
-        <CardHeader
-          icon={<Globe className="w-6 h-6" aria-hidden="true" />}
-          iconBgClassName={
-            googleConnected
-              ? "bg-green-500/10 text-green-500"
-              : "bg-[var(--accent)]/10 text-[var(--accent)]"
-          }
-          title="Konto Google"
-          description={
-            googleConnected ? (
-              <span className="text-green-500">Połączone</span>
-            ) : (
-              "Niepołączone"
-            )
-          }
-          action={
-            !googleConnected ? (
-              <Button
-                loading={connectAction.pending}
-                rightIcon={
-                  !connectAction.pending && (
-                    <ChevronRight className="w-4 h-4" aria-hidden="true" />
-                  )
-                }
-                onClick={handleOpenModal}
-              >
-                Połącz
-              </Button>
-            ) : confirmingDisconnect ? (
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-[var(--text-muted)]">
-                  Na pewno?
-                </span>
-                <Button
-                  variant="danger"
-                  size="sm"
-                  loading={disconnectAction.pending}
-                  onClick={handleDisconnect}
-                >
-                  Tak, odłącz
-                </Button>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => setConfirmingDisconnect(false)}
-                  disabled={disconnectAction.pending}
-                >
-                  Anuluj
-                </Button>
-              </div>
-            ) : (
-              <Button
-                variant="secondary"
-                leftIcon={<X className="w-4 h-4" aria-hidden="true" />}
-                loading={disconnectAction.pending}
-                onClick={handleDisconnect}
-                className="border-red-500/30 text-red-500 hover:bg-red-500/10"
-              >
-                Odłącz
-              </Button>
-            )
-          }
-        />
-
-        <div className="mt-6 space-y-4">
+    <IntegrationTile
+      title="Konto Google"
+      description="Logowanie, weryfikacja e-maila i Google Calendar w jednym kafelku."
+      icon={<Globe className="w-6 h-6" aria-hidden="true" />}
+      iconBg={
+        googleConnected
+          ? "bg-green-500/10 text-green-500"
+          : "bg-[var(--accent)]/10 text-[var(--accent)]"
+      }
+      connected={googleConnected}
+      status={
+        googleConnected
+          ? { tone: "ok", label: "Połączone" }
+          : { tone: "idle", label: "Niepołączone" }
+      }
+      configureLabel="Skonfiguruj"
+      disconnectLabel="Odłącz"
+      onConfigure={() => void configureAction.run()}
+      onDisconnect={() => void disconnectAction.run()}
+      configuring={configureAction.pending}
+      disconnecting={disconnectAction.pending}
+      secondary={
+        <>
           {errorMessage && (
             <Alert tone="error" title="Błąd połączenia">
               {errorMessage}
             </Alert>
           )}
-
           {success && (
-            <Alert tone="success" title="Połączenie zakończone powodzeniem">
+            <Alert tone="success" title="Sukces">
               {success}
             </Alert>
           )}
-
           {googleConnected && !success && (
             <Alert tone="success" title="Konto Google jest połączone">
-              Twoje konto Google zostało pomyślnie powiązane z systemem
-              MyPerformance.
+              Masz aktywny dostęp do Gmail-verify oraz Google Calendar.
             </Alert>
           )}
-
-          <div className="space-y-4">
-            <h3 className="text-sm font-medium text-[var(--text-main)]">
-              Dostępne uprawnienia i funkcje
-            </h3>
-            <FeatureRow
-              icon={
-                <ShieldCheck
-                  className="w-5 h-5 text-green-500"
-                  aria-hidden="true"
-                />
-              }
-              iconBg="bg-green-500/10"
-              title="Weryfikacja adresu email"
-              desc="Potwierdzanie, że Twoje konto w systemie MyPerformance jest powiązane ze zweryfikowaną tożsamością Google."
-            />
-            <FeatureRow
-              icon={
-                <Calendar
-                  className="w-5 h-5 text-blue-500"
-                  aria-hidden="true"
-                />
-              }
-              iconBg="bg-blue-500/10"
-              title="Kalendarz Google"
-              desc="Tworzenie i odczytywanie wydarzeń w Twoim kalendarzu. Po połączeniu zyskujesz zakładkę Kalendarz z synchronizacją."
-            />
-          </div>
-
-          <div className="p-4 bg-[var(--bg-main)] border border-[var(--border-subtle)] rounded-xl">
-            <h3 className="text-sm font-medium text-[var(--text-main)] mb-3 flex items-center gap-2">
-              <ShieldIcon
-                className="w-4 h-4 text-[var(--accent)]"
-                aria-hidden="true"
-              />
-              Czego NIE może robić system
-            </h3>
-            <ul className="space-y-2 text-sm text-[var(--text-muted)]">
-              {[
-                "Przeglądać lub czytać Twoje wiadomości email",
-                "Wysyłać wiadomości w Twoim imieniu",
-                "Usuwać wydarzeń z Twojego kalendarza Google",
-                "Przeglądać Twoje pliki na Dysku Google",
-                "Modyfikować ustawień konta Google poza uprawnieniami",
-              ].map((item) => (
-                <li key={item} className="flex items-start gap-2">
-                  <X
-                    className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5"
-                    aria-hidden="true"
-                  />
-                  <span>{item}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          <div className="p-4 bg-blue-500/5 border border-blue-500/10 rounded-xl">
-            <div className="flex items-start gap-3">
-              <Info
-                className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5"
-                aria-hidden="true"
-              />
-              <div>
-                <h4 className="text-sm font-medium text-blue-400 mb-1">
-                  Bezpieczeństwo i prywatność
-                </h4>
-                <p className="text-xs text-[var(--text-muted)]">
-                  System działa na zasadzie{" "}
-                  <strong>zasady najmniejszego przywileju</strong> — ma dostęp
-                  wyłącznie do funkcji niezbędnych do działania. Dostęp możesz
-                  w każdej chwili odwołać klikając przycisk &quot;Odłącz&quot;.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {googleConnected && (
-            <div className="p-4 bg-[var(--bg-main)] border border-[var(--border-subtle)] rounded-xl">
-              <h4 className="text-sm font-medium text-[var(--text-main)] mb-2 flex items-center gap-2">
-                <Settings className="w-4 h-4" aria-hidden="true" />
-                Problemy z połączeniem?
-              </h4>
-              <p className="text-xs text-[var(--text-muted)]">
-                Jeśli operacja się nie powiedzie (np. token wygasł lub
-                odłączyłeś aplikację w ustawieniach Google), odłącz i ponownie
-                połącz konto Google używając przycisku powyżej.
-              </p>
-            </div>
-          )}
-        </div>
-      </Card>
-
-      <KadromierzCard />
-
-      <Dialog
-        open={modalOpen}
-        onClose={() => setModalOpen(false)}
-        title="Wybierz funkcje integracji Google"
-        description="Google poprosi o wszystkie te uprawnienia na ekranie zgody. Możesz odznaczyć te, których nie chcesz udzielić."
-        size="md"
-        footer={
-          <>
-            <Button
-              variant="secondary"
-              onClick={() => setModalOpen(false)}
-              disabled={connectAction.pending}
-            >
-              Anuluj
-            </Button>
-            <Button
-              loading={connectAction.pending}
-              onClick={() => void connectAction.run()}
-            >
-              Połącz
-            </Button>
-          </>
-        }
-      >
-        <div className="space-y-4">
-          <Checkbox
-            checked={featureEmail}
-            onChange={(e) => setFeatureEmail(e.target.checked)}
-            label="Weryfikacja email"
-            description="Potwierdź swój email przez Google (automatycznie oznacza email jako zweryfikowany)"
+        </>
+      }
+    >
+      <FeatureRow
+        title="Weryfikacja adresu e-mail"
+        desc="Potwierdzamy, że konto jest powiązane z zweryfikowaną tożsamością Google."
+      />
+      <FeatureRow
+        title="Google Calendar"
+        desc="Dwukierunkowa synchronizacja wydarzeń z Twoim kalendarzem Google."
+      />
+      <div className="p-4 bg-blue-500/5 border border-blue-500/10 rounded-xl">
+        <div className="flex items-start gap-3">
+          <Info
+            className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5"
+            aria-hidden="true"
           />
-          <Checkbox
-            checked={featureCalendar}
-            onChange={(e) => setFeatureCalendar(e.target.checked)}
-            label="Kalendarz Google"
-            description="Przeglądaj i twórz wydarzenia w Twoim Google Calendar z poziomu MyPerformance"
-          />
-        </div>
-        {connectAction.error && (
-          <div className="mt-4">
-            <Alert tone="error">{connectAction.error}</Alert>
+          <div>
+            <h4 className="text-sm font-medium text-blue-400 mb-1">
+              Bezpieczeństwo i prywatność
+            </h4>
+            <p className="text-xs text-[var(--text-muted)]">
+              Zasada najmniejszego przywileju — brak dostępu do poczty,
+              plików czy ustawień konta Google poza zakresem integracji.
+            </p>
           </div>
-        )}
-      </Dialog>
-    </div>
+        </div>
+      </div>
+    </IntegrationTile>
   );
 }
 
@@ -414,11 +383,10 @@ function KadromierzCard() {
   const { kadromierzStatus, refetchKadromierzStatus, setKadromierzStatus } =
     useAccount();
   const [apiKey, setApiKey] = useState("");
+  const [showManualFallback, setShowManualFallback] = useState(false);
   const [feedback, setFeedback] = useState<
     { tone: "success" | "error"; message: string } | null
   >(null);
-  const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
-  const [showManualFallback, setShowManualFallback] = useState(false);
 
   const connected = kadromierzStatus?.connected === true;
   const stale = kadromierzStatus?.stale === true;
@@ -467,121 +435,116 @@ function KadromierzCard() {
     {
       onSuccess: () => {
         setKadromierzStatus({ connected: false });
-        setConfirmingDisconnect(false);
         setFeedback(null);
         void refetchKadromierzStatus();
       },
     },
   );
 
+  const statusLabel: TileStatus = connected
+    ? {
+        tone: "ok",
+        label: kadromierzStatus?.email
+          ? `Połączone — ${kadromierzStatus.email}`
+          : "Połączone",
+      }
+    : masterMode
+      ? { tone: "idle", label: "Niepołączone" }
+      : { tone: "warning", label: "Firmowy token nieskonfigurowany" };
+
+  const canConfigure = !connected && (masterMode || showManualFallback);
+
   return (
-    <Card padding="md">
-      <CardHeader
-        icon={<Clock className="w-6 h-6" aria-hidden="true" />}
-        iconBgClassName={
-          connected
-            ? "bg-green-500/10 text-green-500"
-            : "bg-orange-500/10 text-orange-500"
-        }
-        title="Kadromierz"
-        description={
-          connected ? (
-            <span className="text-green-500">
-              Połączone
-              {kadromierzStatus?.email ? ` — ${kadromierzStatus.email}` : ""}
-            </span>
-          ) : (
-            "Niepołączone"
-          )
-        }
-        action={
-          connected ? (
-            confirmingDisconnect ? (
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-[var(--text-muted)]">
-                  Na pewno?
-                </span>
-                <Button
-                  variant="danger"
-                  size="sm"
-                  loading={disconnectAction.pending}
-                  onClick={() => void disconnectAction.run()}
-                >
-                  Tak, odłącz
+    <IntegrationTile
+      title="Kadromierz"
+      description="Grafik pracy, przerwy i ewidencja czasu — podpięte do kalendarza."
+      icon={<Clock className="w-6 h-6" aria-hidden="true" />}
+      iconBg={
+        connected
+          ? "bg-green-500/10 text-green-500"
+          : "bg-orange-500/10 text-orange-500"
+      }
+      connected={connected}
+      status={statusLabel}
+      configureLabel={
+        masterMode && !showManualFallback
+          ? "Skonfiguruj"
+          : "Połącz kluczem API"
+      }
+      onConfigure={
+        masterMode && !showManualFallback
+          ? () => void connectAction.run()
+          : () => void connectAction.run()
+      }
+      onDisconnect={() => void disconnectAction.run()}
+      configuring={connectAction.pending}
+      disconnecting={disconnectAction.pending}
+      canConfigure={canConfigure && (emailVerified || showManualFallback)}
+      secondary={
+        <>
+          {stale && (
+            <Alert tone="warning" title="Sprawdź konto Kadromierz">
+              Kadromierz odpowiada nieoczekiwanie. Jeśli problem się powtórzy,
+              odłącz i połącz konto ponownie.
+            </Alert>
+          )}
+          {feedback && <Alert tone={feedback.tone}>{feedback.message}</Alert>}
+
+          {!connected && !emailVerified && (
+            <Alert tone="warning" title="Wymagana weryfikacja e-maila">
+              Zanim połączymy konto, potwierdź swój adres e-mail. Zapytaj
+              administratora o ponowne wysłanie linku weryfikacyjnego lub
+              sprawdź skrzynkę.
+            </Alert>
+          )}
+
+          {!connected && !masterMode && !showManualFallback && (
+            <Alert tone="info" title="Integracja w konfiguracji">
+              Administrator nie skonfigurował jeszcze firmowego tokenu
+              Kadromierza. Skontaktuj się z osobą zarządzającą systemem —
+              gdy token zostanie ustawiony, podłączenie zajmie jedno
+              kliknięcie.
+            </Alert>
+          )}
+
+          {!connected && showManualFallback && (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void connectAction.run();
+              }}
+              className="space-y-3"
+            >
+              <Input
+                label="Osobisty klucz API Kadromierza"
+                type="password"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="ddafc758-9737-4807-..."
+                disabled={connectAction.pending}
+                autoComplete="off"
+                required
+              />
+              <p className="text-xs text-[var(--text-muted)]">
+                Klucz znajdziesz w ustawieniach swojego konta Kadromierz
+                (Profil → Tokeny API). Przechowujemy go zaszyfrowany w
+                atrybutach Keycloaka i używamy wyłącznie po stronie serwera.
+              </p>
+              <div className="flex gap-2">
+                <Button type="submit" loading={connectAction.pending}>
+                  Połącz
                 </Button>
                 <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => setConfirmingDisconnect(false)}
-                  disabled={disconnectAction.pending}
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setShowManualFallback(false)}
                 >
-                  Anuluj
+                  Wróć
                 </Button>
               </div>
-            ) : (
-              <Button
-                variant="secondary"
-                leftIcon={<X className="w-4 h-4" aria-hidden="true" />}
-                onClick={() => setConfirmingDisconnect(true)}
-                className="border-red-500/30 text-red-500 hover:bg-red-500/10"
-              >
-                Odłącz
-              </Button>
-            )
-          ) : null
-        }
-      />
-
-      <div className="mt-6 space-y-4">
-        {stale && (
-          <Alert tone="warning" title="Sprawdź konto Kadromierz">
-            Kadromierz odpowiada nieoczekiwanie. Jeśli problem się powtórzy,
-            odłącz i połącz konto ponownie.
-          </Alert>
-        )}
-
-        {feedback && (
-          <Alert tone={feedback.tone}>{feedback.message}</Alert>
-        )}
-
-        {!connected && !showManualFallback && (
-          <div className="space-y-3">
-            {!emailVerified && (
-              <Alert tone="warning" title="Wymagana weryfikacja emaila">
-                Zanim połączymy konto, potwierdź swój adres email. Zapytaj
-                admina o ponowne wysłanie linku weryfikacyjnego lub sprawdź
-                skrzynkę.
-              </Alert>
-            )}
-            {masterMode ? (
-              <>
-                <p className="text-sm text-[var(--text-muted)]">
-                  Firmowy token Kadromierza jest skonfigurowany po stronie
-                  serwera. Dopasujemy Cię po zweryfikowanym emailu z konta
-                  MyPerformance. Wystarczy jedno kliknięcie — bez ręcznego
-                  kopiowania klucza.
-                </p>
-                <Button
-                  onClick={() => void connectAction.run()}
-                  loading={connectAction.pending}
-                  disabled={!emailVerified}
-                  rightIcon={
-                    !connectAction.pending && (
-                      <ChevronRight className="w-4 h-4" aria-hidden="true" />
-                    )
-                  }
-                >
-                  Połącz z Kadromierzem
-                </Button>
-              </>
-            ) : (
-              <Alert tone="info" title="Integracja w konfiguracji">
-                Administrator nie skonfigurował jeszcze firmowego tokenu
-                Kadromierza. Skontaktuj się z osobą zarządzającą systemem —
-                gdy token zostanie ustawiony, podłączenie zajmie jedno
-                kliknięcie.
-              </Alert>
-            )}
+            </form>
+          )}
+          {!connected && !showManualFallback && (
             <button
               type="button"
               onClick={() => setShowManualFallback(true)}
@@ -589,114 +552,151 @@ function KadromierzCard() {
             >
               Mam własny osobisty klucz API Kadromierza →
             </button>
-          </div>
-        )}
-
-        {!connected && showManualFallback && (
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void connectAction.run();
-            }}
-            className="space-y-3"
-          >
-            <Input
-              label="Osobisty klucz API Kadromierza"
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="ddafc758-9737-4807-..."
-              disabled={connectAction.pending}
-              autoComplete="off"
-              required
-            />
-            <p className="text-xs text-[var(--text-muted)]">
-              Klucz znajdziesz w ustawieniach swojego konta Kadromierz
-              (Profil → Tokeny API). Przechowujemy go zaszyfrowany w atrybutach
-              Keycloak i używamy wyłącznie po stronie serwera.
-            </p>
-            <div className="flex gap-2">
-              <Button
-                type="submit"
-                loading={connectAction.pending}
-                rightIcon={
-                  !connectAction.pending && (
-                    <ChevronRight className="w-4 h-4" aria-hidden="true" />
-                  )
-                }
-              >
-                Połącz z Kadromierzem
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => setShowManualFallback(false)}
-              >
-                Wróć
-              </Button>
-            </div>
-          </form>
-        )}
-
-        {connected && (
-          <div className="space-y-3">
-            <FeatureRow
-              icon={
-                <Clock
-                  className="w-5 h-5 text-orange-500"
-                  aria-hidden="true"
-                />
-              }
-              iconBg="bg-orange-500/10"
-              title="Start / Przerwa / Koniec pracy"
-              desc="Rejestruj czas pracy jednym kliknięciem z widżetu na dashboardzie."
-            />
-            <FeatureRow
-              icon={
-                <Calendar
-                  className="w-5 h-5 text-blue-500"
-                  aria-hidden="true"
-                />
-              }
-              iconBg="bg-blue-500/10"
-              title="Grafik w kalendarzu"
-              desc="Twoje zaplanowane zmiany pojawiają się automatycznie w kalendarzu MyPerformance."
-            />
-          </div>
-        )}
-      </div>
-    </Card>
+          )}
+        </>
+      }
+    >
+      <FeatureRow
+        title="Start / Przerwa / Koniec pracy"
+        desc="Rejestruj czas pracy jednym kliknięciem z widżetu na dashboardzie."
+      />
+      <FeatureRow
+        title="Grafik w kalendarzu"
+        desc="Twoje zaplanowane zmiany pojawiają się automatycznie w kalendarzu MyPerformance."
+      />
+    </IntegrationTile>
   );
 }
 
-function FeatureRow({
-  icon,
-  iconBg,
-  title,
-  desc,
-}: {
-  icon: React.ReactNode;
-  iconBg: string;
-  title: string;
-  desc: string;
-}) {
+function MoodleCard() {
+  const { moodleStatus, refetchMoodleStatus } = useAccount();
+  const connected = moodleStatus?.connected === true;
+  const hasRole = moodleStatus?.hasRole === true;
+  const configured = moodleStatus?.configured !== false;
+  const reason = moodleStatus?.reason;
+
+  const [feedback, setFeedback] = useState<
+    { tone: "success" | "error"; message: string } | null
+  >(null);
+
+  const connectAction = useAsyncAction(
+    async () => moodleService.reconnect(),
+    {
+      onSuccess: async () => {
+        await refetchMoodleStatus();
+        setFeedback({
+          tone: "success",
+          message: "Akademia została podłączona do kalendarza.",
+        });
+      },
+      onError: (err) => {
+        setFeedback({
+          tone: "error",
+          message:
+            err instanceof ApiRequestError
+              ? err.message
+              : err instanceof Error
+                ? err.message
+                : "Nie udało się połączyć",
+        });
+      },
+    },
+  );
+
+  const disconnectAction = useAsyncAction(
+    async () => moodleService.disconnect(),
+    {
+      onSuccess: async () => {
+        await refetchMoodleStatus();
+        setFeedback({
+          tone: "success",
+          message: "Akademia została odłączona od kalendarza.",
+        });
+      },
+    },
+  );
+
+  const statusLabel: TileStatus = !hasRole
+    ? { tone: "idle", label: "Brak roli Moodle" }
+    : reason === "not_provisioned"
+      ? {
+          tone: "warning",
+          label: "Konto Akademii czeka na inicjalizację",
+        }
+      : reason === "unreachable"
+        ? { tone: "warning", label: "Akademia chwilowo niedostępna" }
+        : connected
+          ? { tone: "ok", label: "Połączone" }
+          : { tone: "idle", label: "Niepołączone" };
+
+  return (
+    <IntegrationTile
+      title="Akademia (Moodle)"
+      description="Kursy, harmonogram szkoleń i terminy — w tym samym widoku kalendarza."
+      icon={<GraduationCap className="w-6 h-6" aria-hidden="true" />}
+      iconBg={
+        connected
+          ? "bg-green-500/10 text-green-500"
+          : "bg-amber-500/10 text-amber-500"
+      }
+      connected={connected}
+      status={statusLabel}
+      configureLabel="Skonfiguruj"
+      onConfigure={() => void connectAction.run()}
+      onDisconnect={() => void disconnectAction.run()}
+      configuring={connectAction.pending}
+      disconnecting={disconnectAction.pending}
+      canConfigure={hasRole && configured && reason !== "unreachable"}
+      secondary={
+        <>
+          {feedback && <Alert tone={feedback.tone}>{feedback.message}</Alert>}
+
+          {!configured && (
+            <Alert tone="info" title="Integracja nieskonfigurowana">
+              Administrator nie skonfigurował jeszcze Akademii. Skontaktuj się
+              z osobą zarządzającą systemem.
+            </Alert>
+          )}
+          {configured && !hasRole && (
+            <Alert tone="info" title="Brak roli Akademii">
+              Aby aktywować integrację, administrator musi przypisać Ci
+              rolę Moodle (student / teacher / manager).
+            </Alert>
+          )}
+          {reason === "not_provisioned" && hasRole && (
+            <Alert tone="warning" title="Konto Akademii czeka na utworzenie">
+              Pierwsze logowanie w Akademii utworzy Twoje konto — zaloguj
+              się raz na https://akademia.myperformance.pl, a potem wróć tu
+              i kliknij „Skonfiguruj".
+            </Alert>
+          )}
+        </>
+      }
+    >
+      <FeatureRow
+        title="Terminy i przypomnienia kursów"
+        desc="Wydarzenia Akademii pojawiają się w kalendarzu wraz z Google i grafiku pracy."
+      />
+      <FeatureRow
+        title="Tworzenie własnych wydarzeń"
+        desc='Dodaj wydarzenie oznaczone jako „Akademia" — trafi do Twojego kalendarza Moodle.'
+      />
+    </IntegrationTile>
+  );
+}
+
+function FeatureRow({ title, desc }: { title: string; desc: string }) {
   return (
     <div className="p-4 bg-[var(--bg-main)] border border-[var(--border-subtle)] rounded-xl">
       <div className="flex items-start gap-3">
-        <div
-          className={`w-10 h-10 rounded-lg ${iconBg} flex items-center justify-center flex-shrink-0`}
-        >
-          {icon}
+        <div className="w-8 h-8 rounded-lg bg-[var(--accent)]/10 text-[var(--accent)] flex items-center justify-center flex-shrink-0 mt-0.5">
+          <Check className="w-4 h-4" aria-hidden="true" />
         </div>
         <div className="flex-1">
           <h4 className="text-sm font-medium text-[var(--text-main)]">
             {title}
           </h4>
           <p className="text-xs text-[var(--text-muted)] mt-1">{desc}</p>
-          <div className="mt-2 flex items-center gap-1 text-xs text-green-500">
-            <CheckCircle2 className="w-3 h-3" aria-hidden="true" />
-            Dostępne
-          </div>
         </div>
       </div>
     </div>

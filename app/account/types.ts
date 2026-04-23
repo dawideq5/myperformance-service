@@ -76,6 +76,8 @@ export interface CalendarEvent {
   allDay: boolean;
   source: "manual" | "google" | "kadromierz" | "moodle";
   googleEventId?: string;
+  moodleEventId?: number;
+  eventtype?: string;
   color?: string;
   location?: string;
   url?: string;

@@ -50,6 +50,8 @@ import {
 import type { CalendarEvent } from "../types";
 import { LocationAutocomplete } from "./LocationAutocomplete";
 
+type EventTarget = "local" | "moodle";
+
 interface EventFormState {
   title: string;
   description: string;
@@ -57,6 +59,7 @@ interface EventFormState {
   end: string;
   allDay: boolean;
   location: string;
+  target: EventTarget;
 }
 
 const EMPTY_FORM: EventFormState = {
@@ -66,6 +69,7 @@ const EMPTY_FORM: EventFormState = {
   end: "",
   allDay: false,
   location: "",
+  target: "local",
 };
 
 const KADROMIERZ_COLOR = "#F97316";
@@ -173,11 +177,31 @@ function normalizeBoundaryForAllDay(value: string, allDay: boolean): string {
 
 function buildPayload(form: EventFormState): CalendarEventInput {
   const { title, description, start, end, allDay, location } = form;
+  // Moodle needs absolute datetimes so server-side epoch math is unambiguous;
+  // normalise all-day to UTC midnight of the selected date.
+  if (allDay) {
+    const [startY, startM, startD] = start.split("-").map(Number);
+    const [endY, endM, endD] = end.split("-").map(Number);
+    const startDate = new Date(
+      Date.UTC(startY, (startM || 1) - 1, startD || 1, 0, 0, 0),
+    );
+    const endDate = new Date(
+      Date.UTC(endY, (endM || 1) - 1, endD || 1, 23, 59, 59),
+    );
+    return {
+      title: title.trim(),
+      description: description.trim() || undefined,
+      startDate: startDate.toISOString(),
+      endDate: endDate.toISOString(),
+      allDay,
+      location: location.trim() || undefined,
+    };
+  }
   return {
     title: title.trim(),
     description: description.trim() || undefined,
-    startDate: allDay ? start.split("T")[0] : new Date(start).toISOString(),
-    endDate: allDay ? end.split("T")[0] : new Date(end).toISOString(),
+    startDate: new Date(start).toISOString(),
+    endDate: new Date(end).toISOString(),
     allDay,
     location: location.trim() || undefined,
   };
@@ -201,16 +225,21 @@ function initialFormForEvent(event: CalendarEvent): EventFormState {
     end: event.allDay ? toLocalDateValue(end) : toLocalDatetimeValue(end),
     allDay: event.allDay,
     location: event.location ?? "",
+    target: event.source === "moodle" ? "moodle" : "local",
   };
 }
 
-function initialFormForDay(day: Date): EventFormState {
+function initialFormForDay(
+  day: Date,
+  defaultTarget: EventTarget = "local",
+): EventFormState {
   const now = new Date();
   const start = new Date(day);
   start.setHours(now.getHours(), 0, 0, 0);
   const end = new Date(start.getTime() + 60 * 60 * 1000);
   return {
     ...EMPTY_FORM,
+    target: defaultTarget,
     start: toLocalDatetimeValue(start),
     end: toLocalDatetimeValue(end),
   };
@@ -258,6 +287,25 @@ function groupEventsByDay(
   return map;
 }
 
+// Returns the 6-week grid boundaries (Monday-based) for the month containing
+// `viewDate`. We resync external sources for that exact window — so a user
+// clicking "next month" sees live data for the new grid, not stale caches.
+function monthGridBounds(viewDate: Date): { from: Date; to: Date } {
+  const firstOfMonth = new Date(
+    viewDate.getFullYear(),
+    viewDate.getMonth(),
+    1,
+  );
+  const dow = (firstOfMonth.getDay() + 6) % 7;
+  const from = new Date(firstOfMonth);
+  from.setDate(firstOfMonth.getDate() - dow);
+  from.setHours(0, 0, 0, 0);
+  const to = new Date(from);
+  to.setDate(from.getDate() + 42);
+  to.setHours(23, 59, 59, 999);
+  return { from, to };
+}
+
 export function CalendarTab() {
   const { googleStatus, kadromierzStatus, moodleStatus } = useAccount();
   const googleConnected = googleStatus?.connected === true;
@@ -269,8 +317,12 @@ export function CalendarTab() {
     [],
   );
   const [moodleEvents, setMoodleEvents] = useState<CalendarEvent[]>([]);
+  const [googleMonthEvents, setGoogleMonthEvents] = useState<CalendarEvent[]>(
+    [],
+  );
   const [initialLoading, setInitialLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [googleNeedsReconnect, setGoogleNeedsReconnect] = useState(false);
   const [feedback, setFeedback] = useState<
     { tone: "success" | "error"; message: string } | null
   >(null);
@@ -287,8 +339,12 @@ export function CalendarTab() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [form, setForm] = useState<EventFormState>(EMPTY_FORM);
   const [syncing, setSyncing] = useState(false);
+  const [monthSyncing, setMonthSyncing] = useState(false);
 
-  const autoSyncedRef = useRef(false);
+  const bounds = useMemo(() => monthGridBounds(viewDate), [viewDate]);
+  const boundsKey = `${bounds.from.toISOString()}|${bounds.to.toISOString()}`;
+
+  const watchEnsuredRef = useRef(false);
 
   const fetchEvents = useCallback(async () => {
     try {
@@ -309,8 +365,17 @@ export function CalendarTab() {
     void fetchEvents();
   }, [fetchEvents]);
 
-  // Fetch Kadromierz shifts when connected. Background-only — failures do
-  // not block the main calendar.
+  // Ensure Google watch channel exists exactly once per mount. The channel
+  // pushes server-side events into the stored cache; live month-view queries
+  // run below without persisting.
+  useEffect(() => {
+    if (!googleConnected || watchEnsuredRef.current) return;
+    watchEnsuredRef.current = true;
+    void calendarService.ensureWatch().catch(() => {});
+  }, [googleConnected]);
+
+  // Fetch Kadromierz shifts for the visible month whenever viewDate changes
+  // or the integration connects. Failures leave the previous state in place.
   useEffect(() => {
     if (!kadromierzConnected) {
       setKadromierzShifts([]);
@@ -319,7 +384,10 @@ export function CalendarTab() {
     let cancelled = false;
     (async () => {
       try {
-        const resp = await kadromierzService.getSchedule();
+        const resp = await kadromierzService.getSchedule({
+          from: bounds.from.toISOString().slice(0, 10),
+          to: bounds.to.toISOString().slice(0, 10),
+        });
         if (cancelled) return;
         setKadromierzShifts(shiftsToEvents(resp.shifts ?? []));
       } catch {
@@ -329,9 +397,11 @@ export function CalendarTab() {
     return () => {
       cancelled = true;
     };
-  }, [kadromierzConnected]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kadromierzConnected, boundsKey]);
 
-  // Fetch Moodle events when the user has a role + a provisioned account.
+  // Fetch Moodle events for the visible month. The backend applies role +
+  // provisioning checks; we just pass the range.
   useEffect(() => {
     if (!moodleConnected) {
       setMoodleEvents([]);
@@ -340,7 +410,10 @@ export function CalendarTab() {
     let cancelled = false;
     (async () => {
       try {
-        const resp = await moodleService.getEvents();
+        const resp = await moodleService.getEvents({
+          from: String(Math.floor(bounds.from.getTime() / 1000)),
+          to: String(Math.floor(bounds.to.getTime() / 1000)),
+        });
         if (cancelled) return;
         setMoodleEvents(resp.events ?? []);
       } catch {
@@ -350,40 +423,74 @@ export function CalendarTab() {
     return () => {
       cancelled = true;
     };
-  }, [moodleConnected]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [moodleConnected, boundsKey]);
 
-  // Silent background sync + watch-channel ensure on first mount when Google is connected.
-  // Webhook delivers real-time updates afterward; this is the cold-open fallback.
+  // Live Google fetch for the visible month (no persistence). The baseline
+  // persisted sync runs on the "Synchronizuj" button below.
   useEffect(() => {
-    if (!googleConnected || autoSyncedRef.current) return;
-    autoSyncedRef.current = true;
+    if (!googleConnected) {
+      setGoogleMonthEvents([]);
+      setGoogleNeedsReconnect(false);
+      return;
+    }
+    let cancelled = false;
+    setMonthSyncing(true);
     (async () => {
       try {
-        const result = await calendarService.syncGoogle();
-        setEvents(sortEvents(result.events ?? []));
+        const result = await calendarService.syncGoogle({
+          from: bounds.from.toISOString(),
+          to: bounds.to.toISOString(),
+          persist: false,
+        });
+        if (cancelled) return;
+        if (result.needsReconnect) {
+          setGoogleNeedsReconnect(true);
+          setGoogleMonthEvents([]);
+        } else {
+          setGoogleNeedsReconnect(false);
+          setGoogleMonthEvents(result.events ?? []);
+        }
       } catch {
-        /* silent; fallback remains existing events */
-      }
-      try {
-        await calendarService.ensureWatch();
-      } catch {
-        /* non-fatal; auto-sync-on-open still works */
+        if (!cancelled) {
+          setGoogleMonthEvents([]);
+        }
+      } finally {
+        if (!cancelled) setMonthSyncing(false);
       }
     })();
-  }, [googleConnected]);
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [googleConnected, boundsKey]);
 
   const createAction = useAsyncAction(
-    async (payload: CalendarEventInput) => calendarService.create(payload),
+    async (args: { payload: CalendarEventInput; target: EventTarget }) => {
+      const result = await calendarService.create({
+        ...args.payload,
+        target: args.target,
+      });
+      return { ...result, target: args.target };
+    },
     {
       onSuccess: (result) => {
-        setEvents((prev) => sortEvents([...prev, result.event]));
+        if (result.target === "moodle") {
+          setMoodleEvents((prev) => sortEvents([...prev, result.event]));
+          setFeedback({
+            tone: "success",
+            message: "Wydarzenie zostało dodane w Akademii (Moodle).",
+          });
+        } else {
+          setEvents((prev) => sortEvents([...prev, result.event]));
+          setFeedback({
+            tone: "success",
+            message: result.googleSynced
+              ? "Wydarzenie zostało dodane i zsynchronizowane z Google Calendar."
+              : "Wydarzenie zostało dodane.",
+          });
+        }
         setAddOpen(null);
-        setFeedback({
-          tone: "success",
-          message: result.googleSynced
-            ? "Wydarzenie zostało dodane i zsynchronizowane z Google Calendar."
-            : "Wydarzenie zostało dodane.",
-        });
       },
       resolveError: (err) =>
         err instanceof ApiRequestError
@@ -393,15 +500,29 @@ export function CalendarTab() {
   );
 
   const updateAction = useAsyncAction(
-    async (args: { id: string; payload: CalendarEventInput }) => {
+    async (args: {
+      id: string;
+      payload: CalendarEventInput;
+      source: CalendarEvent["source"];
+    }) => {
       const result = await calendarService.update(args.id, args.payload);
-      return { ...result, id: args.id };
+      return { ...result, id: args.id, source: args.source };
     },
     {
       onSuccess: (result) => {
-        setEvents((prev) =>
-          sortEvents(prev.map((e) => (e.id === result.id ? result.event : e))),
-        );
+        if (result.source === "moodle") {
+          setMoodleEvents((prev) =>
+            sortEvents(
+              prev.filter((e) => e.id !== result.id).concat(result.event),
+            ),
+          );
+        } else {
+          setEvents((prev) =>
+            sortEvents(
+              prev.map((e) => (e.id === result.id ? result.event : e)),
+            ),
+          );
+        }
         setEditingEvent(null);
         setFeedback({
           tone: "success",
@@ -425,7 +546,11 @@ export function CalendarTab() {
       setDeletingId(id);
       try {
         await calendarService.delete(id);
-        setEvents((prev) => prev.filter((e) => e.id !== id));
+        if (id.startsWith("moodle_")) {
+          setMoodleEvents((prev) => prev.filter((e) => e.id !== id));
+        } else {
+          setEvents((prev) => prev.filter((e) => e.id !== id));
+        }
         setFeedback({ tone: "success", message: "Wydarzenie zostało usunięte." });
       } catch (err) {
         if (err instanceof ApiRequestError && err.status === 404) {
@@ -454,28 +579,31 @@ export function CalendarTab() {
     setSyncing(true);
     setFeedback(null);
     try {
+      // Full persisted baseline sync (default ±window). Updates local cache +
+      // refreshes the list; the month-view live fetch below still runs.
       const result = await calendarService.syncGoogle();
+      if (result.needsReconnect) {
+        setGoogleNeedsReconnect(true);
+        setFeedback({
+          tone: "error",
+          message:
+            "Token Google wygasł. Połącz ponownie konto Google w zakładce integracje.",
+        });
+        return;
+      }
       setEvents(sortEvents(result.events ?? []));
       setFeedback({
         tone: "success",
         message: `Synchronizacja zakończona. Pobrano ${result.synced} wydarzeń z Google (łącznie ${result.total}).`,
       });
     } catch (err) {
-      if (err instanceof ApiRequestError && err.status === 409) {
-        setFeedback({
-          tone: "error",
-          message:
-            "Token Google wygasł. Połącz ponownie konto Google w zakładce integracje.",
-        });
-      } else {
-        setFeedback({
-          tone: "error",
-          message:
-            err instanceof ApiRequestError
-              ? err.message
-              : "Nie udało się zsynchronizować z Google Calendar",
-        });
-      }
+      setFeedback({
+        tone: "error",
+        message:
+          err instanceof ApiRequestError
+            ? err.message
+            : "Nie udało się zsynchronizować z Google Calendar",
+      });
     } finally {
       setSyncing(false);
     }
@@ -508,7 +636,10 @@ export function CalendarTab() {
     (event: FormEvent) => {
       event.preventDefault();
       if (!form.title.trim() || !form.start || !form.end) return;
-      void createAction.run(buildPayload(form));
+      void createAction.run({
+        payload: buildPayload(form),
+        target: form.target,
+      });
     },
     [createAction, form],
   );
@@ -517,15 +648,27 @@ export function CalendarTab() {
     (event: FormEvent) => {
       event.preventDefault();
       if (!editingEvent || !form.title.trim() || !form.start || !form.end) return;
-      void updateAction.run({ id: editingEvent.id, payload: buildPayload(form) });
+      void updateAction.run({
+        id: editingEvent.id,
+        payload: buildPayload(form),
+        source: editingEvent.source,
+      });
     },
     [editingEvent, form, updateAction],
   );
 
   const gridDays = useMemo(() => buildMonthGrid(viewDate), [viewDate]);
+  // `events` holds local (manual) entries + persisted Google cache. We drop
+  // the cached Google rows in favour of the live month fetch to keep the
+  // grid fresh as the user navigates months.
   const combinedEvents = useMemo(
-    () => [...events, ...kadromierzShifts, ...moodleEvents],
-    [events, kadromierzShifts, moodleEvents],
+    () => [
+      ...events.filter((e) => e.source !== "google"),
+      ...googleMonthEvents,
+      ...kadromierzShifts,
+      ...moodleEvents,
+    ],
+    [events, googleMonthEvents, kadromierzShifts, moodleEvents],
   );
   const eventsByDay = useMemo(
     () => groupEventsByDay(combinedEvents),
@@ -575,6 +718,15 @@ export function CalendarTab() {
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
+            {monthSyncing && (
+              <span className="text-xs text-[var(--text-muted)] inline-flex items-center gap-1">
+                <RefreshCw
+                  className="w-3 h-3 animate-spin"
+                  aria-hidden="true"
+                />
+                Synchronizacja miesiąca…
+              </span>
+            )}
             {googleConnected && (
               <Button
                 size="sm"
@@ -604,6 +756,14 @@ export function CalendarTab() {
           <div className="mb-4">
             <Alert tone="error" title="Błąd ładowania">
               {loadError}
+            </Alert>
+          </div>
+        )}
+        {googleNeedsReconnect && (
+          <div className="mb-4">
+            <Alert tone="warning" title="Połącz ponownie konto Google">
+              Token Google wygasł. Wróć do zakładki integracje i odnów
+              połączenie — wydarzenia z Google pojawią się ponownie.
             </Alert>
           </div>
         )}
@@ -684,6 +844,8 @@ export function CalendarTab() {
         onSubmit={submitAdd}
         submitting={createAction.pending}
         error={createAction.error}
+        moodleAvailable={moodleConnected}
+        targetEditable
       />
 
       <EventFormDialog
@@ -697,6 +859,8 @@ export function CalendarTab() {
         onSubmit={submitEdit}
         submitting={updateAction.pending}
         error={updateAction.error}
+        moodleAvailable={moodleConnected}
+        targetEditable={false}
       />
     </div>
   );
@@ -911,7 +1075,9 @@ function DayEventRow({
   const isGoogle = isSyncedToGoogle(event);
   const isKadro = isKadromierz(event);
   const isMood = isMoodle(event);
-  const readOnly = event.readOnly || isKadro || isMood;
+  // Respect the backend's readOnly flag verbatim — Moodle user-events come
+  // through as editable (readOnly=false), site/course/group events don't.
+  const readOnly = event.readOnly === true || isKadro;
 
   const timeLabel = event.allDay
     ? "Cały dzień"
@@ -1008,6 +1174,8 @@ function EventFormDialog({
   onSubmit,
   submitting,
   error,
+  moodleAvailable,
+  targetEditable,
 }: {
   open: boolean;
   title: string;
@@ -1019,6 +1187,8 @@ function EventFormDialog({
   onSubmit: (event: FormEvent) => void;
   submitting: boolean;
   error: string | null;
+  moodleAvailable: boolean;
+  targetEditable: boolean;
 }) {
   const dialogId = useId();
   const patch = (partial: Partial<EventFormState>) =>
@@ -1033,6 +1203,50 @@ function EventFormDialog({
       labelledById={dialogId}
     >
       <form onSubmit={onSubmit} className="space-y-4">
+        {moodleAvailable && targetEditable && (
+          <div className="space-y-2">
+            <span className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">
+              Miejsce zapisu
+            </span>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={() => patch({ target: "local" })}
+                className={`text-left p-3 rounded-xl border transition-colors ${
+                  form.target === "local"
+                    ? "border-[var(--accent)] bg-[var(--accent)]/10"
+                    : "border-[var(--border-subtle)] hover:border-[var(--accent)]/40"
+                }`}
+              >
+                <div className="text-sm font-medium text-[var(--text-main)]">
+                  Kalendarz
+                </div>
+                <div className="text-[11px] text-[var(--text-muted)] mt-0.5">
+                  Lokalnie + Google (jeśli połączone)
+                </div>
+              </button>
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={() => patch({ target: "moodle" })}
+                className={`text-left p-3 rounded-xl border transition-colors ${
+                  form.target === "moodle"
+                    ? "border-[#F59E0B] bg-[#F59E0B]/10"
+                    : "border-[var(--border-subtle)] hover:border-[#F59E0B]/40"
+                }`}
+              >
+                <div className="text-sm font-medium text-[var(--text-main)]">
+                  Akademia (Moodle)
+                </div>
+                <div className="text-[11px] text-[var(--text-muted)] mt-0.5">
+                  Widoczne w Akademii jako wydarzenie użytkownika
+                </div>
+              </button>
+            </div>
+          </div>
+        )}
+
         <Input
           label="Tytuł"
           required

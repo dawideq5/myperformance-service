@@ -133,8 +133,15 @@ export const accountService = {
 
 export const moodleService = {
   getStatus: () => api.get<MoodleStatus>("/api/integrations/moodle/status"),
-  getEvents: () =>
-    api.get<{ events: CalendarEvent[] }>("/api/integrations/moodle/events"),
+  getEvents: (range?: { from?: string; to?: string }) => {
+    const qs = new URLSearchParams();
+    if (range?.from) qs.set("from", range.from);
+    if (range?.to) qs.set("to", range.to);
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return api.get<{ events: CalendarEvent[] }>(
+      `/api/integrations/moodle/events${suffix}`,
+    );
+  },
   disconnect: () =>
     api.post<{ ok: boolean; connected: boolean }>(
       "/api/integrations/moodle/disconnect",

@@ -26,6 +26,7 @@ export interface RoleRepresentation {
   name: string;
   description?: string;
   composite?: boolean;
+  attributes?: Record<string, string[]>;
 }
 
 interface KcUser {
@@ -247,7 +248,23 @@ export async function assignUserAreaRole(
     const provider = getProvider(area.nativeProviderId);
     if (provider && provider.isConfigured() && kcUser.email) {
       try {
-        const nativeRoleId = toKeep ? mapKcToNativeRoleId(area, toKeep) : null;
+        // Custom role-y (stworzone przez /api/admin/areas/[id]/roles) trzymają
+        // `nativeRoleId` w KC attributes. Gdy `toKeep` nie jest seedem,
+        // musimy sięgnąć po pełną reprezentację roli żeby dostać id.
+        let kcRoleAttributes: Record<string, string[]> | undefined;
+        if (toKeep && !area.kcRoles.some((r) => r.name === toKeep)) {
+          const roleRes = await keycloak.adminRequest(
+            `/roles/${encodeURIComponent(toKeep)}?briefRepresentation=false`,
+            adminToken,
+          );
+          if (roleRes.ok) {
+            const full = (await roleRes.json()) as RoleRepresentation;
+            kcRoleAttributes = full.attributes;
+          }
+        }
+        const nativeRoleId = toKeep
+          ? mapKcToNativeRoleId(area, toKeep, kcRoleAttributes)
+          : null;
         const displayName =
           [kcUser.firstName, kcUser.lastName].filter(Boolean).join(" ").trim() ||
           kcUser.username ||

@@ -7,8 +7,9 @@ import {
   useState,
   type FormEvent,
 } from "react";
+import { signIn } from "next-auth/react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
-  AlertTriangle,
   Check,
   Copy,
   Edit2,
@@ -33,7 +34,6 @@ import {
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { MIN_PASSWORD_LENGTH } from "@/lib/constants";
 import { ApiRequestError } from "@/lib/api-client";
-import { enrollWebAuthnCredential } from "@/lib/webauthn-client";
 
 import { useAccount } from "../AccountProvider";
 import { accountService } from "../account-service";
@@ -57,6 +57,8 @@ export function SecurityTab() {
     refetchTwoFA,
     refetchWebAuthn,
   } = useAccount();
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
   const requiredActions = profile?.requiredActions ?? [];
   const totpAdminForced = requiredActions.includes("CONFIGURE_TOTP");
@@ -64,6 +66,30 @@ export function SecurityTab() {
 
   const [totpSetupOpen, setTotpSetupOpen] = useState(false);
   const [webauthnEnrollOpen, setWebauthnEnrollOpen] = useState(false);
+  const [webauthnFeedback, setWebauthnFeedback] = useState<
+    { tone: "success" | "error"; message: string } | null
+  >(null);
+
+  // Detect return from Keycloak webauthn-register flow (via kc_action). KC
+  // redirects back with our callbackUrl untouched — we tag that URL with
+  // ?webauthn_done=1, then refresh the keys list and clear the query param.
+  useEffect(() => {
+    const done = searchParams.get("webauthn_done");
+    if (!done) return;
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("webauthn_done");
+    const qs = params.toString();
+    router.replace(qs ? `/account?${qs}` : "/account?tab=security", {
+      scroll: false,
+    });
+    void (async () => {
+      await Promise.all([refetchWebAuthn(), refetchProfile()]);
+      setWebauthnFeedback({
+        tone: "success",
+        message: "Klucz bezpieczeństwa został zarejestrowany.",
+      });
+    })();
+  }, [searchParams, router, refetchWebAuthn, refetchProfile]);
 
   // Password change
   const [currentPassword, setCurrentPassword] = useState("");
@@ -254,6 +280,14 @@ export function SecurityTab() {
           }
         />
 
+        {webauthnFeedback && (
+          <div className="mt-3">
+            <Alert tone={webauthnFeedback.tone}>
+              {webauthnFeedback.message}
+            </Alert>
+          </div>
+        )}
+
         {webauthnKeys.length > 0 && (
           <div className="mt-6 space-y-3">
             {webauthnKeys.map((key) => (
@@ -343,10 +377,6 @@ export function SecurityTab() {
       <WebAuthnEnrollDialog
         open={webauthnEnrollOpen}
         onClose={() => setWebauthnEnrollOpen(false)}
-        onSuccess={async () => {
-          setWebauthnEnrollOpen(false);
-          await Promise.all([refetchWebAuthn(), refetchProfile()]);
-        }}
       />
     </div>
   );
@@ -647,16 +677,13 @@ type AttachmentChoice = "platform" | "cross-platform";
 function WebAuthnEnrollDialog({
   open,
   onClose,
-  onSuccess,
 }: {
   open: boolean;
   onClose: () => void;
-  onSuccess: () => void | Promise<void>;
 }) {
   const id = useId();
   const [attachment, setAttachment] = useState<AttachmentChoice | null>(null);
-  const [label, setLabel] = useState("");
-  const [status, setStatus] = useState<"idle" | "prompting" | "saving">("idle");
+  const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const title = "Rejestracja klucza bezpieczeństwa";
@@ -664,55 +691,43 @@ function WebAuthnEnrollDialog({
   useEffect(() => {
     if (!open) {
       setAttachment(null);
-      setLabel("");
-      setStatus("idle");
+      setStarting(false);
       setError(null);
     }
   }, [open]);
 
-  const enroll = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!attachment) return;
-    const defaultLabel =
-      attachment === "platform"
-        ? "Biometria (Touch ID / Windows Hello)"
-        : "Klucz sprzętowy";
-    const trimmed = label.trim() || defaultLabel;
+  // Keycloak's WebAuthn flow is the only one that produces credentials the
+  // server actually accepts (admin-API inserts end up with broken CBOR/COSE
+  // encoding, hence the 503 "Keycloak odrzucił credential"). We redirect
+  // into the login flow with kc_action so KC handles navigator.credentials
+  // natively and stores the credential through its own WebAuthnCredentialProvider.
+  //
+  // - platform   → webauthn-register-passwordless (passkey, resident key)
+  // - cross-platform → webauthn-register (2FA security key)
+  const startKcFlow = (choice: AttachmentChoice) => {
     setError(null);
-    setStatus("prompting");
+    setStarting(true);
     try {
-      const { options } = await accountService.getWebAuthnOptions(attachment);
-      const rpId =
-        typeof window !== "undefined" ? window.location.hostname : undefined;
-      const credential = await enrollWebAuthnCredential({
-        challenge: options.challenge,
-        rpName: options.rp.name,
-        rpId,
-        user: options.user,
-        pubKeyCredParams: options.pubKeyCredParams,
-        timeout: options.timeout,
-        attestation: options.attestation as AttestationConveyancePreference,
-        authenticatorSelection:
-          options.authenticatorSelection as AuthenticatorSelectionCriteria,
-      });
-      setStatus("saving");
-      await accountService.registerWebAuthn({
-        credential,
-        label: trimmed,
-        attachment,
-      });
-      await onSuccess();
+      const kcAction =
+        choice === "platform"
+          ? "webauthn-register-passwordless"
+          : "webauthn-register";
+      // Preserve tab state on return; ?webauthn_done=1 triggers refetch.
+      const callbackUrl = "/account?tab=security&webauthn_done=1";
+      void signIn(
+        "keycloak",
+        { callbackUrl, redirect: true },
+        { kc_action: kcAction },
+      );
     } catch (err) {
+      setStarting(false);
       setError(
         err instanceof Error
           ? err.message
-          : "Nie udało się zarejestrować klucza",
+          : "Nie udało się uruchomić rejestracji klucza",
       );
-      setStatus("idle");
     }
   };
-
-  const busy = status !== "idle";
 
   return (
     <Dialog
@@ -761,33 +776,17 @@ function WebAuthnEnrollDialog({
           </div>
         </div>
       ) : (
-        <form onSubmit={enroll} className="space-y-4">
+        <div className="space-y-4">
+          <Alert tone="info">
+            Zostaniesz przeniesiony na stronę logowania Keycloak, która obsłuży
+            rejestrację klucza natywnie (przeglądarka poprosi o biometrię lub
+            klucz sprzętowy). Po rejestracji wrócisz automatycznie tutaj.
+          </Alert>
           <p className="text-sm text-[var(--text-muted)]">
             {attachment === "platform"
-              ? "Potwierdź rejestrację biometrią (Touch ID, Face ID, Windows Hello)."
-              : "Podłącz klucz sprzętowy przez USB lub przyłóż NFC — przeglądarka poprosi o potwierdzenie."}
+              ? "Po przekierowaniu potwierdź rejestrację biometrią (Touch ID, Face ID, Windows Hello)."
+              : "Po przekierowaniu podłącz klucz sprzętowy przez USB lub przyłóż NFC — przeglądarka poprosi o potwierdzenie."}
           </p>
-          <Input
-            label="Nazwa"
-            value={label}
-            onChange={(e) => setLabel(e.target.value)}
-            placeholder={
-              attachment === "platform"
-                ? "np. MacBook Pro Touch ID"
-                : "np. YubiKey biurowy"
-            }
-            disabled={busy}
-            hint="Pomoże rozpoznać klucz w ustawieniach"
-          />
-
-          {status === "prompting" && (
-            <Alert tone="info">
-              <span className="inline-flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4" aria-hidden="true" />
-                Potwierdź rejestrację na urządzeniu…
-              </span>
-            </Alert>
-          )}
 
           {error && <Alert tone="error">{error}</Alert>}
 
@@ -796,16 +795,21 @@ function WebAuthnEnrollDialog({
               type="button"
               variant="secondary"
               onClick={() => setAttachment(null)}
-              disabled={busy}
+              disabled={starting}
               className="flex-1"
             >
               Wstecz
             </Button>
-            <Button type="submit" loading={busy} className="flex-1">
-              Zarejestruj
+            <Button
+              type="button"
+              loading={starting}
+              onClick={() => startKcFlow(attachment)}
+              className="flex-1"
+            >
+              Kontynuuj w Keycloak
             </Button>
           </div>
-        </form>
+        </div>
       )}
     </Dialog>
   );

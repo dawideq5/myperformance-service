@@ -225,3 +225,110 @@ export async function getUserCourses(): Promise<MoodleCourseBrief[]> {
     return [];
   }
 }
+
+// ---------------------------------------------------------------------------
+// User-event CRUD via WS
+// Moodle splits calendar events into types: user/site/course/category/group.
+// We only let the panel create/update/delete `user` events — higher-scope
+// events remain managed inside Moodle itself.
+// ---------------------------------------------------------------------------
+
+interface CreateEventPayload {
+  name: string;
+  description?: string;
+  timestart: number;
+  timeduration: number;
+  location?: string;
+  userId: number;
+}
+
+interface UpdateEventPayload {
+  name: string;
+  description?: string;
+  timestart: number;
+  timeduration: number;
+  location?: string;
+}
+
+export async function createUserEvent(
+  payload: CreateEventPayload,
+): Promise<MoodleCalendarEvent> {
+  const params: Record<string, string | number> = {
+    "events[0][name]": payload.name,
+    "events[0][description]": payload.description ?? "",
+    "events[0][format]": 1,
+    "events[0][timestart]": payload.timestart,
+    "events[0][timeduration]": payload.timeduration,
+    "events[0][eventtype]": "user",
+    "events[0][userid]": payload.userId,
+    "events[0][visible]": 1,
+  };
+  if (payload.location) params["events[0][location]"] = payload.location;
+
+  const data = await moodleCall<{
+    events: Array<{
+      id: number;
+      name: string;
+      description?: string;
+      timestart: number;
+      timeduration: number;
+      eventtype: string;
+      courseid?: number;
+      location?: string | null;
+    }>;
+  }>("core_calendar_create_calendar_events", params);
+
+  const ev = data.events?.[0];
+  if (!ev) throw new Error("create returned no events");
+  return {
+    id: ev.id,
+    name: ev.name,
+    description: ev.description ?? undefined,
+    timestart: Number(ev.timestart),
+    timeduration: Number(ev.timeduration ?? 0),
+    courseid: Number(ev.courseid ?? 0),
+    eventtype: ev.eventtype,
+    location: ev.location ?? null,
+    url: null,
+  };
+}
+
+/**
+ * Moodle core WS lacks a first-class "update event" function — we implement
+ * update as delete+recreate to stay on the supported surface. The caller
+ * receives a new id; the dashboard uses that to replace the old entry.
+ */
+export async function updateUserEvent(
+  id: number,
+  payload: UpdateEventPayload,
+): Promise<MoodleCalendarEvent> {
+  const cfg = getMoodleConfig();
+  if (!cfg) throw new Error("Moodle not configured");
+
+  // Read user id from the event so we can preserve ownership on recreate.
+  const existingResp = await moodleCall<{
+    events: Array<{ userid: number }>;
+    warnings?: unknown[];
+  }>("core_calendar_get_calendar_events", {
+    "events[eventids][0]": id,
+  });
+  const userId = existingResp.events?.[0]?.userid;
+  if (!userId) throw new Error("event not found or not owned by a user");
+
+  await deleteUserEvent(id);
+  return createUserEvent({
+    name: payload.name,
+    description: payload.description,
+    timestart: payload.timestart,
+    timeduration: payload.timeduration,
+    location: payload.location,
+    userId,
+  });
+}
+
+export async function deleteUserEvent(id: number): Promise<void> {
+  await moodleCall<unknown>("core_calendar_delete_calendar_events", {
+    "events[0][eventid]": id,
+    "events[0][repeat]": 0,
+  });
+}

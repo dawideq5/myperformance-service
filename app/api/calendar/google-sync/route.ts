@@ -1,5 +1,5 @@
 import { getServerSession } from "next-auth/next";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { authOptions } from "@/app/auth";
 import { keycloak } from "@/lib/keycloak";
 import { shiftDateString } from "@/lib/google-calendar";
@@ -7,17 +7,29 @@ import type { CalendarEvent } from "../events/route";
 
 /**
  * POST /api/calendar/google-sync
- * Fetches Google Calendar events (past 30 days + next 180 days) across all
- * pages and merges them with the user's local events stored in Keycloak
- * attributes. Local (manual) events remain the source of truth; Google
- * events are stored with source="google" and an inclusive end date.
+ *
+ * Body (optional): { from?: ISO, to?: ISO, persist?: boolean }
+ *
+ * - No body → default window (past 30d / next 180d), persist results as the
+ *   baseline Google cache in the user's Keycloak attributes.
+ * - Body with from/to → fetch events for that window only. `persist` defaults
+ *   to `false` when the caller supplies a range — we treat the request as a
+ *   live read-through for a specific month view, not a replacement of the
+ *   stored cache.
+ *
+ * Local (manual) events remain the source of truth; Google entries are stored
+ * with source="google" and an inclusive end date when persisted.
  */
-export async function POST() {
+export async function POST(request: NextRequest) {
   try {
     const session: any = await getServerSession(authOptions);
     if (!session?.accessToken) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    const body = await request.json().catch(() => null) as
+      | { from?: string; to?: string; persist?: boolean }
+      | null;
 
     let googleTokens: Record<string, any>;
     try {
@@ -32,8 +44,17 @@ export async function POST() {
     }
 
     const now = new Date();
-    const past = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-    const future = new Date(now.getTime() + 180 * 24 * 60 * 60 * 1000);
+    const defaultPast = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const defaultFuture = new Date(now.getTime() + 180 * 24 * 60 * 60 * 1000);
+
+    const past = body?.from ? new Date(body.from) : defaultPast;
+    const future = body?.to ? new Date(body.to) : defaultFuture;
+    if (Number.isNaN(past.getTime()) || Number.isNaN(future.getTime())) {
+      return NextResponse.json({ error: "Invalid from/to" }, { status: 400 });
+    }
+    const hasExplicitRange = Boolean(body?.from || body?.to);
+    const shouldPersist =
+      typeof body?.persist === "boolean" ? body.persist : !hasExplicitRange;
 
     const baseUrl = new URL("https://www.googleapis.com/calendar/v3/calendars/primary/events");
     baseUrl.searchParams.set("timeMin", past.toISOString());
@@ -101,6 +122,21 @@ export async function POST() {
         };
       });
 
+    if (!shouldPersist) {
+      // Live read — don't touch KC attributes. Response shape stays the same
+      // so the frontend can keep using a single path for both modes.
+      return NextResponse.json({
+        synced: googleEvents.length,
+        total: googleEvents.length,
+        events: googleEvents.sort(
+          (a, b) =>
+            new Date(a.startDate).getTime() -
+            new Date(b.startDate).getTime(),
+        ),
+        persisted: false,
+      });
+    }
+
     const userId = await keycloak.getUserIdFromToken(session.accessToken);
     const serviceToken = await keycloak.getServiceAccountToken();
 
@@ -133,6 +169,7 @@ export async function POST() {
         (a, b) =>
           new Date(a.startDate).getTime() - new Date(b.startDate).getTime(),
       ),
+      persisted: true,
     });
   } catch (error) {
     console.error("[Calendar Google Sync]", error);
