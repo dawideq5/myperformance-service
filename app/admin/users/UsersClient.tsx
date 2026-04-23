@@ -40,12 +40,14 @@ import { AppHeader } from "@/components/AppHeader";
 import { ApiRequestError } from "@/lib/api-client";
 import {
   adminUserService,
-  permissionAreaService,
   type AdminIntegrationStatus,
   type AdminUserSession,
   type AdminUserSummary,
-  type AreaSummary,
 } from "@/app/account/account-service";
+import {
+  UserRolesList,
+  type UserRolesListValue,
+} from "@/components/UserRolesList";
 
 interface UsersClientProps {
   selfId?: string;
@@ -402,20 +404,6 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
           </p>
         </div>
         <div className="flex gap-2">
-          <Link
-            href="/admin/metaroles"
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-md text-sm border border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-surface)] transition-colors"
-          >
-            <Shield className="w-4 h-4" aria-hidden="true" />
-            Metaroles (IAM)
-          </Link>
-          <Link
-            href="/admin/templates"
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-md text-sm border border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-surface)] transition-colors"
-          >
-            <Shield className="w-4 h-4" aria-hidden="true" />
-            Szablony ról
-          </Link>
           <Button
             leftIcon={<UserPlus className="w-4 h-4" aria-hidden="true" />}
             onClick={() => setInviteOpen(true)}
@@ -1280,31 +1268,25 @@ function AreaRoleDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [areas, setAreas] = useState<AreaSummary[]>([]);
-  const [initial, setInitial] = useState<Record<string, string | null>>({});
-  const [selected, setSelected] = useState<Record<string, string | null>>({});
+  const [initial, setInitial] = useState<UserRolesListValue>({});
+  const [value, setValue] = useState<UserRolesListValue>({});
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
-    setAreas([]);
-    setSelected({});
+    setValue({});
     setInitial({});
     setError(null);
     setLoading(true);
-    Promise.all([
-      permissionAreaService.list(),
-      adminUserService.listAreaAssignments(user.id),
-    ])
-      .then(([listRes, assignRes]) => {
-        setAreas(listRes.areas);
-        const map: Record<string, string | null> = {};
-        for (const a of listRes.areas) map[a.id] = null;
+    adminUserService
+      .listAreaAssignments(user.id)
+      .then((assignRes) => {
+        const map: UserRolesListValue = {};
         for (const a of assignRes.assignments) map[a.areaId] = a.roleName;
         setInitial(map);
-        setSelected({ ...map });
+        setValue({ ...map });
       })
       .catch((err) =>
         setError(
@@ -1318,13 +1300,14 @@ function AreaRoleDialog({
 
   const changes = useMemo(() => {
     const out: Array<{ areaId: string; roleName: string | null }> = [];
-    for (const areaId of Object.keys(selected)) {
-      if (selected[areaId] !== initial[areaId]) {
-        out.push({ areaId, roleName: selected[areaId] });
-      }
+    const allKeys = new Set([...Object.keys(value), ...Object.keys(initial)]);
+    for (const areaId of allKeys) {
+      const nextVal = value[areaId] ?? null;
+      const prevVal = initial[areaId] ?? null;
+      if (nextVal !== prevVal) out.push({ areaId, roleName: nextVal });
     }
     return out;
-  }, [selected, initial]);
+  }, [value, initial]);
 
   const dirty = changes.length > 0;
 
@@ -1354,7 +1337,7 @@ function AreaRoleDialog({
       onClose={onClose}
       size="lg"
       title={user ? `Uprawnienia: ${fullName(user)}` : ""}
-      description="Jedna rola per obszar (single-role-per-area)."
+      description="Jedna rola per aplikacja — nadpisuje obecne przypisania."
       labelledById="area-role-title"
       footer={
         <>
@@ -1379,81 +1362,14 @@ function AreaRoleDialog({
       )}
       {loading ? (
         <p className="text-sm text-[var(--text-muted)]">Ładowanie…</p>
-      ) : areas.length === 0 ? (
-        <p className="text-sm text-[var(--text-muted)]">
-          Brak obszarów uprawnień.
-        </p>
       ) : (
-        <ul className="space-y-2 max-h-[65vh] overflow-y-auto">
-          {areas.map((a) => {
-            const current = selected[a.id] ?? null;
-            const hasChange = current !== (initial[a.id] ?? null);
-            return (
-              <li
-                key={a.id}
-                className="px-3 py-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)]"
-              >
-                <div className="flex items-center justify-between gap-2 mb-2">
-                  <div>
-                    <span className="font-medium text-sm text-[var(--text-main)]">
-                      {a.label}
-                    </span>
-                    {hasChange && (
-                      <Badge tone="info" className="ml-2">
-                        zmiana
-                      </Badge>
-                    )}
-                  </div>
-                  <Badge tone={a.provider === "native" ? "info" : "neutral"}>
-                    {a.provider === "native" ? "native" : "KC-only"}
-                  </Badge>
-                </div>
-                <div className="space-y-1">
-                  <label className="flex items-center gap-2 text-sm text-[var(--text-muted)] cursor-pointer">
-                    <input
-                      type="radio"
-                      name={`area-${a.id}`}
-                      checked={current === null}
-                      onChange={() =>
-                        setSelected((prev) => ({ ...prev, [a.id]: null }))
-                      }
-                    />
-                    <span>— brak roli —</span>
-                  </label>
-                  {a.seedRoles.map((r) => (
-                    <label
-                      key={r.name}
-                      className="flex items-start gap-2 text-sm cursor-pointer"
-                    >
-                      <input
-                        type="radio"
-                        name={`area-${a.id}`}
-                        checked={current === r.name}
-                        onChange={() =>
-                          setSelected((prev) => ({
-                            ...prev,
-                            [a.id]: r.name,
-                          }))
-                        }
-                        className="mt-1"
-                      />
-                      <span className="flex-1">
-                        <span className="font-mono text-xs text-[var(--text-main)]">
-                          {r.name}
-                        </span>
-                        {r.description && (
-                          <span className="block text-xs text-[var(--text-muted)]">
-                            {r.description}
-                          </span>
-                        )}
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+        <div className="max-h-[65vh] overflow-y-auto">
+          <UserRolesList
+            value={value}
+            onChange={setValue}
+            disabled={saving}
+          />
+        </div>
       )}
     </Dialog>
   );

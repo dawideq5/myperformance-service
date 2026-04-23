@@ -8,6 +8,7 @@ import {
   type PermissionArea,
 } from "./areas";
 import { getProvider } from "./registry";
+import { ensureRealmRoleFromArea } from "./kc-sync";
 import {
   enqueueJob,
   registerJobHandler,
@@ -221,11 +222,11 @@ export async function countUsersWithRole(
  * Maps an assigned KC role name for a native area to the native role id
  * expected by the provider.
  *
- * - Seeded role (w `area.kcRoles`) → `nativeRoleId` z seeda.
- * - Custom role (`<areaId>_custom_<slug>`) → id natywny trzyma registry
- *   roli KC w `attributes.nativeRoleId` (single-value) — odczytywany
- *   osobno; jeśli brak → używamy samego KC name jako fallback (provider
- *   powinien umieć mu się poradzić, bo sam tworzył tę rolę).
+ * Kolejność:
+ *   1. Seed z `area.kcRoles` → `nativeRoleId` z seeda.
+ *   2. KC role attrs: `nativeRoleId[0]` (ustawiane przez kc-sync).
+ *   3. Fallback: strip area prefix z nazwy roli (dla dynamic roles
+ *      nazwanych konwencją `<areaId>_<shortname>` — pasuje do Moodle).
  */
 export function mapKcToNativeRoleId(
   area: PermissionArea,
@@ -233,9 +234,14 @@ export function mapKcToNativeRoleId(
   attributes?: Record<string, string[]>,
 ): string | null {
   const seed = area.kcRoles.find((r) => r.name === kcRoleName);
-  if (seed?.nativeRoleId !== undefined) return seed.nativeRoleId;
+  if (seed && seed.nativeRoleId !== undefined) return seed.nativeRoleId;
   const attr = attributes?.nativeRoleId?.[0];
-  return attr ?? null;
+  if (attr) return attr;
+  const prefix = `${area.id.replace(/-/g, "_")}_`;
+  if (kcRoleName.startsWith(prefix)) {
+    return kcRoleName.slice(prefix.length);
+  }
+  return null;
 }
 
 export interface AssignUserAreaRoleArgs {
@@ -291,6 +297,22 @@ async function assignUserAreaRoleInternal(
 
   let addedRole: RoleRepresentation | null = null;
   if (toKeep && !alreadyHas) {
+    // JIT enroll — dla area z dynamicznymi rolami (Moodle) rola może
+    // jeszcze nie istnieć w realmie (np. admin dodał w Moodle 5 min
+    // temu). Zapewniamy istnienie + dodanie do composite group apki.
+    if (area.dynamicRoles && !area.kcRoles.some((r) => r.name === toKeep)) {
+      const prefix = `${area.id.replace(/-/g, "_")}_`;
+      const nativeRoleId = toKeep.startsWith(prefix)
+        ? toKeep.slice(prefix.length)
+        : toKeep;
+      await ensureRealmRoleFromArea(area.id, nativeRoleId).catch((err: unknown) => {
+        logger.warn("ensureRealmRoleFromArea failed (non-fatal)", {
+          areaId: area.id,
+          nativeRoleId,
+          err: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
     addedRole = await ensureRealmRoleExists(adminToken, toKeep);
     await addRolesToUser(adminToken, args.userId, [addedRole]);
   }

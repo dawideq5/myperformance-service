@@ -106,43 +106,95 @@ interface MoodleUserRaw {
   roles?: Array<{ shortname: string }>;
 }
 
+/**
+ * Baseline — używane gdy `core_role_get_roles` failuje. Pokrywa rdzeń
+ * Moodle (identyczne shortname'y w każdej instalacji). Pełna lista ról
+ * (autor kursu, frontpage, guest, editingteacher, teacher itd.) jest
+ * pobierana dynamicznie z Moodla.
+ */
 const BASELINE_MOODLE_ROLES: NativeRole[] = [
   {
-    id: "student",
-    name: "Uczeń (Student)",
-    description: "Rola systemowa Moodle (student).",
+    id: "manager",
+    name: "Menedżer",
+    description: "Rola systemowa Moodle — site-level manager.",
+    permissions: [],
+    systemDefined: true,
+    userCount: null,
+  },
+  {
+    id: "coursecreator",
+    name: "Autor kursu",
+    description: "Rola systemowa Moodle — tworzenie nowych kursów.",
     permissions: [],
     systemDefined: true,
     userCount: null,
   },
   {
     id: "editingteacher",
-    name: "Nauczyciel edytujący (Editing teacher)",
-    description: "Rola systemowa Moodle (editing teacher).",
+    name: "Nauczyciel",
+    description: "Rola systemowa Moodle — nauczyciel z prawami edycji.",
     permissions: [],
     systemDefined: true,
     userCount: null,
   },
   {
     id: "teacher",
-    name: "Nauczyciel bez edycji (Non-editing teacher)",
-    description: "Rola systemowa Moodle (non-editing teacher).",
+    name: "Nauczyciel bez praw edycji",
+    description: "Rola systemowa Moodle — ocenianie bez edycji kursów.",
     permissions: [],
     systemDefined: true,
     userCount: null,
   },
   {
-    id: "manager",
-    name: "Manager",
-    description: "Rola systemowa Moodle (site-level manager).",
+    id: "student",
+    name: "Student",
+    description: "Rola systemowa Moodle — uczestnik kursów.",
+    permissions: [],
+    systemDefined: true,
+    userCount: null,
+  },
+  {
+    id: "guest",
+    name: "Gość",
+    description: "Rola systemowa Moodle — tylko podgląd kursów publicznych.",
+    permissions: [],
+    systemDefined: true,
+    userCount: null,
+  },
+  {
+    id: "user",
+    name: "Uwierzytelniony użytkownik",
+    description: "Rola systemowa Moodle — każdy zalogowany użytkownik.",
+    permissions: [],
+    systemDefined: true,
+    userCount: null,
+  },
+  {
+    id: "frontpage",
+    name: "Uwierzytelniony użytkownik na stronie głównej",
+    description: "Rola systemowa Moodle — dostęp do aktywności strony głównej.",
     permissions: [],
     systemDefined: true,
     userCount: null,
   },
 ];
 
-/** Shortname'y seed ról mapowanych z KC → native. Używane do sprzątania. */
-const MANAGED_SHORTNAMES = new Set(["student", "editingteacher", "manager"]);
+/**
+ * Heurystyczne mapowanie angielskich Moodle-owych nazw ról na polskie.
+ * Moodle zwraca nazwy w języku instancji — jeśli nie ma polskiego
+ * language packa, zwraca defaulty po angielsku. Zachowujemy te PL-owe
+ * tytuły niezależnie od języka instancji.
+ */
+const PL_LABELS: Record<string, string> = {
+  manager: "Menedżer",
+  coursecreator: "Autor kursu",
+  editingteacher: "Nauczyciel",
+  teacher: "Nauczyciel bez praw edycji",
+  student: "Student",
+  guest: "Gość",
+  user: "Uwierzytelniony użytkownik",
+  frontpage: "Uwierzytelniony użytkownik na stronie głównej",
+};
 
 export class MoodleProvider implements PermissionProvider {
   readonly id = "moodle";
@@ -170,14 +222,20 @@ export class MoodleProvider implements PermissionProvider {
     if (!this.isConfigured()) return [];
     try {
       const raw = await moodleCall<MoodleRoleRaw[]>("core_role_get_roles");
-      return raw.map((r) => ({
-        id: r.shortname,
-        name: r.name || prettyShortname(r.shortname),
-        description: r.description,
-        permissions: [],
-        systemDefined: true,
-        userCount: null,
-      }));
+      if (!Array.isArray(raw) || raw.length === 0) return BASELINE_MOODLE_ROLES;
+      return raw
+        .filter((r) => r.shortname && r.shortname.trim())
+        .map((r) => ({
+          id: r.shortname,
+          name:
+            PL_LABELS[r.shortname] ||
+            (r.name && r.name.trim()) ||
+            prettyShortname(r.shortname),
+          description: r.description,
+          permissions: [],
+          systemDefined: true,
+          userCount: null,
+        }));
     } catch {
       return BASELINE_MOODLE_ROLES;
     }
@@ -210,7 +268,7 @@ export class MoodleProvider implements PermissionProvider {
     const user = await this.findOrCreateUser(args.email, args.displayName);
 
     // `core_role_get_roles` failuje w Moodle 5.x ("Nie znaleziono rekordu")
-    // przy pustym contextid. Fallback: używamy hardcoded ID dla canonical
+    // przy pustym contextid. Fallback: hardcoded ID dla canonical
     // shortnames (są stałe w każdej instalacji Moodla).
     const FALLBACK_ROLE_IDS: Record<string, number> = {
       manager: 1,
@@ -241,15 +299,15 @@ export class MoodleProvider implements PermissionProvider {
       );
     }
 
-    // Usuwamy aktywne system-level assignmenty seed ról (żeby wymusić
-    // single-role-per-area na warstwie Moodla).
+    // Zbiór wszystkich znanych shortname'ów = "zarządzane" przez dashboard.
+    // Enforcement single-role-per-area: zdejmujemy wszystkie system-level
+    // assignmenty z tego zbioru, poza rolą, którą chcemy zostawić.
+    const managed = new Set(byShort.keys());
     const currentShortnames = new Set(
       (user.roles ?? []).map((r) => r.shortname),
     );
-    const toUnassign = [...MANAGED_SHORTNAMES].filter((s) =>
-      currentShortnames.has(s),
-    );
-    for (const short of toUnassign) {
+    for (const short of currentShortnames) {
+      if (!managed.has(short)) continue;
       if (short === args.roleId) continue;
       const role = byShort.get(short);
       if (!role) continue;
@@ -289,10 +347,26 @@ export class MoodleProvider implements PermissionProvider {
     if (!this.isConfigured()) return null;
     const user = await this.findUser(email);
     if (!user) return null;
-    // Zwracamy pierwszy shortname który jest w zbiorze zarządzanych.
-    const shortnames = (user.roles ?? []).map((r) => r.shortname);
-    const primary = shortnames.find((s) => MANAGED_SHORTNAMES.has(s));
-    return primary ?? shortnames[0] ?? null;
+    // Zwracamy shortname o najwyższym priorytecie (manager > editingteacher >
+    // teacher > student > ...). Gdy user ma wiele ról systemowych z historii,
+    // pokazujemy tę "najmocniejszą".
+    const priority = [
+      "manager",
+      "coursecreator",
+      "editingteacher",
+      "teacher",
+      "student",
+      "user",
+      "frontpage",
+      "guest",
+    ];
+    const shortnames = new Set(
+      (user.roles ?? []).map((r) => r.shortname),
+    );
+    for (const s of priority) {
+      if (shortnames.has(s)) return s;
+    }
+    return [...shortnames][0] ?? null;
   }
 
   async syncUserProfile(args: ProfileSyncArgs): Promise<void> {

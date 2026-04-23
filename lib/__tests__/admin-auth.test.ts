@@ -43,7 +43,7 @@ describe("admin-auth", () => {
 
   describe("hasRole / hasAnyRole", () => {
     it("matches exact role", () => {
-      expect(hasRole(sessionWith([ROLES.CHATWOOT_USER]), ROLES.CHATWOOT_USER)).toBe(
+      expect(hasRole(sessionWith([ROLES.CHATWOOT_AGENT]), ROLES.CHATWOOT_AGENT)).toBe(
         true,
       );
     });
@@ -53,20 +53,20 @@ describe("admin-auth", () => {
     });
 
     it("returns false when no roles present", () => {
-      expect(hasRole(sessionWith([]), ROLES.CHATWOOT_USER)).toBe(false);
-      expect(hasRole(null, ROLES.CHATWOOT_USER)).toBe(false);
+      expect(hasRole(sessionWith([]), ROLES.CHATWOOT_AGENT)).toBe(false);
+      expect(hasRole(null, ROLES.CHATWOOT_AGENT)).toBe(false);
     });
 
     it("hasAnyRole matches at least one", () => {
       expect(
-        hasAnyRole(sessionWith([ROLES.CHATWOOT_USER]), [
-          ROLES.CHATWOOT_USER,
+        hasAnyRole(sessionWith([ROLES.CHATWOOT_AGENT]), [
+          ROLES.CHATWOOT_AGENT,
           ROLES.CHATWOOT_ADMIN,
         ]),
       ).toBe(true);
       expect(
         hasAnyRole(sessionWith([ROLES.APP_USER]), [
-          ROLES.CHATWOOT_USER,
+          ROLES.CHATWOOT_AGENT,
           ROLES.CHATWOOT_ADMIN,
         ]),
       ).toBe(false);
@@ -75,10 +75,14 @@ describe("admin-auth", () => {
 
   describe("per-area access helpers", () => {
     it("canAccessChatwootAsAgent / Admin distinguish roles", () => {
-      expect(canAccessChatwootAsAgent(sessionWith([ROLES.CHATWOOT_USER]))).toBe(
+      // Admin dziedziczy dostęp agenta (enterprise RBAC — admin ≥ agent).
+      expect(canAccessChatwootAsAgent(sessionWith([ROLES.CHATWOOT_AGENT]))).toBe(
         true,
       );
       expect(canAccessChatwootAsAgent(sessionWith([ROLES.CHATWOOT_ADMIN]))).toBe(
+        true,
+      );
+      expect(canAccessChatwootAsAdmin(sessionWith([ROLES.CHATWOOT_AGENT]))).toBe(
         false,
       );
       expect(canAccessChatwootAsAdmin(sessionWith([ROLES.CHATWOOT_ADMIN]))).toBe(
@@ -138,13 +142,13 @@ describe("admin-auth", () => {
   describe("assertSingleRolePerArea", () => {
     it("passes with at most one role per area", () => {
       expect(() =>
-        assertSingleRolePerArea([ROLES.CHATWOOT_USER, ROLES.POSTAL_ADMIN]),
+        assertSingleRolePerArea([ROLES.CHATWOOT_AGENT, ROLES.POSTAL_ADMIN]),
       ).not.toThrow();
     });
 
     it("rejects two roles within the same area", () => {
       expect(() =>
-        assertSingleRolePerArea([ROLES.CHATWOOT_USER, ROLES.CHATWOOT_ADMIN]),
+        assertSingleRolePerArea([ROLES.CHATWOOT_AGENT, ROLES.CHATWOOT_ADMIN]),
       ).toThrow(/Single-role-per-area/);
     });
 
@@ -158,7 +162,7 @@ describe("admin-auth", () => {
       const names = getAllAreaRoleNames();
       expect(names.length).toBeGreaterThan(0);
       expect(new Set(names).size).toBe(names.length);
-      expect(names).toContain(ROLES.CHATWOOT_USER);
+      expect(names).toContain(ROLES.CHATWOOT_AGENT);
       expect(names).toContain(ROLES.POSTAL_ADMIN);
       expect(names).toContain(ROLES.KEYCLOAK_ADMIN);
     });

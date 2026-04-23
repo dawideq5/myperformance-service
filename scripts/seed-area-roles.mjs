@@ -2,8 +2,12 @@
 /**
  * Idempotentny seed ról realm wynikających z AREAS registry.
  *
- * Tworzy brakujące role, aktualizuje description na podstawie seeda.
- * NIGDY nie usuwa ról (usuwaniem custom roles zajmuje się panel).
+ * Tworzy brakujące role, aktualizuje description/attrs z seeda. Nie
+ * usuwa ról — usuwanie legacy robi `scripts/migrate-roles-2026-04.mjs`.
+ *
+ * Dla aplikacji z dynamicznymi rolami (Moodle) seeduje tylko rolę
+ * baseline — pełna lista jest hydrowana przez `kc-sync` przy starcie
+ * serwera Next (lub przez `POST /api/admin/iam/sync-kc`).
  *
  * Usage:
  *   KEYCLOAK_URL=https://auth.myperformance.pl \
@@ -26,29 +30,37 @@ function requireEnv(name) {
   return v;
 }
 
-// Lista skopiowana z lib/permissions/areas.ts — skrypt jest pure Node bez
-// resolvowania TS. Zmiany w AREAS wymagają aktualizacji tu.
+// Lista pokrywa seedy z lib/permissions/areas.ts. Dynamic roles (Moodle)
+// są dociągane przez kc-sync przy starcie serwera.
 const AREA_ROLES = [
-  { name: "chatwoot_user", description: "Chatwoot: agent obsługi klienta (zwykły dostęp)." },
-  { name: "chatwoot_admin", description: "Chatwoot: administrator (konfiguracja, webhooki)." },
-  { name: "moodle_user", description: "Moodle: dostęp do kursów i szkoleń." },
-  { name: "moodle_admin", description: "Moodle: manager (konfiguracja, pluginy, użytkownicy)." },
-  { name: "directus_user", description: "Directus: zwykły dostęp do CMS." },
-  { name: "directus_admin", description: "Directus: administrator." },
-  { name: "documenso_user", description: "Documenso: pracownik — podpisuje własne dokumenty." },
-  { name: "documenso_admin", description: "Documenso: administrator (szablony, webhooki, użytkownicy)." },
-  { name: "knowledge_user", description: "Outline: czytanie/edycja wiki." },
-  { name: "knowledge_admin", description: "Outline: administrator (grupy, collections, integracje)." },
-  { name: "postal_user", description: "Postal: dostęp do przypisanych serwerów." },
-  { name: "postal_admin", description: "Postal: administrator (serwery, domeny, polityki)." },
-  { name: "certificates_admin", description: "Wydawanie i odwoływanie certyfikatów klienckich." },
-  { name: "stepca_admin", description: "Administrator step-ca (provisionery, polityki)." },
-  { name: "keycloak_admin", description: "Administrator Keycloak (klienci, realm settings)." },
-  { name: "kadromierz_user", description: "Dostęp do grafiku Kadromierz." },
-  { name: "sprzedawca", description: "Dostęp do panelu sprzedawcy." },
-  { name: "serwisant", description: "Dostęp do panelu serwisanta." },
-  { name: "kierowca", description: "Dostęp do panelu kierowcy." },
-  { name: "app_user", description: "Dostęp do dashboardu (domyślna dla każdego zalogowanego)." },
+  { name: "chatwoot_agent", areaId: "chatwoot", label: "Agent", description: "Chatwoot: agent obsługi klienta." },
+  { name: "chatwoot_admin", areaId: "chatwoot", label: "Administrator", description: "Chatwoot: administrator (konfiguracja, webhooki, integracje)." },
+
+  { name: "moodle_student", areaId: "moodle", label: "Student", description: "Moodle: dostęp do kursów." },
+  { name: "moodle_manager", areaId: "moodle", label: "Menedżer", description: "Moodle: menedżer instancji." },
+
+  { name: "directus_admin", areaId: "directus", label: "Administrator", description: "Directus: administrator." },
+
+  { name: "documenso_member", areaId: "documenso", label: "Użytkownik", description: "Documenso: pracownik — własne dokumenty." },
+  { name: "documenso_manager", areaId: "documenso", label: "Menedżer", description: "Documenso: menedżer zespołu." },
+  { name: "documenso_admin", areaId: "documenso", label: "Administrator", description: "Documenso: administrator." },
+
+  { name: "knowledge_viewer", areaId: "knowledge", label: "Widz", description: "Outline: tylko odczyt." },
+  { name: "knowledge_editor", areaId: "knowledge", label: "Edytor", description: "Outline: tworzenie i edycja dokumentów." },
+  { name: "knowledge_admin", areaId: "knowledge", label: "Administrator", description: "Outline: administrator." },
+
+  { name: "postal_admin", areaId: "postal", label: "Administrator", description: "Postal: administrator (serwery, domeny, polityki)." },
+
+  { name: "certificates_admin", areaId: "certificates", label: "Administrator", description: "Wydawanie i odwoływanie certyfikatów klienckich." },
+  { name: "stepca_admin", areaId: "stepca", label: "Administrator", description: "Administrator step-ca (provisionery, polityki)." },
+  { name: "keycloak_admin", areaId: "keycloak", label: "Administrator", description: "Administrator Keycloak (klienci, realm settings)." },
+  { name: "kadromierz_user", areaId: "kadromierz", label: "Użytkownik", description: "Dostęp do grafiku Kadromierz." },
+
+  { name: "sprzedawca", areaId: "panel-sprzedawca", label: "Użytkownik", description: "Dostęp do panelu sprzedawcy." },
+  { name: "serwisant", areaId: "panel-serwisant", label: "Użytkownik", description: "Dostęp do panelu serwisanta." },
+  { name: "kierowca", areaId: "panel-kierowca", label: "Użytkownik", description: "Dostęp do panelu kierowcy." },
+
+  { name: "app_user", areaId: "core", label: "Użytkownik", description: "Dostęp do dashboardu (domyślna)." },
 ];
 
 async function getAccessToken() {
@@ -100,19 +112,37 @@ async function kcFetch(token, path, init = {}) {
 }
 
 async function ensureRole(token, role) {
+  const attrs = {
+    areaId: [role.areaId],
+    label: [role.label],
+    seed: ["true"],
+  };
   const get = await kcFetch(token, `/roles/${encodeURIComponent(role.name)}`);
   if (get.ok) {
     const existing = await get.json();
-    if (existing.description !== role.description) {
-      const upd = await kcFetch(token, `/roles-by-id/${existing.id}`, {
+    const full = await kcFetch(
+      token,
+      `/roles-by-id/${existing.id}?briefRepresentation=false`,
+    );
+    const existingFull = full.ok ? await full.json() : existing;
+    const needsUpdate =
+      existingFull.description !== role.description ||
+      JSON.stringify(existingFull.attributes || {}) !==
+        JSON.stringify({ ...(existingFull.attributes || {}), ...attrs });
+    if (needsUpdate) {
+      const upd = await kcFetch(token, `/roles-by-id/${existingFull.id}`, {
         method: "PUT",
-        body: JSON.stringify({ ...existing, description: role.description }),
+        body: JSON.stringify({
+          ...existingFull,
+          description: role.description,
+          attributes: { ...(existingFull.attributes || {}), ...attrs },
+        }),
       });
       if (!upd.ok) {
         const body = await upd.text().catch(() => "");
         throw new Error(`update role ${role.name}: ${upd.status} ${body}`);
       }
-      console.log(`[seed-area-roles] updated description: ${role.name}`);
+      console.log(`[seed-area-roles] updated: ${role.name}`);
     } else {
       console.log(`[seed-area-roles] ok: ${role.name}`);
     }
@@ -124,7 +154,11 @@ async function ensureRole(token, role) {
   }
   const create = await kcFetch(token, "/roles", {
     method: "POST",
-    body: JSON.stringify({ name: role.name, description: role.description }),
+    body: JSON.stringify({
+      name: role.name,
+      description: role.description,
+      attributes: attrs,
+    }),
   });
   if (!create.ok && create.status !== 409) {
     const body = await create.text().catch(() => "");
@@ -139,7 +173,7 @@ async function main() {
   for (const r of AREA_ROLES) {
     await ensureRole(token, r);
   }
-  console.log(`[seed-area-roles] done — ${AREA_ROLES.length} role sprawdzone`);
+  console.log(`[seed-area-roles] done — ${AREA_ROLES.length} ról sprawdzonych`);
 }
 
 main().catch((err) => {

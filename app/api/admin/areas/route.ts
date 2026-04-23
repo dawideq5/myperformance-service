@@ -5,16 +5,18 @@ import { authOptions } from "@/app/auth";
 import { keycloak } from "@/lib/keycloak";
 import { createSuccessResponse, handleApiError } from "@/lib/api-utils";
 import { requireAdminPanel } from "@/lib/admin-auth";
-import { AREAS, listAreaKcRoleNames } from "@/lib/permissions/areas";
+import { AREAS } from "@/lib/permissions/areas";
 import { countUsersWithRole } from "@/lib/permissions/sync";
 import { getProvider } from "@/lib/permissions/registry";
+import { resolveRoleCatalog } from "@/lib/permissions/catalog";
 
 /**
  * GET /api/admin/areas
  *
- * Zwraca listę wszystkich obszarów z podstawową telemetrią: czy natywny
- * provider jest configured, ile ról seed w KC, sumaryczny user count
- * (jakikolwiek z seed roles). Używane do listy AreaCard w /admin/users.
+ * Zwraca listę obszarów z jednolitym katalogiem ról (seed + dynamic).
+ * Każda rola ma `label` (PL, do UI), `name` (KC realm role), oraz
+ * metadane (provider native id, user count). Dla area z `dynamicRoles=true`
+ * pobieramy ról z `provider.listRoles()` i dołączamy je do seedów.
  */
 export async function GET() {
   try {
@@ -25,16 +27,17 @@ export async function GET() {
 
     const results = await Promise.all(
       AREAS.map(async (area) => {
-        const seedRoles = listAreaKcRoleNames(area);
-        const counts = await Promise.all(
-          seedRoles.map((name) =>
-            countUsersWithRole(adminToken, name).catch(() => 0),
-          ),
-        );
-        const totalSeeded = counts.reduce((a, b) => a + b, 0);
-
         const provider =
           area.provider === "native" ? getProvider(area.nativeProviderId) : null;
+
+        const mergedRoles = await resolveRoleCatalog(area);
+
+        const counts = await Promise.all(
+          mergedRoles.map((r) =>
+            countUsersWithRole(adminToken, r.name).catch(() => 0),
+          ),
+        );
+        const totalAssigned = counts.reduce((a, b) => a + b, 0);
 
         return {
           id: area.id,
@@ -44,16 +47,18 @@ export async function GET() {
           provider: area.provider,
           nativeProviderId: area.nativeProviderId ?? null,
           nativeConfigured: provider?.isConfigured() ?? false,
-          supportsCustomRoles: provider?.supportsCustomRoles() ?? false,
+          dynamicRoles: area.dynamicRoles === true,
           nativeAdminUrl: area.nativeAdminUrl ?? null,
-          seedRoles: area.kcRoles.map((r, i) => ({
+          roles: mergedRoles.map((r, i) => ({
             name: r.name,
+            label: r.label,
             description: r.description,
             priority: r.priority,
-            nativeRoleId: r.nativeRoleId ?? null,
+            nativeRoleId: r.nativeRoleId,
+            seed: r.seed,
             userCount: counts[i],
           })),
-          totalAssignedUsers: totalSeeded,
+          totalAssignedUsers: totalAssigned,
         };
       }),
     );
@@ -63,3 +68,4 @@ export async function GET() {
     return handleApiError(err);
   }
 }
+

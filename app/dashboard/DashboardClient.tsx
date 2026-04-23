@@ -310,18 +310,6 @@ function TileGrid() {
           />
         )}
 
-        {showAdminUsers && (
-          <Tile
-            icon={<ShieldCheck className="w-7 h-7 text-violet-500" aria-hidden="true" />}
-            iconBg="bg-violet-500/10"
-            title="Szablony ról"
-            description="Definiowanie zestawów ról do szybkiego przypisywania użytkownikom"
-            onClick={() => {
-              window.location.href = "/admin/templates";
-            }}
-          />
-        )}
-
         {showKeycloak && (
           <ExternalTile
             icon={<KeyRound className="w-7 h-7 text-indigo-500" aria-hidden="true" />}

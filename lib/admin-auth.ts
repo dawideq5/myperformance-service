@@ -5,40 +5,39 @@ import { AREAS, findAreaForRole } from "@/lib/permissions/areas";
 /**
  * Realm-wide role catalog.
  *
- * Shape: `<service>_user` grants read/basic use, `<service>_admin` grants
- * elevated/management rights. Niektóre usługi (Directus, Postal, step-ca)
- * są admin-only — nie mają odpowiednika `_user`.
+ * Role `<service>_<tier>` mapują się 1:1 na seed roles z `areas.ts`.
+ * Source-of-truth dla catalogu pozostaje `areas.ts` — ten plik eksportuje
+ * "gotowe" nazwy ról (string literals) żeby reszta aplikacji nie musiała
+ * importować i iterować AREAS przy każdym `hasRole` checku.
  *
- * Roles with `default: true` belong to `default-roles-myperformance` and
- * are auto-granted to every authenticated user. Everything else is gated
- * and must be assigned explicitly via the `/admin/users` console.
+ * Wszystkie role są non-default (przypisywane explicite w `/admin/users`),
+ * za wyjątkiem `app_user` (każdy zalogowany) i `kadromierz_user` (default).
  */
 export const ROLES = {
   APP_USER: "app_user",
 
-  // Management consoles
+  // Panel zarządzania użytkownikami (część IAM — wymaga keycloak_admin).
   MANAGE_USERS: "manage_users",
 
   // Client certs (/admin/certificates)
   CERTIFICATES_ADMIN: "certificates_admin",
 
-  // Kadromierz
+  // Kadromierz — default-true
   KADROMIERZ_USER: "kadromierz_user",
 
-  // Directus CMS
-  DIRECTUS_USER: "directus_user",
+  // Directus CMS — admin-only
   DIRECTUS_ADMIN: "directus_admin",
 
-  // Documenso (zwykły user = MEMBER, admin = ADMIN)
-  DOCUMENSO_USER: "documenso_user",
+  // Documenso — 3 tiery
+  DOCUMENSO_MEMBER: "documenso_member",
+  DOCUMENSO_MANAGER: "documenso_manager",
   DOCUMENSO_ADMIN: "documenso_admin",
 
-  // Chatwoot
-  CHATWOOT_USER: "chatwoot_user",
+  // Chatwoot — 2 tiery
+  CHATWOOT_AGENT: "chatwoot_agent",
   CHATWOOT_ADMIN: "chatwoot_admin",
 
-  // Postal
-  POSTAL_USER: "postal_user",
+  // Postal — admin-only
   POSTAL_ADMIN: "postal_admin",
 
   // Keycloak (admin console)
@@ -47,12 +46,14 @@ export const ROLES = {
   // Step CA
   STEPCA_ADMIN: "stepca_admin",
 
-  // Moodle
-  MOODLE_USER: "moodle_user",
-  MOODLE_ADMIN: "moodle_admin",
+  // Moodle — pełna lista ról pobierana dynamicznie z providera,
+  // seed zawiera tylko pewną bazę.
+  MOODLE_STUDENT: "moodle_student",
+  MOODLE_MANAGER: "moodle_manager",
 
-  // Knowledge base (Outline)
-  KNOWLEDGE_USER: "knowledge_user",
+  // Knowledge base (Outline) — 3 tiery
+  KNOWLEDGE_VIEWER: "knowledge_viewer",
+  KNOWLEDGE_EDITOR: "knowledge_editor",
   KNOWLEDGE_ADMIN: "knowledge_admin",
 } as const;
 
@@ -69,36 +70,33 @@ export const ROLE_CATALOG: RoleSpec[] = [
   { name: ROLES.APP_USER, description: "Dostęp do dashboardu (wymagany dla każdego uwierzytelnionego użytkownika)", default: true },
 
   { name: ROLES.MANAGE_USERS, description: "Zarządzanie kontami użytkowników w panelu /admin/users", default: false },
-  { name: ROLES.CERTIFICATES_ADMIN, description: "Wydawanie i odwoływanie certyfikatów klienckich (step-ca)", default: false },
+  { name: ROLES.CERTIFICATES_ADMIN, description: "Wydawanie i odwoływanie certyfikatów klienckich", default: false },
   { name: ROLES.KADROMIERZ_USER, description: "Integracja Kadromierz (grafik, ewidencja czasu)", default: true },
 
-  { name: ROLES.DIRECTUS_USER, description: "Directus: zwykły dostęp do CMS", default: false },
   { name: ROLES.DIRECTUS_ADMIN, description: "Directus: administrator", default: false },
 
-  { name: ROLES.DOCUMENSO_USER, description: "Documenso: pracownik (własne dokumenty)", default: false },
-  { name: ROLES.DOCUMENSO_ADMIN, description: "Documenso: administrator (szablony, webhooki, użytkownicy)", default: false },
+  { name: ROLES.DOCUMENSO_MEMBER, description: "Documenso: użytkownik (własne dokumenty)", default: false },
+  { name: ROLES.DOCUMENSO_MANAGER, description: "Documenso: menedżer zespołu", default: false },
+  { name: ROLES.DOCUMENSO_ADMIN, description: "Documenso: administrator", default: false },
 
-  { name: ROLES.CHATWOOT_USER, description: "Chatwoot: agent obsługi klienta", default: false },
-  { name: ROLES.CHATWOOT_ADMIN, description: "Chatwoot: administrator (konfiguracja, webhooki, role)", default: false },
+  { name: ROLES.CHATWOOT_AGENT, description: "Chatwoot: agent obsługi klienta", default: false },
+  { name: ROLES.CHATWOOT_ADMIN, description: "Chatwoot: administrator", default: false },
 
-  { name: ROLES.POSTAL_USER, description: "Postal: dostęp do przypisanych serwerów", default: false },
   { name: ROLES.POSTAL_ADMIN, description: "Postal: administrator", default: false },
 
   { name: ROLES.KEYCLOAK_ADMIN, description: "Konsola administracyjna Keycloak", default: false },
+  { name: ROLES.STEPCA_ADMIN, description: "Administrator step-ca", default: false },
 
-  { name: ROLES.STEPCA_ADMIN, description: "Administrator step-ca (provisionery, polityki)", default: false },
+  { name: ROLES.MOODLE_STUDENT, description: "Moodle: student (dostęp do kursów)", default: false },
+  { name: ROLES.MOODLE_MANAGER, description: "Moodle: menedżer instancji", default: false },
 
-  { name: ROLES.MOODLE_USER, description: "Moodle: dostęp do kursów i szkoleń", default: false },
-  { name: ROLES.MOODLE_ADMIN, description: "Moodle: manager (konfiguracja instancji, użytkownicy, pluginy)", default: false },
-
-  { name: ROLES.KNOWLEDGE_USER, description: "Outline: czytanie/edycja wiki", default: true },
-  { name: ROLES.KNOWLEDGE_ADMIN, description: "Outline: administrator (grupy, integracje, collections)", default: false },
+  { name: ROLES.KNOWLEDGE_VIEWER, description: "Outline: widz (tylko odczyt)", default: false },
+  { name: ROLES.KNOWLEDGE_EDITOR, description: "Outline: edytor (tworzenie i edycja)", default: true },
+  { name: ROLES.KNOWLEDGE_ADMIN, description: "Outline: administrator", default: false },
 ];
 
 /**
- * Keycloak realm-management roles that implicitly grant full admin — we
- * honour them so that realm-admin users work out of the box without
- * needing every bespoke role assigned manually.
+ * Keycloak realm-management roles that implicitly grant full admin.
  */
 const SUPERADMIN_ROLES = ["realm-admin", "manage-realm", "admin"];
 
@@ -161,10 +159,21 @@ export function canAccessDirectus(
   return hasRole(session, ROLES.DIRECTUS_ADMIN);
 }
 
-export function canAccessDocumensoAsUser(
+// ─── Documenso — 3 tiery ──────────────────────────────────────────────────
+export function canAccessDocumensoAsMember(
   session: Session | null | undefined,
 ): boolean {
-  return hasRole(session, ROLES.DOCUMENSO_USER);
+  return hasAnyRole(session, [
+    ROLES.DOCUMENSO_MEMBER,
+    ROLES.DOCUMENSO_MANAGER,
+    ROLES.DOCUMENSO_ADMIN,
+  ]);
+}
+
+export function canAccessDocumensoAsManager(
+  session: Session | null | undefined,
+): boolean {
+  return hasAnyRole(session, [ROLES.DOCUMENSO_MANAGER, ROLES.DOCUMENSO_ADMIN]);
 }
 
 export function canAccessDocumensoAsAdmin(
@@ -173,21 +182,17 @@ export function canAccessDocumensoAsAdmin(
   return hasRole(session, ROLES.DOCUMENSO_ADMIN);
 }
 
-/**
- * @deprecated Tier "handler" został zdegenerowany do roli admin po
- * uproszczeniu modelu ról. Pozostawiamy alias dla zgodności z widokiem
- * /dashboard/documents-handler (obieg dokumentów = admin-flow).
- */
-export function canAccessDocumensoAsHandler(
-  session: Session | null | undefined,
-): boolean {
-  return canAccessDocumensoAsAdmin(session);
-}
+/** @deprecated — zachowane dla kompatybilności callsite'ów. */
+export const canAccessDocumensoAsUser = canAccessDocumensoAsMember;
 
+/** @deprecated — handler = manager lub admin. */
+export const canAccessDocumensoAsHandler = canAccessDocumensoAsManager;
+
+// ─── Chatwoot ─────────────────────────────────────────────────────────────
 export function canAccessChatwootAsAgent(
   session: Session | null | undefined,
 ): boolean {
-  return hasRole(session, ROLES.CHATWOOT_USER);
+  return hasAnyRole(session, [ROLES.CHATWOOT_AGENT, ROLES.CHATWOOT_ADMIN]);
 }
 
 export function canAccessChatwootAsAdmin(
@@ -196,36 +201,66 @@ export function canAccessChatwootAsAdmin(
   return hasRole(session, ROLES.CHATWOOT_ADMIN);
 }
 
+// ─── Postal — admin-only ──────────────────────────────────────────────────
 export function canAccessPostal(
   session: Session | null | undefined,
 ): boolean {
-  return hasRole(session, ROLES.POSTAL_USER) || hasRole(session, ROLES.POSTAL_ADMIN);
+  return hasRole(session, ROLES.POSTAL_ADMIN);
+}
+
+// ─── Moodle — dowolna rola z obszaru moodle daje dostęp ───────────────────
+function moodleAreaRoles(): string[] {
+  const area = AREAS.find((a) => a.id === "moodle");
+  if (!area) return [];
+  return area.kcRoles.map((r) => r.name);
 }
 
 export function canAccessMoodleAsStudent(
   session: Session | null | undefined,
 ): boolean {
-  return hasRole(session, ROLES.MOODLE_USER);
+  // Każda rola Moodle (student, teacher, editingteacher, manager itp.)
+  // daje dostęp do tile'a Akademii. Lista ról jest dynamicznie
+  // rozszerzana przez provider + kc-sync — tu używamy prefix-match.
+  const own = rolesOf(session);
+  if (isSuperAdmin(session)) return true;
+  return own.some((r) => r.startsWith("moodle_"));
 }
 
 export function canAccessMoodleAsTeacher(
   session: Session | null | undefined,
 ): boolean {
-  // Editing teacher = admin w Moodle UI (manager). Kept as separate helper
-  // dla zgodności linków w dashboard tile "Akademia — widok nauczyciela".
-  return hasRole(session, ROLES.MOODLE_ADMIN);
+  const own = rolesOf(session);
+  if (isSuperAdmin(session)) return true;
+  return own.some(
+    (r) =>
+      r === "moodle_manager" ||
+      r === "moodle_editingteacher" ||
+      r === "moodle_teacher" ||
+      r === "moodle_coursecreator",
+  );
 }
 
 export function canAccessMoodleAsAdmin(
   session: Session | null | undefined,
 ): boolean {
-  return hasRole(session, ROLES.MOODLE_ADMIN);
+  return hasRole(session, ROLES.MOODLE_MANAGER);
 }
 
+// ─── Knowledge / Outline — 3 tiery ────────────────────────────────────────
 export function canAccessKnowledgeBase(
   session: Session | null | undefined,
 ): boolean {
-  return hasRole(session, ROLES.KNOWLEDGE_USER);
+  return hasAnyRole(session, [
+    ROLES.KNOWLEDGE_VIEWER,
+    ROLES.KNOWLEDGE_EDITOR,
+    ROLES.KNOWLEDGE_ADMIN,
+  ]);
+}
+
+export function canAccessKnowledgeAsEditor(
+  session: Session | null | undefined,
+): boolean {
+  return hasAnyRole(session, [ROLES.KNOWLEDGE_EDITOR, ROLES.KNOWLEDGE_ADMIN]);
 }
 
 export function canAccessKnowledgeAdmin(
@@ -234,6 +269,7 @@ export function canAccessKnowledgeAdmin(
   return hasRole(session, ROLES.KNOWLEDGE_ADMIN);
 }
 
+// ─── Keycloak / step-ca / certs ───────────────────────────────────────────
 export function canAccessKeycloakAdmin(
   session: Session | null | undefined,
 ): boolean {
@@ -261,8 +297,6 @@ export function canAccessKadromierz(
 export function canAccessCalendar(
   session: Session | null | undefined,
 ): boolean {
-  // Kalendarz jest częścią bazowego doświadczenia dashboardu —
-  // dostęp ma każdy uwierzytelniony użytkownik.
   return !!session?.user;
 }
 
@@ -293,9 +327,7 @@ export function requireCertificates(
 }
 
 /**
- * Sprawdza, czy zbiór ról zawiera >1 rolę w ramach tego samego area.
- * Single-role-per-area: użytkownik może mieć maksymalnie jedną rolę
- * w każdym obszarze. Używane przez UI + API walidatory.
+ * Single-role-per-area guard — używane przez API walidatory + UI.
  */
 export function assertSingleRolePerArea(roleNames: readonly string[]): void {
   const byArea = new Map<string, string[]>();
@@ -328,4 +360,11 @@ export function getAllAreaRoleNames(): string[] {
     for (const r of area.kcRoles) names.add(r.name);
   }
   return Array.from(names);
+}
+
+/** Moodle role names — wrapowane tak, żeby dynamiczne role (spoza seeda)
+ * też liczyły się jako "dowolna rola w Moodle" dla dostępu do tile'a.
+ * Eksport używany przez middleware (moodle/events/status APIs). */
+export function getMoodleRoleNames(): string[] {
+  return moodleAreaRoles();
 }

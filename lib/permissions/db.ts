@@ -431,12 +431,13 @@ export type IamAuditOperation =
   | "user.unassign"
   | "sync.push"
   | "sync.pull"
-  | "seed.apply";
+  | "seed.apply"
+  | "kc.sync";
 
 export interface IamAuditEntry {
   actor: string;
   operation: IamAuditOperation;
-  targetType: "metarole" | "user" | "mapping" | "area" | "app";
+  targetType: "metarole" | "user" | "mapping" | "area" | "app" | "realm";
   targetId?: string | null;
   appId?: string | null;
   status: IamAuditStatus;

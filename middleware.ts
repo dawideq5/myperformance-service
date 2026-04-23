@@ -126,26 +126,40 @@ function areaRoles(
   return filter ? names.filter(filter) : names;
 }
 
-const ROLE_GUARDS: Array<{ path: string; anyOf: string[] }> = [
-  { path: "/admin/users", anyOf: areaRoles("admin") },
-  { path: "/admin/certificates", anyOf: areaRoles("stepca", (n) => n === "certificates_admin") },
-  { path: "/api/admin/users", anyOf: areaRoles("admin") },
-  { path: "/api/admin/certificates", anyOf: areaRoles("stepca", (n) => n === "certificates_admin") },
-  { path: "/dashboard/step-ca", anyOf: areaRoles("stepca", (n) => n === "stepca_admin") },
+interface RoleGuard {
+  path: string;
+  anyOf: string[];
+  /** Dodatkowe dopasowanie — jeśli user ma rolę pasującą do prefixu
+   * (np. `moodle_` dla dynamicznych ról Moodle), guard przepuszcza. */
+  anyPrefix?: string[];
+}
+
+const ROLE_GUARDS: RoleGuard[] = [
+  { path: "/admin/users", anyOf: areaRoles("keycloak") },
+  { path: "/admin/certificates", anyOf: areaRoles("certificates") },
+  { path: "/api/admin/users", anyOf: areaRoles("keycloak") },
+  { path: "/api/admin/certificates", anyOf: areaRoles("certificates") },
+  { path: "/dashboard/step-ca", anyOf: areaRoles("stepca") },
   {
     path: "/dashboard/documents-handler",
-    anyOf: areaRoles("documenso", (n) => n !== "documenso_user"),
+    anyOf: areaRoles("documenso", (n) => n !== "documenso_member"),
   },
-  { path: "/api/integrations/moodle", anyOf: areaRoles("moodle") },
+  // Moodle — dowolna rola z obszaru (seed + dynamic jak moodle_editingteacher,
+  // moodle_teacher z `core_role_get_roles`) daje dostęp do integration API.
+  { path: "/api/integrations/moodle", anyOf: [], anyPrefix: ["moodle_"] },
 ];
 
 function findMatchingGuard(pathname: string) {
   return ROLE_GUARDS.find((g) => pathname === g.path || pathname.startsWith(`${g.path}/`));
 }
 
-function hasAny(roles: string[], wanted: string[]): boolean {
+function hasAny(roles: string[], wanted: string[], anyPrefix?: string[]): boolean {
   if (roles.some((r) => SUPERADMIN_ROLES.has(r))) return true;
-  return wanted.some((r) => roles.includes(r));
+  if (wanted.some((r) => roles.includes(r))) return true;
+  if (anyPrefix && anyPrefix.length > 0) {
+    return roles.some((r) => anyPrefix.some((p) => r.startsWith(p)));
+  }
+  return false;
 }
 
 export default withAuth(
@@ -218,7 +232,7 @@ export default withAuth(
     const guard = findMatchingGuard(pathname);
     if (guard) {
       const roles = collectRoles(accessToken);
-      if (!hasAny(roles, guard.anyOf)) {
+      if (!hasAny(roles, guard.anyOf, guard.anyPrefix)) {
         if (isApi) {
           return withRequestIdHeaders(
             NextResponse.json({ error: "Forbidden" }, { status: 403 }),

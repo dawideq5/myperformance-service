@@ -216,13 +216,12 @@ export interface DocumensoDocumentStats {
 
 /**
  * Documenso role — natywny enum `Role` w DB. Mapowanie KC → Documenso:
- *   documenso_admin   → ADMIN (pełne /admin + pełne UI)
- *   documenso_handler → USER  (pełne UI bez /admin)
- *   documenso_user    → USER  (pełne UI bez /admin, landing /inbox)
+ *   documenso_admin   → ADMIN  (pełne /admin + pełne UI)
+ *   documenso_manager → USER   (pełne UI bez /admin, landing /templates)
+ *   documenso_member  → USER   (pełne UI bez /admin, landing /inbox)
  *
- * Historycznie istniał DOCUMENSO_EMPLOYEE który suspendował konto
- * (disabled=true) — zostało usunięte 2026-04-23: każda persona z rolą
- * documenso_* ma dostęp do Documenso UI, różnicę robi landing URL.
+ * Każda persona z rolą documenso_* ma dostęp do Documenso UI, różnicę
+ * robi landing URL i team-level TeamMember.role.
  */
 /**
  * Global Documenso role (stored in `User.roles` jako `Role[]` enum PG).

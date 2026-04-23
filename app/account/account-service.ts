@@ -453,11 +453,16 @@ export const adminUserService = {
 // Permission areas — registry of app integrations + per-area RBAC
 // ---------------------------------------------------------------------------
 
-export interface AreaSummarySeedRole {
+export interface AreaRole {
+  /** Realm role name — np. `chatwoot_admin`. */
   name: string;
+  /** Pretty PL label — np. `Administrator`. */
+  label: string;
   description: string;
   priority: number;
   nativeRoleId: string | null;
+  /** `true` = zadeklarowana w `areas.ts`; `false` = dynamicznie wykryta z providera. */
+  seed: boolean;
   userCount: number;
 }
 
@@ -469,28 +474,10 @@ export interface AreaSummary {
   provider: "keycloak-only" | "native";
   nativeProviderId: string | null;
   nativeConfigured: boolean;
-  supportsCustomRoles: boolean;
+  dynamicRoles: boolean;
   nativeAdminUrl: string | null;
-  seedRoles: AreaSummarySeedRole[];
+  roles: AreaRole[];
   totalAssignedUsers: number;
-}
-
-export interface AreaDetailRole {
-  kcRoleName: string;
-  kcRoleId: string;
-  description: string;
-  priority: number;
-  isSeeded: boolean;
-  isCustom: boolean;
-  userCount: number;
-  native: {
-    id: string;
-    name: string;
-    description: string | null;
-    permissions: string[];
-    systemDefined: boolean;
-    userCount: number | null;
-  } | null;
 }
 
 export interface AreaDetailNativePermission {
@@ -509,102 +496,31 @@ export interface AreaDetail {
     provider: "keycloak-only" | "native";
     nativeProviderId: string | null;
     nativeConfigured: boolean;
-    supportsCustomRoles: boolean;
+    dynamicRoles: boolean;
+    nativeAdminUrl: string | null;
   };
-  roles: AreaDetailRole[];
-  orphanNativeRoles: Array<{
-    id: string;
-    name: string;
-    description: string | null;
-    permissions: string[];
-    systemDefined: boolean;
-    userCount: number | null;
-  }>;
+  roles: AreaRole[];
   nativePermissions: AreaDetailNativePermission[];
 }
-
-// ---------------------------------------------------------------------------
-// Role templates — named bundles of per-area role assignments
-// ---------------------------------------------------------------------------
-
-export interface RoleTemplateAssignment {
-  areaId: string;
-  roleName: string | null;
-}
-
-export interface RoleTemplate {
-  id: string;
-  name: string;
-  description: string;
-  icon: string | null;
-  areaRoles: RoleTemplateAssignment[];
-  createdAt: string;
-  updatedAt: string;
-}
-
-export const roleTemplateService = {
-  list: () =>
-    api.get<{ templates: RoleTemplate[] }>("/api/admin/role-templates"),
-
-  create: (payload: {
-    name: string;
-    description?: string;
-    icon?: string | null;
-    areaRoles: RoleTemplateAssignment[];
-  }) =>
-    api.post<{ template: RoleTemplate }, typeof payload>(
-      "/api/admin/role-templates",
-      payload,
-    ),
-
-  update: (
-    id: string,
-    payload: {
-      name?: string;
-      description?: string;
-      icon?: string | null;
-      areaRoles?: RoleTemplateAssignment[];
-    },
-  ) =>
-    api.patch<{ template: RoleTemplate }, typeof payload>(
-      `/api/admin/role-templates/${encodeURIComponent(id)}`,
-      payload,
-    ),
-
-  remove: (id: string) =>
-    api.delete<{ ok: boolean }>(
-      `/api/admin/role-templates/${encodeURIComponent(id)}`,
-    ),
-
-  apply: (id: string, userIds: string[]) =>
-    api.post<
-      {
-        templateId: string;
-        totalUsers: number;
-        results: Array<{
-          userId: string;
-          assignments: Array<{
-            areaId: string;
-            status: "ok" | "failed";
-            error?: string;
-            added?: string[];
-            removed?: string[];
-            nativeSync?: "ok" | "skipped" | "failed";
-          }>;
-        }>;
-      },
-      { userIds: string[] }
-    >(
-      `/api/admin/role-templates/${encodeURIComponent(id)}/apply`,
-      { userIds },
-    ),
-};
 
 export const permissionAreaService = {
   list: () => api.get<{ areas: AreaSummary[] }>("/api/admin/areas"),
 
   detail: (id: string) =>
     api.get<AreaDetail>(`/api/admin/areas/${encodeURIComponent(id)}`),
+
+  syncKc: (opts?: { deleteStale?: boolean }) =>
+    api.post<
+      {
+        rolesCreated: number;
+        rolesUpdated: number;
+        rolesDeleted: number;
+        groupsCreated: number;
+        groupsUpdated: number;
+        errors: Array<{ step: string; name: string; error: string }>;
+      },
+      { deleteStale?: boolean }
+    >("/api/admin/iam/sync-kc", opts ?? {}),
 
   bulkAssign: (payload: {
     userIds: string[];

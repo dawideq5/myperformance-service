@@ -9,48 +9,21 @@ import {
   handleApiError,
 } from "@/lib/api-utils";
 import { requireAdminPanel } from "@/lib/admin-auth";
-import { getArea, isCustomRoleKcName } from "@/lib/permissions/areas";
+import { getArea } from "@/lib/permissions/areas";
 import { countUsersWithRole } from "@/lib/permissions/sync";
 import { getProvider } from "@/lib/permissions/registry";
-import type { NativePermission, NativeRole } from "@/lib/permissions/providers/types";
+import type { NativePermission } from "@/lib/permissions/providers/types";
+import { resolveRoleCatalog } from "@/lib/permissions/catalog";
 
 /**
  * GET /api/admin/areas/[id]
  *
- * Zwraca szczegóły area: wszystkie role (seed + custom prefix + native) i
- * listę permissions (live z providera, jeśli natywny).
+ * Zwraca szczegóły area — katalog ról (seed + dynamic) i listę
+ * natywnych permissions (live z providera). Używane m.in. przez
+ * BulkAssignDialog do skonstruowania listy ról do przypisania.
  */
 interface Ctx {
   params: Promise<{ id: string }>;
-}
-
-interface RoleRepresentation {
-  id: string;
-  name: string;
-  description?: string;
-  attributes?: Record<string, string[]>;
-}
-
-async function listAreaKcRoles(
-  adminToken: string,
-  areaId: string,
-  seedNames: string[],
-): Promise<RoleRepresentation[]> {
-  // Pobieramy wszystkie realm roles i filtrujemy po seed+prefix. KC nie
-  // oferuje filtru po prefix, więc po prostu listujemy z max=500.
-  const res = await keycloak.adminRequest(
-    "/roles?briefRepresentation=false&max=500",
-    adminToken,
-  );
-  if (!res.ok) {
-    throw ApiError.serviceUnavailable("Nie udało się pobrać listy ról realm z Keycloak");
-  }
-  const all = (await res.json()) as RoleRepresentation[];
-  const areaPrefix = `${areaId.replace(/-/g, "_")}_`;
-  const seedSet = new Set(seedNames);
-  return all.filter(
-    (r) => seedSet.has(r.name) || r.name.startsWith(areaPrefix),
-  );
 }
 
 export async function GET(_req: Request, { params }: Ctx) {
@@ -63,69 +36,17 @@ export async function GET(_req: Request, { params }: Ctx) {
     if (!area) throw ApiError.notFound(`Area ${id} nie istnieje`);
 
     const adminToken = await keycloak.getServiceAccountToken();
-    const seedNames = area.kcRoles.map((r) => r.name);
 
-    const [kcRoles, nativeRolesRaw, nativePermissions] = await Promise.all([
-      listAreaKcRoles(adminToken, area.id, seedNames),
-      area.provider === "native"
-        ? getProvider(area.nativeProviderId)?.listRoles().catch(() => []) ?? []
-        : Promise.resolve([] as NativeRole[]),
+    const [roles, nativePermissions] = await Promise.all([
+      resolveRoleCatalog(area),
       area.provider === "native"
         ? getProvider(area.nativeProviderId)?.listPermissions().catch(() => []) ?? []
         : Promise.resolve([] as NativePermission[]),
     ]);
 
-    // Policzmy userów per rola KC.
-    const userCounts = await Promise.all(
-      kcRoles.map((r) => countUsersWithRole(adminToken, r.name).catch(() => 0)),
+    const counts = await Promise.all(
+      roles.map((r) => countUsersWithRole(adminToken, r.name).catch(() => 0)),
     );
-    const byRoleName = new Map<string, number>(
-      kcRoles.map((r, i) => [r.name, userCounts[i]]),
-    );
-
-    // Zbuduj widok ujednolicony KC × native.
-    const nativeById = new Map(nativeRolesRaw.map((r) => [r.id, r]));
-    const roles = kcRoles.map((kc) => {
-      const seed = area.kcRoles.find((s) => s.name === kc.name);
-      const nativeIdAttr = kc.attributes?.nativeRoleId?.[0] ?? null;
-      const nativeId = seed?.nativeRoleId ?? nativeIdAttr ?? null;
-      const native = nativeId ? nativeById.get(nativeId) ?? null : null;
-      return {
-        kcRoleName: kc.name,
-        kcRoleId: kc.id,
-        description: kc.description ?? seed?.description ?? "",
-        priority: seed?.priority ?? (isCustomRoleKcName(kc.name) ? 50 : 0),
-        isSeeded: Boolean(seed),
-        isCustom: isCustomRoleKcName(kc.name),
-        userCount: byRoleName.get(kc.name) ?? 0,
-        native: native
-          ? {
-              id: native.id,
-              name: native.name,
-              description: native.description ?? null,
-              permissions: native.permissions,
-              systemDefined: Boolean(native.systemDefined),
-              userCount: native.userCount ?? null,
-            }
-          : null,
-      };
-    });
-
-    // Role natywne nie mające jeszcze odpowiednika w KC (np. custom stworzone
-    // bezpośrednio w Chatwoot/Directus) — wystawiamy osobną sekcją.
-    const usedNativeIds = new Set(
-      roles.map((r) => r.native?.id).filter((id): id is string => Boolean(id)),
-    );
-    const orphanNative = nativeRolesRaw
-      .filter((r) => !usedNativeIds.has(r.id))
-      .map((r) => ({
-        id: r.id,
-        name: r.name,
-        description: r.description ?? null,
-        permissions: r.permissions,
-        systemDefined: Boolean(r.systemDefined),
-        userCount: r.userCount ?? null,
-      }));
 
     return createSuccessResponse({
       area: {
@@ -139,13 +60,18 @@ export async function GET(_req: Request, { params }: Ctx) {
           area.provider === "native"
             ? getProvider(area.nativeProviderId)?.isConfigured() ?? false
             : false,
-        supportsCustomRoles:
-          area.provider === "native"
-            ? getProvider(area.nativeProviderId)?.supportsCustomRoles() ?? false
-            : false,
+        dynamicRoles: area.dynamicRoles === true,
+        nativeAdminUrl: area.nativeAdminUrl ?? null,
       },
-      roles,
-      orphanNativeRoles: orphanNative,
+      roles: roles.map((r, i) => ({
+        name: r.name,
+        label: r.label,
+        description: r.description,
+        priority: r.priority,
+        nativeRoleId: r.nativeRoleId,
+        seed: r.seed,
+        userCount: counts[i],
+      })),
       nativePermissions,
     });
   } catch (err) {

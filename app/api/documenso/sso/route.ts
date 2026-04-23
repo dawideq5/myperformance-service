@@ -3,8 +3,8 @@ import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
 import {
   canAccessDocumensoAsAdmin,
-  canAccessDocumensoAsHandler,
-  canAccessDocumensoAsUser,
+  canAccessDocumensoAsManager,
+  canAccessDocumensoAsMember,
 } from "@/lib/admin-auth";
 import { syncDocumensoUserRole, getDocumensoBaseUrl } from "@/lib/documenso";
 import { getPublicAppUrl } from "@/lib/app-url";
@@ -17,13 +17,13 @@ const logger = log.child({ module: "documenso-sso" });
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type Persona = "admin" | "handler" | "user";
+type Persona = "admin" | "manager" | "member";
 
 function parseRoleParam(raw: string | null): Persona | null {
   const v = (raw ?? "").toLowerCase();
   if (v === "admin" || v === "administrator") return "admin";
-  if (v === "handler" || v === "obsluga") return "handler";
-  if (v === "user") return "user";
+  if (v === "manager" || v === "handler" || v === "obsluga") return "manager";
+  if (v === "member" || v === "user") return "member";
   return null;
 }
 
@@ -36,8 +36,8 @@ export async function GET(req: NextRequest) {
   }
 
   const hasAdmin = canAccessDocumensoAsAdmin(session);
-  const hasHandler = canAccessDocumensoAsHandler(session);
-  const hasUser = canAccessDocumensoAsUser(session);
+  const hasManager = canAccessDocumensoAsManager(session);
+  const hasMember = canAccessDocumensoAsMember(session);
 
   // Highest-privilege-first selection. Query param can pin a specific
   // persona (used by legacy tiles / deep links); otherwise we pick the
@@ -47,12 +47,11 @@ export async function GET(req: NextRequest) {
 
   if (requested) {
     if (requested === "admin" && !hasAdmin) persona = null;
-    else if (requested === "handler" && !hasHandler && !hasAdmin) persona = null;
-    else if (requested === "user" && !hasUser && !hasHandler && !hasAdmin)
-      persona = null;
+    else if (requested === "manager" && !hasManager) persona = null;
+    else if (requested === "member" && !hasMember) persona = null;
     else persona = requested;
   } else {
-    persona = hasAdmin ? "admin" : hasHandler ? "handler" : hasUser ? "user" : null;
+    persona = hasAdmin ? "admin" : hasManager ? "manager" : hasMember ? "member" : null;
   }
 
   // NEXT_PUBLIC_APP_URL jest publiczny, `req.url` w Node API routes za
@@ -75,14 +74,14 @@ export async function GET(req: NextRequest) {
   if (persona === "admin") {
     targetRole = "ADMIN";
     redirectUrl = `${baseUrl}/admin`;
-  } else if (persona === "handler") {
-    // Handler — pełne UI Documenso (szablony, webhooki, kontakty org),
-    // ale bez admin panelu.
+  } else if (persona === "manager") {
+    // Menedżer zespołu — pełne UI Documenso (szablony, webhooki, kontakty
+    // org), ale bez admin panelu.
     targetRole = "USER";
     redirectUrl = `${baseUrl}/templates`;
   } else {
-    // documenso_user (pracownik) — loguje do Documenso, widzi własne
-    // dokumenty w inboxie. Rola USER (nie ADMIN) więc nie ma /admin.
+    // Pracownik — loguje do Documenso, widzi własne dokumenty w inboxie.
+    // Rola USER (nie ADMIN) więc nie ma /admin.
     targetRole = "USER";
     redirectUrl = `${baseUrl}/inbox`;
   }

@@ -16,6 +16,7 @@ import {
   type AdminUserSummary,
   type AreaDetail,
   type AreaSummary,
+  type AreaRole,
 } from "@/app/account/account-service";
 
 interface BulkAssignDialogProps {
@@ -125,11 +126,10 @@ export function BulkAssignDialog({
     return m;
   }, [users]);
 
-  const canonicalRoles = useMemo(() => {
-    if (!detail) return [];
-    const seedSet = new Set(detail.roles.filter((r) => r.isSeeded).map((r) => r.kcRoleName));
-    return detail.roles.filter((r) => seedSet.has(r.kcRoleName));
-  }, [detail]);
+  const availableRoles: AreaRole[] = useMemo(
+    () => detail?.roles ?? [],
+    [detail],
+  );
 
   const submit = useCallback(
     async (e: React.FormEvent) => {
@@ -310,9 +310,9 @@ export function BulkAssignDialog({
               <option value="">
                 — brak roli (usuń wszystkie w obszarze) —
               </option>
-              {canonicalRoles.map((r) => (
-                <option key={r.kcRoleName} value={r.kcRoleName}>
-                  {r.native?.name ?? r.kcRoleName}
+              {availableRoles.map((r) => (
+                <option key={r.name} value={r.name}>
+                  {r.label}
                 </option>
               ))}
             </select>
