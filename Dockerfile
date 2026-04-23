@@ -19,7 +19,7 @@ WORKDIR /app
 # -----------------------------------------------------------------------------
 FROM base AS deps
 ENV NODE_ENV=development
-COPY package.json package-lock.json* ./
+COPY package.json package-lock.json* .npmrc* ./
 RUN --mount=type=cache,target=/root/.npm \
     if [ -f package-lock.json ]; then \
         npm ci --include=dev --no-audit --no-fund; \
