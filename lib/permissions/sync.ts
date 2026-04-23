@@ -8,7 +8,52 @@ import {
   type PermissionArea,
 } from "./areas";
 import { getProvider } from "./registry";
-import { syncDocumensoUserRole } from "@/lib/documenso";
+import {
+  enqueueJob,
+  registerJobHandler,
+  type JobPayload,
+} from "./queue";
+import { appendIamAudit } from "./db";
+
+const logger = log.child({ module: "permissions-sync" });
+
+// Rejestrujemy handler raz przy module-load. Rejestracja jest idempotentna
+// (Map.set). Kolejka orchestruje retry/backoff i audit.
+let handlersRegistered = false;
+function ensureHandlersRegistered(): void {
+  if (handlersRegistered) return;
+  handlersRegistered = true;
+  registerJobHandler("profile.propagate", async (payload: JobPayload) => {
+    const userId = payload.args.userId as string;
+    const previousEmail = payload.args.previousEmail as string | undefined;
+    const results = await propagateProfileFromKcInternal(userId, {
+      previousEmail,
+    });
+    const failed = results.filter((r) => r.status === "failed");
+    if (failed.length > 0) {
+      throw new Error(
+        `${failed.length}/${results.length} providers failed: ${failed
+          .map((f) => `${f.areaId}(${f.error ?? "n/a"})`)
+          .join(", ")}`,
+      );
+    }
+  });
+  registerJobHandler("role.assign", async (payload: JobPayload) => {
+    const args = payload.args as {
+      userId: string;
+      areaId: string;
+      roleName: string | null;
+    };
+    const result = await assignUserAreaRoleInternal({
+      userId: args.userId,
+      areaId: args.areaId,
+      roleName: args.roleName,
+    });
+    if (result.nativeSync === "failed") {
+      throw new Error(result.nativeError ?? "native sync failed");
+    }
+  });
+}
 
 /**
  * Orchestrator przypisywania ról per-area.
@@ -210,9 +255,17 @@ export interface AssignUserAreaRoleResult {
 
 /**
  * Ustala pożądany stan ról usera w jednym area i synchronizuje go z
- * Keycloak + natywnym providerem (jeśli area = native).
+ * Keycloak + natywnym providerem (jeśli area = native). Awaitowane wywołanie —
+ * caller dostaje wynik synchronicznie. Dla fire-and-forget (event listener)
+ * użyj `enqueueAreaRoleAssignment`.
  */
 export async function assignUserAreaRole(
+  args: AssignUserAreaRoleArgs,
+): Promise<AssignUserAreaRoleResult> {
+  return assignUserAreaRoleInternal(args);
+}
+
+async function assignUserAreaRoleInternal(
   args: AssignUserAreaRoleArgs,
 ): Promise<AssignUserAreaRoleResult> {
   const area = getArea(args.areaId);
@@ -285,11 +338,11 @@ export async function assignUserAreaRole(
             displayName,
             phone: getPhone(kcUser),
           })
-          .catch((err) => {
-            log.warn("sync.syncUserProfile.failed", {
-              provider: area.nativeProviderId,
+          .catch((err: unknown) => {
+            logger.warn("syncUserProfile failed (non-fatal)", {
+              providerId: area.nativeProviderId,
               email: kcUser.email,
-              err,
+              err: err instanceof Error ? err.message : String(err),
             });
           });
         nativeSync = "ok";
@@ -298,32 +351,35 @@ export async function assignUserAreaRole(
         nativeError = err instanceof Error ? err.message : String(err);
       }
     }
-  } else if (area.id === "documenso" && kcUser.email) {
-    // Documenso jest keycloak-only area. Sync `roles[]`: admin → [USER,ADMIN],
-    // handler/user → [USER]. Po usunięciu DOCUMENSO_EMPLOYEE (2026-04-23)
-    // nie blokujemy loginu — każda persona korzysta z Documenso UI.
-    try {
-      const documensoRole: "USER" | "ADMIN" =
-        toKeep === "documenso_admin" ? "ADMIN" : "USER";
-      const displayName =
-        [kcUser.firstName, kcUser.lastName].filter(Boolean).join(" ").trim() ||
-        kcUser.username ||
-        null;
-      await syncDocumensoUserRole(kcUser.email, documensoRole, displayName);
-      nativeSync = "ok";
-    } catch (err) {
-      nativeSync = "failed";
-      nativeError = err instanceof Error ? err.message : String(err);
-    }
   }
 
-  return {
+  const result: AssignUserAreaRoleResult = {
     areaId: area.id,
     removed: toRemove.map((r) => r.name),
     added: addedRole ? [addedRole.name] : [],
     nativeSync,
     nativeError,
   };
+
+  // Audit log — best-effort, nie blokuje operacji jeśli DB padnie.
+  await appendIamAudit({
+    actor: "system:assign",
+    operation: "user.assign",
+    targetType: "user",
+    targetId: args.userId,
+    appId: area.nativeProviderId ?? area.id,
+    status: nativeSync === "failed" ? "error" : "ok",
+    details: {
+      areaId: area.id,
+      roleName: args.roleName,
+      removed: result.removed,
+      added: result.added,
+      email: kcUser.email,
+    },
+    error: nativeError ?? null,
+  });
+
+  return result;
 }
 
 export interface AreaAssignmentSummary {
@@ -389,6 +445,13 @@ export async function propagateProfileFromKc(
   userId: string,
   opts: { previousEmail?: string } = {},
 ): Promise<ProfilePropagationResult[]> {
+  return propagateProfileFromKcInternal(userId, opts);
+}
+
+async function propagateProfileFromKcInternal(
+  userId: string,
+  opts: { previousEmail?: string } = {},
+): Promise<ProfilePropagationResult[]> {
   const adminToken = await keycloak.getServiceAccountToken();
   const kcUser = await getKcUser(adminToken, userId);
   if (!kcUser.email) return [{ areaId: "*", status: "skipped" }];
@@ -427,21 +490,54 @@ export async function propagateProfileFromKc(
     }
   }
 
-  // Documenso (keycloak-only area) ma własny DB sync — imię + email
-  // (guest-signing jest po emailu, więc musimy ciągnąć rename).
-  try {
-    const { syncDocumensoUserRole } = await import("@/lib/documenso");
-    await syncDocumensoUserRole(kcUser.email, "USER", displayName);
-    results.push({ areaId: "documenso", status: "ok" });
-  } catch (err) {
-    results.push({
-      areaId: "documenso",
-      status: "failed",
-      error: err instanceof Error ? err.message : String(err),
-    });
-  }
-
   return results;
 }
 
 export { listAllRealmRoles, listUserRealmRoles, getKcUser };
+
+/**
+ * Fire-and-forget propagacja profilu przez kolejkę z retry. Używane przez
+ * Keycloak event listenery i cron reconciliation — callerzy nie potrzebują
+ * rezultatu synchronicznie, ale chcemy retry z backoffem zamiast silently
+ * fail.
+ */
+export async function enqueueProfilePropagation(
+  userId: string,
+  opts: { previousEmail?: string; actor?: string } = {},
+): Promise<void> {
+  ensureHandlersRegistered();
+  await appendIamAudit({
+    actor: opts.actor ?? "system:event",
+    operation: "sync.push",
+    targetType: "user",
+    targetId: userId,
+    status: "ok",
+    details: { kind: "profile.propagate", previousEmail: opts.previousEmail },
+  });
+  await enqueueJob({
+    kind: "profile.propagate",
+    idempotencyKey: `profile.propagate:${userId}`,
+    actor: opts.actor ?? "system:event",
+    args: { userId, previousEmail: opts.previousEmail },
+  });
+}
+
+/**
+ * Fire-and-forget przypisanie roli. Używane gdy caller (np. Keycloak event)
+ * nie chce czekać na pełny sync, tylko zlecić go w tle.
+ */
+export async function enqueueAreaRoleAssignment(
+  args: AssignUserAreaRoleArgs & { actor?: string },
+): Promise<void> {
+  ensureHandlersRegistered();
+  await enqueueJob({
+    kind: "role.assign",
+    idempotencyKey: `role.assign:${args.userId}:${args.areaId}`,
+    actor: args.actor ?? "system:event",
+    args: {
+      userId: args.userId,
+      areaId: args.areaId,
+      roleName: args.roleName,
+    },
+  });
+}

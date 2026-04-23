@@ -25,37 +25,33 @@ export const ROLES = {
   // Kadromierz
   KADROMIERZ_USER: "kadromierz_user",
 
-  // Directus CMS (admin-only)
+  // Directus CMS
+  DIRECTUS_USER: "directus_user",
   DIRECTUS_ADMIN: "directus_admin",
 
-  // Documenso:
-  //   user    = pracownik; widzi własne dokumenty, podpisuje je
-  //   handler = obsługa dokumentów (księgowa); wysyła + śledzi obieg całej org
-  //   admin   = konsola Documenso (szablony, webhooki, użytkownicy)
+  // Documenso (zwykły user = MEMBER, admin = ADMIN)
   DOCUMENSO_USER: "documenso_user",
-  DOCUMENSO_HANDLER: "documenso_handler",
   DOCUMENSO_ADMIN: "documenso_admin",
 
-  // Chatwoot: agent = obsługa klienta, administrator = konfiguracja
-  CHATWOOT_AGENT: "chatwoot_agent",
-  CHATWOOT_ADMIN: "chatwoot_administrator",
+  // Chatwoot
+  CHATWOOT_USER: "chatwoot_user",
+  CHATWOOT_ADMIN: "chatwoot_admin",
 
-  // Postal (transactional + newsletter sender) — admin-only
+  // Postal
+  POSTAL_USER: "postal_user",
   POSTAL_ADMIN: "postal_admin",
 
   // Keycloak (admin console)
   KEYCLOAK_ADMIN: "keycloak_admin",
 
-  // Step CA — admin-only (panel diagnostyczny + self-service cert)
+  // Step CA
   STEPCA_ADMIN: "stepca_admin",
 
-  // Moodle (LMS — szkolenia wewnętrzne) — nazwy mapowane 1:1 na Moodle shortnames.
-  MOODLE_STUDENT: "moodle_student",
-  MOODLE_TEACHER: "moodle_editingteacher",
-  MOODLE_ADMIN: "moodle_manager",
+  // Moodle
+  MOODLE_USER: "moodle_user",
+  MOODLE_ADMIN: "moodle_admin",
 
-  // Knowledge base (Outline wiki — procedury, zasady)
-  KNOWLEDGE_VIEWER: "knowledge_viewer",
+  // Knowledge base (Outline)
   KNOWLEDGE_USER: "knowledge_user",
   KNOWLEDGE_ADMIN: "knowledge_admin",
 } as const;
@@ -76,28 +72,27 @@ export const ROLE_CATALOG: RoleSpec[] = [
   { name: ROLES.CERTIFICATES_ADMIN, description: "Wydawanie i odwoływanie certyfikatów klienckich (step-ca)", default: false },
   { name: ROLES.KADROMIERZ_USER, description: "Integracja Kadromierz (grafik, ewidencja czasu)", default: true },
 
-  { name: ROLES.DIRECTUS_ADMIN, description: "Administrator Directus CMS", default: false },
+  { name: ROLES.DIRECTUS_USER, description: "Directus: zwykły dostęp do CMS", default: false },
+  { name: ROLES.DIRECTUS_ADMIN, description: "Directus: administrator", default: false },
 
-  { name: ROLES.DOCUMENSO_USER, description: "Zalogowanie do Documenso jako zwykły użytkownik (własne dokumenty)", default: false },
-  { name: ROLES.DOCUMENSO_HANDLER, description: "Obsługa dokumentów (księgowa): wysyłanie + zarządzanie obiegiem dokumentów całej organizacji", default: false },
-  { name: ROLES.DOCUMENSO_ADMIN, description: "Administrator Documenso (szablony, webhooki, użytkownicy)", default: false },
+  { name: ROLES.DOCUMENSO_USER, description: "Documenso: pracownik (własne dokumenty)", default: false },
+  { name: ROLES.DOCUMENSO_ADMIN, description: "Documenso: administrator (szablony, webhooki, użytkownicy)", default: false },
 
-  { name: ROLES.CHATWOOT_AGENT, description: "Agent obsługi klienta w Chatwoot", default: false },
-  { name: ROLES.CHATWOOT_ADMIN, description: "Administrator Chatwoot (konfiguracja, użytkownicy, webhooki)", default: false },
+  { name: ROLES.CHATWOOT_USER, description: "Chatwoot: agent obsługi klienta", default: false },
+  { name: ROLES.CHATWOOT_ADMIN, description: "Chatwoot: administrator (konfiguracja, webhooki, role)", default: false },
 
-  { name: ROLES.POSTAL_ADMIN, description: "Administrator platformy e-mail (Postal)", default: false },
+  { name: ROLES.POSTAL_USER, description: "Postal: dostęp do przypisanych serwerów", default: false },
+  { name: ROLES.POSTAL_ADMIN, description: "Postal: administrator", default: false },
 
   { name: ROLES.KEYCLOAK_ADMIN, description: "Konsola administracyjna Keycloak", default: false },
 
-  { name: ROLES.STEPCA_ADMIN, description: "Administrator step-ca (provisionery, polityki, self-service cert)", default: false },
+  { name: ROLES.STEPCA_ADMIN, description: "Administrator step-ca (provisionery, polityki)", default: false },
 
-  { name: ROLES.MOODLE_STUDENT, description: "Moodle: uczeń (kursy, szkolenia przypisane do konta)", default: false },
-  { name: ROLES.MOODLE_TEACHER, description: "Moodle: editing teacher (tworzenie kursów, ocenianie, raporty)", default: false },
+  { name: ROLES.MOODLE_USER, description: "Moodle: dostęp do kursów i szkoleń", default: false },
   { name: ROLES.MOODLE_ADMIN, description: "Moodle: manager (konfiguracja instancji, użytkownicy, pluginy)", default: false },
 
-  { name: ROLES.KNOWLEDGE_VIEWER, description: "Baza wiedzy (Outline): tylko do odczytu — bez możliwości edycji", default: false },
-  { name: ROLES.KNOWLEDGE_USER, description: "Baza wiedzy (Outline): czytanie i tworzenie artykułów procedur i zasad", default: true },
-  { name: ROLES.KNOWLEDGE_ADMIN, description: "Baza wiedzy (Outline): administrator (kolekcje, użytkownicy, integracje)", default: false },
+  { name: ROLES.KNOWLEDGE_USER, description: "Outline: czytanie/edycja wiki", default: true },
+  { name: ROLES.KNOWLEDGE_ADMIN, description: "Outline: administrator (grupy, integracje, collections)", default: false },
 ];
 
 /**
@@ -172,22 +167,27 @@ export function canAccessDocumensoAsUser(
   return hasRole(session, ROLES.DOCUMENSO_USER);
 }
 
-export function canAccessDocumensoAsHandler(
-  session: Session | null | undefined,
-): boolean {
-  return hasRole(session, ROLES.DOCUMENSO_HANDLER);
-}
-
 export function canAccessDocumensoAsAdmin(
   session: Session | null | undefined,
 ): boolean {
   return hasRole(session, ROLES.DOCUMENSO_ADMIN);
 }
 
+/**
+ * @deprecated Tier "handler" został zdegenerowany do roli admin po
+ * uproszczeniu modelu ról. Pozostawiamy alias dla zgodności z widokiem
+ * /dashboard/documents-handler (obieg dokumentów = admin-flow).
+ */
+export function canAccessDocumensoAsHandler(
+  session: Session | null | undefined,
+): boolean {
+  return canAccessDocumensoAsAdmin(session);
+}
+
 export function canAccessChatwootAsAgent(
   session: Session | null | undefined,
 ): boolean {
-  return hasRole(session, ROLES.CHATWOOT_AGENT);
+  return hasRole(session, ROLES.CHATWOOT_USER);
 }
 
 export function canAccessChatwootAsAdmin(
@@ -199,19 +199,21 @@ export function canAccessChatwootAsAdmin(
 export function canAccessPostal(
   session: Session | null | undefined,
 ): boolean {
-  return hasRole(session, ROLES.POSTAL_ADMIN);
+  return hasRole(session, ROLES.POSTAL_USER) || hasRole(session, ROLES.POSTAL_ADMIN);
 }
 
 export function canAccessMoodleAsStudent(
   session: Session | null | undefined,
 ): boolean {
-  return hasRole(session, ROLES.MOODLE_STUDENT);
+  return hasRole(session, ROLES.MOODLE_USER);
 }
 
 export function canAccessMoodleAsTeacher(
   session: Session | null | undefined,
 ): boolean {
-  return hasRole(session, ROLES.MOODLE_TEACHER);
+  // Editing teacher = admin w Moodle UI (manager). Kept as separate helper
+  // dla zgodności linków w dashboard tile "Akademia — widok nauczyciela".
+  return hasRole(session, ROLES.MOODLE_ADMIN);
 }
 
 export function canAccessMoodleAsAdmin(

@@ -42,7 +42,8 @@ export const calendarService = {
 
   create: (payload: CalendarEventInput & { target?: "local" | "moodle" | "google" }) => {
     if (payload.target === "moodle") {
-      const { target: _t, ...rest } = payload;
+      const { target: _target, ...rest } = payload;
+      void _target;
       return api.post<CreateEventResponse, CalendarEventInput>(
         "/api/integrations/moodle/events",
         rest,

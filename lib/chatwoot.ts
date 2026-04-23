@@ -157,13 +157,19 @@ function generateStrongPassword(): string {
 
 async function updateUserName(userId: number, name: string): Promise<void> {
   if (!name.trim()) return;
-  await platformFetch(`/platform/api/v1/users/${userId}`, {
-    method: "PATCH",
+  // Chatwoot Platform API wymaga PUT (nie PATCH) dla update usera — PATCH
+  // zwraca 404/422 w zależności od wersji. Dokumentacja:
+  // https://www.chatwoot.com/developers/api/#tag/Users/operation/update-user
+  const res = await platformFetch(`/platform/api/v1/users/${userId}`, {
+    method: "PUT",
     body: JSON.stringify({ name }),
-  }).catch(() => {
-    // Chatwoot Platform API niektóre wersje odrzucają PATCH — non-fatal,
-    // nazwa zostaje z poprzedniego stanu.
   });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(
+      `Chatwoot update user ${userId} failed: ${res.status} ${body.slice(0, 200)}`,
+    );
+  }
 }
 
 export async function provisionSsoLoginUrl(
@@ -173,7 +179,11 @@ export async function provisionSsoLoginUrl(
 ): Promise<string> {
   const existing = await findUserByEmail(email);
   const user = existing ?? (await createUser(email, name));
-  if (existing && name && existing.name !== name) {
+  // Zawsze forsujemy update name z KC — kiedyś robiliśmy to tylko przy
+  // różnicy, ale stary session JWT potrafi nosić stare imię i wtedy warunek
+  // `existing.name !== name` był fałszywy (stary session == stary chatwoot).
+  // Keycloak jest SoT, więc przy KAŻDYM SSO wymuszamy aktualny stan.
+  if (existing && name) {
     await updateUserName(user.id, name);
   }
   await syncAccountMembership(user.id, role);

@@ -1,6 +1,10 @@
 import { Pool } from "pg";
 import { getOptionalEnv } from "@/lib/env";
 import { log } from "@/lib/logger";
+import {
+  type DocumensoTeamRole,
+  documensoGlobalRolesForTeamRole,
+} from "@/lib/documenso";
 import type {
   AssignUserRoleArgs,
   NativePermission,
@@ -11,23 +15,43 @@ import type {
 import { ProviderNotConfiguredError, ProviderUnsupportedError } from "./types";
 
 /**
- * Documenso provider — role są sztywną enum-listą `Role[]` w Postgresie.
+ * Documenso provider — sztywna enumeracja ról (ADMIN/MANAGER/MEMBER) zgodnie
+ * z dokumentacją Documenso API v2 (Teams). Raport IAM:
  *
- * Documenso API v2 nie ma endpointu do zarządzania rolami użytkownika, więc
- * schodzimy do DB. Każdy user ma w polu `roles` tablicę — minimum to
- * `['USER']`, administratorzy mają `['USER','ADMIN']` (ADMIN odblokowuje
- * `/admin`). Brak customowych ról — `supportsCustomRoles() === false`.
+ *   „Biorąc pod uwagę fakt, iż za pomocą API Documenso nie można stworzyć
+ *    niestandardowych profili organizacyjnych, Agent AI programując panel
+ *    główny, musi zaimplementować regułę tłumaczenia logiki bezpieczeństwa.
+ *    Aplikacja nadrzędna powinna analizować wagę uprawnień przypisanych
+ *    w modelu głównym do Metaroli i przy wywoływaniu żądania do interfejsu
+ *    V2 Teams API aplikować najbardziej adekwatny profil enumeracji."
+ *
+ * Provider:
+ *   - listRoles: 3 statyczne pozycje (MEMBER / MANAGER / ADMIN)
+ *   - assignUserRole: bezpośredni UPDATE na `User.roles` (Postgres `Role[]`)
+ *     + (opcjonalnie) propagacja do `TeamMember.role` gdy `DOCUMENSO_TEAM_ID`
+ *     skonfigurowane.
+ *   - create/update/deleteRole: nieobsługiwane (rzuca `ProviderUnsupportedError`).
  */
 
-const ROLE_MEMBER = "USER";
-const ROLE_ADMIN = "ADMIN";
+const logger = log.child({ module: "documenso-provider" });
+
+const ROLE_MEMBER: DocumensoTeamRole = "MEMBER";
+const ROLE_MANAGER: DocumensoTeamRole = "MANAGER";
+const ROLE_ADMIN: DocumensoTeamRole = "ADMIN";
 
 let pool: Pool | null = null;
 
-function getConfig(): { dbUrl: string } {
+interface Config {
+  dbUrl: string;
+  teamId: number | null;
+}
+
+function getConfig(): Config {
   const dbUrl = getOptionalEnv("DOCUMENSO_DB_URL");
   if (!dbUrl) throw new ProviderNotConfiguredError("documenso");
-  return { dbUrl };
+  const rawTeam = getOptionalEnv("DOCUMENSO_TEAM_ID");
+  const teamId = rawTeam ? Number(rawTeam) : null;
+  return { dbUrl, teamId: Number.isFinite(teamId) ? teamId : null };
 }
 
 function getPool(): Pool {
@@ -39,11 +63,15 @@ function getPool(): Pool {
       idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 10_000,
     });
-    pool.on("error", (err) => {
-      log.error("documenso_provider.pg_pool_error", { message: err.message });
+    pool.on("error", (err: Error) => {
+      logger.error("pg pool error", { err: err.message });
     });
   }
   return pool;
+}
+
+function isTeamRole(v: string): v is DocumensoTeamRole {
+  return v === ROLE_MEMBER || v === ROLE_MANAGER || v === ROLE_ADMIN;
 }
 
 export class DocumensoProvider implements PermissionProvider {
@@ -64,13 +92,21 @@ export class DocumensoProvider implements PermissionProvider {
   }
 
   async listPermissions(): Promise<NativePermission[]> {
-    // Documenso nie operuje ziarnistymi uprawnieniami — rola ADMIN vs USER
-    // kontroluje wszystko. Zwracamy symboliczne pozycje do UI.
     return [
       {
         key: "admin_panel",
         label: "Dostęp do /admin (instancja-wide)",
         group: "Administracja",
+      },
+      {
+        key: "team_manage_members",
+        label: "Zarządzanie członkami zespołu",
+        group: "Zespół",
+      },
+      {
+        key: "team_view_restricted",
+        label: "Wgląd w dokumenty oznaczone dla menedżerów",
+        group: "Zespół",
       },
       {
         key: "sign_documents",
@@ -86,19 +122,36 @@ export class DocumensoProvider implements PermissionProvider {
     return [
       {
         id: ROLE_MEMBER,
-        name: "User",
-        description:
-          "Pełne UI Documenso bez panelu administratora. Domyślny poziom.",
+        name: "Member",
+        description: "Standard — wgląd do bazowych dokumentów zespołu.",
         permissions: ["sign_documents"],
         systemDefined: true,
-        userCount: counts.user,
+        userCount: counts.member,
+      },
+      {
+        id: ROLE_MANAGER,
+        name: "Manager",
+        description:
+          "Zarządza członkami zespołu o równej/niższej randze + wgląd do dokumentów restricted-to-manager.",
+        permissions: [
+          "sign_documents",
+          "team_manage_members",
+          "team_view_restricted",
+        ],
+        systemDefined: true,
+        userCount: counts.manager,
       },
       {
         id: ROLE_ADMIN,
         name: "Admin",
         description:
-          "Dostęp do /admin (użytkownicy, szablony, webhooki całej instancji).",
-        permissions: ["admin_panel", "sign_documents"],
+          "Pełen dostęp do zespołu i `/admin` (użytkownicy, szablony, webhooki).",
+        permissions: [
+          "sign_documents",
+          "team_manage_members",
+          "team_view_restricted",
+          "admin_panel",
+        ],
         systemDefined: true,
         userCount: counts.admin,
       },
@@ -119,25 +172,61 @@ export class DocumensoProvider implements PermissionProvider {
 
   async assignUserRole(args: AssignUserRoleArgs): Promise<void> {
     if (!this.isConfigured()) throw new ProviderNotConfiguredError("documenso");
-    const rolesArray =
-      args.roleId === ROLE_ADMIN ? [ROLE_MEMBER, ROLE_ADMIN] : [ROLE_MEMBER];
 
+    // Walidacja enum — brak pasującej wartości traktujemy jako MEMBER (safest
+    // possible default). Nigdy nie eskalujemy przy nieznanym inputcie.
+    const teamRole: DocumensoTeamRole =
+      args.roleId && isTeamRole(args.roleId) ? args.roleId : ROLE_MEMBER;
+    const globalRoles = documensoGlobalRolesForTeamRole(teamRole);
+
+    const cfg = getConfig();
     const client = await getPool().connect();
     try {
-      // roleId === null → traktujemy jako "odebranie dostępu" => USER
-      // (Documenso nie pozwala na konto bez USER, a SSO i tak zaloguje
-      // ponownie z USER). Aby zablokować konto kompletnie, admin musi to
-      // zrobić w natywnym UI Documenso (disabled flag).
+      await client.query("BEGIN");
+
+      // Globalny User.roles — ADMIN otwiera /admin. Nie wymazujemy profilu
+      // gdy `roleId === null` — Documenso nie pozwala na konto bez USER,
+      // więc "odebranie" schodzi do MEMBER (= [USER]).
       const res = await client.query(
         `UPDATE "User"
-            SET roles = $2::"Role"[]
+            SET roles = $2::"Role"[],
+                disabled = false
           WHERE LOWER(email) = LOWER($1)`,
-        [args.email, rolesArray],
+        [args.email, globalRoles],
       );
-      if ((res.rowCount ?? 0) === 0) {
-        // Użytkownik nie zalogował się jeszcze do Documenso (OIDC utworzy
-        // rekord przy pierwszym loginie). Sync zostanie zrobiony wtedy.
+      const updated = (res.rowCount ?? 0) > 0;
+
+      if (updated && cfg.teamId !== null) {
+        // Propagacja do team membership (TeamMember.role jest team-level
+        // enum w Documenso v2). UPSERT po (teamId, userId).
+        const userRes = await client.query<{ id: number }>(
+          `SELECT id FROM "User" WHERE LOWER(email) = LOWER($1) LIMIT 1`,
+          [args.email],
+        );
+        const userId = userRes.rows[0]?.id;
+        if (userId) {
+          await client.query(
+            `INSERT INTO "TeamMember" ("teamId", "userId", role, "createdAt")
+             VALUES ($1, $2, $3::"TeamMemberRole", NOW())
+             ON CONFLICT ("teamId", "userId")
+             DO UPDATE SET role = EXCLUDED.role`,
+            [cfg.teamId, userId, teamRole],
+          );
+        }
       }
+      await client.query("COMMIT");
+
+      if (!updated) {
+        // Użytkownik nie zalogował się jeszcze do Documenso (OIDC utworzy
+        // rekord przy pierwszym loginie). Sync zostanie wykonany wtedy.
+        logger.info("user not found, will sync on next SSO login", {
+          email: args.email,
+          teamRole,
+        });
+      }
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw err;
     } finally {
       client.release();
     }
@@ -145,16 +234,32 @@ export class DocumensoProvider implements PermissionProvider {
 
   async getUserRole(email: string): Promise<string | null> {
     if (!this.isConfigured()) return null;
+    const cfg = getConfig();
     const client = await getPool().connect();
     try {
+      // Gdy mamy skonfigurowany team — preferujemy team-level role.
+      if (cfg.teamId !== null) {
+        const res = await client.query<{ role: DocumensoTeamRole }>(
+          `SELECT tm.role
+             FROM "TeamMember" tm
+             JOIN "User" u ON u.id = tm."userId"
+            WHERE tm."teamId" = $1
+              AND LOWER(u.email) = LOWER($2)
+            LIMIT 1`,
+          [cfg.teamId, email],
+        );
+        const row = res.rows[0];
+        if (row?.role) return row.role;
+      }
+      // Fallback — global User.roles. Mapujemy na team-enum dla spójności.
       const res = await client.query<{ roles: string[] }>(
         `SELECT roles FROM "User" WHERE LOWER(email) = LOWER($1) LIMIT 1`,
         [email],
       );
       const row = res.rows[0];
       if (!row) return null;
-      if (row.roles?.includes(ROLE_ADMIN)) return ROLE_ADMIN;
-      if (row.roles?.includes(ROLE_MEMBER)) return ROLE_MEMBER;
+      if (row.roles?.includes("ADMIN")) return ROLE_ADMIN;
+      if (row.roles?.includes("USER")) return ROLE_MEMBER;
       return null;
     } finally {
       client.release();
@@ -182,24 +287,52 @@ export class DocumensoProvider implements PermissionProvider {
     }
   }
 
-  private async countByRole(): Promise<{ user: number; admin: number }> {
+  private async countByRole(): Promise<{
+    member: number;
+    manager: number;
+    admin: number;
+  }> {
+    const cfg = getConfig();
     const client = await getPool().connect();
     try {
+      if (cfg.teamId !== null) {
+        const res = await client.query<{ role: string; count: string }>(
+          `SELECT role::text AS role, COUNT(*) AS count
+             FROM "TeamMember"
+            WHERE "teamId" = $1
+            GROUP BY role`,
+          [cfg.teamId],
+        );
+        let member = 0,
+          manager = 0,
+          admin = 0;
+        for (const row of res.rows) {
+          const n = Number(row.count) || 0;
+          if (row.role === ROLE_ADMIN) admin = n;
+          else if (row.role === ROLE_MANAGER) manager = n;
+          else if (row.role === ROLE_MEMBER) member = n;
+        }
+        return { member, manager, admin };
+      }
+      // Fallback na globalne User.roles (brak granularności MANAGER).
       const res = await client.query<{ role: string; count: string }>(
         `SELECT unnest(roles)::text AS role, COUNT(*) AS count
            FROM "User"
           GROUP BY role`,
       );
-      let user = 0;
-      let admin = 0;
+      let member = 0,
+        admin = 0;
       for (const row of res.rows) {
         const n = Number(row.count) || 0;
-        if (row.role === ROLE_ADMIN) admin = n;
-        else if (row.role === ROLE_MEMBER) user = n;
+        if (row.role === "ADMIN") admin = n;
+        else if (row.role === "USER") member = n;
       }
-      return { user, admin };
-    } catch {
-      return { user: 0, admin: 0 };
+      return { member, manager: 0, admin };
+    } catch (err) {
+      logger.warn("countByRole failed", {
+        err: err instanceof Error ? err.message : String(err),
+      });
+      return { member: 0, manager: 0, admin: 0 };
     } finally {
       client.release();
     }

@@ -224,7 +224,47 @@ export interface DocumensoDocumentStats {
  * (disabled=true) — zostało usunięte 2026-04-23: każda persona z rolą
  * documenso_* ma dostęp do Documenso UI, różnicę robi landing URL.
  */
+/**
+ * Global Documenso role (stored in `User.roles` jako `Role[]` enum PG).
+ * `ADMIN` gates access to `/admin`. Rola `USER` = standard logged-in member.
+ */
 export type DocumensoRole = "USER" | "ADMIN";
+
+/**
+ * Team-level Documenso role (API v2 Teams). Użytkownik w zespole może mieć
+ * jedną z trzech wartości. Mapowanie z metaroli (priority-based downcasting):
+ *
+ *   priority >= 90 → ADMIN   (pełna kontrola zespołu + instancja-wide ADMIN)
+ *   50 <= p <  90  → MANAGER (zarządza członkami o równej/niższej randze)
+ *   priority <  50 → MEMBER  (wgląd do dokumentów zespołu)
+ *
+ * Zgodnie z raportem IAM (sekcja "Documenso — Integracja przez degradację
+ * strukturalną"): nie można definiować custom ról, więc wartość wysyłamy
+ * z góry zdefiniowanej enumeracji, wybierając najbliższy odpowiednik wagi.
+ */
+export type DocumensoTeamRole = "ADMIN" | "MANAGER" | "MEMBER";
+
+/**
+ * Downcasting metaroli do enum-u team role Documenso. `priority` pochodzi
+ * z `PermissionArea.kcRoles[i].priority` w `lib/permissions/areas.ts`.
+ */
+export function documensoTeamRoleForPriority(
+  priority: number,
+): DocumensoTeamRole {
+  if (priority >= 90) return "ADMIN";
+  if (priority >= 50) return "MANAGER";
+  return "MEMBER";
+}
+
+/**
+ * Downcasting team-role → global User.roles. ADMIN team => [USER, ADMIN]
+ * (otwiera /admin w Documenso), reszta => [USER].
+ */
+export function documensoGlobalRolesForTeamRole(
+  teamRole: DocumensoTeamRole,
+): DocumensoRole[] {
+  return teamRole === "ADMIN" ? ["USER", "ADMIN"] : ["USER"];
+}
 
 let documensoPool: Pool | null = null;
 

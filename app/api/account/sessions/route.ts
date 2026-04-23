@@ -75,11 +75,24 @@ export async function GET() {
       sessions = await response.json();
     }
 
-    const sid = (session as any)?.user?.sid || (session as any)?.user?.session_id;
+    const sid = session.user?.sid || session.user?.session_id;
 
-    const flatSessions: SessionInfo[] = sessions.map((s: any) => {
+    interface KeycloakSessionRaw {
+      id?: string;
+      ipAddress?: string;
+      start?: number | string;
+      started?: number | string;
+      lastAccess?: number | string;
+      expires?: number | string;
+      browser?: string;
+      os?: string;
+      device?: string;
+      clients?: Record<string, string>;
+    }
+
+    const flatSessions: SessionInfo[] = (sessions as KeycloakSessionRaw[]).map((s) => {
       // Keycloak timestamps can be in ms (e.g. 1713436000000) or s (e.g. 1713436000)
-      const toSec = (ts: any) => {
+      const toSec = (ts: number | string | undefined) => {
         if (!ts) return 0;
         const n = Number(ts);
         if (isNaN(n)) return 0;
@@ -99,7 +112,7 @@ export async function GET() {
       const isCurrent = s.id === sid;
 
       return {
-        id: s.id,
+        id: s.id ?? "",
         ipAddress: s.ipAddress || "Unknown",
         started,
         lastAccess,

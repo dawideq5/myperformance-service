@@ -28,7 +28,7 @@ const MIN_REMAINING_MS = 24 * 60 * 60 * 1000; // renew when <24h left
  * { ok: false, reason: "..." } when configuration is missing.
  */
 export async function POST() {
-  const session: any = await getServerSession(authOptions);
+  const session = await getServerSession(authOptions);
   if (!session?.accessToken) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -123,7 +123,7 @@ export async function POST() {
  * DELETE /api/calendar/watch — stop the user's watch channel.
  */
 export async function DELETE() {
-  const session: any = await getServerSession(authOptions);
+  const session = await getServerSession(authOptions);
   if (!session?.accessToken) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

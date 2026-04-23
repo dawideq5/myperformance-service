@@ -6,7 +6,7 @@ import type {
   PermissionProvider,
   ProfileSyncArgs,
 } from "./types";
-import { ProviderNotConfiguredError } from "./types";
+import { ProviderNotConfiguredError, ProviderUnsupportedError } from "./types";
 
 /**
  * Directus provider — natywna integracja z REST API Directus.
@@ -107,7 +107,10 @@ export class DirectusProvider implements PermissionProvider {
   }
 
   supportsCustomRoles(): boolean {
-    return true;
+    // Directus role + permissions edytuje się w Directus Data Studio →
+    // Settings → Access Control. Dashboard nie tworzy ani nie modyfikuje
+    // ról — jest tylko access gate na directus_user/directus_admin.
+    return false;
   }
 
   async listPermissions(): Promise<NativePermission[]> {
@@ -175,89 +178,16 @@ export class DirectusProvider implements PermissionProvider {
     return counts;
   }
 
-  async createRole(args: {
-    name: string;
-    description?: string;
-    permissions: string[];
-  }): Promise<NativeRole> {
-    const role = await directusFetch<DirectusRoleRaw>("/roles", {
-      method: "POST",
-      body: JSON.stringify({
-        name: args.name,
-        description: args.description ?? "",
-        admin_access: false,
-        app_access: true,
-      }),
-    });
-    await this.syncPermissions(role.id, args.permissions);
-    return {
-      id: role.id,
-      name: role.name,
-      description: role.description ?? undefined,
-      permissions: args.permissions,
-      systemDefined: false,
-      userCount: 0,
-    };
+  async createRole(): Promise<NativeRole> {
+    throw new ProviderUnsupportedError("directus", "createRole");
   }
 
-  async updateRole(
-    id: string,
-    args: { name?: string; description?: string; permissions?: string[] },
-  ): Promise<NativeRole> {
-    const existing = await directusFetch<DirectusRoleRaw>(
-      `/roles/${encodeURIComponent(id)}`,
-    );
-    if (existing.admin_access) {
-      throw new Error(
-        "Rola Administrator Directusa jest systemowa — nie można jej modyfikować",
-      );
-    }
-
-    const patch: Record<string, unknown> = {};
-    if (args.name !== undefined) patch.name = args.name;
-    if (args.description !== undefined) patch.description = args.description;
-    if (Object.keys(patch).length > 0) {
-      await directusFetch(`/roles/${encodeURIComponent(id)}`, {
-        method: "PATCH",
-        body: JSON.stringify(patch),
-      });
-    }
-
-    if (args.permissions) {
-      await this.syncPermissions(id, args.permissions);
-    }
-
-    const updated = await directusFetch<DirectusRoleRaw>(
-      `/roles/${encodeURIComponent(id)}`,
-    );
-    return {
-      id: updated.id,
-      name: updated.name,
-      description: updated.description ?? undefined,
-      permissions: args.permissions ?? [],
-      systemDefined: false,
-      userCount: 0,
-    };
+  async updateRole(): Promise<NativeRole> {
+    throw new ProviderUnsupportedError("directus", "updateRole");
   }
 
-  async deleteRole(id: string): Promise<void> {
-    const existing = await directusFetch<DirectusRoleRaw>(
-      `/roles/${encodeURIComponent(id)}`,
-    );
-    if (existing.admin_access) {
-      throw new Error("Nie można usunąć systemowej roli Administratora Directus");
-    }
-    // Usuwamy permissions przypisane do tej roli (Directus nie robi CASCADE w API).
-    const perms = await directusFetch<DirectusPermissionRaw[]>(
-      `/permissions?filter[role][_eq]=${encodeURIComponent(id)}&fields=id&limit=-1`,
-    ).catch(() => [] as DirectusPermissionRaw[]);
-    if (perms.length > 0) {
-      await directusFetch("/permissions", {
-        method: "DELETE",
-        body: JSON.stringify(perms.map((p) => p.id)),
-      });
-    }
-    await directusFetch(`/roles/${encodeURIComponent(id)}`, { method: "DELETE" });
+  async deleteRole(): Promise<void> {
+    throw new ProviderUnsupportedError("directus", "deleteRole");
   }
 
   async assignUserRole(args: AssignUserRoleArgs): Promise<void> {

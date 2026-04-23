@@ -100,7 +100,7 @@ export async function PUT(req: Request, { params }: Ctx) {
     }
 
     const userData = await current.json();
-    const nextBody: Record<string, any> = { ...userData };
+    const nextBody: Record<string, unknown> = { ...userData };
     if (body.enabled !== undefined) nextBody.enabled = body.enabled;
     if (body.firstName !== undefined) nextBody.firstName = body.firstName;
     if (body.lastName !== undefined) nextBody.lastName = body.lastName;

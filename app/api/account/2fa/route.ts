@@ -32,15 +32,20 @@ async function fetchAccountCredentials(accessToken: string): Promise<unknown[]> 
   return Array.isArray(data) ? data : [];
 }
 
+interface KeycloakCredential {
+  type?: string;
+  userCredentialMetadatas?: Array<{ credential?: { id?: string } }>;
+}
+
 export async function GET() {
   try {
     const session = await getServerSession(authOptions);
     requireSession(session);
 
-    const credentials = await fetchAccountCredentials(
-      (session as any).accessToken,
-    );
-    const otp = credentials.find((c: any) => c?.type === "otp") as any;
+    const credentials = (await fetchAccountCredentials(
+      session.accessToken ?? "",
+    )) as KeycloakCredential[];
+    const otp = credentials.find((c) => c?.type === "otp");
     const configured = (otp?.userCredentialMetadatas?.length ?? 0) > 0;
 
     const body: TwoFactorStatus = { enabled: configured, configured };
@@ -55,7 +60,7 @@ export async function POST(request: Request) {
     const session = await getServerSession(authOptions);
     requireSession(session);
 
-    const accessToken = (session as any).accessToken as string;
+    const accessToken = session.accessToken ?? "";
     const body = await request.json().catch(() => null);
     if (!body || typeof body !== "object") {
       throw ApiError.badRequest("Invalid JSON body");
@@ -67,7 +72,7 @@ export async function POST(request: Request) {
     };
 
     if (action === "generate") {
-      const userEmail = (session as any).user?.email || "user";
+      const userEmail = session.user?.email || "user";
       const totp = new OTPAuth.TOTP({
         issuer: "MyPerformance",
         label: userEmail,
@@ -97,8 +102,8 @@ export async function POST(request: Request) {
       }
 
       const userSub =
-        (session as any)?.user?.sub ||
-        (session as any)?.user?.email ||
+        session.user?.id ||
+        session.user?.email ||
         "anon";
       const ipKey = getClientIp(request);
       const rl = rateLimit(`totp:${userSub}:${ipKey}`, {
@@ -126,7 +131,7 @@ export async function POST(request: Request) {
 
       const totp = new OTPAuth.TOTP({
         issuer: "MyPerformance",
-        label: (session as any).user?.email || "user",
+        label: session.user?.email || "user",
         algorithm: "SHA1",
         digits: 6,
         period: 30,
@@ -194,7 +199,7 @@ export async function DELETE() {
     const session = await getServerSession(authOptions);
     requireSession(session);
 
-    const accessToken = (session as any).accessToken as string;
+    const accessToken = session.accessToken ?? "";
 
     // Admin-forced check: CONFIGURE_TOTP in requiredActions blocks deletion.
     await withAdminContext(accessToken, async (adminToken, userId) => {
@@ -217,8 +222,10 @@ export async function DELETE() {
       }
     });
 
-    const credentials = await fetchAccountCredentials(accessToken);
-    const otp = credentials.find((c: any) => c?.type === "otp") as any;
+    const credentials = (await fetchAccountCredentials(
+      accessToken,
+    )) as KeycloakCredential[];
+    const otp = credentials.find((c) => c?.type === "otp");
     const credentialId = otp?.userCredentialMetadatas?.[0]?.credential?.id;
     if (!credentialId) {
       return createSuccessResponse({ success: true, enabled: false });

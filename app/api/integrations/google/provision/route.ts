@@ -3,7 +3,13 @@ import { NextResponse } from "next/server";
 import { authOptions } from "@/app/auth";
 import { keycloak } from "@/lib/keycloak";
 
-type FeatureResult = { ok: boolean; skipped?: boolean; error?: string; [k: string]: any };
+type FeatureResult = { ok: boolean; skipped?: boolean; error?: string; [k: string]: unknown };
+
+function errMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  return "unknown";
+}
 
 /**
  * POST /api/integrations/google/provision
@@ -22,7 +28,7 @@ type FeatureResult = { ok: boolean; skipped?: boolean; error?: string; [k: strin
  */
 export async function POST() {
   try {
-    const session: any = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions);
     if (!session?.accessToken) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -45,18 +51,21 @@ export async function POST() {
     console.log("[Google Provision] User attributes:", JSON.stringify(userData.attributes));
     console.log("[Google Provision] Requested features:", requestedFeatures);
 
-    let googleTokens: Record<string, any>;
+    let googleTokens: Record<string, unknown>;
     try {
       googleTokens = await keycloak.getBrokerTokens(session.accessToken, "google");
-    } catch (err: any) {
-      console.error("[Google Provision] Broker token fetch failed:", err?.message);
+    } catch (err) {
+      console.error("[Google Provision] Broker token fetch failed:", errMessage(err));
       return NextResponse.json(
         { error: "Failed to get Google token from Keycloak" },
         { status: 502 }
       );
     }
 
-    const googleAccessToken: string | undefined = googleTokens.access_token;
+    const googleAccessToken =
+      typeof googleTokens.access_token === "string"
+        ? googleTokens.access_token
+        : undefined;
     if (!googleAccessToken) {
       console.error(
         "[Google Provision] No access_token in broker response:",
@@ -76,8 +85,8 @@ export async function POST() {
     };
     try {
       googleUserInfo = await keycloak.getGoogleUserInfo(googleAccessToken);
-    } catch (err: any) {
-      console.error("[Google Provision] Google userinfo fetch failed:", err?.message);
+    } catch (err) {
+      console.error("[Google Provision] Google userinfo fetch failed:", errMessage(err));
       return NextResponse.json(
         { error: "Failed to fetch Google user info" },
         { status: 502 }
@@ -96,10 +105,10 @@ export async function POST() {
       );
       try {
         await keycloak.removeFederatedIdentity(serviceToken, userId, "google");
-      } catch (unlinkErr: any) {
+      } catch (unlinkErr) {
         console.error(
           "[Google Provision] Failed to remove federated identity:",
-          unlinkErr?.message
+          errMessage(unlinkErr),
         );
       }
       return NextResponse.json(
@@ -127,12 +136,10 @@ export async function POST() {
       try {
         await keycloak.setEmailVerified(serviceToken, userId, true);
         results.emailVerified = { ok: true };
-      } catch (err: any) {
-        console.error(
-          "[Google Provision] Failed to set emailVerified:",
-          err?.message
-        );
-        results.emailVerified = { ok: false, error: err?.message || "unknown" };
+      } catch (err) {
+        const msg = errMessage(err);
+        console.error("[Google Provision] Failed to set emailVerified:", msg);
+        results.emailVerified = { ok: false, error: msg };
       }
     }
 
@@ -174,9 +181,9 @@ export async function POST() {
             error: `${calResp.status}: ${errText}`,
           };
         }
-      } catch (err: any) {
+      } catch (err) {
         console.error("[Google Provision] Calendar exception:", err);
-        results.calendar = { ok: false, error: err?.message || "unknown" };
+        results.calendar = { ok: false, error: errMessage(err) };
       }
     }
 
@@ -188,7 +195,7 @@ export async function POST() {
       keycloakEmail,
       ...results,
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error("[Google Provision] Unexpected error:", error);
     return NextResponse.json(
       { error: "Internal server error" },

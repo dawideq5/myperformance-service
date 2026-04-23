@@ -45,6 +45,7 @@ export async function GET() {
           nativeProviderId: area.nativeProviderId ?? null,
           nativeConfigured: provider?.isConfigured() ?? false,
           supportsCustomRoles: provider?.supportsCustomRoles() ?? false,
+          nativeAdminUrl: area.nativeAdminUrl ?? null,
           seedRoles: area.kcRoles.map((r, i) => ({
             name: r.name,
             description: r.description,

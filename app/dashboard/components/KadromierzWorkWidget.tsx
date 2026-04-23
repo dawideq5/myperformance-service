@@ -41,12 +41,10 @@ function todayISO(): string {
 
 function formatShiftLabel(shift: KadromierzShift): string {
   try {
-    const pad = (n: number) => String(n).padStart(2, "0");
     const startT = shift.start.match(/\d{2}:\d{2}/)?.[0] ?? shift.start;
     const endT = shift.end.match(/\d{2}:\d{2}/)?.[0] ?? shift.end;
     return `${startT} – ${endT}`;
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  } catch (_e) {
+  } catch {
     return `${shift.start} – ${shift.end}`;
   }
 }

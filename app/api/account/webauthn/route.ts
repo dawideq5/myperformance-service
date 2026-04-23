@@ -18,7 +18,22 @@ function base64urlToBase64(value: string): string {
   return value.replace(/-/g, "+").replace(/_/g, "/");
 }
 
-async function fetchAccountCredentials(accessToken: string): Promise<any[]> {
+interface KeycloakCredentialMetadata {
+  credential?: {
+    id?: string;
+    userLabel?: string;
+    createdDate?: number;
+  };
+}
+
+interface KeycloakCredentialEntry {
+  type?: string;
+  userCredentialMetadatas?: KeycloakCredentialMetadata[];
+}
+
+async function fetchAccountCredentials(
+  accessToken: string,
+): Promise<KeycloakCredentialEntry[]> {
   const res = await fetch(keycloak.getAccountUrl("/account/credentials"), {
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -27,7 +42,7 @@ async function fetchAccountCredentials(accessToken: string): Promise<any[]> {
   });
   if (!res.ok) return [];
   const data = await res.json();
-  return Array.isArray(data) ? data : [];
+  return Array.isArray(data) ? (data as KeycloakCredentialEntry[]) : [];
 }
 
 export async function GET() {
@@ -36,10 +51,10 @@ export async function GET() {
     requireSession(session);
 
     const credentials = await fetchAccountCredentials(
-      (session as any).accessToken,
+      session.accessToken ?? "",
     );
-    const webauthn = credentials.find((c: any) => c?.type === "webauthn");
-    const keys = (webauthn?.userCredentialMetadatas || []).map((m: any) => ({
+    const webauthn = credentials.find((c) => c?.type === "webauthn");
+    const keys = (webauthn?.userCredentialMetadatas || []).map((m) => ({
       id: m.credential?.id,
       credentialId: m.credential?.id,
       label: m.credential?.userLabel || "Klucz bezpieczeństwa",
@@ -57,7 +72,7 @@ export async function POST(request: Request) {
     const session = await getServerSession(authOptions);
     requireSession(session);
 
-    const accessToken = (session as any).accessToken as string;
+    const accessToken = session.accessToken ?? "";
     const body = await request.json().catch(() => null);
     if (!body || typeof body !== "object") {
       throw ApiError.badRequest("Invalid JSON body");
@@ -74,8 +89,8 @@ export async function POST(request: Request) {
         },
       });
 
-      let userName = (session as any).user?.email || "user";
-      let displayName = (session as any).user?.name || userName;
+      let userName = session.user?.email || "user";
+      let displayName = session.user?.name || userName;
 
       if (profileRes.ok) {
         const profile = await profileRes.json();
@@ -166,9 +181,10 @@ export async function POST(request: Request) {
           );
         }
         const userData = await userRes.json();
-        const existing = (userData.credentials || []).filter(
-          (c: any) => c.type === "webauthn",
-        );
+        const existing = ((userData.credentials || []) as Array<{
+          type?: string;
+          credentialData?: string;
+        }>).filter((c) => c.type === "webauthn");
 
         if (existing.length >= MAX_WEBAUTHN_KEYS) {
           throw ApiError.conflict(
@@ -278,7 +294,7 @@ export async function PUT(request: Request) {
     const session = await getServerSession(authOptions);
     requireSession(session);
 
-    const accessToken = (session as any).accessToken as string;
+    const accessToken = session.accessToken ?? "";
     const body = await request.json().catch(() => null);
     const { credentialId, newName } = (body ?? {}) as {
       credentialId?: string;
@@ -320,7 +336,7 @@ export async function DELETE(request: Request) {
     const session = await getServerSession(authOptions);
     requireSession(session);
 
-    const accessToken = (session as any).accessToken as string;
+    const accessToken = session.accessToken ?? "";
     const { searchParams } = new URL(request.url);
     const credentialId = searchParams.get("id");
     if (!credentialId) {

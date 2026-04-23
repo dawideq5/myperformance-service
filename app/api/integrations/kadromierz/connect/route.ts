@@ -19,7 +19,7 @@ import { kadromierz, KadromierzError } from "@/lib/kadromierz";
  */
 export async function POST(request: NextRequest) {
   try {
-    const session: any = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions);
     if (!session?.accessToken) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }

@@ -8,6 +8,11 @@ import {
 } from "@/lib/admin-auth";
 import { syncDocumensoUserRole, getDocumensoBaseUrl } from "@/lib/documenso";
 import { getPublicAppUrl } from "@/lib/app-url";
+import { getFreshKcProfile } from "@/lib/keycloak-profile";
+import { getProvider } from "@/lib/permissions/registry";
+import { log } from "@/lib/logger";
+
+const logger = log.child({ module: "documenso-sso" });
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,8 +29,9 @@ function parseRoleParam(raw: string | null): Persona | null {
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
-  const email = session?.user?.email;
-  if (!email) {
+  const userId = session?.user?.id;
+  const sessionEmail = session?.user?.email;
+  if (!userId || !sessionEmail) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -81,12 +87,39 @@ export async function GET(req: NextRequest) {
     redirectUrl = `${baseUrl}/inbox`;
   }
 
+  // Fresh fetch z KC — session JWT niesie cache, a my potrzebujemy aktualnej
+  // nazwy/emaila/telefonu do synchronizacji z Documenso.
+  const profile = await getFreshKcProfile(userId);
+  const email = profile.email || sessionEmail;
+
   try {
-    // Przekazujemy name z sesji KC — dzięki temu każde SSO do Documenso
-    // refreshuje User.name zgodnie z aktualnym stanem Keycloaka (KC = SoT).
-    await syncDocumensoUserRole(email, targetRole, session?.user?.name ?? null);
+    await syncDocumensoUserRole(email, targetRole, profile.displayName);
   } catch (err) {
-    console.error("[documenso-sso] role sync failed:", err);
+    logger.error("role sync failed", {
+      email,
+      err: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  // Dodatkowy sync profilu przez provider (imię/nazwisko/telefon w Documenso
+  // User). syncDocumensoUserRole zajmuje się tylko email+name+role — phone
+  // leci osobno przez providera.
+  const documenso = getProvider("documenso");
+  if (documenso?.isConfigured()) {
+    await documenso
+      .syncUserProfile({
+        email,
+        firstName: profile.firstName,
+        lastName: profile.lastName,
+        displayName: profile.displayName,
+        phone: profile.phone,
+      })
+      .catch((err) => {
+        logger.warn("documenso syncUserProfile failed (non-fatal)", {
+          userId,
+          err: err instanceof Error ? err.message : String(err),
+        });
+      });
   }
 
   return NextResponse.redirect(redirectUrl, { status: 303 });

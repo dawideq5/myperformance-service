@@ -113,7 +113,7 @@ export async function fetchWithTimeout(
 export function requireSession(
   session: Session | null | undefined,
 ): asserts session is Session & { accessToken: string } {
-  if (!session || !(session as Session & { accessToken?: string }).accessToken) {
+  if (!session || !session.accessToken) {
     throw ApiError.unauthorized();
   }
 }

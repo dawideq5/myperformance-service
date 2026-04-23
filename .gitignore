@@ -36,3 +36,14 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .snapshots/
+
+# Runtime data (PII — cert registry, audit logs). Migrate to DB in Faza 3.
+/.data/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+Thumbs.db

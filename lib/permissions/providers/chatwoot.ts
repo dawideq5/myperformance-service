@@ -6,7 +6,7 @@ import type {
   PermissionProvider,
   ProfileSyncArgs,
 } from "./types";
-import { ProviderNotConfiguredError } from "./types";
+import { ProviderNotConfiguredError, ProviderUnsupportedError } from "./types";
 
 /**
  * Chatwoot provider — integracja przez Platform API oraz Application API
@@ -121,7 +121,9 @@ export class ChatwootProvider implements PermissionProvider {
   }
 
   supportsCustomRoles(): boolean {
-    return true;
+    // Custom role definiuje się w Chatwoot UI → Settings → Custom Roles.
+    // Dashboard jest tylko access gate (agent vs administrator).
+    return false;
   }
 
   async listPermissions(): Promise<NativePermission[]> {
@@ -189,76 +191,16 @@ export class ChatwootProvider implements PermissionProvider {
     return Array.isArray(raw) ? raw : raw.data ?? [];
   }
 
-  async createRole(args: {
-    name: string;
-    description?: string;
-    permissions: string[];
-  }): Promise<NativeRole> {
-    const cfg = getConfig();
-    const res = await platformFetch(`/api/v1/accounts/${cfg.accountId}/custom_roles`, {
-      method: "POST",
-      body: JSON.stringify({
-        name: args.name,
-        description: args.description ?? "",
-        permissions: args.permissions,
-      }),
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      throw new Error(`Chatwoot custom_role create failed: ${res.status} ${body.slice(0, 200)}`);
-    }
-    const raw = (await res.json()) as ChatwootCustomRoleRaw;
-    return {
-      id: String(raw.id),
-      name: raw.name,
-      description: raw.description ?? undefined,
-      permissions: raw.permissions ?? [],
-      systemDefined: false,
-      userCount: null,
-    };
+  async createRole(): Promise<NativeRole> {
+    throw new ProviderUnsupportedError("chatwoot", "createRole");
   }
 
-  async updateRole(
-    id: string,
-    args: { name?: string; description?: string; permissions?: string[] },
-  ): Promise<NativeRole> {
-    const cfg = getConfig();
-    if (id === "agent" || id === "administrator") {
-      throw new Error("Role systemowe Chatwoota (agent/administrator) są niemodyfikowalne");
-    }
-    const res = await platformFetch(
-      `/api/v1/accounts/${cfg.accountId}/custom_roles/${encodeURIComponent(id)}`,
-      {
-        method: "PATCH",
-        body: JSON.stringify(args),
-      },
-    );
-    if (!res.ok) {
-      throw new Error(`Chatwoot custom_role update failed: ${res.status}`);
-    }
-    const raw = (await res.json()) as ChatwootCustomRoleRaw;
-    return {
-      id: String(raw.id),
-      name: raw.name,
-      description: raw.description ?? undefined,
-      permissions: raw.permissions ?? [],
-      systemDefined: false,
-      userCount: null,
-    };
+  async updateRole(): Promise<NativeRole> {
+    throw new ProviderUnsupportedError("chatwoot", "updateRole");
   }
 
-  async deleteRole(id: string): Promise<void> {
-    const cfg = getConfig();
-    if (id === "agent" || id === "administrator") {
-      throw new Error("Role systemowe Chatwoota nie mogą być usunięte");
-    }
-    const res = await platformFetch(
-      `/api/v1/accounts/${cfg.accountId}/custom_roles/${encodeURIComponent(id)}`,
-      { method: "DELETE" },
-    );
-    if (!res.ok && res.status !== 404) {
-      throw new Error(`Chatwoot custom_role delete failed: ${res.status}`);
-    }
+  async deleteRole(): Promise<void> {
+    throw new ProviderUnsupportedError("chatwoot", "deleteRole");
   }
 
   async assignUserRole(args: AssignUserRoleArgs): Promise<void> {
@@ -334,10 +276,17 @@ export class ChatwootProvider implements PermissionProvider {
     // Chatwoot User nie trzyma telefonu (numery są na poziomie Contact
     // w inboxach, nie na user). Pomijamy phone.
     if (Object.keys(patch).length === 0) return;
-    await platformFetch(`/platform/api/v1/users/${user.id}`, {
-      method: "PATCH",
+    // PUT, nie PATCH — Chatwoot Platform API odrzuca PATCH na users.
+    const res = await platformFetch(`/platform/api/v1/users/${user.id}`, {
+      method: "PUT",
       body: JSON.stringify(patch),
     });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(
+        `Chatwoot syncUserProfile ${user.id} failed: ${res.status} ${body.slice(0, 200)}`,
+      );
+    }
   }
 
   private async findUser(email: string): Promise<ChatwootUser | null> {
@@ -380,12 +329,6 @@ export class ChatwootProvider implements PermissionProvider {
     }
     return (await res.json()) as ChatwootUser;
   }
-}
-
-function randomHex(bytes: number): string {
-  const buf = new Uint8Array(bytes);
-  crypto.getRandomValues(buf);
-  return Array.from(buf, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 /**

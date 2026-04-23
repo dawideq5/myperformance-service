@@ -1,5 +1,6 @@
 import mysql from "mysql2/promise";
 import { getOptionalEnv } from "@/lib/env";
+import { log } from "@/lib/logger";
 import type {
   AssignUserRoleArgs,
   NativePermission,
@@ -8,6 +9,8 @@ import type {
   ProfileSyncArgs,
 } from "./types";
 import { ProviderNotConfiguredError, ProviderUnsupportedError } from "./types";
+
+const logger = log.child({ module: "postal-provider" });
 
 /**
  * Postal provider — system ról Postala jest *zablokowany* na poziomie API:
@@ -116,17 +119,25 @@ export class PostalProvider implements PermissionProvider {
   async assignUserRole(args: AssignUserRoleArgs): Promise<void> {
     if (!this.isConfigured()) throw new ProviderNotConfiguredError("postal");
     const adminFlag = args.roleId === ROLE_ADMIN ? 1 : 0;
-    const [result] = await getPool().execute(
+    const [result] = await getPool().execute<mysql.ResultSetHeader>(
       `UPDATE users
           SET admin = ?
         WHERE LOWER(email_address) = LOWER(?)`,
       [adminFlag, args.email],
     );
-    // args.roleId === null → ROLE_USER (admin=0) fallback. Postal nie ma
-    // konceptu "odebranie dostępu do panelu" poza usunięciem usera lub
-    // detachem od wszystkich serwerów — tym zajmuje się admin Postala
-    // ręcznie. Nasz sync dba tylko o flagę admin.
-    void result;
+    // UPDATE jest naturalnie idempotentny — powtórne wywołanie nie zmienia
+    // stanu (affectedRows=1, changedRows=0). User w postal.users pojawia
+    // się dopiero po pierwszym OIDC SSO (local_auth=false + SSO trigger
+    // inserta z hashem Rails). Jeśli affected=0, user jeszcze się nie
+    // zalogował — rola zostanie faktycznie zaaplikowana przy następnym
+    // pełnym resyncu po first-login. Logujemy to jako warning, żeby
+    // audytor wiedział, że przypisanie jest "pending".
+    if (result.affectedRows === 0) {
+      logger.warn("assignUserRole: no row updated (user not yet provisioned via OIDC first-login)", {
+        email: args.email,
+        desiredAdmin: adminFlag === 1,
+      });
+    }
   }
 
   async getUserRole(email: string): Promise<string | null> {
@@ -143,7 +154,7 @@ export class PostalProvider implements PermissionProvider {
   async syncUserProfile(args: ProfileSyncArgs): Promise<void> {
     if (!this.isConfigured()) return;
     const lookup = args.previousEmail ?? args.email;
-    await getPool().execute(
+    const [result] = await getPool().execute<mysql.ResultSetHeader>(
       `UPDATE users
           SET email_address = COALESCE(NULLIF(?, ''), email_address),
               first_name    = COALESCE(NULLIF(?, ''), first_name),
@@ -156,6 +167,12 @@ export class PostalProvider implements PermissionProvider {
         lookup,
       ],
     );
+    if (result.affectedRows === 0) {
+      logger.info("syncUserProfile: no row updated (user not yet provisioned)", {
+        email: args.email,
+        previousEmail: args.previousEmail,
+      });
+    }
   }
 
   private async countByRole(): Promise<{ user: number; admin: number }> {

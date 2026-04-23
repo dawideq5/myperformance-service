@@ -1,4 +1,4 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
 import {
@@ -8,6 +8,11 @@ import {
 } from "@/lib/admin-auth";
 import { getOptionalEnv } from "@/lib/env";
 import { getPublicAppUrl } from "@/lib/app-url";
+import { getFreshKcProfile } from "@/lib/keycloak-profile";
+import { getProvider } from "@/lib/permissions/registry";
+import { log } from "@/lib/logger";
+
+const logger = log.child({ module: "moodle-launch" });
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,7 +23,7 @@ export const dynamic = "force-dynamic";
  * student view. SSO itself is handled by the auth_oidc plugin on the
  * Moodle side, so we just 303 to the right page.
  */
-export async function GET(_req: NextRequest) {
+export async function GET() {
   const publicAppUrl = getPublicAppUrl();
   const session = await getServerSession(authOptions);
   if (!session?.user) {
@@ -43,6 +48,33 @@ export async function GET(_req: NextRequest) {
       new URL("/forbidden", publicAppUrl),
       { status: 303 },
     );
+  }
+
+  // Świeża propagacja profilu do Moodle przy każdym launch. auth_oidc sam
+  // tworzy usera przy pierwszym logowaniu, ale imię/nazwisko/email mogło się
+  // zmienić w KC od tego czasu — sync provider nadgoni.
+  const userId = session.user.id;
+  if (userId) {
+    const moodle = getProvider("moodle");
+    if (moodle?.isConfigured()) {
+      try {
+        const profile = await getFreshKcProfile(userId);
+        if (profile.email) {
+          await moodle.syncUserProfile({
+            email: profile.email,
+            firstName: profile.firstName,
+            lastName: profile.lastName,
+            displayName: profile.displayName,
+            phone: profile.phone,
+          });
+        }
+      } catch (err) {
+        logger.warn("moodle profile sync failed (non-fatal)", {
+          userId,
+          err: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
   }
 
   return NextResponse.redirect(`${base}${path}`, { status: 303 });

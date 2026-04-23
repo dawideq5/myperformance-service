@@ -9,7 +9,7 @@ import { keycloak } from "@/lib/keycloak";
  */
 export async function GET() {
   try {
-    const session: any = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions);
 
     if (!session?.accessToken) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -31,9 +31,10 @@ export async function GET() {
     }
 
     const federatedIdentities = await identitiesResponse.json();
-    const googleIdentity = federatedIdentities.find(
-      (identity: any) => identity.identityProvider === "google"
-    );
+    const googleIdentity = (federatedIdentities as Array<{
+      identityProvider?: string;
+      userName?: string;
+    }>).find((identity) => identity.identityProvider === "google");
 
     return NextResponse.json({
       connected: Boolean(googleIdentity),

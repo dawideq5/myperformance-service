@@ -3,10 +3,8 @@ import { compactDecrypt, importJWK, SignJWT } from "jose";
 import { randomBytes } from "crypto";
 import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { request as httpsRequest } from "node:https";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { URL } from "node:url";
 import { getOptionalEnv } from "@/lib/env";
 import { log } from "@/lib/logger";
 import {
@@ -303,43 +301,6 @@ export async function recordCertificate(meta: IssuedCertificate): Promise<void> 
 
 export async function listCertificates(): Promise<IssuedCertificate[]> {
   return persistenceListCertificates();
-}
-
-async function mtlsPostJson(
-  url: string,
-  body: string,
-  cert: string,
-  key: string
-): Promise<{ status: number; body: string }> {
-  const parsed = new URL(url);
-  return await new Promise((resolve, reject) => {
-    const req = httpsRequest(
-      {
-        method: "POST",
-        protocol: parsed.protocol,
-        hostname: parsed.hostname,
-        port: parsed.port || (parsed.protocol === "https:" ? 443 : 80),
-        path: `${parsed.pathname}${parsed.search}`,
-        headers: {
-          "Content-Type": "application/json",
-          "Content-Length": Buffer.byteLength(body),
-        },
-        cert,
-        key,
-      },
-      (res) => {
-        const chunks: Buffer[] = [];
-        res.on("data", (c: Buffer) => chunks.push(c));
-        res.on("end", () =>
-          resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString("utf8") })
-        );
-        res.on("error", reject);
-      }
-    );
-    req.on("error", reject);
-    req.write(body);
-    req.end();
-  });
 }
 
 export async function revokeCertificate(

@@ -5,7 +5,7 @@ import { keycloak } from "@/lib/keycloak";
 
 export async function POST() {
   try {
-    const session: any = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions);
     if (!session?.accessToken) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }

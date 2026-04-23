@@ -461,7 +461,7 @@ export class KeycloakService {
   public async getBrokerTokens(
     userAccessToken: string,
     provider: string
-  ): Promise<Record<string, any>> {
+  ): Promise<Record<string, unknown>> {
     const url = this.getAccountUrl(`/broker/${provider}/token`);
     const response = await fetch(url, {
       headers: { Authorization: `Bearer ${userAccessToken}` },

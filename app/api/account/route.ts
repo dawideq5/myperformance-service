@@ -10,13 +10,14 @@ import {
   requireSession,
 } from "@/lib/api-utils";
 import { withAdminContext } from "@/lib/keycloak-admin";
+import { enqueueProfilePropagation } from "@/lib/permissions/sync";
 
 export async function GET() {
   try {
     const session = await getServerSession(authOptions);
     requireSession(session);
 
-    const accessToken = (session as any).accessToken as string;
+    const accessToken = session.accessToken ?? "";
 
     // Try Keycloak Account API first for full profile with attributes
     const accountUrl = keycloak.getAccountUrl("/account");
@@ -27,7 +28,25 @@ export async function GET() {
       },
     });
 
-    let data: any;
+    interface AccountProfile {
+      id?: string;
+      username?: string;
+      preferred_username?: string;
+      firstName?: string;
+      first_name?: string;
+      given_name?: string;
+      lastName?: string;
+      last_name?: string;
+      family_name?: string;
+      email?: string;
+      emailVerified?: boolean;
+      email_verified?: boolean;
+      phoneNumber?: string;
+      attributes?: Record<string, string[]>;
+      requiredActions?: string[];
+    }
+
+    let data: AccountProfile;
 
     if (response.ok) {
       // Account API succeeded - use it
@@ -105,7 +124,7 @@ export async function PUT(request: Request) {
     const session = await getServerSession(authOptions);
     requireSession(session);
 
-    const accessToken = (session as any).accessToken as string;
+    const accessToken = session.accessToken ?? "";
     const body = await request.json();
     const { firstName, lastName, email, attributes } = body;
 
@@ -133,7 +152,7 @@ export async function PUT(request: Request) {
     const currentUser = await userRes.json();
     const isEmailChanged = email && email !== currentUser.email;
 
-    const updateBody: Record<string, any> = {};
+    const updateBody: Record<string, unknown> = {};
     if (firstName !== undefined) updateBody.firstName = firstName;
     if (lastName !== undefined) updateBody.lastName = lastName;
     if (email !== undefined) updateBody.email = email;
@@ -182,28 +201,29 @@ export async function PUT(request: Request) {
       }
     }
 
-    // Force KC logout wszystkich sesji gdy dane profilu się zmieniły —
-    // KC backchannel logout propaguje do Moodle/Outline/Chatwoot/etc.,
-    // które przy następnym requescie muszą się zalogować od nowa i
-    // pobiorą fresh claim. Bez tego apki cache'ują stare dane do końca
-    // własnej sesji (cookie niezależne od KC tokena).
+    // Propagacja nowego profilu do wszystkich natywnych aplikacji
+    // (Chatwoot, Directus, Moodle, Outline, Documenso, Postal). Odpala
+    // się asynchronicznie przez kolejkę z retry, żeby chwilowy down
+    // któregoś providera nie zablokował PUT-a. User zostaje zalogowany
+    // — cache'e w natywnych apkach odświeżymy push-em, nie forsowanym
+    // wylogowaniem KC.
     const isProfileChanged =
       (firstName !== undefined && firstName !== currentUser.firstName) ||
       (lastName !== undefined && lastName !== currentUser.lastName) ||
       isEmailChanged;
-    let sessionsTerminated = false;
     if (isProfileChanged) {
-      try {
-        await keycloak.adminRequest(`/users/${userId}/logout`, adminToken, {
-          method: "POST",
-        });
-        sessionsTerminated = true;
-      } catch (err) {
-        console.warn("[API /account PUT] session logout failed:", err);
-      }
+      void enqueueProfilePropagation(userId, {
+        previousEmail: isEmailChanged ? currentUser.email : undefined,
+        actor: session.user?.email ?? `user:${userId}`,
+      }).catch((err) => {
+        console.warn(
+          "[API /account PUT] enqueueProfilePropagation failed:",
+          err instanceof Error ? err.message : err,
+        );
+      });
     }
 
-    return createSuccessResponse({ googleDisconnected, sessionsTerminated });
+    return createSuccessResponse({ googleDisconnected, profilePropagated: isProfileChanged });
   } catch (error) {
     return handleApiError(error);
   }

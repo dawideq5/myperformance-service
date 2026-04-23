@@ -38,7 +38,7 @@ function formatDate(d: Date): string {
 
 export async function GET(request: NextRequest) {
   try {
-    const session: any = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions);
     if (!session?.accessToken) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }

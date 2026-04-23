@@ -50,7 +50,7 @@ export function SessionsCard({
   const [error, setError] = useState<string | null>(null);
   const [killing, setKilling] = useState<string | null>(null);
   const [live, setLive] = useState(true);
-  const [_, setTick] = useState(0);
+  const [, setTick] = useState(0);
   const prevCountRef = useRef(0);
   const [changeHint, setChangeHint] = useState<string | null>(null);
 
@@ -106,7 +106,8 @@ export function SessionsCard({
   }, []);
 
   const killOne = useCallback(
-    async (_sessionId: string) => {
+    async (sessionId: string) => {
+      void sessionId;
       // KC admin API nie ma endpointu do zabijania pojedynczej sesji usera
       // (/sessions/{id} wymaga admin-events pluginu). W praktyce: odłączamy
       // jedną-sesję przez execute actions email → LOGOUT_ALL_SESSIONS (KC v26),

@@ -22,7 +22,7 @@ import type { CalendarEvent } from "../events/route";
  */
 export async function POST(request: NextRequest) {
   try {
-    const session: any = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions);
     if (!session?.accessToken) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -63,7 +63,16 @@ export async function POST(request: NextRequest) {
     baseUrl.searchParams.set("orderBy", "startTime");
     baseUrl.searchParams.set("maxResults", "250");
 
-    const googleItems: any[] = [];
+    interface GoogleCalendarItem {
+      id: string;
+      status?: string;
+      summary?: string;
+      description?: string;
+      start?: { dateTime?: string; date?: string };
+      end?: { dateTime?: string; date?: string };
+      location?: string;
+    }
+    const googleItems: GoogleCalendarItem[] = [];
     let pageToken: string | undefined;
     do {
       const url = new URL(baseUrl.toString());

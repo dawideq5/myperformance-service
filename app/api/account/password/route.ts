@@ -34,7 +34,7 @@ export async function POST(request: Request) {
 
     // Throttle password-change attempts: 5 per 10 minutes per user+ip. Protects
     // against brute-forcing `currentPassword` via the verify step below.
-    const userSub = (session as any)?.user?.sub || session.user?.email || "anon";
+    const userSub = session.user?.id || session.user?.email || "anon";
     const ipKey = getClientIp(request);
     const rl = rateLimit(`pw:${userSub}:${ipKey}`, {
       capacity: 5,

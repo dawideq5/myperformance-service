@@ -1,30 +1,33 @@
 /**
- * Rejestr obszarów uprawnień (areas).
+ * Rejestr obszarów uprawnień (areas) — MODEL GRUBO-ZIARNISTY.
  *
- * Area = jeden spójny obszar dostępu, z wymuszoną relacją **0..1 roli per
- * user**. Przykład: "chatwoot" ma role `chatwoot_agent` i `chatwoot_administrator`
- * w KC + ewentualne custom role Chatwoot — użytkownik dostaje co najwyżej
- * jedną z nich. Nigdy nie pojawią się równocześnie `documenso_user` +
- * `documenso_admin` — drugi przypisany kasuje pierwszy.
+ * Dashboard to **access gate** — decyduje "czy user ma dostęp do apki" i
+ * "czy jest adminem tej apki". Fine-grained role, custom role, permisje
+ * dla grup itd. edytuje się w **natywnym UI aplikacji** (Chatwoot agenci/
+ * administratorzy + custom_roles, Directus roles + permissions, Outline
+ * groups, Documenso teams + member roles, Moodle roles + context levels,
+ * Postal permissions).
  *
- * Zasada nazewnicza: realm role zaczyna się od prefiksu `<areaId>_`, a sufiks
- * odpowiada natywnemu identyfikatorowi roli w aplikacji (np. Moodle używa
- * shortname `editingteacher`, więc KC role to `moodle_editingteacher`).
- * Custom role tworzone przez panel mają prefiks `<areaId>_custom_<slug>`.
+ * Każdy area dostaje maks. 2 role KC:
+ *   - `<areaId>_user`  — dostęp do apki na poziomie zwykłego użytkownika
+ *   - `<areaId>_admin` — dostęp do konsoli administracyjnej apki
+ *
+ * Rola user = 0..1 role per user w danym area. `_admin` zastępuje `_user`
+ * (admin ma dostęp user'a z definicji). Provider natywny robi **tylko** dwie
+ * rzeczy: (1) stworzy usera przy pierwszym przypisaniu (jeśli apka nie
+ * tworzy go sama na OIDC first-login), (2) ustawi flagę admin/non-admin.
+ * CRUD ról jest niedostępny z dashboardu — wysyłamy admina do natywnego UI.
  */
 
 export type AreaProviderKind = "keycloak-only" | "native";
 
 export interface AreaRoleSeed {
-  /** Realm role name w Keycloak (np. `chatwoot_agent`). */
+  /** Realm role name (np. `chatwoot_user`, `chatwoot_admin`). */
   name: string;
   description: string;
-  /** Wyższe = ważniejsze. Używane przy rozstrzyganiu konfliktów przy migracji. */
+  /** user=10, admin=90. Admin wyższy → wygrywa przy resolve. */
   priority: number;
-  /**
-   * Mapa do natywnego id (tylko dla area.provider === "native"). Null dla
-   * ról KC-only w obrębie area natywnego (rzadkie, ale możliwe).
-   */
+  /** Native role id lub flaga dla providera (np. Chatwoot `administrator`). */
   nativeRoleId?: string | null;
 }
 
@@ -33,32 +36,35 @@ export interface PermissionArea {
   label: string;
   description: string;
   provider: AreaProviderKind;
-  /** Id providera w registry (tylko dla provider="native"). */
   nativeProviderId?: string;
-  /** Seed ról KC dla tego area (używany przez seed-area-roles.ts i UI). */
   kcRoles: AreaRoleSeed[];
-  /** Ikona lucide-react (nazwa) — UI pobiera dynamicznie. */
   icon?: string;
+  /**
+   * URL do natywnego UI w którym admin edytuje fine-grained role. Dashboard
+   * pokazuje link "Zarządzaj rolami w aplikacji" obok toggle'a.
+   */
+  nativeAdminUrl?: string;
 }
 
 export const AREAS: PermissionArea[] = [
   {
     id: "chatwoot",
     label: "Chatwoot",
-    description: "Obsługa rozmów z klientami (live-chat, email, kanały social).",
+    description: "Live-chat klientów, email, kanały social.",
     provider: "native",
     nativeProviderId: "chatwoot",
     icon: "MessageSquare",
+    nativeAdminUrl: "https://chat.myperformance.pl/app/accounts/1/agents",
     kcRoles: [
       {
-        name: "chatwoot_agent",
-        description: "Agent obsługi klienta — rozmowy, kontakty.",
+        name: "chatwoot_user",
+        description: "Agent obsługi klienta (zwykły dostęp).",
         priority: 10,
         nativeRoleId: "agent",
       },
       {
-        name: "chatwoot_administrator",
-        description: "Administrator konta Chatwoot — konfiguracja, webhooki, role.",
+        name: "chatwoot_admin",
+        description: "Administrator Chatwoota (konfiguracja, webhooki).",
         priority: 90,
         nativeRoleId: "administrator",
       },
@@ -67,26 +73,21 @@ export const AREAS: PermissionArea[] = [
   {
     id: "moodle",
     label: "MyPerformance — Akademia (Moodle)",
-    description: "LMS — szkolenia wewnętrzne, kursy, certyfikaty.",
+    description: "LMS — szkolenia, kursy, certyfikaty.",
     provider: "native",
     nativeProviderId: "moodle",
     icon: "GraduationCap",
+    nativeAdminUrl: "https://moodle.myperformance.pl/admin/roles/assign.php?contextid=1",
     kcRoles: [
       {
-        name: "moodle_student",
-        description: "Uczeń — dostęp do przypisanych kursów.",
+        name: "moodle_user",
+        description: "Dostęp do kursów i szkoleń.",
         priority: 10,
         nativeRoleId: "student",
       },
       {
-        name: "moodle_editingteacher",
-        description: "Nauczyciel (edytujący) — tworzenie kursów, ocenianie.",
-        priority: 50,
-        nativeRoleId: "editingteacher",
-      },
-      {
-        name: "moodle_manager",
-        description: "Manager — pełny dostęp do konfiguracji, pluginów, użytkowników.",
+        name: "moodle_admin",
+        description: "Manager Moodla (konfiguracja, pluginy, użytkownicy).",
         priority: 90,
         nativeRoleId: "manager",
       },
@@ -95,42 +96,44 @@ export const AREAS: PermissionArea[] = [
   {
     id: "directus",
     label: "Directus CMS",
-    description: "Zarządzanie treścią serwisu (artykuły, produkty, galeria).",
+    description: "Treści i dane aplikacji.",
     provider: "native",
     nativeProviderId: "directus",
     icon: "Database",
+    nativeAdminUrl: "https://cms.myperformance.pl/admin/users",
     kcRoles: [
       {
+        name: "directus_user",
+        description: "Dostęp do Directusa z domyślną rolą.",
+        priority: 10,
+        nativeRoleId: null,
+      },
+      {
         name: "directus_admin",
-        description: "Pełny dostęp do Directus.",
+        description: "Administrator Directusa (role + permisje w UI).",
         priority: 90,
-        nativeRoleId: null, // mapowane dynamicznie na Administrator role w Directus
+        nativeRoleId: null,
       },
     ],
   },
   {
     id: "documenso",
     label: "Dokumenty (Documenso)",
-    description: "E-podpis — pracownik → obsługa (księgowa) → administrator.",
+    description: "E-podpis i obieg dokumentów.",
     provider: "native",
     nativeProviderId: "documenso",
     icon: "FileSignature",
+    nativeAdminUrl: "https://sign.myperformance.pl/admin/users",
     kcRoles: [
       {
         name: "documenso_user",
         description: "Pracownik — podpisuje własne dokumenty.",
         priority: 10,
-        nativeRoleId: "USER",
-      },
-      {
-        name: "documenso_handler",
-        description: "Obsługa dokumentów (księgowa) — wysyła i śledzi obieg.",
-        priority: 50,
-        nativeRoleId: "USER",
+        nativeRoleId: "MEMBER",
       },
       {
         name: "documenso_admin",
-        description: "Administrator Documenso — szablony, webhooki, użytkownicy.",
+        description: "Administrator Documenso (szablony, webhooki).",
         priority: 90,
         nativeRoleId: "ADMIN",
       },
@@ -143,22 +146,17 @@ export const AREAS: PermissionArea[] = [
     provider: "native",
     nativeProviderId: "outline",
     icon: "BookOpen",
+    nativeAdminUrl: "https://knowledge.myperformance.pl/settings/members",
     kcRoles: [
       {
-        name: "knowledge_viewer",
-        description: "Tylko do odczytu — może czytać artykuły bez edycji.",
-        priority: 5,
-        nativeRoleId: "viewer",
-      },
-      {
         name: "knowledge_user",
-        description: "Dostęp do wiki (czytanie + pisanie).",
+        description: "Dostęp do wiki (czytanie + edycja).",
         priority: 10,
         nativeRoleId: "member",
       },
       {
         name: "knowledge_admin",
-        description: "Administrator Outline (kolekcje, użytkownicy, integracje).",
+        description: "Administrator Outline (grupy, integracje).",
         priority: 90,
         nativeRoleId: "admin",
       },
@@ -167,10 +165,11 @@ export const AREAS: PermissionArea[] = [
   {
     id: "postal",
     label: "Postal",
-    description: "Transactional + newsletter email sender.",
+    description: "Transactional + newsletter mail sender.",
     provider: "native",
     nativeProviderId: "postal",
     icon: "Mail",
+    nativeAdminUrl: "https://postal.myperformance.pl/users",
     kcRoles: [
       {
         name: "postal_user",
@@ -189,7 +188,7 @@ export const AREAS: PermissionArea[] = [
   {
     id: "stepca",
     label: "step-ca (PKI)",
-    description: "Certyfikaty klienckie dla paneli cert-gated.",
+    description: "Certyfikaty klienckie.",
     provider: "keycloak-only",
     icon: "Shield",
     kcRoles: [
@@ -276,29 +275,15 @@ export const AREAS: PermissionArea[] = [
     ],
   },
   {
-    id: "admin",
-    label: "Administracja platformą",
-    description: "Konsole i operacje o podwyższonym ryzyku.",
-    provider: "keycloak-only",
-    icon: "ShieldCheck",
-    kcRoles: [
-      {
-        name: "keycloak_admin",
-        description: "Administracja użytkownikami i dostępem w Keycloak.",
-        priority: 50,
-      },
-    ],
-  },
-  {
     id: "core",
     label: "Dostęp do platformy",
-    description: "Podstawowe role domyślne — auto-przypisywane.",
+    description: "Podstawowa rola domyślna — auto-przypisywana.",
     provider: "keycloak-only",
     icon: "LogIn",
     kcRoles: [
       {
         name: "app_user",
-        description: "Dostęp do dashboardu (domyślna dla każdego zalogowanego).",
+        description: "Dostęp do dashboardu (domyślna).",
         priority: 1,
       },
     ],
@@ -309,19 +294,14 @@ export function getArea(id: string): PermissionArea | null {
   return AREAS.find((a) => a.id === id) ?? null;
 }
 
-/** Zwraca area, do którego należy podany realm role — po prefiksie lub literal match. */
+/** Zwraca area dla KC roli — po exact match (nasze seedy) albo po prefiksie. */
 export function findAreaForRole(roleName: string): PermissionArea | null {
-  // Najpierw szukamy explicitu (role seed).
   for (const area of AREAS) {
     if (area.kcRoles.some((r) => r.name === roleName)) return area;
   }
-  // Fallback po prefiksie — custom role (`<areaId>_custom_<slug>`) i nowe role
-  // nieseedowane.
   for (const area of AREAS) {
     const prefix = `${area.id.replace(/-/g, "_")}_`;
     if (roleName.startsWith(prefix)) return area;
-    // panele mają prefiks z "-" np. "panel-sprzedawca", ale role = "sprzedawca"
-    // już łapiemy przez seed powyżej.
   }
   return null;
 }
@@ -330,22 +310,41 @@ export function listAreaKcRoleNames(area: PermissionArea): string[] {
   return area.kcRoles.map((r) => r.name);
 }
 
-/** Zwraca seed z najwyższym priorytetem z listy kandydatów; null jeśli pusta. */
+/** Zwraca seed z najwyższym priorytetem z kandydatów; null jeśli pusta. */
 export function pickHighestPriorityRole(
   area: PermissionArea,
   candidates: string[],
 ): AreaRoleSeed | null {
-  const candidateSet = new Set(candidates);
-  const matches = area.kcRoles.filter((r) => candidateSet.has(r.name));
+  const set = new Set(candidates);
+  const matches = area.kcRoles.filter((r) => set.has(r.name));
   if (matches.length === 0) return null;
   return matches.reduce((best, cur) => (cur.priority > best.priority ? cur : best));
 }
 
 /**
- * Detektor legacy custom-role names — konwencja `<areaId>_custom_<slug>` była
- * używana przed przejściem na ściśle kanoniczny katalog ról. Zostaje jako
- * safety check dla starych danych (sprzątanych przez keycloak-reset-to-native.mjs).
+ * Historyczny detektor nazw custom ról — obecnie **nieużywany** w UI (custom
+ * role zostały wycofane). Zostaje żeby migracyjny skrypt umiał rozpoznać
+ * legacy naming i je usunąć.
  */
 export function isCustomRoleKcName(name: string): boolean {
   return /^[a-z][a-z0-9_]*_custom_[a-z0-9_]+$/.test(name);
 }
+
+/**
+ * Mapping starych ról fine-grained → nowych coarse. Używane przez
+ * `scripts/migrate-roles-simplify.mjs`. Każdy wiersz: (legacy_kc_role,
+ * new_kc_role). Po migracji stare role są usuwane z realmu.
+ */
+export const LEGACY_ROLE_REMAP: Record<string, string> = {
+  // Chatwoot
+  chatwoot_agent: "chatwoot_user",
+  chatwoot_administrator: "chatwoot_admin",
+  // Moodle
+  moodle_student: "moodle_user",
+  moodle_editingteacher: "moodle_user",
+  moodle_manager: "moodle_admin",
+  // Documenso (handler kolapsuje do user — admin promote w Documenso UI)
+  documenso_handler: "documenso_user",
+  // Outline
+  knowledge_viewer: "knowledge_user",
+};

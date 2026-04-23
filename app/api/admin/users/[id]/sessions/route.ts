@@ -38,8 +38,17 @@ export async function GET(_req: Request, { params }: Ctx) {
       );
     }
 
-    const raw = (await res.json()) as any[];
-    const toSec = (ts: any) => {
+    interface RawKeycloakSession {
+      id?: string;
+      ipAddress?: string;
+      start?: number | string;
+      started?: number | string;
+      lastAccess?: number | string;
+      expires?: number | string;
+      clients?: Record<string, string>;
+    }
+    const raw = (await res.json()) as RawKeycloakSession[];
+    const toSec = (ts: number | string | undefined) => {
       if (!ts) return 0;
       const n = Number(ts);
       if (Number.isNaN(n)) return 0;

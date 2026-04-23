@@ -470,6 +470,7 @@ export interface AreaSummary {
   nativeProviderId: string | null;
   nativeConfigured: boolean;
   supportsCustomRoles: boolean;
+  nativeAdminUrl: string | null;
   seedRoles: AreaSummarySeedRole[];
   totalAssignedUsers: number;
 }

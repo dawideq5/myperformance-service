@@ -1,4 +1,5 @@
 import { getOptionalEnv } from "@/lib/env";
+import { log } from "@/lib/logger";
 import type {
   AssignUserRoleArgs,
   NativePermission,
@@ -12,23 +13,28 @@ import {
 } from "./types";
 
 /**
- * Outline (knowledge base) provider.
+ * Outline (knowledge base) provider — **"Groups-as-Containers"**.
  *
- * Outline roles: admin | member | viewer | guest | suspended.
- * W katalogu używamy:
- *   knowledge_admin  → admin
- *   knowledge_user   → member
- *   knowledge_viewer → viewer
+ * Outline API nie pozwala tworzyć nowych ról globalnych (admin/member/viewer
+ * to zamknięty enum). Zgodnie z raportem IAM — custom metarole realizujemy
+ * przez tworzenie natywnej **Group** w Outline i dopinanie do niej użytkowników.
+ * Wtedy administrator może w Outline UI nadać tej grupie uprawnienia do
+ * konkretnych kolekcji (read / read-write / no-access).
  *
- * Mapowanie realm roles → Outline happens on role change i przy SSO
- * bridge. Outline nie wspiera custom roles — tylko fixed set.
+ * Konwencja id natywnej roli:
+ *   `admin` / `member` / `viewer`           — globalna rola Outline
+ *   `group:<outlineGroupId>`                — custom metarola = grupa Outline
+ *
+ * Przy assign:
+ *   - globalna rola → `users.update_role` + `users.activate`/`users.suspend`
+ *   - grupa → `groups.add_user` + zapewnienie globalnego `member` (żeby
+ *     user mógł się zalogować), + wywłaszczenie z innych zarządzanych grup
+ *     (single-role-per-area).
  *
  * API docs: https://www.getoutline.com/developers
- *   /api/users.list
- *   /api/users.info
- *   /api/users.update_role   { id, role }   role ∈ {admin, member, viewer}
- *   /api/users.delete
  */
+
+const logger = log.child({ module: "outline-provider" });
 
 interface Config {
   baseUrl: string;
@@ -77,7 +83,18 @@ interface OutlineUser {
   isSuspended?: boolean;
 }
 
-const OUTLINE_ROLES: NativeRole[] = [
+interface OutlineGroup {
+  id: string;
+  name: string;
+  memberCount?: number;
+}
+
+const GROUP_PREFIX = "group:";
+
+/** Marker w name grupy — odróżnia metarole od istniejących ad-hoc grup. */
+const METAROLE_MARKER = "[metarole]";
+
+const OUTLINE_GLOBAL_ROLES: NativeRole[] = [
   {
     id: "viewer",
     name: "Viewer",
@@ -119,6 +136,18 @@ const OUTLINE_PERMISSIONS: NativePermission[] = [
   { key: "integration.manage", label: "Integracje", group: "Admin" },
 ];
 
+function isGroupRoleId(id: string): boolean {
+  return id.startsWith(GROUP_PREFIX);
+}
+
+function groupIdFromRoleId(id: string): string {
+  return id.slice(GROUP_PREFIX.length);
+}
+
+function roleIdForGroup(groupId: string): string {
+  return `${GROUP_PREFIX}${groupId}`;
+}
+
 export class OutlineProvider implements PermissionProvider {
   readonly id = "outline";
   readonly label = "Outline (Baza wiedzy)";
@@ -133,6 +162,9 @@ export class OutlineProvider implements PermissionProvider {
   }
 
   supportsCustomRoles(): boolean {
+    // Grupy Outline (fine-grained scope na kolekcjach) edytuje się w
+    // Outline → Settings → Groups. Dashboard trzyma tylko dwie role:
+    // member (knowledge_user) i admin (knowledge_admin).
     return false;
   }
 
@@ -142,21 +174,41 @@ export class OutlineProvider implements PermissionProvider {
 
   async listRoles(): Promise<NativeRole[]> {
     if (!this.isConfigured()) return [];
+    const result: NativeRole[] = [];
     try {
-      // Count users per role — useful UI metric.
       const users = await this.listUsers();
       const counts = new Map<string, number>();
       for (const u of users) {
         if (u.isSuspended) continue;
         counts.set(u.role, (counts.get(u.role) ?? 0) + 1);
       }
-      return OUTLINE_ROLES.map((r) => ({
-        ...r,
-        userCount: counts.get(r.id) ?? 0,
-      }));
+      for (const r of OUTLINE_GLOBAL_ROLES) {
+        result.push({ ...r, userCount: counts.get(r.id) ?? 0 });
+      }
     } catch {
-      return OUTLINE_ROLES;
+      result.push(...OUTLINE_GLOBAL_ROLES);
     }
+
+    // Metarole-groups jako custom roles.
+    try {
+      const groups = await this.listMetaroleGroups();
+      for (const g of groups) {
+        result.push({
+          id: roleIdForGroup(g.id),
+          name: g.name.replace(METAROLE_MARKER, "").trim(),
+          description: "Metarola (grupa Outline) — uprawnienia per kolekcja.",
+          permissions: [],
+          systemDefined: false,
+          userCount: g.memberCount ?? null,
+        });
+      }
+    } catch (err) {
+      logger.warn("listMetaroleGroups failed", {
+        err: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    return result;
   }
 
   async createRole(): Promise<NativeRole> {
@@ -176,34 +228,78 @@ export class OutlineProvider implements PermissionProvider {
 
     const user = await this.findUser(args.email);
     if (!user) {
-      // User hasn't signed into Outline yet — first-login OIDC creates the
-      // account with default "member". We can't pre-create without their
-      // first token. assignUserRole on next sync will catch up.
+      // User hasn't signed into Outline yet — JIT create przy pierwszym SSO.
+      // assignUserRole następny cykl dopina ponownie.
       return;
     }
 
-    // null = suspend (revoke access)
+    // null = zabranie dostępu (suspend).
     if (args.roleId === null) {
       await outlineFetch("/api/users.suspend", { id: user.id });
       return;
     }
 
-    const targetRole = args.roleId;
-    if (!["admin", "member", "viewer"].includes(targetRole)) {
-      throw new Error(`Outline: nieznana rola "${targetRole}"`);
+    // Wariant A: assigning natywnej global role.
+    if (!isGroupRoleId(args.roleId)) {
+      const targetRole = args.roleId;
+      if (!["admin", "member", "viewer"].includes(targetRole)) {
+        throw new Error(`Outline: nieznana rola "${targetRole}"`);
+      }
+      if (user.isSuspended) {
+        await outlineFetch("/api/users.activate", { id: user.id });
+      }
+      if (user.role !== targetRole) {
+        await outlineFetch("/api/users.update_role", {
+          id: user.id,
+          role: targetRole,
+        });
+      }
+      // Czyszczenie — jeśli user był w metarole-groups, zostaje; globalny
+      // role i grupy żyją równolegle w Outline (grupa decyduje o per-collection).
+      return;
     }
 
-    // Resurrect if suspended.
+    // Wariant B: assigning metarole-group.
+    const groupId = groupIdFromRoleId(args.roleId);
+
     if (user.isSuspended) {
       await outlineFetch("/api/users.activate", { id: user.id });
     }
-
-    if (user.role !== targetRole) {
+    // Upewniamy się że user ma globalne `member` (wymagane żeby w ogóle
+    // zalogować i widzieć grupy/kolekcje).
+    if (user.role !== "member" && user.role !== "admin") {
       await outlineFetch("/api/users.update_role", {
         id: user.id,
-        role: targetRole,
+        role: "member",
       });
     }
+    // Wypinamy z innych metarole-group (single-role-per-area).
+    try {
+      const otherGroups = await this.listMetaroleGroups();
+      for (const g of otherGroups) {
+        if (g.id === groupId) continue;
+        await outlineFetch("/api/groups.remove_user", {
+          id: g.id,
+          userId: user.id,
+        }).catch(() => {
+          // Outline zwraca 400 gdy user nie jest w grupie — ignorujemy.
+        });
+      }
+    } catch (err) {
+      logger.warn("metarole group cleanup failed (non-fatal)", {
+        email: args.email,
+        err: err instanceof Error ? err.message : String(err),
+      });
+    }
+    // Dopinamy do docelowej grupy.
+    await outlineFetch("/api/groups.add_user", {
+      id: groupId,
+      userId: user.id,
+    }).catch(async (err: unknown) => {
+      // Outline zwraca 400 gdy user już jest w grupie — traktujemy jako OK.
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!/already/i.test(msg)) throw err;
+    });
   }
 
   async getUserRole(email: string): Promise<string | null> {
@@ -211,6 +307,22 @@ export class OutlineProvider implements PermissionProvider {
     const user = await this.findUser(email);
     if (!user) return null;
     if (user.isSuspended) return null;
+
+    // Preferuj metarole-group (jeśli user jest w dokładnie jednej).
+    try {
+      const groups = await this.listMetaroleGroups();
+      for (const g of groups) {
+        const members = await outlineFetch<OutlineUser[]>(
+          "/api/groups.memberships",
+          { id: g.id, limit: 100 },
+        ).catch(() => [] as OutlineUser[]);
+        if (members.some((m) => m.id === user.id)) {
+          return roleIdForGroup(g.id);
+        }
+      }
+    } catch {
+      // fall through — zwrócimy global role.
+    }
     return user.role;
   }
 
@@ -218,22 +330,19 @@ export class OutlineProvider implements PermissionProvider {
     if (!this.isConfigured()) return;
     const lookup = args.previousEmail ?? args.email;
     const user = await this.findUser(lookup);
-    if (!user) return; // JIT — zostanie utworzony przy pierwszym SSO.
+    if (!user) return;
     const updates: Record<string, string> = {};
     const fullName =
       [args.firstName, args.lastName].filter(Boolean).join(" ").trim() ||
       args.displayName ||
       "";
     if (fullName && fullName !== user.name) updates.name = fullName;
-    // Outline /api/users.update wspiera tylko {id, name, avatarUrl}. Email
-    // zmienia się tylko przez admin panel lub migrację SSO.
     if (Object.keys(updates).length === 0) return;
     await outlineFetch("/api/users.update", { id: user.id, ...updates });
   }
 
   private async findUser(email: string): Promise<OutlineUser | null> {
     try {
-      // users.list supports `query` which searches by name/email substring.
       const users = await outlineFetch<OutlineUser[]>("/api/users.list", {
         query: email,
         filter: "all",
@@ -251,7 +360,6 @@ export class OutlineProvider implements PermissionProvider {
     let offset = 0;
     const limit = 100;
     const all: OutlineUser[] = [];
-    // Safety cap — we don't paginate beyond 1000 users.
     for (let i = 0; i < 10; i++) {
       const page = await outlineFetch<OutlineUser[]>("/api/users.list", {
         filter: "all",
@@ -264,5 +372,27 @@ export class OutlineProvider implements PermissionProvider {
       offset += limit;
     }
     return all;
+  }
+
+  /**
+   * Listuje grupy oznaczone markerem `[metarole]` — tylko te grupy
+   * traktujemy jako custom role zarządzane z centralnego IAM. Istniejące
+   * ad-hoc grupy (np. zespoły projektowe) są ignorowane.
+   */
+  private async listMetaroleGroups(): Promise<OutlineGroup[]> {
+    const all: OutlineGroup[] = [];
+    let offset = 0;
+    const limit = 100;
+    for (let i = 0; i < 10; i++) {
+      const page = await outlineFetch<OutlineGroup[]>("/api/groups.list", {
+        limit,
+        offset,
+      });
+      if (!Array.isArray(page) || page.length === 0) break;
+      all.push(...page);
+      if (page.length < limit) break;
+      offset += limit;
+    }
+    return all.filter((g) => g.name.includes(METAROLE_MARKER));
   }
 }

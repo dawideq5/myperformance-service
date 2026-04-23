@@ -15,7 +15,7 @@ const USER_AGENT =
   "MyPerformance/1.0 (self-hosted; contact: admin@myperformance.local)";
 
 export async function GET(request: NextRequest) {
-  const session: any = await getServerSession(authOptions);
+  const session = await getServerSession(authOptions);
   if (!session?.accessToken) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -48,7 +48,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ results: [] });
     }
 
-    const items: any[] = await resp.json();
+    interface NominatimItem {
+      display_name?: string;
+      lat?: string | number;
+      lon?: string | number;
+      type?: string;
+      importance?: number;
+    }
+    const items: NominatimItem[] = await resp.json();
     const results: GeocodingResult[] = items.map((it) => ({
       displayName: String(it.display_name ?? ""),
       lat: Number(it.lat),

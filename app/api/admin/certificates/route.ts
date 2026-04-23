@@ -34,9 +34,16 @@ export async function POST(req: Request) {
     );
   }
 
-  let body: any;
+  interface IssueCertBody {
+    commonName?: string;
+    email?: string;
+    role?: string;
+    roles?: string[];
+    validityDays?: number;
+  }
+  let body: IssueCertBody | null;
   try {
-    body = await req.json();
+    body = (await req.json()) as IssueCertBody;
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }

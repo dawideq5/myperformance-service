@@ -217,7 +217,8 @@ export const kadromierz = {
     const data = await request<
       { attendance?: KadromierzAttendance } | KadromierzAttendance
     >(apiKey, "/users/current/attendances/open", { method: "POST", body: "{}" });
-    return (data as any).attendance ?? (data as KadromierzAttendance);
+    return (data as { attendance?: KadromierzAttendance }).attendance
+      ?? (data as KadromierzAttendance);
   },
 
   async clockOut(
@@ -230,7 +231,8 @@ export const kadromierz = {
       method: "POST",
       body: "{}",
     });
-    return (data as any).attendance ?? (data as KadromierzAttendance);
+    return (data as { attendance?: KadromierzAttendance }).attendance
+      ?? (data as KadromierzAttendance);
   },
 
   async startBreak(
@@ -243,7 +245,8 @@ export const kadromierz = {
       method: "POST",
       body: "{}",
     });
-    return (data as any).attendance ?? (data as KadromierzAttendance);
+    return (data as { attendance?: KadromierzAttendance }).attendance
+      ?? (data as KadromierzAttendance);
   },
 
   async endBreak(
@@ -258,7 +261,8 @@ export const kadromierz = {
       `/users/current/attendances/${attendanceId}/breaks/${breakId}`,
       { method: "POST", body: "{}" },
     );
-    return (data as any).attendance ?? (data as KadromierzAttendance);
+    return (data as { attendance?: KadromierzAttendance }).attendance
+      ?? (data as KadromierzAttendance);
   },
 
   /**

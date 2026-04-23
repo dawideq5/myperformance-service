@@ -240,6 +240,17 @@ export function PermissionsPanel({ userId, onChanged }: PermissionsPanelProps) {
                 </label>
               ))}
             </div>
+
+            {a.provider === "native" && a.nativeAdminUrl && (
+              <a
+                href={a.nativeAdminUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-3 text-xs text-[var(--accent)] hover:underline inline-flex items-center gap-1"
+              >
+                Zarządzaj rolami i uprawnieniami w {a.label} →
+              </a>
+            )}
           </Card>
         );
   };

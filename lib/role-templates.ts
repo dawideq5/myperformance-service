@@ -45,10 +45,11 @@ function sanitizeAssignments(
   const out: RoleTemplateAssignment[] = [];
   for (const entry of raw) {
     if (!entry || typeof entry !== "object") continue;
-    const areaId = String((entry as any).areaId ?? "").trim();
+    const rec = entry as Record<string, unknown>;
+    const areaId = String(rec.areaId ?? "").trim();
     if (!areaId || seen.has(areaId)) continue;
     if (!getArea(areaId)) continue;
-    const roleNameRaw = (entry as any).roleName;
+    const roleNameRaw = rec.roleName;
     const roleName =
       roleNameRaw === null || roleNameRaw === undefined || roleNameRaw === ""
         ? null
@@ -101,8 +102,8 @@ export async function listTemplates(
       (t: unknown): t is RoleTemplate =>
         !!t &&
         typeof t === "object" &&
-        typeof (t as any).id === "string" &&
-        typeof (t as any).name === "string",
+        typeof (t as Record<string, unknown>).id === "string" &&
+        typeof (t as Record<string, unknown>).name === "string",
     );
   } catch {
     return [];

@@ -220,7 +220,7 @@ function TileGrid() {
             iconBg="bg-emerald-500/10"
             title="Directus"
             description="Zarządzanie treścią i danymi aplikacji (SSO)"
-            href="https://cms.myperformance.pl"
+            href="/api/directus/launch"
           />
         )}
 
@@ -294,7 +294,7 @@ function TileGrid() {
             iconBg="bg-teal-500/10"
             title="Baza wiedzy"
             description="Procedury, zasady, how-to — wewnętrzna wiki zespołu (Outline)"
-            href="https://knowledge.myperformance.pl"
+            href="/api/outline/launch"
           />
         )}
 

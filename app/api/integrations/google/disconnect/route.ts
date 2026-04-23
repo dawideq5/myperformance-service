@@ -9,7 +9,7 @@ import { keycloak } from "@/lib/keycloak";
  */
 export async function POST() {
   try {
-    const session: any = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions);
 
     if (!session?.accessToken) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -32,8 +32,8 @@ export async function POST() {
 
     // Remove Google identity provider link if exists
     const federatedIdentities = await identitiesResponse.json();
-    const googleIdentity = federatedIdentities.find(
-      (identity: any) => identity.identityProvider === "google"
+    const googleIdentity = (federatedIdentities as Array<{ identityProvider?: string }>).find(
+      (identity) => identity.identityProvider === "google",
     );
 
     if (googleIdentity) {

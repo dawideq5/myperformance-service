@@ -1,23 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
-  Calendar,
   Check,
   ChevronRight,
   Clock,
   GraduationCap,
   Globe,
   Info,
-  Settings,
   X,
 } from "lucide-react";
 
 import {
   Alert,
-  Badge,
   Button,
   Card,
   CardHeader,

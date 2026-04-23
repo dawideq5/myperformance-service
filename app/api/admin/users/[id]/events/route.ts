@@ -58,8 +58,26 @@ export async function GET(req: Request, { params }: Ctx) {
     const userEvents = userEventsRes.ok ? await userEventsRes.json() : [];
     const adminEvents = adminEventsRes.ok ? await adminEventsRes.json() : [];
 
+    interface KeycloakUserEvent {
+      type?: string;
+      time?: number;
+      clientId?: string;
+      ipAddress?: string;
+      error?: string;
+      details?: Record<string, unknown>;
+    }
+    interface KeycloakAdminEvent {
+      operationType?: string;
+      resourceType?: string;
+      resourcePath?: string;
+      time?: number;
+      authDetails?: { ipAddress?: string };
+      error?: string;
+      representation?: unknown;
+    }
+
     const events = [
-      ...(Array.isArray(userEvents) ? userEvents : []).map((e: any) => ({
+      ...(Array.isArray(userEvents) ? (userEvents as KeycloakUserEvent[]) : []).map((e) => ({
         kind: "user" as const,
         type: e.type,
         time: e.time,
@@ -68,7 +86,7 @@ export async function GET(req: Request, { params }: Ctx) {
         error: e.error ?? null,
         details: e.details ?? {},
       })),
-      ...(Array.isArray(adminEvents) ? adminEvents : []).map((e: any) => ({
+      ...(Array.isArray(adminEvents) ? (adminEvents as KeycloakAdminEvent[]) : []).map((e) => ({
         kind: "admin" as const,
         type: e.operationType ? `${e.operationType}_${e.resourceType}` : "admin",
         time: e.time,

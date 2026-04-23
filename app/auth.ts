@@ -5,7 +5,7 @@ import { keycloak } from "@/lib/keycloak";
 import { getRequiredEnv } from "@/lib/env";
 import { SESSION_MAX_AGE_SECONDS } from "@/lib/constants";
 import { log } from "@/lib/logger";
-import { propagateProfileFromKc } from "@/lib/permissions/sync";
+import { enqueueProfilePropagation } from "@/lib/permissions/sync";
 
 const logger = log.child({ module: "auth" });
 
@@ -271,21 +271,16 @@ function buildAuthOptions(): AuthOptions {
       async signIn({ user }) {
         const userId = (user as { id?: string } | undefined)?.id;
         if (!userId) return;
-        void propagateProfileFromKc(userId)
-          .then((results) => {
-            const failures = results.filter((r) => r.status === "failed");
-            if (failures.length > 0) {
-              logger.warn("profile propagation had failures", {
-                userId,
-                failures,
-              });
-            } else {
-              logger.debug("profile propagation ok", { userId });
-            }
-          })
-          .catch((err) => {
-            logger.warn("profile propagation on signIn failed", { err });
+        // Kolejka z retry/backoff — jeśli któryś provider jest chwilowo down
+        // (np. Chatwoot restart), job się retryuje zamiast cicho tracić sync.
+        void enqueueProfilePropagation(userId, {
+          actor: `signin:${user.email ?? userId}`,
+        }).catch((err) => {
+          logger.warn("enqueueProfilePropagation on signIn failed", {
+            userId,
+            err: err instanceof Error ? err.message : String(err),
           });
+        });
       },
     },
     useSecureCookies: process.env.NEXTAUTH_URL?.startsWith("https://") ?? false,
