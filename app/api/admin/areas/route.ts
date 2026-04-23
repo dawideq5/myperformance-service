@@ -11,6 +11,21 @@ import { getProvider } from "@/lib/permissions/registry";
 import { resolveRoleCatalog } from "@/lib/permissions/catalog";
 
 /**
+ * Required env vars per provider — gdy provider jest offline, UI pokaże
+ * te nazwy żeby admin wiedział co dodać do konfiguracji Coolify/ENV.
+ *
+ * Źródło: `getConfig()` każdego providera w `lib/permissions/providers/*`.
+ */
+const REQUIRED_ENV_BY_PROVIDER: Record<string, string[]> = {
+  chatwoot: ["CHATWOOT_URL", "CHATWOOT_API_ACCESS_TOKEN"],
+  moodle: ["MOODLE_URL", "MOODLE_API_TOKEN"],
+  directus: ["DIRECTUS_URL", "DIRECTUS_ADMIN_TOKEN"],
+  documenso: ["DOCUMENSO_DB_URL"],
+  outline: ["OUTLINE_URL", "OUTLINE_API_TOKEN"],
+  postal: ["POSTAL_DB_HOST", "POSTAL_DB_USER", "POSTAL_DB_PASSWORD"],
+};
+
+/**
  * GET /api/admin/areas
  *
  * Zwraca listę obszarów z jednolitym katalogiem ról (seed + dynamic).
@@ -39,6 +54,15 @@ export async function GET() {
         );
         const totalAssigned = counts.reduce((a, b) => a + b, 0);
 
+        const requiredEnv =
+          area.provider === "native" && area.nativeProviderId
+            ? REQUIRED_ENV_BY_PROVIDER[area.nativeProviderId] ?? []
+            : [];
+        const missingEnv =
+          area.provider === "native"
+            ? requiredEnv.filter((k) => !process.env[k])
+            : [];
+
         return {
           id: area.id,
           label: area.label,
@@ -49,6 +73,8 @@ export async function GET() {
           nativeConfigured: provider?.isConfigured() ?? false,
           dynamicRoles: area.dynamicRoles === true,
           nativeAdminUrl: area.nativeAdminUrl ?? null,
+          requiredEnv,
+          missingEnv,
           roles: mergedRoles.map((r, i) => ({
             name: r.name,
             label: r.label,

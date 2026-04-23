@@ -97,6 +97,10 @@ export function UserRolesList({
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [pending, setPending] = useState<Set<string>>(new Set());
   const [rowError, setRowError] = useState<Record<string, string | null>>({});
+  // areaId → timestamp when last save succeeded (used to show a transient
+  // ✓ check next to the dropdown for 2s after a user's edit).
+  const [justSavedAt, setJustSavedAt] = useState<Record<string, number>>({});
+  const [tick, setTick] = useState(0); // re-render for auto-hide
 
   useEffect(() => {
     let cancelled = false;
@@ -138,6 +142,7 @@ export function UserRolesList({
       setPending((p) => new Set(p).add(areaId));
       try {
         await onPersist(areaId, roleName);
+        setJustSavedAt((m) => ({ ...m, [areaId]: Date.now() }));
       } catch (err) {
         // Cofamy optymistyczną zmianę.
         onChange({ ...value, [areaId]: prev });
@@ -158,6 +163,22 @@ export function UserRolesList({
     },
     [value, onChange, onPersist],
   );
+
+  // Auto-hide saved markers after 2s. Ticks the clock every 500ms while
+  // there is at least one fresh save in `justSavedAt`.
+  useEffect(() => {
+    if (Object.keys(justSavedAt).length === 0) return;
+    const now = Date.now();
+    const stale = Object.entries(justSavedAt).filter(
+      ([, t]) => now - t >= 2000,
+    );
+    if (stale.length === Object.keys(justSavedAt).length) {
+      setJustSavedAt({});
+      return;
+    }
+    const t = setTimeout(() => setTick((n) => n + 1), 500);
+    return () => clearTimeout(t);
+  }, [justSavedAt, tick]);
 
   if (loading) {
     return (
@@ -190,7 +211,9 @@ export function UserRolesList({
         const isPending = pending.has(a.id);
         const rowErr = rowError[a.id];
         const offline = a.provider === "native" && !a.nativeConfigured;
-        const savedAndDirty = !!onPersist && !!current && !isPending && !rowErr;
+        const savedAt = justSavedAt[a.id];
+        const showSavedCheck =
+          !!savedAt && !isPending && !rowErr && Date.now() - savedAt < 2000;
 
         return (
           <li
@@ -210,12 +233,24 @@ export function UserRolesList({
                   {a.label}
                 </span>
                 {offline && (
-                  <Badge tone="warning" title="Provider niedostępny — rola zostanie przypisana tylko w Keycloak">
+                  <Badge
+                    tone="warning"
+                    title={
+                      a.missingEnv && a.missingEnv.length > 0
+                        ? `Provider niedostępny. Brakujące zmienne środowiskowe: ${a.missingEnv.join(", ")}. Rola zostanie przypisana tylko w Keycloak.`
+                        : "Provider niedostępny — rola zostanie przypisana tylko w Keycloak."
+                    }
+                  >
                     <AlertTriangle
                       className="w-3 h-3 mr-0.5"
                       aria-hidden="true"
                     />
                     offline
+                    {a.missingEnv && a.missingEnv.length > 0 && (
+                      <span className="ml-1 opacity-80">
+                        ({a.missingEnv.length} env)
+                      </span>
+                    )}
                   </Badge>
                 )}
                 {a.dynamicRoles && (
@@ -245,7 +280,7 @@ export function UserRolesList({
                 }
                 disabled={disabled || isPending}
                 aria-label={`Rola w ${a.label}`}
-                className="min-w-[200px] px-3 py-1.5 rounded-md bg-[var(--bg-main)] border border-[var(--border-subtle)] text-sm text-[var(--text-main)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
+                className="w-[260px] px-3 py-1.5 rounded-md bg-[var(--bg-main)] border border-[var(--border-subtle)] text-sm text-[var(--text-main)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
               >
                 <option value="">— brak dostępu —</option>
                 {a.roles.map((r) => (
@@ -255,18 +290,21 @@ export function UserRolesList({
                 ))}
               </select>
 
-              {isPending && (
-                <Loader2
-                  className="w-4 h-4 animate-spin text-[var(--text-muted)]"
-                  aria-hidden="true"
-                />
-              )}
-              {savedAndDirty && (
-                <Check
-                  className="w-4 h-4 text-emerald-500"
-                  aria-hidden="true"
-                />
-              )}
+              {/* Stałej szerokości kolumna statusu — zapobiega "skakaniu"
+                  selectów obok siebie gdy pojawi się ikona. */}
+              <span className="w-4 h-4 flex-shrink-0 flex items-center justify-center">
+                {isPending ? (
+                  <Loader2
+                    className="w-4 h-4 animate-spin text-[var(--text-muted)]"
+                    aria-hidden="true"
+                  />
+                ) : showSavedCheck ? (
+                  <Check
+                    className="w-4 h-4 text-emerald-500"
+                    aria-hidden="true"
+                  />
+                ) : null}
+              </span>
 
               {showNativeAdminUrl && a.nativeAdminUrl && (
                 <a

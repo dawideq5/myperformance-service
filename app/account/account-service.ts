@@ -476,6 +476,10 @@ export interface AreaSummary {
   nativeConfigured: boolean;
   dynamicRoles: boolean;
   nativeAdminUrl: string | null;
+  /** Wszystkie env vars potrzebne do skonfigurowania providera. */
+  requiredEnv?: string[];
+  /** Env vars które aktualnie nie są ustawione (podzbiór requiredEnv). */
+  missingEnv?: string[];
   roles: AreaRole[];
   totalAssignedUsers: number;
 }
@@ -521,6 +525,33 @@ export const permissionAreaService = {
       },
       { deleteStale?: boolean }
     >("/api/admin/iam/sync-kc", opts ?? {}),
+
+  migrateLegacyRoles: (opts?: {
+    deleteLegacy?: boolean;
+    userId?: string;
+    limit?: number;
+  }) =>
+    api.post<
+      {
+        totalUsers: number;
+        migratedUsers: number;
+        errors: Array<{ userId: string; error: string }>;
+        deletedLegacyRoles: string[];
+        results: Array<{
+          userId: string;
+          username: string;
+          email: string | null;
+          migrated: Array<{
+            from: string;
+            to: string | null;
+            areaId: string | null;
+            status: "ok" | "skipped" | "failed";
+            error?: string;
+          }>;
+        }>;
+      },
+      { deleteLegacy?: boolean; userId?: string; limit?: number }
+    >("/api/admin/iam/migrate-legacy-roles", opts ?? {}),
 
   bulkAssign: (payload: {
     userIds: string[];

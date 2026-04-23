@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { BulkAssignDialog } from "./BulkAssignDialog";
 import { InviteDialog } from "./InviteDialog";
+import { IamToolsPanel } from "./IamToolsPanel";
 
 import {
   Alert,
@@ -412,6 +413,8 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
           </Button>
         </div>
       </section>
+
+      <IamToolsPanel />
 
       {selectedIds.size > 0 && (
         <div className="sticky top-2 z-20 mb-4 flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded-lg border border-[var(--accent)] bg-[var(--bg-surface)] shadow-md">
