@@ -250,45 +250,53 @@ interface UpdateEventPayload {
   location?: string;
 }
 
+/**
+ * Direct INSERT into mdl_event — core_calendar_create_calendar_events
+ * rejects the `userid` field ("Unexpected keys (userid) detected in
+ * parameter array"), meaning events created through the admin WS token
+ * always land on the admin account. We bypass that by writing straight to
+ * the DB, which lets us preserve per-user ownership.
+ */
 export async function createUserEvent(
   payload: CreateEventPayload,
 ): Promise<MoodleCalendarEvent> {
-  const params: Record<string, string | number> = {
-    "events[0][name]": payload.name,
-    "events[0][description]": payload.description ?? "",
-    "events[0][format]": 1,
-    "events[0][timestart]": payload.timestart,
-    "events[0][timeduration]": payload.timeduration,
-    "events[0][eventtype]": "user",
-    "events[0][userid]": payload.userId,
-    "events[0][visible]": 1,
-  };
-  if (payload.location) params["events[0][location]"] = payload.location;
+  const dbUrl = getOptionalEnv("MOODLE_DB_URL").trim();
+  if (!dbUrl) throw new Error("MOODLE_DB_URL required for createUserEvent");
+  const pool = getMoodleMysqlPool(dbUrl);
+  const now = Math.floor(Date.now() / 1000);
+  const location = payload.location ?? "";
 
-  const data = await moodleCall<{
-    events: Array<{
-      id: number;
-      name: string;
-      description?: string;
-      timestart: number;
-      timeduration: number;
-      eventtype: string;
-      courseid?: number;
-      location?: string | null;
-    }>;
-  }>("core_calendar_create_calendar_events", params);
-
-  const ev = data.events?.[0];
-  if (!ev) throw new Error("create returned no events");
+  const [res] = await pool.execute(
+    `INSERT INTO mdl_event
+        (name, description, format, categoryid, courseid, groupid, userid,
+         repeatid, modulename, instance, type, eventtype,
+         timestart, timeduration, timesort, visible, uuid, sequence,
+         timemodified, location)
+     VALUES (?, ?, 1, 0, 0, 0, ?,
+             0, '', 0, 0, 'user',
+             ?, ?, ?, 1, '', 1,
+             ?, ?)`,
+    [
+      payload.name,
+      payload.description ?? "",
+      payload.userId,
+      payload.timestart,
+      payload.timeduration,
+      payload.timestart,
+      now,
+      location,
+    ],
+  );
+  const insertId = (res as { insertId: number }).insertId;
   return {
-    id: ev.id,
-    name: ev.name,
-    description: ev.description ?? undefined,
-    timestart: Number(ev.timestart),
-    timeduration: Number(ev.timeduration ?? 0),
-    courseid: Number(ev.courseid ?? 0),
-    eventtype: ev.eventtype,
-    location: ev.location ?? null,
+    id: insertId,
+    name: payload.name,
+    description: payload.description ?? undefined,
+    timestart: payload.timestart,
+    timeduration: payload.timeduration,
+    courseid: 0,
+    eventtype: "user",
+    location: location || null,
     url: null,
   };
 }
@@ -317,9 +325,18 @@ export async function updateUserEvent(
   });
 }
 
+/**
+ * Delete via DB — matches the direct-insert approach in createUserEvent so
+ * the WS token's admin context doesn't leak into ownership decisions.
+ * Only `eventtype='user'` rows are touched; course/site/group events stay
+ * safe from accidental wipes.
+ */
 export async function deleteUserEvent(id: number): Promise<void> {
-  await moodleCall<unknown>("core_calendar_delete_calendar_events", {
-    "events[0][eventid]": id,
-    "events[0][repeat]": 0,
-  });
+  const dbUrl = getOptionalEnv("MOODLE_DB_URL").trim();
+  if (!dbUrl) throw new Error("MOODLE_DB_URL required for deleteUserEvent");
+  const pool = getMoodleMysqlPool(dbUrl);
+  await pool.execute(
+    `DELETE FROM mdl_event WHERE id=? AND eventtype='user'`,
+    [id],
+  );
 }
