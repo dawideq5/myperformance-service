@@ -1,11 +1,26 @@
+# sign.myperformance.pl — Documenso z Keycloak SSO
+#
+# Clean reinstall (2026-04):
+#   - Fresh Postgres (zero dokumentów, zero podpisów, zero team/org)
+#   - OIDC od pierwszego startu
+#   - Self-signed cert.p12 generowany przez entrypoint (dev-mode;
+#     prod wymaga wgrania .p12 od kwalifikowanego CA przez /admin)
+#   - Nginx sidecar redirektuje / → OIDC signin (żadnego password form
+#     dla nowych userów, chyba że admin włączy)
+#
+# Po deployu:
+#   1. Deploy stack → Documenso uruchamia własne prisma migrations przy
+#      starcie (OK — to migracje SCHEMY, nie danych)
+#   2. Zaloguj się przez SSO jako user z rolą realm `documenso_admin`
+#   3. W /admin stwórz główną Organisation — skopiuj jej UUID do
+#      `DOCUMENSO_ORGANISATION_ID` w envach dashboardu
+#   4. (Opcjonalnie) stwórz Team wewnątrz Org, skopiuj jego int ID do
+#      `DOCUMENSO_TEAM_ID`
+
 services:
-  # Nginx sidecar trims Documenso's upstream UI for "regular user" role:
-  #  - redirects the local password signin form straight to OIDC
-  #  - injects CSS that hides enterprise / branding / org / token / webhook
-  #    settings tabs so the profile is pure "sign documents we send you"
-  # Traefik targets this service (port 3000) instead of Documenso directly.
   frontdoor:
     image: 'nginx:1.27-alpine'
+    restart: unless-stopped
     depends_on:
       documenso:
         condition: service_healthy
@@ -18,7 +33,7 @@ services:
     healthcheck:
       test:
         - CMD-SHELL
-        - "wget -q -O - http://127.0.0.1:3000/ >/dev/null 2>&1 || exit 1"
+        - 'wget -q -O - http://127.0.0.1:3000/ >/dev/null 2>&1 || exit 1'
       interval: 10s
       timeout: 5s
       retries: 20
@@ -26,7 +41,8 @@ services:
 
   documenso:
     image: 'documenso/documenso:latest'
-    user: "0:0"
+    restart: unless-stopped
+    user: '0:0'
     depends_on:
       database:
         condition: service_healthy
@@ -39,7 +55,7 @@ services:
       - 'NEXT_PUBLIC_UPLOAD_TRANSPORT=${NEXT_PRIVATE_UPLOAD_TRANSPORT:-database}'
       - 'NEXT_PUBLIC_DISABLE_SIGNUP=${NEXT_PUBLIC_DISABLE_SIGNUP:-true}'
 
-      # === SMTP (OVH SSL0 relay) ===
+      # === SMTP (Postal relay) ===
       - 'NEXT_PRIVATE_SMTP_TRANSPORT=${NEXT_PRIVATE_SMTP_TRANSPORT:-smtp}'
       - 'NEXT_PRIVATE_SMTP_HOST=${NEXT_PRIVATE_SMTP_HOST}'
       - 'NEXT_PRIVATE_SMTP_PORT=${NEXT_PRIVATE_SMTP_PORT:-465}'
@@ -50,23 +66,22 @@ services:
       - 'NEXT_PRIVATE_SMTP_FROM_ADDRESS=${NEXT_PRIVATE_SMTP_FROM_ADDRESS:-noreply@myperformance.pl}'
 
       # === Keycloak OIDC SSO ===
-      - 'NEXT_PRIVATE_OIDC_PROVIDER_LABEL=${NEXT_PRIVATE_OIDC_PROVIDER_LABEL:-MyPerformance SSO}'
-      - 'NEXT_PRIVATE_OIDC_WELL_KNOWN=${NEXT_PRIVATE_OIDC_WELL_KNOWN}'
-      - 'NEXT_PRIVATE_OIDC_CLIENT_ID=${NEXT_PRIVATE_OIDC_CLIENT_ID:-documenso}'
-      - 'NEXT_PRIVATE_OIDC_CLIENT_SECRET=${NEXT_PRIVATE_OIDC_CLIENT_SECRET}'
-      - 'NEXT_PRIVATE_OIDC_ALLOW_SIGNUP=${NEXT_PRIVATE_OIDC_ALLOW_SIGNUP:-true}'
-      - 'NEXT_PRIVATE_OIDC_SKIP_VERIFY=${NEXT_PRIVATE_OIDC_SKIP_VERIFY:-false}'
-      # Lock local-password auth — we expose only the OIDC button via nginx rewrite.
-      - 'NEXT_PRIVATE_DISABLE_CREDENTIAL_SIGNIN=${NEXT_PRIVATE_DISABLE_CREDENTIAL_SIGNIN:-true}'
+      - 'NEXT_PRIVATE_OIDC_PROVIDER_LABEL=MyPerformance ID'
+      - 'NEXT_PRIVATE_OIDC_WELL_KNOWN=https://auth.myperformance.pl/realms/MyPerformance/.well-known/openid-configuration'
+      - 'NEXT_PRIVATE_OIDC_CLIENT_ID=documenso'
+      - 'NEXT_PRIVATE_OIDC_CLIENT_SECRET=${DOCUMENSO_OIDC_CLIENT_SECRET}'
+      - 'NEXT_PRIVATE_OIDC_ALLOW_SIGNUP=true'
+      - 'NEXT_PRIVATE_OIDC_SKIP_VERIFY=false'
+      - 'NEXT_PRIVATE_DISABLE_CREDENTIAL_SIGNIN=true'
 
-      # === Webhook signing (for dokumenty panel realtime events) ===
-      - 'NEXT_PRIVATE_WEBHOOK_SECRET=${NEXT_PRIVATE_WEBHOOK_SECRET}'
+      # === Webhook signing ===
+      - 'NEXT_PRIVATE_WEBHOOK_SECRET=${DOCUMENSO_WEBHOOK_SECRET}'
 
-      # === Database ===
-      - 'NEXT_PRIVATE_DATABASE_URL=postgresql://${SERVICE_USER_POSTGRES}:${SERVICE_PASSWORD_POSTGRES}@database/${POSTGRES_DB:-documenso-db}?schema=public'
-      - 'NEXT_PRIVATE_DIRECT_DATABASE_URL=postgresql://${SERVICE_USER_POSTGRES}:${SERVICE_PASSWORD_POSTGRES}@database/${POSTGRES_DB:-documenso-db}?schema=public'
+      # === Database (fresh na pusty wolumen) ===
+      - 'NEXT_PRIVATE_DATABASE_URL=postgresql://${SERVICE_USER_POSTGRES}:${SERVICE_PASSWORD_POSTGRES}@database/documenso?schema=public'
+      - 'NEXT_PRIVATE_DIRECT_DATABASE_URL=postgresql://${SERVICE_USER_POSTGRES}:${SERVICE_PASSWORD_POSTGRES}@database/documenso?schema=public'
 
-      # === Signing cert (auto-generated at boot, persisted on volume) ===
+      # === Signing cert (self-signed, auto-gen) ===
       - NEXT_PRIVATE_SIGNING_TRANSPORT=local
       - NEXT_PRIVATE_SIGNING_LOCAL_FILE_PATH=/app/certs/cert.p12
       - 'NEXT_PRIVATE_SIGNING_PASSPHRASE=${SERVICE_PASSWORD_DOCUMENSO}'
@@ -81,7 +96,6 @@ services:
 
       # === Misc ===
       - 'NEXT_PRIVATE_JOBS_PROVIDER=${NEXT_PRIVATE_JOBS_PROVIDER:-local}'
-      - 'NEXT_PRIVATE_UPLOAD_TRANSPORT=${NEXT_PRIVATE_UPLOAD_TRANSPORT:-database}'
       - 'SERVICE_PASSWORD_DOCUMENSO=${SERVICE_PASSWORD_DOCUMENSO}'
       - PORT=3000
     expose:
@@ -91,14 +105,14 @@ services:
     healthcheck:
       test:
         - CMD-SHELL
-        - "wget -q -O - http://127.0.0.1:3000/ >/dev/null 2>&1 || exit 1"
+        - 'wget -q -O - http://127.0.0.1:3000/ >/dev/null 2>&1 || exit 1'
       interval: 10s
       timeout: 10s
       retries: 20
       start_period: 120s
     entrypoint:
       - /bin/sh
-      - '-c'
+      - -c
       - |
         set -eu
         CERT_DIR="/app/certs"
@@ -141,10 +155,11 @@ services:
 
   database:
     image: 'postgres:17-alpine'
+    restart: unless-stopped
     environment:
       - 'POSTGRES_USER=${SERVICE_USER_POSTGRES}'
       - 'POSTGRES_PASSWORD=${SERVICE_PASSWORD_POSTGRES}'
-      - 'POSTGRES_DB=${POSTGRES_DB:-documenso-db}'
+      - POSTGRES_DB=documenso
     volumes:
       - 'documenso-postgresql-data:/var/lib/postgresql/data'
     healthcheck:
@@ -154,3 +169,8 @@ services:
       interval: 5s
       timeout: 10s
       retries: 20
+      start_period: 30s
+
+volumes:
+  documenso-certs:
+  documenso-postgresql-data:

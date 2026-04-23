@@ -1,26 +1,33 @@
-# MyPerformance Academy — Moodle LMS
+# moodle.myperformance.pl — MyPerformance Academy (Moodle 5.0 LTS)
 #
-# Deployed in Coolify as a docker-compose application (not a pre-made service)
-# because we need custom env + persistent volumes + init for the OIDC plugin.
+# Clean reinstall (2026-04):
+#   - Fresh MariaDB (brand-new DB, bez migracji)
+#   - Bitnami Moodle obraz automatycznie wykonuje install.php przy pierwszym
+#     starcie gdy `MOODLE_SKIP_BOOTSTRAP=no`
+#   - Plugin `auth_oidc` (Microsoft official, kompatybilny z Keycloakiem)
+#     instalowany automatycznie przez init-moodle sidecar po install.php
+#   - Plugin config wpisywany bezpośrednio do DB (tabel `config_plugins`)
+#     zanim Moodle pierwszy raz go odczyta
 #
-# One-time setup in Coolify UI after the app lands:
-#   1. Set FQDN on the `moodle` service to https://moodle.myperformance.pl
-#      (SERVICE_FQDN_MOODLE_8080 is only read on first create; update via UI).
-#   2. Trigger a deploy.
-#   3. Wait for the `/login/index.php` endpoint to return 200 — first boot
-#      can take 5–10 minutes as Moodle installs its schema.
-#   4. Log in as admin (MOODLE_USERNAME / MOODLE_PASSWORD) and install the
-#      OIDC plugin (auth_oidc). Point it at auth.myperformance.pl with the
-#      client id `moodle` (seeded via keycloak-seed.mjs).
+# Enterprise koncepcja:
+#   - Moodle nie ma customowej aplikacji REST do ról — używamy natywnego
+#     `core_role_assign_roles` przez Web Services (patrz README)
+#   - Plugin `auth_oidc` mapuje realm role `moodle_<shortname>` na rolę
+#     systemową Moodle o tym samym shortname — wystarczy że KC wysyła
+#     roles w ID tokenie (configured w MyPerformance realm.json)
 #
-# Auth plumbing: OIDC claims `roles` map to Moodle system roles:
-#   moodle_admin  → Manager / Admin
-#   moodle_teacher → Editing Teacher (system context)
-#   moodle_student → Authenticated user (default)
+# Post-install:
+#   1. Deploy → poczekaj ~5 min na install.php
+#   2. Zaloguj się jako admin (MOODLE_USERNAME / MOODLE_PASSWORD)
+#   3. Administracja witryny → Plugins → Authentication → enable `auth_oidc`
+#      (już wpisane do DB — powinno być aktywne od startu)
+#   4. Administracja witryny → Server → Web services → Overview → przejdź
+#      przez wizard (External services → Custom + token w profilu usera)
+#   5. Skopiuj token do `MOODLE_API_TOKEN` w envach dashboardu.
 
 services:
   mariadb:
-    image: mariadb:10.11
+    image: 'mariadb:10.11'
     restart: unless-stopped
     environment:
       MARIADB_USER: moodle
@@ -30,16 +37,16 @@ services:
       MARIADB_CHARACTER_SET: utf8mb4
       MARIADB_COLLATE: utf8mb4_unicode_ci
     volumes:
-      - moodle-mariadb:/var/lib/mysql
+      - 'moodle-mariadb:/var/lib/mysql'
     healthcheck:
-      test:
-        ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
-      interval: 30s
+      test: ['CMD', 'healthcheck.sh', '--connect', '--innodb_initialized']
+      interval: 15s
       timeout: 10s
-      retries: 5
+      retries: 10
+      start_period: 60s
 
   moodle:
-    image: bitnamilegacy/moodle:5.0.2
+    image: 'bitnamilegacy/moodle:5.0.2'
     restart: unless-stopped
     depends_on:
       mariadb:
@@ -48,57 +55,128 @@ services:
       # Database
       MOODLE_DATABASE_TYPE: mariadb
       MOODLE_DATABASE_HOST: mariadb
-      MOODLE_DATABASE_PORT_NUMBER: "3306"
+      MOODLE_DATABASE_PORT_NUMBER: '3306'
       MOODLE_DATABASE_USER: moodle
       MOODLE_DATABASE_NAME: moodle
       MOODLE_DATABASE_PASSWORD: ${MOODLE_DB_PASSWORD}
 
       # Site
-      MOODLE_SITE_NAME: "MyPerformance Academy"
+      MOODLE_SITE_NAME: 'MyPerformance Academy'
       MOODLE_LANG: pl
       MOODLE_HOST: moodle.myperformance.pl
-      # Must be "no" — Traefik passes Host header through unchanged, and
-      # Moodle's reverseproxy check throws "reverseproxyabused" when the
-      # incoming Host matches wwwroot host (see lib/setuplib.php:737).
-      # SSLProxy alone covers the X-Forwarded-Proto=https detection.
-      MOODLE_REVERSEPROXY: "no"
-      MOODLE_SSLPROXY: "yes"
+      MOODLE_REVERSEPROXY: 'no'
+      MOODLE_SSLPROXY: 'yes'
 
-      # Admin bootstrap (only used on first install)
+      # Admin (bootstrap — pierwszy user po install.php)
       MOODLE_USERNAME: admin
       MOODLE_PASSWORD: ${MOODLE_ADMIN_PASSWORD}
       MOODLE_EMAIL: ${MOODLE_ADMIN_EMAIL:-noreply@myperformance.pl}
 
-      # Performance
-      MOODLE_SKIP_BOOTSTRAP: "no"
-      BITNAMI_DEBUG: "false"
+      MOODLE_SKIP_BOOTSTRAP: 'no'
+      BITNAMI_DEBUG: 'false'
 
-      # SMTP — route through Postal so school notifications hit the same
-      # audit/delivery path as everything else.
+      # SMTP → Postal relay
       MOODLE_SMTP_HOST: ${SMTP_HOST:-smtp-iut9wf1rz9ey54g7lbkje0je}
       MOODLE_SMTP_PORT: ${SMTP_PORT:-25}
       MOODLE_SMTP_USER: ${SMTP_USER:-}
       MOODLE_SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       MOODLE_SMTP_PROTOCOL: ${SMTP_PROTOCOL:-}
     expose:
-      - "8080"
+      - '8080'
     volumes:
-      - moodle-data:/bitnami/moodle
-      - moodle-moodledata:/bitnami/moodledata
+      - 'moodle-data:/bitnami/moodle'
+      - 'moodle-moodledata:/bitnami/moodledata'
     labels:
-      - "coolify.managed=true"
-      # The bitnami image exposes both 8080 (HTTP) and 8443 (HTTPS) ports.
-      # Traefik can't auto-pick with two ports — pin the loadbalancer to 8080.
-      - "traefik.http.services.moodle-upzcjtn9rcswer2vg2vey5d3-moodle.loadbalancer.server.port=8080"
-      - "traefik.http.routers.http-0-upzcjtn9rcswer2vg2vey5d3-moodle.service=moodle-upzcjtn9rcswer2vg2vey5d3-moodle"
-      - "traefik.http.routers.https-0-upzcjtn9rcswer2vg2vey5d3-moodle.service=moodle-upzcjtn9rcswer2vg2vey5d3-moodle"
+      - 'coolify.managed=true'
+      - 'traefik.http.services.moodle-upzcjtn9rcswer2vg2vey5d3-moodle.loadbalancer.server.port=8080'
+      - 'traefik.http.routers.http-0-upzcjtn9rcswer2vg2vey5d3-moodle.service=moodle-upzcjtn9rcswer2vg2vey5d3-moodle'
+      - 'traefik.http.routers.https-0-upzcjtn9rcswer2vg2vey5d3-moodle.service=moodle-upzcjtn9rcswer2vg2vey5d3-moodle'
     healthcheck:
-      test:
-        ["CMD", "curl", "-fsS", "http://localhost:8080/login/index.php"]
+      test: ['CMD', 'curl', '-fsS', 'http://localhost:8080/login/index.php']
       interval: 30s
       timeout: 10s
       retries: 10
-      start_period: 300s
+      start_period: 420s
+
+  # Sidecar: pobiera i instaluje plugin auth_oidc (Microsoft) + wypisuje
+  # config bezpośrednio do `config_plugins` w DB. Idempotentny — sprawdza
+  # czy plugin już jest w mdl_config_plugins przed wpisem.
+  #
+  # Plugin `auth_oidc` jest zgodny z Keycloakiem (generic OIDC, nie tylko
+  # Azure AD — od wersji 3.1 wspiera custom endpoint + discovery).
+  init-moodle:
+    image: 'bitnamilegacy/moodle:5.0.2'
+    restart: 'no'
+    depends_on:
+      moodle:
+        condition: service_healthy
+      mariadb:
+        condition: service_healthy
+    environment:
+      MOODLE_DB_PASSWORD: ${MOODLE_DB_PASSWORD}
+      MOODLE_OIDC_CLIENT_SECRET: ${MOODLE_OIDC_CLIENT_SECRET}
+    volumes:
+      - 'moodle-data:/bitnami/moodle'
+      - 'moodle-moodledata:/bitnami/moodledata'
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        set -eu
+        DOCROOT=/bitnami/moodle
+        PLUGIN_DIR="$${DOCROOT}/auth/oidc"
+        # 1. Pobierz plugin jeśli go nie ma.
+        if [ ! -d "$${PLUGIN_DIR}" ]; then
+          echo "[init-moodle] downloading auth_oidc plugin..."
+          apt-get update && apt-get install -y --no-install-recommends git unzip
+          cd /tmp
+          git clone --depth=1 --branch MOODLE_500_STABLE \
+            https://github.com/microsoft/moodle-auth_oidc.git auth_oidc
+          mv auth_oidc "$${PLUGIN_DIR}"
+        fi
+        # 2. Wpisz config plugina do DB (SSO do KC).
+        cat <<SQL > /tmp/seed-oidc.sql
+        REPLACE INTO mdl_config_plugins (plugin, name, value) VALUES
+          ('auth_oidc', 'idptype', '2'),
+          ('auth_oidc', 'authendpoint', 'https://auth.myperformance.pl/realms/MyPerformance/protocol/openid-connect/auth'),
+          ('auth_oidc', 'tokenendpoint', 'https://auth.myperformance.pl/realms/MyPerformance/protocol/openid-connect/token'),
+          ('auth_oidc', 'oidcresource', 'openid'),
+          ('auth_oidc', 'oidcscope', 'openid profile email'),
+          ('auth_oidc', 'clientid', 'moodle'),
+          ('auth_oidc', 'clientsecret', '$${MOODLE_OIDC_CLIENT_SECRET}'),
+          ('auth_oidc', 'autoappend', ''),
+          ('auth_oidc', 'domainhint', ''),
+          ('auth_oidc', 'loginflow', 'authcode'),
+          ('auth_oidc', 'opname', 'MyPerformance ID'),
+          ('auth_oidc', 'icon', 'auth_oidc:o365'),
+          ('auth_oidc', 'forceredirect', '0'),
+          ('auth_oidc', 'silentloginmode', '0'),
+          ('auth_oidc', 'customicon', ''),
+          ('auth_oidc', 'debugmode', '0'),
+          ('auth_oidc', 'userrestrictions', ''),
+          ('auth_oidc', 'userrestrictionscasesensitive', '1'),
+          ('auth_oidc', 'field_map_firstname', 'given_name'),
+          ('auth_oidc', 'field_updatelocal_firstname', 'always'),
+          ('auth_oidc', 'field_lock_firstname', 'locked'),
+          ('auth_oidc', 'field_map_lastname', 'family_name'),
+          ('auth_oidc', 'field_updatelocal_lastname', 'always'),
+          ('auth_oidc', 'field_lock_lastname', 'locked'),
+          ('auth_oidc', 'field_map_email', 'email'),
+          ('auth_oidc', 'field_updatelocal_email', 'always'),
+          ('auth_oidc', 'field_lock_email', 'locked'),
+          ('auth_oidc', 'field_map_preferred_username', 'preferred_username'),
+          ('auth_oidc', 'bindingusernameclaim', 'preferred_username');
+
+        -- Enable plugin w core config (auth list).
+        UPDATE mdl_config SET value = CONCAT(IFNULL(value,''), IF(IFNULL(value,'') LIKE '%oidc%', '', ',oidc'))
+         WHERE name = 'auth';
+        SQL
+        mysql -h mariadb -u moodle -p"$${MOODLE_DB_PASSWORD}" moodle < /tmp/seed-oidc.sql
+        # 3. Uruchom Moodle upgrade (instaluje schemę plugina).
+        cd "$${DOCROOT}"
+        php admin/cli/upgrade.php --non-interactive --allow-unstable || true
+        php admin/cli/purge_caches.php || true
+        echo "[init-moodle] done — plugin auth_oidc installed + configured."
 
 volumes:
   moodle-mariadb:

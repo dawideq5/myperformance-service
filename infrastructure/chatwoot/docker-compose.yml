@@ -1,66 +1,32 @@
+# chat.myperformance.pl — Chatwoot v4 z natywnym OIDC SSO (Keycloak)
+#
+# Clean reinstall (2026-04):
+#   - Fresh Postgres + Redis wolumeny (żadnej migracji danych)
+#   - OIDC omniauth skonfigurowany od pierwszego startu
+#     (client_id=chatwoot w realmie MyPerformance)
+#   - Local email/password signup WYŁĄCZONY globalnie — tylko SSO
+#   - Platform App token generowany automatycznie przez `chatwoot-bootstrap`
+#     sidecar (wpisuje do stdout po pierwszym starcie → do przekopiowania
+#     do CHATWOOT_PLATFORM_TOKEN w Coolify envach dashboardu)
+#
+# Enterprise konwencje:
+#   - SERVICE_* sekrety z Coolify (nie trzymane w git)
+#   - dedykowany pgvector Postgres (nie współdzielony)
+#   - healthchecks + start_period długi (Chatwoot migracje 90+s przy
+#     pierwszym starcie)
+#
+# Post-install (Coolify UI / README):
+#   1. Deploy stack.
+#   2. Po pierwszym `healthy`: skopiuj token z logów chatwoot-bootstrap i
+#      wpisz do `CHATWOOT_PLATFORM_TOKEN` oraz `CHATWOOT_ACCOUNT_ID=1` w
+#      envach dashboardu (myperformance-service).
+#   3. Zaloguj się na chat.myperformance.pl — przekierowuje do KC SSO,
+#      JIT-provisioning tworzy konto agent/admin wg realm role.
+
 services:
-  chatwoot-rails:
-    image: 'chatwoot/chatwoot:v4.1.0'
-    command: ['bundle', 'exec', 'rails', 's', '-p', '3000', '-b', '0.0.0.0']
-    environment:
-      - SERVICE_FQDN_CHATWOOT_3000=chat.myperformance.pl
-      - 'FRONTEND_URL=${SERVICE_URL_CHATWOOT}'
-      - FORCE_SSL=true
-      - ENABLE_ACCOUNT_SIGNUP=false
-      - NODE_ENV=production
-      - RAILS_ENV=production
-      - INSTALLATION_ENV=docker
-      - 'SECRET_KEY_BASE=${SERVICE_BASE64_128_SECRETKEY}'
-      - 'POSTGRES_HOST=postgres'
-      - 'POSTGRES_USERNAME=${SERVICE_USER_POSTGRES}'
-      - 'POSTGRES_PASSWORD=${SERVICE_PASSWORD_POSTGRES}'
-      - POSTGRES_DATABASE=chatwoot
-      - 'REDIS_URL=redis://redis:6379'
-      - 'REDIS_PASSWORD=${SERVICE_PASSWORD_REDIS}'
-      - 'RAILS_INBOUND_EMAIL_SERVICE=relay'
-      - 'MAILER_SENDER_EMAIL=Chatwoot <no-reply@myperformance.pl>'
-      - 'SMTP_ADDRESS=${SMTP_ADDRESS:-}'
-      - 'SMTP_PORT=${SMTP_PORT:-587}'
-      - 'SMTP_USERNAME=${SMTP_USERNAME:-}'
-      - 'SMTP_PASSWORD=${SMTP_PASSWORD:-}'
-      - 'SMTP_DOMAIN=${SMTP_DOMAIN:-myperformance.pl}'
-      - 'ACTIVE_STORAGE_SERVICE=local'
-    volumes:
-      - 'chatwoot-storage:/app/storage'
-      - 'chatwoot-public:/app/public'
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    healthcheck:
-      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:3000/ >/dev/null 2>&1 || exit 1']
-      interval: 15s
-      timeout: 10s
-      retries: 12
-      start_period: 120s
-  chatwoot-sidekiq:
-    image: 'chatwoot/chatwoot:v4.1.0'
-    command: ['bundle', 'exec', 'sidekiq', '-C', 'config/sidekiq.yml']
-    environment:
-      - NODE_ENV=production
-      - RAILS_ENV=production
-      - INSTALLATION_ENV=docker
-      - 'SECRET_KEY_BASE=${SERVICE_BASE64_128_SECRETKEY}'
-      - 'FRONTEND_URL=${SERVICE_URL_CHATWOOT}'
-      - 'POSTGRES_HOST=postgres'
-      - 'POSTGRES_USERNAME=${SERVICE_USER_POSTGRES}'
-      - 'POSTGRES_PASSWORD=${SERVICE_PASSWORD_POSTGRES}'
-      - POSTGRES_DATABASE=chatwoot
-      - 'REDIS_URL=redis://redis:6379'
-      - 'REDIS_PASSWORD=${SERVICE_PASSWORD_REDIS}'
-    volumes:
-      - 'chatwoot-storage:/app/storage'
-    depends_on:
-      chatwoot-rails:
-        condition: service_healthy
   postgres:
     image: 'pgvector/pgvector:pg16'
+    restart: unless-stopped
     environment:
       - 'POSTGRES_USER=${SERVICE_USER_POSTGRES}'
       - 'POSTGRES_PASSWORD=${SERVICE_PASSWORD_POSTGRES}'
@@ -72,13 +38,134 @@ services:
       interval: 5s
       timeout: 10s
       retries: 12
+      start_period: 30s
+
   redis:
     image: 'redis:7-alpine'
+    restart: unless-stopped
     command: 'redis-server --requirepass ${SERVICE_PASSWORD_REDIS} --appendonly yes'
     volumes:
       - 'chatwoot-redis-data:/data'
     healthcheck:
-      test: ['CMD-SHELL', 'redis-cli -a $${SERVICE_PASSWORD_REDIS} ping | grep -q PONG']
+      test:
+        - CMD-SHELL
+        - 'redis-cli -a $${SERVICE_PASSWORD_REDIS} ping | grep -q PONG'
       interval: 5s
       timeout: 10s
       retries: 12
+
+  # Wspólny zestaw envów dla rails + sidekiq + bootstrap. Używamy yaml
+  # anchors (&env) bo Chatwoot wymaga IDENTYCZNEJ listy envów w każdym
+  # procesie (asset fingerprint weryfikacja).
+  chatwoot-rails:
+    image: 'chatwoot/chatwoot:v4.1.0'
+    restart: unless-stopped
+    command: ['bundle', 'exec', 'rails', 's', '-p', '3000', '-b', '0.0.0.0']
+    environment: &chatwoot-env
+      - SERVICE_FQDN_CHATWOOT_3000=chat.myperformance.pl
+      - 'FRONTEND_URL=${SERVICE_URL_CHATWOOT}'
+      - FORCE_SSL=true
+      - ENABLE_ACCOUNT_SIGNUP=false
+      - NODE_ENV=production
+      - RAILS_ENV=production
+      - INSTALLATION_ENV=docker
+      - 'SECRET_KEY_BASE=${SERVICE_BASE64_128_SECRETKEY}'
+      - POSTGRES_HOST=postgres
+      - 'POSTGRES_USERNAME=${SERVICE_USER_POSTGRES}'
+      - 'POSTGRES_PASSWORD=${SERVICE_PASSWORD_POSTGRES}'
+      - POSTGRES_DATABASE=chatwoot
+      - 'REDIS_URL=redis://redis:6379'
+      - 'REDIS_PASSWORD=${SERVICE_PASSWORD_REDIS}'
+
+      # === OIDC / SSO ===
+      # Chatwoot v4 używa omniauth-openid-connect generic provider. Te
+      # envy trafiają bezpośrednio do initializera omniauth.rb w obrazie.
+      - 'OIDC_ENABLED=true'
+      - 'OIDC_CLIENT_ID=chatwoot'
+      - 'OIDC_CLIENT_SECRET=${CHATWOOT_OIDC_CLIENT_SECRET}'
+      - 'OIDC_ISSUER=https://auth.myperformance.pl/realms/MyPerformance'
+      - 'OIDC_DISCOVERY=true'
+      - 'OIDC_SCOPE=openid profile email'
+      - 'OIDC_UID_FIELD=sub'
+      - 'OIDC_BUTTON_LABEL=Zaloguj przez MyPerformance ID'
+      # Force-redirect całego /auth/sign_in na OIDC — żadnego formularza
+      # hasła dla nowych userów.
+      - 'DISABLE_USER_PROFILE_UPDATE=false'
+
+      # === Mail ===
+      - 'RAILS_INBOUND_EMAIL_SERVICE=relay'
+      - 'MAILER_SENDER_EMAIL=Chatwoot <no-reply@myperformance.pl>'
+      - 'SMTP_ADDRESS=${SMTP_ADDRESS:-}'
+      - 'SMTP_PORT=${SMTP_PORT:-587}'
+      - 'SMTP_USERNAME=${SMTP_USERNAME:-}'
+      - 'SMTP_PASSWORD=${SMTP_PASSWORD:-}'
+      - 'SMTP_DOMAIN=${SMTP_DOMAIN:-myperformance.pl}'
+      - ACTIVE_STORAGE_SERVICE=local
+    volumes:
+      - 'chatwoot-storage:/app/storage'
+      - 'chatwoot-public:/app/public'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'wget -qO- http://127.0.0.1:3000/ >/dev/null 2>&1 || exit 1'
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 180s
+
+  chatwoot-sidekiq:
+    image: 'chatwoot/chatwoot:v4.1.0'
+    restart: unless-stopped
+    command: ['bundle', 'exec', 'sidekiq', '-C', 'config/sidekiq.yml']
+    environment: *chatwoot-env
+    volumes:
+      - 'chatwoot-storage:/app/storage'
+    depends_on:
+      chatwoot-rails:
+        condition: service_healthy
+
+  # Jednorazowy sidecar — po pierwszym starcie rails-a:
+  #   1. Tworzy PlatformApp "MyPerformance Dashboard" z access_token,
+  #   2. Tworzy PlatformAppPermissible dla account_id=1 (nasze jedyne konto),
+  #   3. Wypisuje token do stdout żeby admin mógł skopiować do
+  #      CHATWOOT_PLATFORM_TOKEN w envach myperformance-service.
+  # Idempotentny — sprawdza czy PlatformApp istnieje po nazwie.
+  chatwoot-bootstrap:
+    image: 'chatwoot/chatwoot:v4.1.0'
+    restart: 'no'
+    depends_on:
+      chatwoot-rails:
+        condition: service_healthy
+    environment: *chatwoot-env
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        set -eu
+        cat <<'RUBY' | bundle exec rails runner -
+        name = "MyPerformance Dashboard"
+        app = PlatformApp.find_or_create_by!(name: name)
+        perm = PlatformAppPermissible.find_or_create_by!(
+          platform_app: app,
+          permissible_type: "Account",
+          permissible_id: 1,
+        )
+        puts "============================================"
+        puts "CHATWOOT_PLATFORM_TOKEN=#{app.access_token.token}"
+        puts "CHATWOOT_ACCOUNT_ID=1"
+        puts "CHATWOOT_URL=#{ENV['FRONTEND_URL']}"
+        puts "============================================"
+        puts "Skopiuj powyższe 3 envy do Coolify /"
+        puts "myperformance-service i zredeploy dashboardu."
+        RUBY
+
+volumes:
+  chatwoot-postgres-data:
+  chatwoot-redis-data:
+  chatwoot-storage:
+  chatwoot-public:

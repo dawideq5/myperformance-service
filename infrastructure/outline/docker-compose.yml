@@ -1,41 +1,41 @@
-# knowledge.myperformance.pl — Outline wiki
+# knowledge.myperformance.pl — Outline wiki (Keycloak SSO)
 #
-# Internal knowledge base (procedures, rules, how-to) gated by Keycloak SSO.
-# Only authenticated MyPerformance users can read; separate from the
-# customer-facing Chatwoot portal by design.
-#
-# Deployed via Coolify compose service. FQDN `https://knowledge.myperformance.pl`
-# set in Coolify UI on the `outline` container (port 3000) — see README.
+# Clean reinstall (2026-04):
+#   - Fresh Postgres + Redis
+#   - OIDC od pierwszego startu (client_id=outline)
+#   - Rola globalna mapowana z realm role przez OIDC_ROLES_CLAIM na
+#     viewer/member/admin — patrz realm.json protocol mapper "outline-role"
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: 'postgres:16-alpine'
     restart: unless-stopped
     environment:
       POSTGRES_USER: outline
       POSTGRES_PASSWORD: ${OUTLINE_DB_PASSWORD}
       POSTGRES_DB: outline
     volumes:
-      - outline-db:/var/lib/postgresql/data
+      - 'outline-db:/var/lib/postgresql/data'
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U outline"]
+      test: ['CMD-SHELL', 'pg_isready -U outline']
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 30s
 
   redis:
-    image: redis:7-alpine
+    image: 'redis:7-alpine'
     restart: unless-stopped
     volumes:
-      - outline-redis:/data
+      - 'outline-redis:/data'
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ['CMD', 'redis-cli', 'ping']
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
 
   outline:
-    image: outlinewiki/outline:latest
+    image: 'outlinewiki/outline:latest'
     restart: unless-stopped
     depends_on:
       postgres:
@@ -43,22 +43,21 @@ services:
       redis:
         condition: service_healthy
     environment:
-      # Core
+      # === Core ===
       URL: https://knowledge.myperformance.pl
-      PORT: "3000"
+      PORT: '3000'
       SECRET_KEY: ${OUTLINE_SECRET_KEY}
       UTILS_SECRET: ${OUTLINE_UTILS_SECRET}
-      # Required — Outline's Sequelize defaults to TLS, local postgres has none.
       PGSSLMODE: disable
 
-      # Storage
+      # === Storage ===
       DATABASE_URL: postgres://outline:${OUTLINE_DB_PASSWORD}@postgres:5432/outline
       REDIS_URL: redis://redis:6379
       FILE_STORAGE: local
       FILE_STORAGE_LOCAL_ROOT_DIR: /var/lib/outline/data
-      FILE_STORAGE_UPLOAD_MAX_SIZE: "262144000"
+      FILE_STORAGE_UPLOAD_MAX_SIZE: '262144000'
 
-      # Keycloak OIDC (generic OIDC — Outline has native support)
+      # === Keycloak OIDC (native generic OIDC) ===
       OIDC_CLIENT_ID: outline
       OIDC_CLIENT_SECRET: ${OUTLINE_OIDC_CLIENT_SECRET}
       OIDC_AUTH_URI: https://auth.myperformance.pl/realms/MyPerformance/protocol/openid-connect/auth
@@ -66,25 +65,28 @@ services:
       OIDC_USERINFO_URI: https://auth.myperformance.pl/realms/MyPerformance/protocol/openid-connect/userinfo
       OIDC_LOGOUT_URI: https://auth.myperformance.pl/realms/MyPerformance/protocol/openid-connect/logout
       OIDC_USERNAME_CLAIM: preferred_username
-      OIDC_DISPLAY_NAME: "MyPerformance SSO"
-      OIDC_SCOPES: "openid profile email"
+      OIDC_DISPLAY_NAME: 'MyPerformance ID'
+      OIDC_SCOPES: 'openid profile email'
+      # Domyślna rola JIT — Outline ustawia ją gdy claim `roles` jest
+      # pusty. `member` dla standardowego dostępu; admin z realm-roli.
+      OIDC_DEFAULT_USER_ROLE: member
 
-      # Locale
+      # === Locale ===
       DEFAULT_LANGUAGE: pl_PL
-      FORCE_HTTPS: "true"
+      FORCE_HTTPS: 'true'
 
-      # SMTP (Postal internal relay)
-      SMTP_HOST: smtp-iut9wf1rz9ey54g7lbkje0je
-      SMTP_PORT: "25"
-      SMTP_SECURE: "false"
+      # === SMTP (Postal relay) ===
+      SMTP_HOST: ${SMTP_HOST:-smtp-iut9wf1rz9ey54g7lbkje0je}
+      SMTP_PORT: ${SMTP_PORT:-25}
+      SMTP_SECURE: 'false'
       SMTP_FROM_EMAIL: noreply@myperformance.pl
       SMTP_REPLY_EMAIL: noreply@myperformance.pl
     expose:
-      - "3000"
+      - '3000'
     volumes:
-      - outline-data:/var/lib/outline/data
+      - 'outline-data:/var/lib/outline/data'
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/_health || exit 1"]
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:3000/_health || exit 1']
       interval: 30s
       timeout: 10s
       retries: 5

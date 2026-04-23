@@ -104,10 +104,15 @@
       },
       {
         "name": "app_user",
-        "description": "Default role for authenticated users - grants access to dashboard",
+        "description": "Default role for authenticated users — grants access to dashboard.",
         "composite": false,
         "clientRole": false,
-        "attributes": {}
+        "attributes": {
+          "areaId": ["core"],
+          "label": ["Użytkownik"],
+          "priority": ["1"],
+          "seed": ["true"]
+        }
       },
       {
         "name": "manage_users",
@@ -121,147 +126,239 @@
         "description": "Wydawanie i odwoływanie certyfikatów klienckich.",
         "composite": false,
         "clientRole": false,
-        "attributes": {}
+        "attributes": {
+          "areaId": ["certificates"],
+          "label": ["Administrator"],
+          "priority": ["90"],
+          "seed": ["true"]
+        }
       },
       {
         "name": "kadromierz_user",
         "description": "Dostęp do grafiku Kadromierz.",
         "composite": false,
         "clientRole": false,
-        "attributes": {}
+        "attributes": {
+          "areaId": ["kadromierz"],
+          "label": ["Użytkownik"],
+          "priority": ["10"],
+          "seed": ["true"]
+        }
       },
       {
         "name": "directus_admin",
-        "description": "Pełny dostęp do Directus.",
+        "description": "Directus: administrator.",
         "composite": false,
         "clientRole": false,
-        "attributes": {}
+        "attributes": {
+          "areaId": ["directus"],
+          "label": ["Administrator"],
+          "priority": ["90"],
+          "seed": ["true"]
+        }
       },
       {
-        "name": "documenso_user",
-        "description": "Pracownik — podpisuje własne dokumenty.",
+        "name": "documenso_member",
+        "description": "Documenso: użytkownik — podpisuje własne dokumenty.",
         "composite": false,
         "clientRole": false,
-        "attributes": {}
+        "attributes": {
+          "areaId": ["documenso"],
+          "label": ["Użytkownik"],
+          "priority": ["10"],
+          "seed": ["true"],
+          "nativeRoleId": ["MEMBER"]
+        }
       },
       {
-        "name": "documenso_handler",
-        "description": "Obsługa dokumentów (księgowa) — wysyła i śledzi obieg.",
+        "name": "documenso_manager",
+        "description": "Documenso: menedżer zespołu — zarządza członkami, widzi dokumenty restricted.",
         "composite": false,
         "clientRole": false,
-        "attributes": {}
+        "attributes": {
+          "areaId": ["documenso"],
+          "label": ["Menedżer"],
+          "priority": ["50"],
+          "seed": ["true"],
+          "nativeRoleId": ["MANAGER"]
+        }
       },
       {
         "name": "documenso_admin",
-        "description": "Administrator Documenso — szablony, webhooki, użytkownicy.",
+        "description": "Documenso: administrator — użytkownicy, szablony, webhooki.",
         "composite": false,
         "clientRole": false,
-        "attributes": {}
+        "attributes": {
+          "areaId": ["documenso"],
+          "label": ["Administrator"],
+          "priority": ["90"],
+          "seed": ["true"],
+          "nativeRoleId": ["ADMIN"]
+        }
       },
       {
         "name": "chatwoot_agent",
-        "description": "Agent obsługi klienta — rozmowy, kontakty.",
+        "description": "Chatwoot: agent obsługi klienta.",
         "composite": false,
         "clientRole": false,
-        "attributes": {}
+        "attributes": {
+          "areaId": ["chatwoot"],
+          "label": ["Agent"],
+          "priority": ["10"],
+          "seed": ["true"],
+          "nativeRoleId": ["agent"]
+        }
       },
       {
-        "name": "chatwoot_administrator",
-        "description": "Administrator konta Chatwoot — konfiguracja, webhooki, role.",
+        "name": "chatwoot_admin",
+        "description": "Chatwoot: administrator — konfiguracja, webhooki, integracje.",
         "composite": false,
         "clientRole": false,
-        "attributes": {}
+        "attributes": {
+          "areaId": ["chatwoot"],
+          "label": ["Administrator"],
+          "priority": ["90"],
+          "seed": ["true"],
+          "nativeRoleId": ["administrator"]
+        }
       },
       {
         "name": "postal_admin",
-        "description": "Administrator Postal (serwery, domeny, polityki).",
+        "description": "Postal: administrator — serwery, domeny, polityki.",
         "composite": false,
         "clientRole": false,
-        "attributes": {}
+        "attributes": {
+          "areaId": ["postal"],
+          "label": ["Administrator"],
+          "priority": ["90"],
+          "seed": ["true"],
+          "nativeRoleId": ["admin"]
+        }
       },
       {
         "name": "keycloak_admin",
         "description": "Administrator Keycloak (klienci, realm settings).",
         "composite": false,
         "clientRole": false,
-        "attributes": {}
+        "attributes": {
+          "areaId": ["keycloak"],
+          "label": ["Administrator"],
+          "priority": ["90"],
+          "seed": ["true"]
+        }
       },
       {
         "name": "stepca_admin",
         "description": "Administrator step-ca (provisionery, polityki).",
         "composite": false,
         "clientRole": false,
-        "attributes": {}
+        "attributes": {
+          "areaId": ["stepca"],
+          "label": ["Administrator"],
+          "priority": ["90"],
+          "seed": ["true"]
+        }
       },
       {
         "name": "moodle_student",
-        "description": "Uczeń — dostęp do przypisanych kursów.",
+        "description": "Moodle: student — dostęp do kursów.",
         "composite": false,
         "clientRole": false,
-        "attributes": {}
-      },
-      {
-        "name": "moodle_editingteacher",
-        "description": "Nauczyciel (edytujący) — tworzenie kursów, ocenianie.",
-        "composite": false,
-        "clientRole": false,
-        "attributes": {}
+        "attributes": {
+          "areaId": ["moodle"],
+          "label": ["Student"],
+          "priority": ["10"],
+          "seed": ["true"],
+          "nativeRoleId": ["student"]
+        }
       },
       {
         "name": "moodle_manager",
-        "description": "Manager — pełny dostęp do konfiguracji, pluginów, użytkowników.",
+        "description": "Moodle: menedżer — konfiguracja instancji, pluginy, użytkownicy.",
         "composite": false,
         "clientRole": false,
-        "attributes": {}
+        "attributes": {
+          "areaId": ["moodle"],
+          "label": ["Menedżer"],
+          "priority": ["90"],
+          "seed": ["true"],
+          "nativeRoleId": ["manager"]
+        }
       },
       {
         "name": "knowledge_viewer",
-        "description": "Tylko do odczytu — może czytać artykuły bez edycji.",
+        "description": "Outline: widz — tylko odczyt.",
         "composite": false,
         "clientRole": false,
-        "attributes": {}
+        "attributes": {
+          "areaId": ["knowledge"],
+          "label": ["Widz"],
+          "priority": ["10"],
+          "seed": ["true"],
+          "nativeRoleId": ["viewer"]
+        }
       },
       {
-        "name": "knowledge_user",
-        "description": "Dostęp do wiki (czytanie + pisanie).",
+        "name": "knowledge_editor",
+        "description": "Outline: edytor — tworzenie i edycja dokumentów i kolekcji.",
         "composite": false,
         "clientRole": false,
-        "attributes": {}
+        "attributes": {
+          "areaId": ["knowledge"],
+          "label": ["Edytor"],
+          "priority": ["50"],
+          "seed": ["true"],
+          "nativeRoleId": ["member"]
+        }
       },
       {
         "name": "knowledge_admin",
-        "description": "Administrator Outline (kolekcje, użytkownicy, integracje).",
+        "description": "Outline: administrator — użytkownicy, grupy, integracje.",
         "composite": false,
         "clientRole": false,
-        "attributes": {}
-      },
-      {
-        "name": "directus_access",
-        "description": "Dostęp do Directus CMS",
-        "composite": false,
-        "clientRole": false,
-        "attributes": {}
+        "attributes": {
+          "areaId": ["knowledge"],
+          "label": ["Administrator"],
+          "priority": ["90"],
+          "seed": ["true"],
+          "nativeRoleId": ["admin"]
+        }
       },
       {
         "name": "sprzedawca",
         "description": "Dostęp do Panelu Sprzedawcy (cert-gated)",
         "composite": false,
         "clientRole": false,
-        "attributes": {}
+        "attributes": {
+          "areaId": ["panel-sprzedawca"],
+          "label": ["Użytkownik"],
+          "priority": ["10"],
+          "seed": ["true"]
+        }
       },
       {
         "name": "serwisant",
         "description": "Dostęp do Panelu Serwisanta (cert-gated)",
         "composite": false,
         "clientRole": false,
-        "attributes": {}
+        "attributes": {
+          "areaId": ["panel-serwisant"],
+          "label": ["Użytkownik"],
+          "priority": ["10"],
+          "seed": ["true"]
+        }
       },
       {
         "name": "kierowca",
         "description": "Dostęp do Panelu Kierowcy (cert-gated)",
         "composite": false,
         "clientRole": false,
-        "attributes": {}
+        "attributes": {
+          "areaId": ["panel-kierowca"],
+          "label": ["Użytkownik"],
+          "priority": ["10"],
+          "seed": ["true"]
+        }
       },
       {
         "name": "default-roles-myperformance",
@@ -696,6 +793,162 @@
       "protocol": "openid-connect",
       "attributes": {
         "post.logout.redirect.uris": "https://panelkierowcy.myperformance.pl/*##http://localhost:3003/*",
+        "pkce.code.challenge.method": "S256",
+        "backchannel.logout.session.required": "true"
+      },
+      "fullScopeAllowed": true,
+      "defaultClientScopes": ["web-origins", "acr", "profile", "roles", "basic", "email"],
+      "optionalClientScopes": ["offline_access", "phone", "address", "microprofile-jwt"]
+    },
+    {
+      "clientId": "chatwoot",
+      "name": "Chatwoot",
+      "description": "Chatwoot CX platform (OIDC SSO for chat.myperformance.pl)",
+      "rootUrl": "https://chat.myperformance.pl",
+      "baseUrl": "/",
+      "adminUrl": "https://chat.myperformance.pl",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${CHATWOOT_CLIENT_SECRET}",
+      "redirectUris": [
+        "https://chat.myperformance.pl/auth/openid_connect/callback",
+        "https://chat.myperformance.pl/omniauth/openid_connect/callback",
+        "https://chat.myperformance.pl/*"
+      ],
+      "webOrigins": ["+"],
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "publicClient": false,
+      "frontchannelLogout": true,
+      "protocol": "openid-connect",
+      "attributes": {
+        "post.logout.redirect.uris": "https://chat.myperformance.pl/*",
+        "pkce.code.challenge.method": "S256",
+        "backchannel.logout.session.required": "true"
+      },
+      "fullScopeAllowed": true,
+      "defaultClientScopes": ["web-origins", "acr", "profile", "roles", "basic", "email"],
+      "optionalClientScopes": ["offline_access", "phone", "address", "microprofile-jwt"]
+    },
+    {
+      "clientId": "moodle",
+      "name": "Moodle Academy",
+      "description": "MyPerformance Academy (Moodle) — OIDC SSO via auth_oidc plugin for moodle.myperformance.pl",
+      "rootUrl": "https://moodle.myperformance.pl",
+      "baseUrl": "/",
+      "adminUrl": "https://moodle.myperformance.pl",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${MOODLE_CLIENT_SECRET}",
+      "redirectUris": [
+        "https://moodle.myperformance.pl/auth/oidc/*",
+        "https://moodle.myperformance.pl/*"
+      ],
+      "webOrigins": ["+"],
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "publicClient": false,
+      "frontchannelLogout": true,
+      "protocol": "openid-connect",
+      "attributes": {
+        "post.logout.redirect.uris": "https://moodle.myperformance.pl/*",
+        "pkce.code.challenge.method": "S256",
+        "backchannel.logout.session.required": "true"
+      },
+      "fullScopeAllowed": true,
+      "defaultClientScopes": ["web-origins", "acr", "profile", "roles", "basic", "email"],
+      "optionalClientScopes": ["offline_access", "phone", "address", "microprofile-jwt"]
+    },
+    {
+      "clientId": "outline",
+      "name": "Outline Wiki",
+      "description": "Outline knowledge base — OIDC SSO for knowledge.myperformance.pl",
+      "rootUrl": "https://knowledge.myperformance.pl",
+      "baseUrl": "/",
+      "adminUrl": "https://knowledge.myperformance.pl",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${OUTLINE_CLIENT_SECRET}",
+      "redirectUris": [
+        "https://knowledge.myperformance.pl/auth/oidc.callback",
+        "https://knowledge.myperformance.pl/*"
+      ],
+      "webOrigins": ["+"],
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "publicClient": false,
+      "frontchannelLogout": true,
+      "protocol": "openid-connect",
+      "attributes": {
+        "post.logout.redirect.uris": "https://knowledge.myperformance.pl/*",
+        "pkce.code.challenge.method": "S256",
+        "backchannel.logout.session.required": "true"
+      },
+      "fullScopeAllowed": true,
+      "defaultClientScopes": ["web-origins", "acr", "profile", "roles", "basic", "email"],
+      "optionalClientScopes": ["offline_access", "phone", "address", "microprofile-jwt"]
+    },
+    {
+      "clientId": "postal",
+      "name": "Postal",
+      "description": "Postal transactional mail server — OIDC SSO for postal.myperformance.pl",
+      "rootUrl": "https://postal.myperformance.pl",
+      "baseUrl": "/",
+      "adminUrl": "https://postal.myperformance.pl",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${POSTAL_CLIENT_SECRET}",
+      "redirectUris": [
+        "https://postal.myperformance.pl/auth/oidc/callback",
+        "https://postal.myperformance.pl/*"
+      ],
+      "webOrigins": ["+"],
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "publicClient": false,
+      "frontchannelLogout": true,
+      "protocol": "openid-connect",
+      "attributes": {
+        "post.logout.redirect.uris": "https://postal.myperformance.pl/*",
+        "pkce.code.challenge.method": "S256",
+        "backchannel.logout.session.required": "true"
+      },
+      "fullScopeAllowed": true,
+      "defaultClientScopes": ["web-origins", "acr", "profile", "roles", "basic", "email"],
+      "optionalClientScopes": ["offline_access", "phone", "address", "microprofile-jwt"]
+    },
+    {
+      "clientId": "directus",
+      "name": "Directus CMS",
+      "description": "Directus CMS — OIDC SSO for cms.myperformance.pl",
+      "rootUrl": "https://cms.myperformance.pl",
+      "baseUrl": "/",
+      "adminUrl": "https://cms.myperformance.pl",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${DIRECTUS_CLIENT_SECRET}",
+      "redirectUris": [
+        "https://cms.myperformance.pl/auth/login/keycloak/callback",
+        "https://cms.myperformance.pl/*"
+      ],
+      "webOrigins": ["+"],
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "publicClient": false,
+      "frontchannelLogout": true,
+      "protocol": "openid-connect",
+      "attributes": {
+        "post.logout.redirect.uris": "https://cms.myperformance.pl/*",
         "pkce.code.challenge.method": "S256",
         "backchannel.logout.session.required": "true"
       },

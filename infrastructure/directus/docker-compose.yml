@@ -1,0 +1,127 @@
+# cms.myperformance.pl — Directus z Keycloak SSO
+#
+# Clean reinstall (2026-04):
+#   - Fresh Postgres wolumen
+#   - SSO od pierwszego startu: `AUTH_PROVIDERS=keycloak`
+#   - Pierwsze konto admina utworzone przez env `ADMIN_EMAIL` — to konto
+#     jest fallbackiem gdyby OIDC padł, inaczej logujemy się tylko przez
+#     SSO.
+#   - Auto-seed: po pierwszym logowaniu OIDC Directus tworzy usera z
+#     domyślną rolą (role mapping `DIRECTUS_DEFAULT_ROLE_ID` na Public).
+#
+# Po deployu:
+#   1. Zaloguj się raz hasłem (ADMIN_EMAIL / ADMIN_PASSWORD) i w Settings →
+#      Access Control stwórz rolę "Administrator" (ID zanotuj w env
+#      AUTH_KEYCLOAK_DEFAULT_ROLE_ID).
+#   2. W Settings → Access Control → Single Sign-On → skonfiguruj
+#      "keycloak" z mapowaniem roli realm `directus_admin` → Directus role
+#      Administrator.
+
+services:
+  database:
+    image: 'postgres:16-alpine'
+    restart: unless-stopped
+    environment:
+      - 'POSTGRES_USER=${SERVICE_USER_POSTGRES}'
+      - 'POSTGRES_PASSWORD=${SERVICE_PASSWORD_POSTGRES}'
+      - POSTGRES_DB=directus
+    volumes:
+      - 'directus-postgres-data:/var/lib/postgresql/data'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  cache:
+    image: 'redis:7-alpine'
+    restart: unless-stopped
+    command: 'redis-server --requirepass ${SERVICE_PASSWORD_REDIS} --appendonly yes'
+    volumes:
+      - 'directus-redis-data:/data'
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'redis-cli -a $${SERVICE_PASSWORD_REDIS} ping | grep -q PONG'
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  directus:
+    image: 'directus/directus:11'
+    restart: unless-stopped
+    depends_on:
+      database:
+        condition: service_healthy
+      cache:
+        condition: service_healthy
+    environment:
+      - SERVICE_FQDN_DIRECTUS_8055=cms.myperformance.pl
+      - 'PUBLIC_URL=${SERVICE_URL_DIRECTUS}'
+      - 'KEY=${DIRECTUS_KEY}'
+      - 'SECRET=${DIRECTUS_SECRET}'
+
+      # === Database ===
+      - DB_CLIENT=pg
+      - DB_HOST=database
+      - DB_PORT=5432
+      - DB_DATABASE=directus
+      - 'DB_USER=${SERVICE_USER_POSTGRES}'
+      - 'DB_PASSWORD=${SERVICE_PASSWORD_POSTGRES}'
+
+      # === Cache (Redis) ===
+      - CACHE_ENABLED=true
+      - CACHE_STORE=redis
+      - 'REDIS=redis://:${SERVICE_PASSWORD_REDIS}@cache:6379'
+
+      # === Admin bootstrap (fallback — SSO is the primary path) ===
+      - 'ADMIN_EMAIL=${DIRECTUS_ADMIN_EMAIL}'
+      - 'ADMIN_PASSWORD=${DIRECTUS_ADMIN_PASSWORD}'
+
+      # === Keycloak OpenID Connect SSO ===
+      # Directus 11 wspiera `openid` provider natywnie. Name widoczne w
+      # URL `/auth/login/keycloak`.
+      - AUTH_PROVIDERS=keycloak
+      - AUTH_KEYCLOAK_DRIVER=openid
+      - AUTH_KEYCLOAK_CLIENT_ID=directus
+      - 'AUTH_KEYCLOAK_CLIENT_SECRET=${DIRECTUS_OIDC_CLIENT_SECRET}'
+      - 'AUTH_KEYCLOAK_ISSUER_URL=https://auth.myperformance.pl/realms/MyPerformance/.well-known/openid-configuration'
+      - 'AUTH_KEYCLOAK_IDENTIFIER_KEY=preferred_username'
+      - 'AUTH_KEYCLOAK_EMAIL_KEY=email'
+      - 'AUTH_KEYCLOAK_FIRST_NAME_KEY=given_name'
+      - 'AUTH_KEYCLOAK_LAST_NAME_KEY=family_name'
+      - 'AUTH_KEYCLOAK_ALLOW_PUBLIC_REGISTRATION=true'
+      # Domyślna rola dla nowo-provisioned userów. Ustawiona na Administrator
+      # UUID po pierwszym zalogowaniu (zobacz README). Rola w KC
+      # `directus_admin` → Directus Administrator przez mapper realm-role.
+      - 'AUTH_KEYCLOAK_DEFAULT_ROLE_ID=${DIRECTUS_DEFAULT_ROLE_ID:-}'
+      - AUTH_KEYCLOAK_SCOPE=openid profile email
+      - AUTH_KEYCLOAK_MODE=session
+      - AUTH_KEYCLOAK_ICON=key
+
+      # === Email (Postal relay) ===
+      - EMAIL_TRANSPORT=smtp
+      - 'EMAIL_SMTP_HOST=${SMTP_HOST:-smtp-iut9wf1rz9ey54g7lbkje0je}'
+      - 'EMAIL_SMTP_PORT=${SMTP_PORT:-25}'
+      - EMAIL_FROM=noreply@myperformance.pl
+
+      # === Misc ===
+      - WEBSOCKETS_ENABLED=true
+      - CORS_ENABLED=true
+      - 'CORS_ORIGIN=${SERVICE_URL_DIRECTUS}'
+    expose:
+      - '8055'
+    volumes:
+      - 'directus-uploads:/directus/uploads'
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8055/server/health']
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+
+volumes:
+  directus-postgres-data:
+  directus-redis-data:
+  directus-uploads:
