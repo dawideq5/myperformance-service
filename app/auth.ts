@@ -5,6 +5,7 @@ import { keycloak } from "@/lib/keycloak";
 import { getRequiredEnv } from "@/lib/env";
 import { SESSION_MAX_AGE_SECONDS } from "@/lib/constants";
 import { log } from "@/lib/logger";
+import { propagateProfileFromKc } from "@/lib/permissions/sync";
 
 const logger = log.child({ module: "auth" });
 
@@ -259,6 +260,33 @@ function buildAuthOptions(): AuthOptions {
     pages: {
       signIn: "/login",
       error: "/login",
+    },
+    // Mirror Keycloak → downstream services on every successful login.
+    // Fire-and-forget: profile propagation reaches 5+ providers (Chatwoot,
+    // Directus, Moodle, Outline, Documenso DB, Postal DB) and would stall
+    // the handshake if we awaited. Any failure is logged but never bubbles
+    // back to the user — they still end up logged in; the next login will
+    // retry the propagation.
+    events: {
+      async signIn({ user }) {
+        const userId = (user as { id?: string } | undefined)?.id;
+        if (!userId) return;
+        void propagateProfileFromKc(userId)
+          .then((results) => {
+            const failures = results.filter((r) => r.status === "failed");
+            if (failures.length > 0) {
+              logger.warn("profile propagation had failures", {
+                userId,
+                failures,
+              });
+            } else {
+              logger.debug("profile propagation ok", { userId });
+            }
+          })
+          .catch((err) => {
+            logger.warn("profile propagation on signIn failed", { err });
+          });
+      },
     },
     useSecureCookies: process.env.NEXTAUTH_URL?.startsWith("https://") ?? false,
     debug: process.env.NODE_ENV === "development",

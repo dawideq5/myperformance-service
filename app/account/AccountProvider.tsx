@@ -53,6 +53,7 @@ interface AccountContextValue {
   removeSessionLocally: (id: string) => void;
   setGoogleConnected: (connected: boolean) => void;
   setKadromierzStatus: (status: KadromierzStatus | null) => void;
+  setMoodleStatus: (status: MoodleStatus | null) => void;
   setWebauthnKeys: (keys: WebAuthnKey[]) => void;
 }
 
@@ -237,6 +238,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       removeSessionLocally,
       setGoogleConnected,
       setKadromierzStatus,
+      setMoodleStatus,
       setWebauthnKeys,
     }),
     [

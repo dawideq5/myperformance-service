@@ -155,6 +155,8 @@ export async function PUT(request: NextRequest) {
   if (!ctx.configured) {
     return NextResponse.json({ error: "Moodle not configured" }, { status: 400 });
   }
+  const email = ctx.session.user!.email ?? "";
+  if (!email) return NextResponse.json({ error: "no_email" }, { status: 400 });
 
   const body = await request.json().catch(() => null);
   if (!body || typeof body !== "object") {
@@ -180,17 +182,25 @@ export async function PUT(request: NextRequest) {
   const timeduration = Math.max(0, timeend - timestart);
 
   try {
+    const user = await getUserByEmail(email);
+    if (!user) {
+      return NextResponse.json({ error: "not_provisioned" }, { status: 404 });
+    }
     const updated = await updateUserEvent(moodleId, {
       name: title.trim().slice(0, 255),
       description: description?.trim().slice(0, 1000),
       timestart,
       timeduration: allDay ? 86400 : timeduration,
       location: location?.trim().slice(0, 255) || undefined,
+      userId: user.id,
     });
     return NextResponse.json({ event: shape(updated) });
   } catch (err) {
     console.error("[moodle-events PUT]", err);
-    return NextResponse.json({ error: "update_failed" }, { status: 502 });
+    return NextResponse.json(
+      { error: "update_failed", detail: err instanceof Error ? err.message : String(err) },
+      { status: 502 },
+    );
   }
 }
 

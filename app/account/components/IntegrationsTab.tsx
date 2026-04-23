@@ -569,7 +569,7 @@ function KadromierzCard() {
 }
 
 function MoodleCard() {
-  const { moodleStatus, refetchMoodleStatus } = useAccount();
+  const { moodleStatus, refetchMoodleStatus, setMoodleStatus } = useAccount();
   const connected = moodleStatus?.connected === true;
   const hasRole = moodleStatus?.hasRole === true;
   const configured = moodleStatus?.configured !== false;
@@ -582,7 +582,16 @@ function MoodleCard() {
   const connectAction = useAsyncAction(
     async () => moodleService.reconnect(),
     {
+      // Optimistic flip: the endpoint returns 200 but the status route takes
+      // a beat to refresh KC attributes — flip locally so the card's
+      // Skonfiguruj/Odłącz button updates instantly, then reconcile via
+      // refetch.
       onSuccess: async () => {
+        setMoodleStatus(
+          moodleStatus
+            ? { ...moodleStatus, connected: true, userDisconnected: false }
+            : { connected: true },
+        );
         await refetchMoodleStatus();
         setFeedback({
           tone: "success",
@@ -607,10 +616,26 @@ function MoodleCard() {
     async () => moodleService.disconnect(),
     {
       onSuccess: async () => {
+        setMoodleStatus(
+          moodleStatus
+            ? { ...moodleStatus, connected: false, userDisconnected: true }
+            : { connected: false },
+        );
         await refetchMoodleStatus();
         setFeedback({
           tone: "success",
           message: "Akademia została odłączona od kalendarza.",
+        });
+      },
+      onError: (err) => {
+        setFeedback({
+          tone: "error",
+          message:
+            err instanceof ApiRequestError
+              ? err.message
+              : err instanceof Error
+                ? err.message
+                : "Nie udało się odłączyć",
         });
       },
     },

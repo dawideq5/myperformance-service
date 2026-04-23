@@ -295,26 +295,17 @@ export async function createUserEvent(
 
 /**
  * Moodle core WS lacks a first-class "update event" function — we implement
- * update as delete+recreate to stay on the supported surface. The caller
- * receives a new id; the dashboard uses that to replace the old entry.
+ * update as delete+recreate to stay on the supported surface. Caller
+ * supplies the owning userId (resolved upstream from the session email)
+ * so we do not need a separate fetch of the existing event, and avoid
+ * WS permission checks that disallow `get_calendar_events` with `eventids`
+ * against events owned by someone other than the token user.
  */
 export async function updateUserEvent(
   id: number,
-  payload: UpdateEventPayload,
+  payload: UpdateEventPayload & { userId: number },
 ): Promise<MoodleCalendarEvent> {
-  const cfg = getMoodleConfig();
-  if (!cfg) throw new Error("Moodle not configured");
-
-  // Read user id from the event so we can preserve ownership on recreate.
-  const existingResp = await moodleCall<{
-    events: Array<{ userid: number }>;
-    warnings?: unknown[];
-  }>("core_calendar_get_calendar_events", {
-    "events[eventids][0]": id,
-  });
-  const userId = existingResp.events?.[0]?.userid;
-  if (!userId) throw new Error("event not found or not owned by a user");
-
+  if (!getMoodleConfig()) throw new Error("Moodle not configured");
   await deleteUserEvent(id);
   return createUserEvent({
     name: payload.name,
@@ -322,7 +313,7 @@ export async function updateUserEvent(
     timestart: payload.timestart,
     timeduration: payload.timeduration,
     location: payload.location,
-    userId,
+    userId: payload.userId,
   });
 }
 
