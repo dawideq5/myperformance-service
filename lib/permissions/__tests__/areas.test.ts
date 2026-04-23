@@ -63,8 +63,16 @@ describe("permissions/areas", () => {
   describe("findAreaForRole", () => {
     it("matches explicit seed roles", () => {
       expect(findAreaForRole("chatwoot_agent")?.id).toBe("chatwoot");
-      expect(findAreaForRole("documenso_user")?.id).toBe("documenso");
+      expect(findAreaForRole("documenso_member")?.id).toBe("documenso");
       expect(findAreaForRole("moodle_student")?.id).toBe("moodle");
+      expect(findAreaForRole("knowledge_editor")?.id).toBe("knowledge");
+    });
+
+    it("matches dynamic Moodle roles by prefix (core_role_get_roles output)", () => {
+      // `moodle_editingteacher` nie jest seedem, ale area.id="moodle" ma
+      // dynamicRoles=true — prefix-match musi go rozpoznać.
+      expect(findAreaForRole("moodle_editingteacher")?.id).toBe("moodle");
+      expect(findAreaForRole("moodle_coursecreator")?.id).toBe("moodle");
     });
 
     it("returns null for unrecognised roles", () => {
@@ -77,7 +85,31 @@ describe("permissions/areas", () => {
       const chatwoot = getArea("chatwoot")!;
       const names = listAreaKcRoleNames(chatwoot);
       expect(names).toContain("chatwoot_agent");
-      expect(names).toContain("chatwoot_administrator");
+      expect(names).toContain("chatwoot_admin");
+    });
+
+    it("returns 3 tiers for Documenso", () => {
+      const documenso = getArea("documenso")!;
+      const names = listAreaKcRoleNames(documenso);
+      expect(names).toEqual(
+        expect.arrayContaining([
+          "documenso_member",
+          "documenso_manager",
+          "documenso_admin",
+        ]),
+      );
+    });
+
+    it("returns 3 tiers for Outline (knowledge)", () => {
+      const knowledge = getArea("knowledge")!;
+      const names = listAreaKcRoleNames(knowledge);
+      expect(names).toEqual(
+        expect.arrayContaining([
+          "knowledge_viewer",
+          "knowledge_editor",
+          "knowledge_admin",
+        ]),
+      );
     });
   });
 
@@ -86,9 +118,9 @@ describe("permissions/areas", () => {
       const chatwoot = getArea("chatwoot")!;
       const picked = pickHighestPriorityRole(chatwoot, [
         "chatwoot_agent",
-        "chatwoot_administrator",
+        "chatwoot_admin",
       ]);
-      expect(picked?.name).toBe("chatwoot_administrator");
+      expect(picked?.name).toBe("chatwoot_admin");
     });
 
     it("returns null when no candidates match the area", () => {
@@ -110,7 +142,34 @@ describe("permissions/areas", () => {
 
     it("rejects canonical role names", () => {
       expect(isCustomRoleKcName("chatwoot_agent")).toBe(false);
-      expect(isCustomRoleKcName("documenso_user")).toBe(false);
+      expect(isCustomRoleKcName("documenso_member")).toBe(false);
+    });
+  });
+
+  describe("every area has at least one role with a PL label", () => {
+    it("each seed role declares `label` (non-empty)", () => {
+      for (const area of AREAS) {
+        for (const role of area.kcRoles) {
+          expect(role.label, `${area.id}:${role.name}`).toBeTruthy();
+          expect(role.label.length, `${area.id}:${role.name}`).toBeGreaterThan(
+            0,
+          );
+        }
+      }
+    });
+
+    it("admin-only areas have exactly one role", () => {
+      const adminOnly = [
+        "directus",
+        "postal",
+        "certificates",
+        "stepca",
+        "keycloak",
+      ];
+      for (const id of adminOnly) {
+        const area = getArea(id)!;
+        expect(area.kcRoles.length, `${id} should have exactly 1 seed`).toBe(1);
+      }
     });
   });
 });
