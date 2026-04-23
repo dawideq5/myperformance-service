@@ -166,7 +166,7 @@ export function TemplatesClient({
       ) : templates.length === 0 ? (
         <Card padding="md">
           <p className="text-sm text-[var(--text-muted)] mb-3">
-            Brak szablonów. Stwórz pierwszy — np. „Sprzedawca standardowy"
+            Brak szablonów. Stwórz pierwszy — np. „Sprzedawca standardowy&rdquo;
             (sprzedawca + chatwoot_agent + moodle_student + knowledge_user +
             kadromierz_user).
           </p>

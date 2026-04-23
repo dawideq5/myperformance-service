@@ -1,5 +1,6 @@
 import { Pool } from "pg";
 import { getOptionalEnv } from "@/lib/env";
+import { log } from "@/lib/logger";
 import type {
   AssignUserRoleArgs,
   NativePermission,
@@ -39,7 +40,7 @@ function getPool(): Pool {
       connectionTimeoutMillis: 10_000,
     });
     pool.on("error", (err) => {
-      console.error("[documenso-provider] pg pool error:", err.message);
+      log.error("documenso_provider.pg_pool_error", { message: err.message });
     });
   }
   return pool;

@@ -1,36 +1,25 @@
 import type { Session } from "next-auth";
 import { NextResponse } from "next/server";
+import { log } from "@/lib/logger";
+import {
+  ApiError,
+  type ApiErrorCode,
+  type ApiErrorResponse,
+  type ApiSuccessResponse,
+} from "@/lib/api-errors";
 
-export type ApiErrorCode =
-  | "UNAUTHORIZED"
-  | "FORBIDDEN"
-  | "BAD_REQUEST"
-  | "NOT_FOUND"
-  | "INTERNAL_ERROR"
-  | "SERVICE_UNAVAILABLE"
-  | "CONFLICT";
-
-export interface ApiErrorResponse {
-  error: {
-    code: ApiErrorCode;
-    message: string;
-    details?: string;
-  };
-}
-
-export interface ApiSuccessResponse<T> {
-  data: T;
-  meta?: {
-    timestamp: string;
-    requestId?: string;
-  };
-}
+export {
+  ApiError,
+  type ApiErrorCode,
+  type ApiErrorResponse,
+  type ApiSuccessResponse,
+};
 
 export function createErrorResponse(
   code: ApiErrorCode,
   message: string,
   details?: string,
-  status: number = 500
+  status: number = 500,
 ): NextResponse {
   const body: ApiErrorResponse = {
     error: {
@@ -55,63 +44,33 @@ export function createSuccessResponse<T>(data: T): NextResponse {
 }
 
 export function handleApiError(error: unknown): NextResponse {
-  console.error("[API Error]", error);
-
   if (error instanceof ApiError) {
+    log.info("api.error", {
+      code: error.code,
+      status: error.status,
+      message: error.message,
+      details: error.details,
+    });
     return createErrorResponse(error.code, error.message, error.details, error.status);
   }
+
+  log.error("api.unhandled_error", { err: error });
 
   if (error instanceof Error) {
     return createErrorResponse(
       "INTERNAL_ERROR",
       "An unexpected error occurred",
       process.env.NODE_ENV === "development" ? error.message : undefined,
-      500
+      500,
     );
   }
 
   return createErrorResponse("INTERNAL_ERROR", "An unexpected error occurred", undefined, 500);
 }
 
-export class ApiError extends Error {
-  constructor(
-    public code: ApiErrorCode,
-    message: string,
-    public status: number,
-    public details?: string
-  ) {
-    super(message);
-    this.name = "ApiError";
-  }
-
-  static unauthorized(message = "Unauthorized"): ApiError {
-    return new ApiError("UNAUTHORIZED", message, 401);
-  }
-
-  static forbidden(message = "Forbidden"): ApiError {
-    return new ApiError("FORBIDDEN", message, 403);
-  }
-
-  static badRequest(message: string, details?: string): ApiError {
-    return new ApiError("BAD_REQUEST", message, 400, details);
-  }
-
-  static notFound(message = "Not found"): ApiError {
-    return new ApiError("NOT_FOUND", message, 404);
-  }
-
-  static conflict(message: string, details?: string): ApiError {
-    return new ApiError("CONFLICT", message, 409, details);
-  }
-
-  static serviceUnavailable(message = "Service temporarily unavailable"): ApiError {
-    return new ApiError("SERVICE_UNAVAILABLE", message, 503);
-  }
-}
-
 export function validateRequestBody<T extends Record<string, unknown>>(
   body: unknown,
-  requiredFields: (keyof T)[]
+  requiredFields: (keyof T)[],
 ): body is T {
   if (!body || typeof body !== "object") {
     return false;
@@ -131,7 +90,7 @@ export function validateRequestBody<T extends Record<string, unknown>>(
 export async function fetchWithTimeout(
   input: RequestInfo | URL,
   init?: RequestInit,
-  timeoutMs: number = 10000
+  timeoutMs: number = 10000,
 ): Promise<Response> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -152,10 +111,9 @@ export async function fetchWithTimeout(
  * Use at the top of every API route handler instead of repeating the check inline.
  */
 export function requireSession(
-  session: Session | null | undefined
+  session: Session | null | undefined,
 ): asserts session is Session & { accessToken: string } {
-  if (!session || !(session as any).accessToken) {
+  if (!session || !(session as Session & { accessToken?: string }).accessToken) {
     throw ApiError.unauthorized();
   }
 }
-

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { keycloak } from "@/lib/keycloak";
+import { log } from "@/lib/logger";
 import {
   decryptSecret,
   isWebhookSecretConfigured,
@@ -77,12 +78,11 @@ export async function POST(request: NextRequest) {
   try {
     accessToken = await refreshGoogleAccessToken(refreshToken);
   } catch (err) {
-    console.warn("[calendar webhook] refresh failed:", err);
+    log.warn("calendar.webhook.refresh_failed", { err });
     return NextResponse.json({ ok: true, skipped: "refresh_failed" });
   }
 
-  // Incremental sync
-  let syncToken = readSingleAttr(attrs, "google_cal_sync_token");
+  const syncToken = readSingleAttr(attrs, "google_cal_sync_token");
   let incremental = await listEventsIncremental({ accessToken, syncToken });
   if (incremental.gone) {
     // syncToken invalidated — re-prime with full list

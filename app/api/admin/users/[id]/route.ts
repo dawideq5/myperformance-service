@@ -10,6 +10,7 @@ import {
 } from "@/lib/api-utils";
 import { requireAdminPanel } from "@/lib/admin-auth";
 import { propagateProfileFromKc } from "@/lib/permissions/sync";
+import { log } from "@/lib/logger";
 
 interface Ctx {
   params: Promise<{ id: string }>;
@@ -153,7 +154,7 @@ export async function PUT(req: Request, { params }: Ctx) {
       await keycloak
         .adminRequest(`/users/${id}/logout`, adminToken, { method: "POST" })
         .catch((err) => {
-          console.warn("[admin/users PUT] forced logout failed:", err);
+          log.warn("admin.users.forced_logout_failed", { userId: id, err });
         });
     }
 
@@ -171,7 +172,7 @@ export async function PUT(req: Request, { params }: Ctx) {
           ? userData.email
           : undefined;
       await propagateProfileFromKc(id, { previousEmail }).catch((err) => {
-        console.warn("[admin/users PUT] profile propagation failed:", err);
+        log.warn("admin.users.profile_propagation_failed", { userId: id, err });
       });
     }
 

@@ -1,5 +1,6 @@
 import { Pool } from "pg";
 import { getOptionalEnv } from "@/lib/env";
+import { log } from "@/lib/logger";
 
 export type DocumensoStatus =
   | "draft"
@@ -238,7 +239,7 @@ function getDocumensoPool(): Pool | null {
       connectionTimeoutMillis: 10_000,
     });
     documensoPool.on("error", (err) => {
-      console.error("[documenso] pg pool error:", err.message);
+      log.error("documenso.pg_pool_error", { message: err.message });
     });
   }
   return documensoPool;

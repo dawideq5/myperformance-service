@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { URL } from "node:url";
 import { getOptionalEnv } from "@/lib/env";
+import { log } from "@/lib/logger";
 import {
   appendAudit,
   findCertificateBySerial,
@@ -415,7 +416,7 @@ export type { AuditEvent } from "@/lib/persistence";
 
 export function auditLog(ev: AuditEvent): void {
   appendAudit(ev).catch((err) => {
-    console.error("[audit] append failed:", err instanceof Error ? err.message : err);
+    log.error("audit.append_failed", { err });
   });
 }
 

@@ -1,116 +1,211 @@
 # MyPerformance Dashboard
 
-Dashboard aplikacji MyPerformance zbudowany na Next.js (App Router).
+Single-sign-on dashboard dla ekosystemu MyPerformance. Next.js 15 (App Router) +
+NextAuth z Keycloak jako Identity Provider i **jedynym źródłem prawdy** o
+użytkownikach, rolach i uprawnieniach.
 
-## Funkcjonalności
+## Architektura
 
-- **Autoryzacja**: Integracja z Auth.js (NextAuth) i Keycloak
-- **Role-Based Access Control**: Widoczność komponentów zależna od ról `app_user`, `manage_users`, `directus_access`
-- **Dashboard**: Wykresy wydajności i postępu zadań (Recharts)
-- **Styling**: Tailwind CSS z ciemnym motywem
-- **Ikony**: Lucide React
+```
+                      ┌──────────────────────────┐
+                      │        Keycloak          │  ← Source of Truth
+                      │  (realm: MyPerformance)  │     users · roles · groups
+                      └─────────────┬────────────┘
+                                    │  OIDC / Admin REST
+                ┌───────────────────┼────────────────────┐
+                │                   │                    │
+     ┌──────────▼──────────┐   ┌────▼────┐   ┌───────────▼──────────┐
+     │   Dashboard (ten    │   │ Native  │   │  Panele cert-gated   │
+     │    serwis)          │   │  apps   │   │ (sprzedawca /        │
+     │  — /admin/users     │   │ Chatwoot│   │  serwisant /         │
+     │  — /admin/templates │   │ Moodle  │   │  kierowca)           │
+     │  — /admin/certs     │   │ Postal  │   │  mTLS + role KC      │
+     └─────────────────────┘   │ Directus│   └──────────────────────┘
+                               │ Documenso│
+                               │ Outline │
+                               └─────────┘
+```
+
+### Kluczowe zasady
+
+1. **Keycloak trzyma tożsamość i role**. Każda aplikacja startuje od OIDC
+   userinfo — nie cache'uje profilu dłużej niż TTL tokena.
+2. **Role są wersjonowane w kodzie** (`lib/permissions/areas.ts`) i seedowane
+   do Keycloaka. Nie da się dodać roli wyłącznie w KC bez wpisu w katalogu.
+3. **Precyzyjne przypisywanie per panel**: każdy „area" (Chatwoot, Moodle,
+   Documenso, panele cert-gated itd.) ma listę dopuszczalnych ról i wymuszoną
+   zasadę **0..1 roli per user** — user nie może mieć jednocześnie
+   `chatwoot_agent` i `chatwoot_administrator`.
+4. **Sync do aplikacji natywnych**: tam, gdzie aplikacja nie umie czytać ról
+   z OIDC (Moodle, Postal, Chatwoot, Documenso, Directus, Outline), ich
+   natywne role są **propagowane** z Keycloaka do bazy/API aplikacji przez
+   `lib/permissions/sync.ts`. Źródłem prawdy pozostaje Keycloak — sync
+   odtwarza stan, nie tworzy go.
+
+### Rejestr obszarów (areas)
+
+Pełna lista w `lib/permissions/areas.ts`. Skrót:
+
+| Area | Provider | Role KC (seed) | Notatki |
+|---|---|---|---|
+| `chatwoot` | native | `chatwoot_agent`, `chatwoot_administrator` | omnichannel obsługa klienta |
+| `moodle` | native | `moodle_student`, `moodle_editingteacher`, `moodle_manager` | LMS Akademia |
+| `directus` | native | `directus_admin` | CMS |
+| `documenso` | native | `documenso_user`, `documenso_handler`, `documenso_admin` | e-signing |
+| `knowledge` | native | `knowledge_viewer`, `knowledge_user`, `knowledge_admin` | Outline wiki |
+| `postal` | native | `postal_user`, `postal_admin` | mail platform |
+| `stepca` | KC only | `certificates_admin`, `stepca_admin` | PKI |
+| `keycloak` | KC only | `keycloak_admin` | konsola IdP |
+| `kadromierz` | KC only | `kadromierz_user` | grafik pracy |
+| `panel-sprzedawca` | KC only | `sprzedawca` | cert-gated panel |
+| `panel-serwisant` | KC only | `serwisant` | cert-gated panel |
+| `panel-kierowca` | KC only | `kierowca` | cert-gated panel |
+| `admin` | KC only | `keycloak_admin` | gate dla `/admin/*` |
+| `core` | KC only | `app_user` | default-roles |
+
+### Zarządzanie użytkownikami
+
+- **`/admin/users`** — lista użytkowników + przypisywanie ról per obszar.
+  Całe UI operuje na Keycloak Admin API (`lib/keycloak-admin.ts`). Nie ma
+  lokalnej tabeli użytkowników — nigdzie w bazie nie trzymamy duplikatów.
+- **`/admin/users/[id]`** — profil + reset hasła + forced-actions +
+  sesje + integracje + area-roles.
+- **`/admin/templates`** — szablony ról. Szablony leżą w atrybutach realmu KC
+  (`mp.role_templates`), nie w lokalnej bazie. Przy zaproszeniu można od razu
+  zaaplikować szablon.
+- **`/admin/keycloak`** — redirect do natywnej konsoli Keycloak (dla operacji,
+  których panel nie udostępnia: realmy, klienci, IdP, polityki haseł).
+- **`/admin/certificates`** — wydawanie certyfikatów mTLS dla paneli
+  cert-gated.
+
+### Dostęp RBAC w tokenie
+
+Role z tokena JWT Keycloak:
+
+- `realm_access.roles[]` — realm roles
+- `resource_access.{clientId}.roles[]` — client roles
+
+Realm-admin roles (`realm-admin`, `manage-realm`, `admin`) implikują pełny
+dostęp bez potrzeby explicit przypisywania każdej funkcjonalnej roli.
 
 ## Wymagania środowiskowe
 
-Skopiuj `.env.example` do `.env` i uzupełnij zmienne:
+Skopiuj `.env.example` do `.env`. Minimum do startu:
 
 ```bash
 cp .env.example .env
 ```
 
-Zmienne środowiskowe:
-- `NEXTAUTH_URL` - URL aplikacji (np. http://localhost:3000)
-- `NEXTAUTH_SECRET` - Sekret dla NextAuth (wygeneruj bezpieczny klucz)
-- `KEYCLOAK_URL` - Bazowy URL Keycloak (np. http://localhost:8080)
-- `KEYCLOAK_REALM` - Nazwa realm (opcjonalnie; domyślnie `MyPerformance`)
-- `KEYCLOAK_ISSUER` - Pełny issuer (opcjonalnie, np. http://localhost:8080/realms/MyPerformance)
-- `KEYCLOAK_CLIENT_ID` - Client ID z Keycloak
-- `KEYCLOAK_CLIENT_SECRET` - Client Secret z Keycloak
+Zmienne środowiskowe — najważniejsze:
 
-## Instalacja
+| Zmienna | Opis |
+|---|---|
+| `NEXTAUTH_URL` | Publiczny URL aplikacji |
+| `NEXTAUTH_SECRET` | Sekret NextAuth (wygeneruj `openssl rand -base64 64`) |
+| `KEYCLOAK_URL` | Base URL Keycloaka |
+| `KEYCLOAK_REALM` | Realm (domyślnie `MyPerformance`) |
+| `KEYCLOAK_ISSUER` | Pełny issuer (alternatywa dla URL+REALM) |
+| `KEYCLOAK_CLIENT_ID` | Client ID |
+| `KEYCLOAK_CLIENT_SECRET` | Client secret |
+| `KEYCLOAK_SERVICE_CLIENT_ID` | Client dla Admin API (service account) |
+| `KEYCLOAK_SERVICE_CLIENT_SECRET` | Secret service-accounta |
+| `KEYCLOAK_WEBHOOK_SECRET` | Sekret dla webhooku KC → backchannel logout |
+| `LOG_LEVEL` | `debug`/`info`/`warn`/`error` (domyślnie `info` w prod) |
+| `APP_URL` / `NEXT_PUBLIC_APP_URL` | URL dla email-linków / integracji |
+
+Pełna lista w `.env.example`.
+
+## Instalacja i uruchomienie
 
 ```bash
-npm ci
+npm ci            # instalacja (respektuje .npmrc)
+npm run dev       # dev server na :3000
+npm run typecheck # tsc --noEmit
+npm run lint      # next lint
+npm test          # vitest (unit testy: admin-auth, areas, logger)
+npm run build     # produkcyjny build
 ```
 
-Do zbudowania motywu Keycloak przez `Keycloakify` wymagany jest lokalnie Apache Maven.
-
-## Uruchomienie lokalne
-
-```bash
-npm run dev
-```
-
-Aplikacja będzie dostępna na `http://localhost:3000`
-
-Budowanie motywu logowania Keycloak:
+Budowanie motywu Keycloak (Keycloakify + Maven):
 
 ```bash
 npm run build-keycloak-theme
-```
-
-Podgląd samego motywu w Vite:
-
-```bash
 npm run dev:keycloak-theme
 ```
 
-## Budowanie
+## CI / Bezpieczeństwo
 
-```bash
-npm run build
+- `.github/workflows/ci.yml` — lint + typecheck + test + build + `npm audit`
+  na każdy PR/push do `main`.
+- Produkcyjne `npm audit` musi być czyste (poziom `high` blokuje merge).
+- `tsconfig.strict: true` — włączony strict mode.
+- Wszystkie `/api/admin/*` za auth guardem `keycloak_admin` + middleware
+  wymusza same-origin (CSRF defense-in-depth).
+- Strukturalny logger (`lib/logger.ts`) — NDJSON z `requestId` przez
+  `AsyncLocalStorage` (`lib/request-context.ts`). Middleware generuje i
+  zwraca nagłówek `X-Request-Id` — per-request korelacja w Loki/Coolify.
+- Webhooki fail-closed gdy brak sekretu; weryfikacja przez
+  `crypto.timingSafeEqual`.
+
+## Struktura projektu
+
+```
+├── app/
+│   ├── admin/                   — zakładki administracyjne (KC-backed)
+│   │   ├── users/               —   zarządzanie userami + role per area
+│   │   ├── templates/           —   szablony ról
+│   │   ├── certificates/        —   mTLS certs dla paneli cert-gated
+│   │   └── keycloak/            —   redirect do konsoli KC
+│   ├── api/
+│   │   ├── admin/               — Admin REST (wymaga `keycloak_admin`)
+│   │   ├── account/             — self-service (wymaga zalogowania)
+│   │   ├── auth/[...nextauth]/  — NextAuth handler
+│   │   ├── integrations/        — Google / Moodle / Kadromierz
+│   │   ├── calendar/            — kalendarz (local + Google + Moodle)
+│   │   └── webhooks/            — KC backchannel / Google Calendar
+│   ├── dashboard/               — główna siatka tile'ów (role-gated)
+│   ├── account/                 — self-service profil + security
+│   └── auth.ts                  — NextAuth + Keycloak provider
+├── lib/
+│   ├── admin-auth.ts            — RBAC helpers (client-safe via api-errors)
+│   ├── api-errors.ts            — ApiError klasa (client-safe)
+│   ├── api-utils.ts             — server-only: handleApiError + logger
+│   ├── keycloak.ts              — KC OIDC + Admin API wrapper
+│   ├── keycloak-admin.ts        — helper: service-account + user-id ctx
+│   ├── permissions/
+│   │   ├── areas.ts             — rejestr obszarów + role per area
+│   │   ├── registry.ts          — rejestr providerów natywnych
+│   │   ├── sync.ts              — propagacja KC → natywne apps
+│   │   └── providers/*          — Postal/Moodle/Chatwoot/Directus/Documenso/Outline
+│   ├── role-templates.ts        — szablony ról w atrybutach realmu KC
+│   ├── logger.ts                — NDJSON logger (z requestId)
+│   ├── request-context.ts       — AsyncLocalStorage dla requestId
+│   └── rate-limit.ts            — in-memory token bucket
+├── middleware.ts                — edge auth + role guards + same-origin + request-id
+├── .github/workflows/ci.yml     — CI pipeline
+├── vitest.config.ts             — vitest config
+└── infrastructure/
+    └── keycloak/                — realm.json + DEPLOYMENT.md
 ```
 
+## Role w tokenie — lista kanoniczna
+
+Role katalogowane w `lib/admin-auth.ts` (`ROLES`) i seedowane do Keycloaka
+przez `scripts/seed-area-roles.mjs` (na podstawie `lib/permissions/areas.ts`).
+Pełna referencja w rejestrze areas.
+
 ## Docker
-
-Obraz zoptymalizowany pod Coolify z wykorzystaniem multi-stage build:
-
-Uwaga: przed importem `infrastructure/keycloak/realm.json` ustaw docelowe wartości placeholderów (np. `REPLACE_WITH_CLIENT_SECRET`, `${APP_URL}`, `${GOOGLE_IDP_CLIENT_ID}`) zgodnie z Twoim środowiskiem.
 
 ```bash
 docker build -t myperformance-dashboard .
 docker run -p 3000:3000 --env-file .env myperformance-dashboard
 ```
 
-## Struktura projektu
-
-```
-├── app/
-│   ├── api/auth/[...nextauth]/  - API route dla NextAuth
-│   ├── auth.ts                  - Konfiguracja Auth.js z Keycloak
-│   ├── dashboard/               - Strona główna dashboardu
-│   ├── login/                   - Strona logowania
-│   ├── layout.tsx               - Root layout
-│   ├── page.tsx                 - Redirect do dashboardu
-│   └── globals.css              - Globalne style
-├── components/
-│   ├── RoleGuard.tsx            - Komponent do sprawdzania ról
-│   ├── AdminPanel.tsx           - Panel administratora
-│   ├── ManagerPanel.tsx         - Panel menedżera
-│   ├── UserPanel.tsx            - Panel użytkownika
-│   ├── PerformanceChart.tsx     - Wykres wydajności
-│   └── TasksChart.tsx           - Wykres postępu zadań
-├── lib/
-│   └── utils.ts                 - Funkcje utility (cn)
-├── types/
-│   └── next-auth.d.ts           - Rozszerzenie typów NextAuth
-├── Dockerfile                   - Konfiguracja Docker
-├── next.config.js               - Konfiguracja Next.js
-├── tailwind.config.ts           - Konfiguracja Tailwind
-└── tsconfig.json                - Konfiguracja TypeScript
-```
-
-## Role w Keycloak
-
-Aplikacja oczekuje ról w tokenie JWT:
-- `app_user` - Domyślny dostęp do dashboardu dla zalogowanych użytkowników
-- `manage_users` - Dostęp do sekcji `Użytkownicy` i zarządzania kontami w realmie Keycloak
-- `directus_access` - Widoczność i dostęp SSO do Directus CMS
-
-Role są pobierane z `realm_access.roles` oraz `resource_access.[CLIENT_ID].roles` w tokenie Keycloak.
-
-Lokalny `docker-compose.dev.yml` montuje wygenerowany katalog `build_keycloak/theme` do kontenera Keycloak. Po zmianach w motywie uruchom ponownie `npm run build-keycloak-theme`, a następnie odśwież lub zrestartuj usługę `keycloak`.
+Obraz: multi-stage, non-root `nextjs:nodejs` (uid 1001), `tini` init, HTTP
+healthcheck.
 
 ## Wdrożenie Keycloak / theme na produkcję
 
-Instrukcja krok po kroku (build JAR-a, deploy do `/opt/keycloak/providers/`, migracja ról, aktywacja `loginTheme=myperformance`, runbook dla błędu Directusa `User belongs to a different auth provider`) znajduje się w [`infrastructure/keycloak/DEPLOYMENT.md`](infrastructure/keycloak/DEPLOYMENT.md).
+Instrukcja krok po kroku (build JAR-a, deploy do `/opt/keycloak/providers/`,
+migracja ról, aktywacja `loginTheme=myperformance`) — zobacz
+[`infrastructure/keycloak/DEPLOYMENT.md`](infrastructure/keycloak/DEPLOYMENT.md).

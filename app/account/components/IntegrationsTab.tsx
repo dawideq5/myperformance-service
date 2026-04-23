@@ -692,7 +692,7 @@ function MoodleCard() {
             <Alert tone="warning" title="Konto Akademii czeka na utworzenie">
               Pierwsze logowanie w Akademii utworzy Twoje konto — zaloguj
               się raz na https://akademia.myperformance.pl, a potem wróć tu
-              i kliknij „Skonfiguruj".
+              i kliknij „Skonfiguruj&rdquo;.
             </Alert>
           )}
         </>

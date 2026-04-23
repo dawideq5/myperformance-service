@@ -14,6 +14,8 @@
  * Defaults to "info" in production, "debug" under NODE_ENV=development.
  */
 
+import { getRequestId } from "@/lib/request-context";
+
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
 export type LogFields = Record<string, unknown>;
@@ -45,6 +47,9 @@ function emit(level: LogLevel, message: string, fields?: LogFields): void {
     level,
     message,
   };
+
+  const requestId = getRequestId();
+  if (requestId) entry.requestId = requestId;
 
   if (fields) {
     for (const [k, v] of Object.entries(fields)) {

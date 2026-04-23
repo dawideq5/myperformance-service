@@ -1,11 +1,24 @@
 import { withAuth } from "next-auth/middleware";
 import { NextResponse } from "next/server";
-import { createHash } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { DEFAULT_KEYCLOAK_REALM } from "@/lib/keycloak-constants";
 import { trimSlash } from "@/lib/utils";
 import { MIDDLEWARE_USERINFO_CACHE_TTL_MS } from "@/lib/constants";
 import { log } from "@/lib/logger";
 import { getArea, listAreaKcRoleNames } from "@/lib/permissions/areas";
+
+const REQUEST_ID_HEADER = "x-request-id";
+
+function ensureRequestId(req: Request): string {
+  const incoming = req.headers.get(REQUEST_ID_HEADER)?.trim();
+  if (incoming && /^[a-zA-Z0-9-]{8,128}$/.test(incoming)) return incoming;
+  return randomUUID();
+}
+
+function withRequestIdHeaders(res: NextResponse, requestId: string): NextResponse {
+  res.headers.set(REQUEST_ID_HEADER, requestId);
+  return res;
+}
 
 export const runtime = "nodejs";
 
@@ -139,13 +152,17 @@ export default withAuth(
   async function middleware(req) {
     const token = req.nextauth.token;
     const pathname = req.nextUrl.pathname;
+    const requestId = ensureRequestId(req);
 
     if (
       (pathname.startsWith("/api/account") ||
         pathname.startsWith("/api/admin")) &&
       !isSameOrigin(req)
     ) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      return withRequestIdHeaders(
+        NextResponse.json({ error: "Forbidden" }, { status: 403 }),
+        requestId,
+      );
     }
 
     const isProtected =
@@ -155,37 +172,63 @@ export default withAuth(
       pathname.startsWith("/api/account") ||
       pathname.startsWith("/api/admin");
 
-    if (!isProtected) return NextResponse.next();
+    const passThrough = () => {
+      const res = NextResponse.next({
+        request: { headers: new Headers(req.headers) },
+      });
+      res.headers.set(REQUEST_ID_HEADER, requestId);
+      return res;
+    };
+
+    // Propagate X-Request-Id inbound to downstream handlers and back to client.
+    (req.headers as Headers).set(REQUEST_ID_HEADER, requestId);
+
+    if (!isProtected) return passThrough();
 
     const isApi = pathname.startsWith("/api/");
 
     if (!token || !token.accessToken) {
       if (isApi) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        return withRequestIdHeaders(
+          NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
+          requestId,
+        );
       }
-      return NextResponse.redirect(new URL("/login", req.url));
+      return withRequestIdHeaders(
+        NextResponse.redirect(new URL("/login", req.url)),
+        requestId,
+      );
     }
 
     if (token.keycloakError) {
       if (isApi) {
-        return NextResponse.json({ error: "SessionExpired" }, { status: 401 });
+        return withRequestIdHeaders(
+          NextResponse.json({ error: "SessionExpired" }, { status: 401 }),
+          requestId,
+        );
       }
-      return NextResponse.redirect(
-        new URL("/login?error=SessionExpired", req.url)
+      return withRequestIdHeaders(
+        NextResponse.redirect(new URL("/login?error=SessionExpired", req.url)),
+        requestId,
       );
     }
 
     const accessToken = token.accessToken as string;
 
-    // Role-based guard — evaluated BEFORE userinfo network call for speed.
     const guard = findMatchingGuard(pathname);
     if (guard) {
       const roles = collectRoles(accessToken);
       if (!hasAny(roles, guard.anyOf)) {
         if (isApi) {
-          return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+          return withRequestIdHeaders(
+            NextResponse.json({ error: "Forbidden" }, { status: 403 }),
+            requestId,
+          );
         }
-        return NextResponse.redirect(new URL("/forbidden", req.url));
+        return withRequestIdHeaders(
+          NextResponse.redirect(new URL("/forbidden", req.url)),
+          requestId,
+        );
       }
     }
 
@@ -196,19 +239,26 @@ export default withAuth(
     if (cached && cached.expiresAt > now) {
       if (!cached.valid) {
         if (isApi) {
-          return NextResponse.json({ error: "SessionExpired" }, { status: 401 });
+          return withRequestIdHeaders(
+            NextResponse.json({ error: "SessionExpired" }, { status: 401 }),
+            requestId,
+          );
         }
-        return NextResponse.redirect(new URL("/api/auth/logout", req.url));
+        return withRequestIdHeaders(
+          NextResponse.redirect(new URL("/api/auth/logout", req.url)),
+          requestId,
+        );
       }
-      return NextResponse.next();
+      return passThrough();
     }
 
     try {
       const issuer = getIssuerForMiddleware();
       if (!issuer) {
-        logger.warn("missing keycloak issuer configuration");
-        return NextResponse.redirect(
-          new URL("/login?error=Configuration", req.url)
+        logger.warn("missing keycloak issuer configuration", { requestId });
+        return withRequestIdHeaders(
+          NextResponse.redirect(new URL("/login?error=Configuration", req.url)),
+          requestId,
         );
       }
 
@@ -230,17 +280,24 @@ export default withAuth(
         logger.warn("keycloak session invalid", {
           status: userInfoResponse.status,
           pathname,
+          requestId,
         });
         if (isApi) {
-          return NextResponse.json({ error: "SessionExpired" }, { status: 401 });
+          return withRequestIdHeaders(
+            NextResponse.json({ error: "SessionExpired" }, { status: 401 }),
+            requestId,
+          );
         }
-        return NextResponse.redirect(new URL("/api/auth/logout", req.url));
+        return withRequestIdHeaders(
+          NextResponse.redirect(new URL("/api/auth/logout", req.url)),
+          requestId,
+        );
       }
     } catch (err) {
-      logger.error("keycloak userinfo check failed", { err, pathname });
+      logger.error("keycloak userinfo check failed", { err, pathname, requestId });
     }
 
-    return NextResponse.next();
+    return passThrough();
   },
   {
     callbacks: {
