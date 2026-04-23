@@ -47,7 +47,9 @@ export async function GET(_req: Request, { params }: Ctx) {
       enabled: u.enabled !== false,
       emailVerified: u.emailVerified === true,
       createdTimestamp: u.createdTimestamp ?? null,
-      requiredActions: Array.isArray(u.requiredActions) ? u.requiredActions : [],
+      requiredActions: keycloak.normalizeRequiredActions(
+        Array.isArray(u.requiredActions) ? u.requiredActions : [],
+      ),
       attributes: u.attributes ?? {},
     });
   } catch (error) {

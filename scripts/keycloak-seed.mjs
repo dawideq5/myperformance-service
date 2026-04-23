@@ -50,7 +50,6 @@ const ROLES = [
   { name: "kadromierz_user",     description: "Kadromierz (grafik, ewidencja czasu)",                  default: true  },
 
   // gated
-  { name: "manage_users",        description: "/admin/users — zarządzanie kontami",                    default: false },
   { name: "certificates_admin",  description: "Wystawianie i odwoływanie certyfikatów klienckich",     default: false },
 
   { name: "directus_admin",      description: "Administrator Directus CMS",                            default: false },
@@ -72,6 +71,7 @@ const ROLES = [
   { name: "moodle_editingteacher", description: "Moodle: editing teacher (kursy, ocenianie, raporty)",  default: false },
   { name: "moodle_manager",        description: "Moodle: manager (konfig, pluginy, użytkownicy)",       default: false },
 
+  { name: "knowledge_viewer",    description: "Baza wiedzy (Outline): tylko odczyt",                  default: false },
   { name: "knowledge_user",      description: "Baza wiedzy (Outline): czytanie i edycja artykułów",   default: true  },
   { name: "knowledge_admin",     description: "Baza wiedzy (Outline): administrator",                 default: false },
 

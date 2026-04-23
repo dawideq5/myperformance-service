@@ -50,7 +50,7 @@ import {
 import type { CalendarEvent } from "../types";
 import { LocationAutocomplete } from "./LocationAutocomplete";
 
-type EventTarget = "local" | "moodle";
+type EventTarget = "local" | "google" | "moodle";
 
 interface EventFormState {
   title: string;
@@ -215,9 +215,38 @@ function sortEvents(events: CalendarEvent[]): CalendarEvent[] {
   );
 }
 
+function dedupeEvents(events: CalendarEvent[]): CalendarEvent[] {
+  const chosen = new Map<string, CalendarEvent>();
+
+  for (const event of events) {
+    const key = event.googleEventId
+      ? `google:${event.googleEventId}`
+      : `id:${event.id}`;
+    const current = chosen.get(key);
+    if (!current) {
+      chosen.set(key, event);
+      continue;
+    }
+
+    const currentScore = current.source === "google" ? 0 : 1;
+    const nextScore = event.source === "google" ? 0 : 1;
+    if (nextScore > currentScore) {
+      chosen.set(key, event);
+    }
+  }
+
+  return sortEvents(Array.from(chosen.values()));
+}
+
 function initialFormForEvent(event: CalendarEvent): EventFormState {
   const start = parseEventDate(event, "start");
   const end = parseEventDate(event, "end");
+  const target: EventTarget =
+    event.source === "moodle"
+      ? "moodle"
+      : event.source === "google" || !!event.googleEventId
+        ? "google"
+        : "local";
   return {
     title: event.title,
     description: event.description ?? "",
@@ -225,7 +254,7 @@ function initialFormForEvent(event: CalendarEvent): EventFormState {
     end: event.allDay ? toLocalDateValue(end) : toLocalDatetimeValue(end),
     allDay: event.allDay,
     location: event.location ?? "",
-    target: event.source === "moodle" ? "moodle" : "local",
+    target,
   };
 }
 
@@ -311,6 +340,8 @@ export function CalendarTab() {
   const googleConnected = googleStatus?.connected === true;
   const kadromierzConnected = kadromierzStatus?.connected === true;
   const moodleConnected = moodleStatus?.connected === true;
+  const hasExternalSources =
+    googleConnected || kadromierzConnected || moodleConnected;
 
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [kadromierzShifts, setKadromierzShifts] = useState<CalendarEvent[]>(
@@ -485,9 +516,10 @@ export function CalendarTab() {
           setEvents((prev) => sortEvents([...prev, result.event]));
           setFeedback({
             tone: "success",
-            message: result.googleSynced
-              ? "Wydarzenie zostało dodane i zsynchronizowane z Google Calendar."
-              : "Wydarzenie zostało dodane.",
+            message:
+              result.target === "google"
+                ? "Wydarzenie zostało dodane w Google Calendar i pojawiło się w kalendarzu."
+                : "Wydarzenie zostało dodane.",
           });
         }
         setAddOpen(null);
@@ -522,6 +554,23 @@ export function CalendarTab() {
               prev.map((e) => (e.id === result.id ? result.event : e)),
             ),
           );
+          if (result.event.googleEventId || result.source === "google") {
+            setGoogleMonthEvents((prev) =>
+              sortEvents(
+                prev.map((e) =>
+                  e.id === result.id ||
+                  (result.event.googleEventId &&
+                    e.googleEventId === result.event.googleEventId)
+                    ? {
+                        ...e,
+                        ...result.event,
+                        source: "google",
+                      }
+                    : e,
+                ),
+              ),
+            );
+          }
         }
         setEditingEvent(null);
         setFeedback({
@@ -550,6 +599,11 @@ export function CalendarTab() {
           setMoodleEvents((prev) => prev.filter((e) => e.id !== id));
         } else {
           setEvents((prev) => prev.filter((e) => e.id !== id));
+          setGoogleMonthEvents((prev) =>
+            prev.filter(
+              (e) => e.id !== id && `google_${e.googleEventId}` !== id,
+            ),
+          );
         }
         setFeedback({ tone: "success", message: "Wydarzenie zostało usunięte." });
       } catch (err) {
@@ -579,11 +633,80 @@ export function CalendarTab() {
     setSyncing(true);
     setFeedback(null);
     try {
-      // Full persisted baseline sync (default ±window). Updates local cache +
-      // refreshes the list; the month-view live fetch below still runs.
-      const result = await calendarService.syncGoogle();
-      if (result.needsReconnect) {
-        setGoogleNeedsReconnect(true);
+      const [localRes, googleRes, kadromierzRes, moodleRes] =
+        await Promise.allSettled([
+          calendarService.list(),
+          googleConnected
+            ? calendarService.syncGoogle({
+                from: bounds.from.toISOString(),
+                to: bounds.to.toISOString(),
+                persist: false,
+              })
+            : Promise.resolve(null),
+          kadromierzConnected
+            ? kadromierzService.getSchedule({
+                from: bounds.from.toISOString().slice(0, 10),
+                to: bounds.to.toISOString().slice(0, 10),
+              })
+            : Promise.resolve(null),
+          moodleConnected
+            ? moodleService.getEvents({
+                from: String(Math.floor(bounds.from.getTime() / 1000)),
+                to: String(Math.floor(bounds.to.getTime() / 1000)),
+              })
+            : Promise.resolve(null),
+        ]);
+
+      let failedSources = 0;
+      let refreshedSources = 1;
+
+      if (localRes.status === "fulfilled") {
+        setEvents(sortEvents(localRes.value.events ?? []));
+      } else {
+        failedSources += 1;
+      }
+
+      if (googleConnected) {
+        refreshedSources += 1;
+        if (googleRes.status === "fulfilled" && googleRes.value) {
+          if (googleRes.value.needsReconnect) {
+            setGoogleNeedsReconnect(true);
+            setGoogleMonthEvents([]);
+          } else {
+            setGoogleNeedsReconnect(false);
+            setGoogleMonthEvents(googleRes.value.events ?? []);
+          }
+        } else {
+          failedSources += 1;
+          setGoogleMonthEvents([]);
+        }
+      }
+
+      if (kadromierzConnected) {
+        refreshedSources += 1;
+        if (kadromierzRes.status === "fulfilled" && kadromierzRes.value) {
+          setKadromierzShifts(shiftsToEvents(kadromierzRes.value.shifts ?? []));
+        } else {
+          failedSources += 1;
+          setKadromierzShifts([]);
+        }
+      }
+
+      if (moodleConnected) {
+        refreshedSources += 1;
+        if (moodleRes.status === "fulfilled" && moodleRes.value) {
+          setMoodleEvents(moodleRes.value.events ?? []);
+        } else {
+          failedSources += 1;
+          setMoodleEvents([]);
+        }
+      }
+
+      if (
+        googleConnected &&
+        googleRes.status === "fulfilled" &&
+        googleRes.value?.needsReconnect
+      ) {
         setFeedback({
           tone: "error",
           message:
@@ -591,10 +714,13 @@ export function CalendarTab() {
         });
         return;
       }
-      setEvents(sortEvents(result.events ?? []));
+
       setFeedback({
-        tone: "success",
-        message: `Synchronizacja zakończona. Pobrano ${result.synced} wydarzeń z Google (łącznie ${result.total}).`,
+        tone: failedSources > 0 ? "error" : "success",
+        message:
+          failedSources > 0
+            ? `Odświeżono bieżący widok miesiąca, ale ${failedSources} ${failedSources === 1 ? "źródło zwróciło błąd" : "źródła zwróciły błędy"}.`
+            : `Odświeżono dane bieżącego widoku z ${refreshedSources} ${refreshedSources === 1 ? "źródła" : "źródeł"}.`,
       });
     } catch (err) {
       setFeedback({
@@ -602,12 +728,12 @@ export function CalendarTab() {
         message:
           err instanceof ApiRequestError
             ? err.message
-            : "Nie udało się zsynchronizować z Google Calendar",
+            : "Nie udało się odświeżyć danych kalendarza",
       });
     } finally {
       setSyncing(false);
     }
-  }, []);
+  }, [bounds, googleConnected, kadromierzConnected, moodleConnected]);
 
   const openAddForDay = useCallback(
     (day: Date) => {
@@ -662,12 +788,13 @@ export function CalendarTab() {
   // the cached Google rows in favour of the live month fetch to keep the
   // grid fresh as the user navigates months.
   const combinedEvents = useMemo(
-    () => [
-      ...events.filter((e) => e.source !== "google"),
-      ...googleMonthEvents,
-      ...kadromierzShifts,
-      ...moodleEvents,
-    ],
+    () =>
+      dedupeEvents([
+        ...events.filter((e) => e.source !== "google"),
+        ...googleMonthEvents,
+        ...kadromierzShifts,
+        ...moodleEvents,
+      ]),
     [events, googleMonthEvents, kadromierzShifts, moodleEvents],
   );
   const eventsByDay = useMemo(
@@ -727,7 +854,7 @@ export function CalendarTab() {
                 Synchronizacja miesiąca…
               </span>
             )}
-            {googleConnected && (
+            {hasExternalSources && (
               <Button
                 size="sm"
                 variant="secondary"
@@ -799,8 +926,8 @@ export function CalendarTab() {
             {monthLabel}
           </h3>
           <div className="text-xs text-[var(--text-muted)]">
-            {events.length}{" "}
-            {events.length === 1 ? "wydarzenie" : "wydarzeń"} łącznie
+            {combinedEvents.length}{" "}
+            {combinedEvents.length === 1 ? "wydarzenie" : "wydarzeń"} w widoku
           </div>
         </div>
       </Card>
@@ -844,6 +971,7 @@ export function CalendarTab() {
         onSubmit={submitAdd}
         submitting={createAction.pending}
         error={createAction.error}
+        googleAvailable={googleConnected}
         moodleAvailable={moodleConnected}
         targetEditable
       />
@@ -859,6 +987,7 @@ export function CalendarTab() {
         onSubmit={submitEdit}
         submitting={updateAction.pending}
         error={updateAction.error}
+        googleAvailable={googleConnected}
         moodleAvailable={moodleConnected}
         targetEditable={false}
       />
@@ -1174,6 +1303,7 @@ function EventFormDialog({
   onSubmit,
   submitting,
   error,
+  googleAvailable,
   moodleAvailable,
   targetEditable,
 }: {
@@ -1187,12 +1317,20 @@ function EventFormDialog({
   onSubmit: (event: FormEvent) => void;
   submitting: boolean;
   error: string | null;
+  googleAvailable: boolean;
   moodleAvailable: boolean;
   targetEditable: boolean;
 }) {
   const dialogId = useId();
   const patch = (partial: Partial<EventFormState>) =>
     onChange({ ...form, ...partial });
+  const optionCount = 1 + (googleAvailable ? 1 : 0) + (moodleAvailable ? 1 : 0);
+  const targetGridClass =
+    optionCount >= 3
+      ? "grid grid-cols-1 md:grid-cols-3 gap-2"
+      : optionCount === 2
+        ? "grid grid-cols-1 md:grid-cols-2 gap-2"
+        : "grid grid-cols-1 gap-2";
 
   return (
     <Dialog
@@ -1203,12 +1341,12 @@ function EventFormDialog({
       labelledById={dialogId}
     >
       <form onSubmit={onSubmit} className="space-y-4">
-        {moodleAvailable && targetEditable && (
+        {targetEditable && (
           <div className="space-y-2">
             <span className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">
               Miejsce zapisu
             </span>
-            <div className="grid grid-cols-2 gap-2">
+            <div className={targetGridClass}>
               <button
                 type="button"
                 disabled={submitting}
@@ -1220,29 +1358,50 @@ function EventFormDialog({
                 }`}
               >
                 <div className="text-sm font-medium text-[var(--text-main)]">
-                  Kalendarz
+                  Kalendarz MyPerformance
                 </div>
                 <div className="text-[11px] text-[var(--text-muted)] mt-0.5">
-                  Lokalnie + Google (jeśli połączone)
+                  Lokalnie, bez etykiety i bez zapisu do usług zewnętrznych
                 </div>
               </button>
-              <button
-                type="button"
-                disabled={submitting}
-                onClick={() => patch({ target: "moodle" })}
-                className={`text-left p-3 rounded-xl border transition-colors ${
-                  form.target === "moodle"
-                    ? "border-[#F59E0B] bg-[#F59E0B]/10"
-                    : "border-[var(--border-subtle)] hover:border-[#F59E0B]/40"
-                }`}
-              >
-                <div className="text-sm font-medium text-[var(--text-main)]">
-                  Akademia (Moodle)
-                </div>
-                <div className="text-[11px] text-[var(--text-muted)] mt-0.5">
-                  Widoczne w Akademii jako wydarzenie użytkownika
-                </div>
-              </button>
+              {googleAvailable && (
+                <button
+                  type="button"
+                  disabled={submitting}
+                  onClick={() => patch({ target: "google" })}
+                  className={`text-left p-3 rounded-xl border transition-colors ${
+                    form.target === "google"
+                      ? "border-[#4285F4] bg-[#4285F4]/10"
+                      : "border-[var(--border-subtle)] hover:border-[#4285F4]/40"
+                  }`}
+                >
+                  <div className="text-sm font-medium text-[var(--text-main)]">
+                    Google Calendar
+                  </div>
+                  <div className="text-[11px] text-[var(--text-muted)] mt-0.5">
+                    Zapis do Google i późniejsza edycja/usuwanie z poziomu kalendarza
+                  </div>
+                </button>
+              )}
+              {moodleAvailable && (
+                <button
+                  type="button"
+                  disabled={submitting}
+                  onClick={() => patch({ target: "moodle" })}
+                  className={`text-left p-3 rounded-xl border transition-colors ${
+                    form.target === "moodle"
+                      ? "border-[#F59E0B] bg-[#F59E0B]/10"
+                      : "border-[var(--border-subtle)] hover:border-[#F59E0B]/40"
+                  }`}
+                >
+                  <div className="text-sm font-medium text-[var(--text-main)]">
+                    Akademia (Moodle)
+                  </div>
+                  <div className="text-[11px] text-[var(--text-muted)] mt-0.5">
+                    Widoczne w Akademii jako wydarzenie użytkownika
+                  </div>
+                </button>
+              )}
             </div>
           </div>
         )}

@@ -157,7 +157,7 @@ export function canAccessPanel(
 export function canAccessAdminPanel(
   session: Session | null | undefined,
 ): boolean {
-  return hasRole(session, ROLES.MANAGE_USERS);
+  return canAccessKeycloakAdmin(session);
 }
 
 export function canAccessDirectus(
@@ -277,7 +277,7 @@ export function requireAdminPanel(
 ): asserts session is Session & { accessToken: string } {
   assertSession(session);
   if (!canAccessAdminPanel(session)) {
-    throw ApiError.forbidden("Missing role: manage_users");
+    throw ApiError.forbidden("Missing role: keycloak_admin");
   }
 }
 

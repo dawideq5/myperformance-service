@@ -74,6 +74,11 @@ export class KeycloakService {
     return `${this.getBaseUrl()}/admin/realms/${this.getRealm()}${path}`;
   }
 
+  public getAdminConsoleUrl() {
+    const adminRealm = process.env.KEYCLOAK_ADMIN_REALM?.trim() || "master";
+    return `${this.getBaseUrl()}/admin/${adminRealm}/console/`;
+  }
+
   public decodeTokenPayload(token: string) {
     const [, payload] = token.split(".");
 
@@ -197,7 +202,11 @@ export class KeycloakService {
 
   private REQUIRED_ACTION_ALIAS_MAP: Record<string, string[]> = {
     CONFIGURE_TOTP: ["CONFIGURE_TOTP"],
-    WEBAUTHN_REGISTER: ["WEBAUTHN_REGISTER", "webauthn-register"],
+    WEBAUTHN_REGISTER: [
+      "WEBAUTHN_REGISTER",
+      "webauthn-register",
+      "webauthn-register-passwordless",
+    ],
     VERIFY_EMAIL: ["VERIFY_EMAIL", "verify-email"],
   };
 
@@ -209,6 +218,9 @@ export class KeycloakService {
     const normalized = action.toLowerCase();
     if (normalized === "configure_totp") return "CONFIGURE_TOTP";
     if (normalized === "webauthn-register") return "WEBAUTHN_REGISTER";
+    if (normalized === "webauthn-register-passwordless") {
+      return "WEBAUTHN_REGISTER";
+    }
     if (normalized === "verify-email") return "VERIFY_EMAIL";
     return action;
   }

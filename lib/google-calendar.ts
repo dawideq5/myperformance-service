@@ -292,8 +292,25 @@ export async function getFreshGoogleAccessTokenForUser(
   userAccessToken: string,
 ): Promise<{ access_token: string; refresh_token?: string }> {
   const tokens = await keycloak.getBrokerTokens(userAccessToken, "google");
+  const refreshToken = tokens.refresh_token ? String(tokens.refresh_token) : undefined;
+  const brokerAccessToken = String(tokens.access_token ?? "");
+
+  if (refreshToken) {
+    try {
+      const accessToken = await refreshGoogleAccessToken(refreshToken);
+      return {
+        access_token: accessToken,
+        refresh_token: refreshToken,
+      };
+    } catch {
+      if (!brokerAccessToken) {
+        throw new Error("Google access token unavailable");
+      }
+    }
+  }
+
   return {
-    access_token: String(tokens.access_token ?? ""),
-    refresh_token: tokens.refresh_token ? String(tokens.refresh_token) : undefined,
+    access_token: brokerAccessToken,
+    refresh_token: refreshToken,
   };
 }

@@ -78,6 +78,7 @@ export async function GET() {
         console.warn("[account GET] Failed to fetch required actions:", e);
       }
     }
+    requiredActions = keycloak.normalizeRequiredActions(requiredActions);
 
     const mergedData = {
       id: data.id || tokenPayload.sub,

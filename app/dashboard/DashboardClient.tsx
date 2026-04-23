@@ -20,7 +20,6 @@ import {
   School,
   ShieldCheck,
   Truck,
-  Users,
   Wrench,
 } from "lucide-react";
 
@@ -30,7 +29,6 @@ import { AccountProvider, useAccount } from "@/app/account/AccountProvider";
 import { KadromierzWorkWidget } from "./components/KadromierzWorkWidget";
 import { useAuthRedirect } from "@/hooks/useAuthRedirect";
 import {
-  canAccessAdminPanel,
   canAccessCalendar,
   canAccessChatwootAsAdmin,
   canAccessChatwootAsAgent,
@@ -113,7 +111,6 @@ function TileGrid() {
   const showKeycloak = canAccessKeycloakAdmin(session);
   const showStepCa = canAccessStepCa(session);
   const showCerts = canManageCertificates(session);
-  const showUsers = canAccessAdminPanel(session);
   const showSprzedawca = canAccessPanel(session, "sprzedawca");
   const showSerwisant = canAccessPanel(session, "serwisant");
   const showKierowca = canAccessPanel(session, "kierowca");
@@ -122,7 +119,7 @@ function TileGrid() {
     showCalendar || showKadromierz || showDirectus ||
     showDocumenso || showMoodle || showKnowledge ||
     showChatwoot || showPostal || showKeycloak ||
-    showStepCa || showCerts || showUsers || showSprzedawca ||
+    showStepCa || showCerts || showSprzedawca ||
     showSerwisant || showKierowca;
 
   return (
@@ -208,18 +205,6 @@ function TileGrid() {
             description="Zarządzanie certyfikatami dostępu do paneli"
             onClick={() => {
               window.location.href = "/admin/certificates";
-            }}
-          />
-        )}
-
-        {showUsers && (
-          <Tile
-            icon={<Users className="w-7 h-7 text-violet-500" aria-hidden="true" />}
-            iconBg="bg-violet-500/10"
-            title="Użytkownicy"
-            description="Zarządzanie kontami, rolami i uprawnieniami"
-            onClick={() => {
-              window.location.href = "/admin/users";
             }}
           />
         )}
@@ -315,8 +300,9 @@ function TileGrid() {
             icon={<KeyRound className="w-7 h-7 text-indigo-500" aria-hidden="true" />}
             iconBg="bg-indigo-500/10"
             title="Keycloak"
-            description="Konsola administracyjna Keycloak (SSO)"
-            href="https://auth.myperformance.pl/admin/master/console/"
+            description="Zarządzanie użytkownikami, rolami i bezpieczeństwem w Keycloak (SSO)"
+            href="/admin/keycloak"
+            sameTab
           />
         )}
 

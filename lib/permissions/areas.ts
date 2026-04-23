@@ -283,8 +283,8 @@ export const AREAS: PermissionArea[] = [
     icon: "ShieldCheck",
     kcRoles: [
       {
-        name: "manage_users",
-        description: "Zarządzanie kontami użytkowników (/admin/users).",
+        name: "keycloak_admin",
+        description: "Administracja użytkownikami i dostępem w Keycloak.",
         priority: 50,
       },
     ],

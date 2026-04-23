@@ -2,7 +2,7 @@ import { getServerSession } from "next-auth/next";
 import { NextRequest, NextResponse } from "next/server";
 import { authOptions } from "@/app/auth";
 import { keycloak } from "@/lib/keycloak";
-import { shiftDateString } from "@/lib/google-calendar";
+import { getFreshGoogleAccessTokenForUser, shiftDateString } from "@/lib/google-calendar";
 import type { CalendarEvent } from "../route";
 
 async function getEventsFromKeycloak(serviceToken: string, userId: string): Promise<CalendarEvent[]> {
@@ -95,20 +95,46 @@ export async function DELETE(
     // If synced to Google, delete from Google Calendar
     if (eventToDelete.googleEventId) {
       try {
-        const googleTokens = await keycloak.getBrokerTokens(session.accessToken, "google");
+        const googleTokens = await getFreshGoogleAccessTokenForUser(
+          session.accessToken,
+        );
         const googleAccessToken = googleTokens.access_token;
 
         if (googleAccessToken) {
-          await fetch(
+          const googleResp = await fetch(
             `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventToDelete.googleEventId}`,
             {
               method: "DELETE",
               headers: { Authorization: `Bearer ${googleAccessToken}` },
             }
           );
+          if (!googleResp.ok && googleResp.status !== 404) {
+            const errorText = await googleResp.text();
+            return NextResponse.json(
+              {
+                error:
+                  errorText ||
+                  "Nie udało się usunąć wydarzenia z Google Calendar",
+              },
+              { status: googleResp.status || 502 },
+            );
+          }
+        } else {
+          return NextResponse.json(
+            { error: "Google access token unavailable" },
+            { status: 400 },
+          );
         }
-      } catch {
-        // Best-effort; local delete still proceeds.
+      } catch (error) {
+        return NextResponse.json(
+          {
+            error:
+              error instanceof Error
+                ? error.message
+                : "Nie udało się usunąć wydarzenia z Google Calendar",
+          },
+          { status: 502 },
+        );
       }
     }
 
@@ -186,7 +212,9 @@ export async function PUT(
     // If synced to Google, update in Google Calendar
     if (updatedEvent.googleEventId) {
       try {
-        const googleTokens = await keycloak.getBrokerTokens(session.accessToken, "google");
+        const googleTokens = await getFreshGoogleAccessTokenForUser(
+          session.accessToken,
+        );
         const googleAccessToken = googleTokens.access_token;
 
         if (googleAccessToken) {
@@ -207,7 +235,7 @@ export async function PUT(
             location: updatedEvent.location,
           };
 
-          await fetch(
+          const googleResp = await fetch(
             `https://www.googleapis.com/calendar/v3/calendars/primary/events/${updatedEvent.googleEventId}`,
             {
               method: "PATCH",
@@ -218,9 +246,33 @@ export async function PUT(
               body: JSON.stringify(googleEvent),
             }
           );
+          if (!googleResp.ok) {
+            const errorText = await googleResp.text();
+            return NextResponse.json(
+              {
+                error:
+                  errorText ||
+                  "Nie udało się zaktualizować wydarzenia w Google Calendar",
+              },
+              { status: googleResp.status || 502 },
+            );
+          }
+        } else {
+          return NextResponse.json(
+            { error: "Google access token unavailable" },
+            { status: 400 },
+          );
         }
-      } catch {
-        // Best-effort; local update still proceeds.
+      } catch (error) {
+        return NextResponse.json(
+          {
+            error:
+              error instanceof Error
+                ? error.message
+                : "Nie udało się zaktualizować wydarzenia w Google Calendar",
+          },
+          { status: 502 },
+        );
       }
     }
 

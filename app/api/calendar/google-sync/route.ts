@@ -2,7 +2,7 @@ import { getServerSession } from "next-auth/next";
 import { NextRequest, NextResponse } from "next/server";
 import { authOptions } from "@/app/auth";
 import { keycloak } from "@/lib/keycloak";
-import { shiftDateString } from "@/lib/google-calendar";
+import { getFreshGoogleAccessTokenForUser, shiftDateString } from "@/lib/google-calendar";
 import type { CalendarEvent } from "../events/route";
 
 /**
@@ -31,9 +31,9 @@ export async function POST(request: NextRequest) {
       | { from?: string; to?: string; persist?: boolean }
       | null;
 
-    let googleTokens: Record<string, any>;
+    let googleTokens: { access_token: string; refresh_token?: string };
     try {
-      googleTokens = await keycloak.getBrokerTokens(session.accessToken, "google");
+      googleTokens = await getFreshGoogleAccessTokenForUser(session.accessToken);
     } catch {
       return NextResponse.json({ error: "Google account not connected" }, { status: 400 });
     }

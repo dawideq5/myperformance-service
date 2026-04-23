@@ -64,6 +64,13 @@ const FORCE_ACTIONS: ForceAction[] = [
   },
 ];
 
+function isActionActive(requiredActions: string[], actionId: string): boolean {
+  if (actionId === "webauthn-register-passwordless") {
+    return requiredActions.includes("WEBAUTHN_REGISTER");
+  }
+  return requiredActions.includes(actionId);
+}
+
 export function SecurityPanel({
   userId,
   email,
@@ -435,7 +442,7 @@ export function SecurityPanel({
         <ul className="divide-y divide-[var(--border-subtle)] border border-[var(--border-subtle)] rounded-lg">
           {FORCE_ACTIONS.map((a) => {
             const Icon = a.icon;
-            const active = requiredActions.includes(a.id);
+            const active = isActionActive(requiredActions, a.id);
             return (
               <li key={a.id} className="px-3 py-3 flex items-start gap-3">
                 <span className="flex-shrink-0 w-8 h-8 rounded-lg bg-[var(--bg-main)] border border-[var(--border-subtle)] flex items-center justify-center">

@@ -117,6 +117,125 @@
         "attributes": {}
       },
       {
+        "name": "certificates_admin",
+        "description": "Wydawanie i odwoływanie certyfikatów klienckich.",
+        "composite": false,
+        "clientRole": false,
+        "attributes": {}
+      },
+      {
+        "name": "kadromierz_user",
+        "description": "Dostęp do grafiku Kadromierz.",
+        "composite": false,
+        "clientRole": false,
+        "attributes": {}
+      },
+      {
+        "name": "directus_admin",
+        "description": "Pełny dostęp do Directus.",
+        "composite": false,
+        "clientRole": false,
+        "attributes": {}
+      },
+      {
+        "name": "documenso_user",
+        "description": "Pracownik — podpisuje własne dokumenty.",
+        "composite": false,
+        "clientRole": false,
+        "attributes": {}
+      },
+      {
+        "name": "documenso_handler",
+        "description": "Obsługa dokumentów (księgowa) — wysyła i śledzi obieg.",
+        "composite": false,
+        "clientRole": false,
+        "attributes": {}
+      },
+      {
+        "name": "documenso_admin",
+        "description": "Administrator Documenso — szablony, webhooki, użytkownicy.",
+        "composite": false,
+        "clientRole": false,
+        "attributes": {}
+      },
+      {
+        "name": "chatwoot_agent",
+        "description": "Agent obsługi klienta — rozmowy, kontakty.",
+        "composite": false,
+        "clientRole": false,
+        "attributes": {}
+      },
+      {
+        "name": "chatwoot_administrator",
+        "description": "Administrator konta Chatwoot — konfiguracja, webhooki, role.",
+        "composite": false,
+        "clientRole": false,
+        "attributes": {}
+      },
+      {
+        "name": "postal_admin",
+        "description": "Administrator Postal (serwery, domeny, polityki).",
+        "composite": false,
+        "clientRole": false,
+        "attributes": {}
+      },
+      {
+        "name": "keycloak_admin",
+        "description": "Administrator Keycloak (klienci, realm settings).",
+        "composite": false,
+        "clientRole": false,
+        "attributes": {}
+      },
+      {
+        "name": "stepca_admin",
+        "description": "Administrator step-ca (provisionery, polityki).",
+        "composite": false,
+        "clientRole": false,
+        "attributes": {}
+      },
+      {
+        "name": "moodle_student",
+        "description": "Uczeń — dostęp do przypisanych kursów.",
+        "composite": false,
+        "clientRole": false,
+        "attributes": {}
+      },
+      {
+        "name": "moodle_editingteacher",
+        "description": "Nauczyciel (edytujący) — tworzenie kursów, ocenianie.",
+        "composite": false,
+        "clientRole": false,
+        "attributes": {}
+      },
+      {
+        "name": "moodle_manager",
+        "description": "Manager — pełny dostęp do konfiguracji, pluginów, użytkowników.",
+        "composite": false,
+        "clientRole": false,
+        "attributes": {}
+      },
+      {
+        "name": "knowledge_viewer",
+        "description": "Tylko do odczytu — może czytać artykuły bez edycji.",
+        "composite": false,
+        "clientRole": false,
+        "attributes": {}
+      },
+      {
+        "name": "knowledge_user",
+        "description": "Dostęp do wiki (czytanie + pisanie).",
+        "composite": false,
+        "clientRole": false,
+        "attributes": {}
+      },
+      {
+        "name": "knowledge_admin",
+        "description": "Administrator Outline (kolekcje, użytkownicy, integracje).",
+        "composite": false,
+        "clientRole": false,
+        "attributes": {}
+      },
+      {
         "name": "directus_access",
         "description": "Dostęp do Directus CMS",
         "composite": false,
@@ -235,7 +354,7 @@
       "alias": "webauthn-register-passwordless",
       "name": "Webauthn Register Passwordless",
       "providerId": "webauthn-register-passwordless",
-      "enabled": false,
+      "enabled": true,
       "defaultAction": false,
       "priority": 80,
       "config": {}
@@ -655,8 +774,10 @@
       ],
       "realmRoles": [
         "default-roles-myperformance",
-        "manage_users",
-        "directus_access"
+        "keycloak_admin",
+        "directus_admin",
+        "certificates_admin",
+        "stepca_admin"
       ],
       "clientRoles": {
         "realm-management": ["realm-admin"]

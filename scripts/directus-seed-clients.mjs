@@ -114,8 +114,7 @@ const CLIENTS = [
   { sort: 12, name: "Kadromierz",            slug: "kadromierz",           category: "integration", fqdn: "https://app.kadromierz.pl",                   icon: "Clock",        keycloak_client_id: "mp-kadromierz",   sso_enabled: false, required_roles: ["kadromierz_user"]            },
   { sort: 13, name: "Keycloak",              slug: "keycloak",             category: "admin",       fqdn: "https://auth.myperformance.pl",               icon: "KeyRound",     keycloak_client_id: "mp-keycloak",     sso_enabled: true,  required_roles: ["keycloak_admin"]             },
   { sort: 14, name: "Step CA",               slug: "step-ca",              category: "admin",       fqdn: "https://myperformance.pl/dashboard/step-ca",  icon: "ShieldCheck",  keycloak_client_id: "stepca-oidc",     sso_enabled: true,  required_roles: ["stepca_admin"]               },
-  { sort: 15, name: "Użytkownicy",           slug: "uzytkownicy",          category: "admin",       fqdn: "https://myperformance.pl/admin/users",        icon: "Users",        keycloak_client_id: "mp-users",        sso_enabled: false, required_roles: ["manage_users"]               },
-  { sort: 16, name: "Zarządzanie kontem",    slug: "zarzadzanie-kontem",   category: "service",     fqdn: "https://myperformance.pl/account",            icon: "UserCog",      keycloak_client_id: "mp-account",      sso_enabled: false, required_roles: []                             },
+  { sort: 15, name: "Zarządzanie kontem",    slug: "zarzadzanie-kontem",   category: "service",     fqdn: "https://myperformance.pl/account",            icon: "UserCog",      keycloak_client_id: "mp-account",      sso_enabled: false, required_roles: []                             },
 ];
 
 // ---------------------------------------------------------------------------

@@ -40,7 +40,7 @@ export interface MoodleEventInput {
 export const calendarService = {
   list: () => api.get<{ events: CalendarEvent[] }>("/api/calendar/events"),
 
-  create: (payload: CalendarEventInput & { target?: "local" | "moodle" }) => {
+  create: (payload: CalendarEventInput & { target?: "local" | "moodle" | "google" }) => {
     if (payload.target === "moodle") {
       const { target: _t, ...rest } = payload;
       return api.post<CreateEventResponse, CalendarEventInput>(
@@ -48,10 +48,16 @@ export const calendarService = {
         rest,
       );
     }
-    const { target: _t, ...rest } = payload;
-    return api.post<CreateEventResponse, CalendarEventInput>(
+    const { target, ...rest } = payload;
+    return api.post<
+      CreateEventResponse,
+      CalendarEventInput & { syncToGoogle?: boolean }
+    >(
       "/api/calendar/events",
-      rest,
+      {
+        ...rest,
+        ...(target === "google" ? { syncToGoogle: true } : {}),
+      },
     );
   },
 

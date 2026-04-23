@@ -6,19 +6,16 @@ import { keycloak } from "@/lib/keycloak";
 
 export const dynamic = "force-dynamic";
 
-interface Props {
-  params: Promise<{ id: string }>;
-}
-
-export default async function AdminUserDetailPage({ params }: Props) {
+export default async function AdminKeycloakPage() {
   const session = await getServerSession(authOptions);
+
   if (!session?.user || session.error === "RefreshTokenExpired") {
     redirect("/login");
   }
+
   if (!canAccessKeycloakAdmin(session)) {
     redirect("/forbidden");
   }
 
-  await params;
   redirect(keycloak.getAdminConsoleUrl());
 }

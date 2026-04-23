@@ -48,7 +48,6 @@ const AREA_ROLES = [
   { name: "sprzedawca", description: "Dostęp do panelu sprzedawcy." },
   { name: "serwisant", description: "Dostęp do panelu serwisanta." },
   { name: "kierowca", description: "Dostęp do panelu kierowcy." },
-  { name: "manage_users", description: "Zarządzanie kontami użytkowników (/admin/users)." },
   { name: "app_user", description: "Dostęp do dashboardu (domyślna dla każdego zalogowanego)." },
 ];
 

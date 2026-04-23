@@ -2,7 +2,7 @@ import { getServerSession } from "next-auth/next";
 import { NextRequest, NextResponse } from "next/server";
 import { authOptions } from "@/app/auth";
 import { keycloak } from "@/lib/keycloak";
-import { shiftDateString } from "@/lib/google-calendar";
+import { getFreshGoogleAccessTokenForUser, shiftDateString } from "@/lib/google-calendar";
 import { randomUUID } from "crypto";
 
 export interface CalendarEvent {
@@ -81,7 +81,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json().catch(() => ({}));
-    const { title, description, startDate, endDate, allDay, color, location } = body;
+    const { title, description, startDate, endDate, allDay, color, location, syncToGoogle } = body;
 
     if (!title || !startDate || !endDate) {
       return NextResponse.json({ error: "title, startDate and endDate are required" }, { status: 400 });
@@ -93,47 +93,74 @@ export async function POST(request: NextRequest) {
     let googleEventId: string | undefined;
     let googleSynced = false;
 
-    // Try to sync to Google Calendar if connected
-    try {
-      const googleTokens = await keycloak.getBrokerTokens(session.accessToken, "google");
-      const googleAccessToken = googleTokens.access_token;
+    if (Boolean(syncToGoogle)) {
+      // Try to sync to Google Calendar if connected
+      try {
+        const googleTokens = await getFreshGoogleAccessTokenForUser(
+          session.accessToken,
+        );
+        const googleAccessToken = googleTokens.access_token;
 
-      if (googleAccessToken) {
-        // Google all-day events use half-open [start, end) — shift our
-        // inclusive end by +1 day before sending.
-        const googleEvent = {
-          summary: String(title).slice(0, 200),
-          description: description ? String(description).slice(0, 1000) : undefined,
-          start: {
-            dateTime: allDay ? undefined : String(startDate),
-            date: allDay ? String(startDate).split('T')[0] : undefined,
-          },
-          end: {
-            dateTime: allDay ? undefined : String(endDate),
-            date: allDay
-              ? shiftDateString(String(endDate).split('T')[0], 1)
-              : undefined,
-          },
-          location: location ? String(location).slice(0, 200) : undefined,
-        };
+        if (googleAccessToken) {
+          // Google all-day events use half-open [start, end) — shift our
+          // inclusive end by +1 day before sending.
+          const googleEvent = {
+            summary: String(title).slice(0, 200),
+            description: description ? String(description).slice(0, 1000) : undefined,
+            start: {
+              dateTime: allDay ? undefined : String(startDate),
+              date: allDay ? String(startDate).split('T')[0] : undefined,
+            },
+            end: {
+              dateTime: allDay ? undefined : String(endDate),
+              date: allDay
+                ? shiftDateString(String(endDate).split('T')[0], 1)
+                : undefined,
+            },
+            location: location ? String(location).slice(0, 200) : undefined,
+          };
 
-        const calResp = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${googleAccessToken}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(googleEvent),
-        });
+          const calResp = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${googleAccessToken}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(googleEvent),
+          });
 
-        if (calResp.ok) {
-          const calData = await calResp.json();
-          googleEventId = calData.id;
-          googleSynced = true;
+          if (calResp.ok) {
+            const calData = await calResp.json();
+            googleEventId = calData.id;
+            googleSynced = true;
+          } else {
+            const errorText = await calResp.text();
+            return NextResponse.json(
+              {
+                error:
+                  errorText ||
+                  "Nie udało się zapisać wydarzenia w Google Calendar",
+              },
+              { status: calResp.status || 502 },
+            );
+          }
+        } else {
+          return NextResponse.json(
+            { error: "Google access token unavailable" },
+            { status: 400 },
+          );
         }
+      } catch (error) {
+        return NextResponse.json(
+          {
+            error:
+              error instanceof Error
+                ? error.message
+                : "Nie udało się zapisać wydarzenia w Google Calendar",
+          },
+          { status: 502 },
+        );
       }
-    } catch {
-      // Best-effort; local create still proceeds.
     }
 
     const newEvent: CalendarEvent = {

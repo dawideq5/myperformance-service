@@ -1,8 +1,8 @@
 import { getServerSession } from "next-auth/next";
 import { redirect } from "next/navigation";
 import { authOptions } from "@/app/auth";
-import { canAccessAdminPanel } from "@/lib/admin-auth";
-import { UsersClient } from "./UsersClient";
+import { canAccessKeycloakAdmin } from "@/lib/admin-auth";
+import { keycloak } from "@/lib/keycloak";
 
 export const dynamic = "force-dynamic";
 
@@ -13,15 +13,9 @@ export default async function AdminUsersPage() {
     redirect("/login");
   }
 
-  if (!canAccessAdminPanel(session)) {
+  if (!canAccessKeycloakAdmin(session)) {
     redirect("/forbidden");
   }
 
-  return (
-    <UsersClient
-      selfId={session.user.id}
-      userLabel={session.user.name ?? session.user.email ?? ""}
-      userEmail={session.user.email ?? undefined}
-    />
-  );
+  redirect(keycloak.getAdminConsoleUrl());
 }
