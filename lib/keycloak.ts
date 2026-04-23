@@ -157,7 +157,6 @@ export class KeycloakService {
 
     if (!response.ok) {
       const err = await response.text();
-      console.error(`[keycloak-admin] Failed to get service account token:`, err);
       throw new Error(`Failed to get service account token: ${err}`);
     }
 

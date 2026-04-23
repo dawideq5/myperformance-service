@@ -1,5 +1,5 @@
 import type { Session } from "next-auth";
-import { ApiError } from "@/lib/api-utils";
+import { ApiError } from "@/lib/api-errors";
 import { AREAS, findAreaForRole } from "@/lib/permissions/areas";
 
 /**

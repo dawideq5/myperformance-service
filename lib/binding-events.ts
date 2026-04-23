@@ -3,6 +3,7 @@ import type {
   DeviceFingerprintComponents,
   FingerprintDiff,
 } from "@/lib/device-fingerprint";
+import { log } from "@/lib/logger";
 
 export type BindingEventKind = "created" | "seen" | "denied" | "reset";
 
@@ -37,9 +38,11 @@ function getBus(): EventEmitter {
 export function emitBindingEvent(event: BindingEvent): void {
   const bus = getBus();
   if (process.env.CERT_GATE_DEBUG === "1") {
-    console.log(
-      `[binding-events] emit kind=${event.kind} serial=${event.serialNumber} listeners=${bus.listenerCount("event")}`,
-    );
+    log.debug("binding-events.emit", {
+      kind: event.kind,
+      serial: event.serialNumber,
+      listeners: bus.listenerCount("event"),
+    });
   }
   bus.emit("event", event);
 }
@@ -48,16 +51,16 @@ export function subscribeBindingEvents(listener: BindingListener): () => void {
   const bus = getBus();
   bus.on("event", listener);
   if (process.env.CERT_GATE_DEBUG === "1") {
-    console.log(
-      `[binding-events] subscribed — total listeners=${bus.listenerCount("event")}`,
-    );
+    log.debug("binding-events.subscribed", {
+      listeners: bus.listenerCount("event"),
+    });
   }
   return () => {
     bus.off("event", listener);
     if (process.env.CERT_GATE_DEBUG === "1") {
-      console.log(
-        `[binding-events] unsubscribed — total listeners=${bus.listenerCount("event")}`,
-      );
+      log.debug("binding-events.unsubscribed", {
+        listeners: bus.listenerCount("event"),
+      });
     }
   };
 }

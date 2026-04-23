@@ -1,6 +1,43 @@
 {
-  "extends": [
-    "next/core-web-vitals",
-    "next/typescript"
+  "extends": ["next/core-web-vitals", "next/typescript"],
+  "ignorePatterns": [
+    "src/keycloak-theme/**",
+    "build_keycloak/**",
+    "dist_keycloak_theme/**",
+    ".next/**",
+    "node_modules/**"
+  ],
+  "rules": {
+    "no-console": ["warn", { "allow": ["error"] }],
+    "@typescript-eslint/no-explicit-any": "warn",
+    "@typescript-eslint/no-unused-vars": [
+      "warn",
+      {
+        "argsIgnorePattern": "^_",
+        "varsIgnorePattern": "^_",
+        "caughtErrorsIgnorePattern": "^_"
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": ["lib/logger.ts"],
+      "rules": { "no-console": "off" }
+    },
+    {
+      "files": [
+        "src/keycloak-theme/**",
+        "scripts/**",
+        "**/*.config.{js,ts,mjs,cjs}"
+      ],
+      "rules": { "no-console": "off" }
+    },
+    {
+      "files": ["**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx"],
+      "rules": {
+        "@typescript-eslint/no-explicit-any": "off",
+        "no-console": "off"
+      }
+    }
   ]
 }

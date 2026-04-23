@@ -20,6 +20,7 @@ import {
   School,
   ShieldCheck,
   Truck,
+  Users,
   Wrench,
 } from "lucide-react";
 
@@ -29,6 +30,7 @@ import { AccountProvider, useAccount } from "@/app/account/AccountProvider";
 import { KadromierzWorkWidget } from "./components/KadromierzWorkWidget";
 import { useAuthRedirect } from "@/hooks/useAuthRedirect";
 import {
+  canAccessAdminPanel,
   canAccessCalendar,
   canAccessChatwootAsAdmin,
   canAccessChatwootAsAgent,
@@ -109,6 +111,7 @@ function TileGrid() {
   const showChatwoot = showChatwootAgent || showChatwootAdmin;
   const showPostal = canAccessPostal(session);
   const showKeycloak = canAccessKeycloakAdmin(session);
+  const showAdminUsers = canAccessAdminPanel(session);
   const showStepCa = canAccessStepCa(session);
   const showCerts = canManageCertificates(session);
   const showSprzedawca = canAccessPanel(session, "sprzedawca");
@@ -119,8 +122,8 @@ function TileGrid() {
     showCalendar || showKadromierz || showDirectus ||
     showDocumenso || showMoodle || showKnowledge ||
     showChatwoot || showPostal || showKeycloak ||
-    showStepCa || showCerts || showSprzedawca ||
-    showSerwisant || showKierowca;
+    showAdminUsers || showStepCa || showCerts ||
+    showSprzedawca || showSerwisant || showKierowca;
 
   return (
     <div className="space-y-4">
@@ -295,12 +298,36 @@ function TileGrid() {
           />
         )}
 
+        {showAdminUsers && (
+          <Tile
+            icon={<Users className="w-7 h-7 text-indigo-500" aria-hidden="true" />}
+            iconBg="bg-indigo-500/10"
+            title="Użytkownicy"
+            description="Zarządzanie użytkownikami i precyzyjne przypisywanie ról per panel (Keycloak SoT)"
+            onClick={() => {
+              window.location.href = "/admin/users";
+            }}
+          />
+        )}
+
+        {showAdminUsers && (
+          <Tile
+            icon={<ShieldCheck className="w-7 h-7 text-violet-500" aria-hidden="true" />}
+            iconBg="bg-violet-500/10"
+            title="Szablony ról"
+            description="Definiowanie zestawów ról do szybkiego przypisywania użytkownikom"
+            onClick={() => {
+              window.location.href = "/admin/templates";
+            }}
+          />
+        )}
+
         {showKeycloak && (
           <ExternalTile
             icon={<KeyRound className="w-7 h-7 text-indigo-500" aria-hidden="true" />}
             iconBg="bg-indigo-500/10"
-            title="Keycloak"
-            description="Zarządzanie użytkownikami, rolami i bezpieczeństwem w Keycloak (SSO)"
+            title="Keycloak (konsola IdP)"
+            description="Natywna konsola administracyjna Keycloak — realms, klienci, IdP, polityki"
             href="/admin/keycloak"
             sameTab
           />

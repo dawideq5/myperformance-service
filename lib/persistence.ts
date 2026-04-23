@@ -2,6 +2,7 @@ import { promises as fs } from "node:fs";
 import { dirname } from "node:path";
 import { Pool, type PoolClient } from "pg";
 import { getOptionalEnv } from "@/lib/env";
+import { log } from "@/lib/logger";
 import type { IssuedCertificate } from "@/lib/step-ca-types";
 import type {
   DeviceFingerprintComponents,
@@ -36,7 +37,7 @@ function getPool(): Pool | null {
       connectionTimeoutMillis: 10_000,
     });
     pool.on("error", (err) => {
-      console.error("[persistence] pg pool error:", err.message);
+      log.error("persistence.pg_pool_error", { message: err.message });
     });
   }
   return pool;

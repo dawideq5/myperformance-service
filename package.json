@@ -9,7 +9,10 @@
     "build:keycloak-theme-app": "vite build",
     "build-keycloak-theme": "npm run build:keycloak-theme-app && keycloakify build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@types/node-forge": "^1.3.14",
@@ -22,7 +25,7 @@
     "next": "^15.0.0",
     "next-auth": "^4.24.0",
     "node-forge": "^1.4.0",
-    "nodemailer": "^7.0.7",
+    "nodemailer": "^8.0.5",
     "otpauth": "^9.5.0",
     "pg": "^8.13.1",
     "qrcode": "^1.5.4",
@@ -39,16 +42,19 @@
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^6.0.1",
+    "@vitest/coverage-v8": "^4.1.5",
     "autoprefixer": "^10.4.0",
     "eslint": "^8.57.0",
     "eslint-config-next": "^14.2.0",
     "postcss": "^8.4.0",
     "tailwindcss": "^3.4.0",
     "typescript": "^5.3.0",
-    "vite": "^8.0.8"
+    "vite": "^8.0.8",
+    "vitest": "^4.1.5"
   },
   "overrides": {
     "@emnapi/core": "1.9.2",
-    "@emnapi/runtime": "1.9.2"
+    "@emnapi/runtime": "1.9.2",
+    "uuid": "^14.0.0"
   }
 }

@@ -1,4 +1,5 @@
 import { keycloak } from "@/lib/keycloak";
+import { log } from "@/lib/logger";
 import {
   AREAS,
   findAreaForRole,
@@ -285,10 +286,11 @@ export async function assignUserAreaRole(
             phone: getPhone(kcUser),
           })
           .catch((err) => {
-            console.warn(
-              `[sync] syncUserProfile ${area.nativeProviderId} failed for ${kcUser.email}:`,
-              err instanceof Error ? err.message : err,
-            );
+            log.warn("sync.syncUserProfile.failed", {
+              provider: area.nativeProviderId,
+              email: kcUser.email,
+              err,
+            });
           });
         nativeSync = "ok";
       } catch (err) {

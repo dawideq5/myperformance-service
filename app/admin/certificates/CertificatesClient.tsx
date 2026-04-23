@@ -1032,9 +1032,9 @@ function BindingDetails({
                         <span className="text-[var(--text-main)]">
                           {BINDING_FIELD_LABELS[d.field] ?? d.field}:
                         </span>{" "}
-                        <span className="text-red-300">„{d.after}"</span>{" "}
+                        <span className="text-red-300">„{d.after}&rdquo;</span>{" "}
                         zamiast{" "}
-                        <span className="text-emerald-300">„{d.before}"</span>
+                        <span className="text-emerald-300">„{d.before}&rdquo;</span>
                       </li>
                     ))}
                   </ul>

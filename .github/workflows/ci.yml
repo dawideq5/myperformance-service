@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-typecheck-test:
+    name: Lint · Typecheck · Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+  build:
+    name: Build (Next.js)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: lint-typecheck-test
+
+    env:
+      # Build-time stubs — production values provided by the deploy pipeline.
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: ci-build-secret-placeholder-not-used-at-runtime
+      KEYCLOAK_URL: http://localhost:8080
+      KEYCLOAK_REALM: ci
+      KEYCLOAK_CLIENT_ID: ci
+      KEYCLOAK_CLIENT_SECRET: ci-secret
+      SKIP_ENV_VALIDATION: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+  audit:
+    name: npm audit (production)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
