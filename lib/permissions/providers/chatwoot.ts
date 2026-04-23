@@ -1,4 +1,5 @@
 import { getOptionalEnv } from "@/lib/env";
+import { log } from "@/lib/logger";
 import type {
   AssignUserRoleArgs,
   NativePermission,
@@ -7,6 +8,8 @@ import type {
   ProfileSyncArgs,
 } from "./types";
 import { ProviderNotConfiguredError, ProviderUnsupportedError } from "./types";
+
+const logger = log.child({ module: "chatwoot-provider" });
 
 /**
  * Chatwoot provider — integracja przez Platform API oraz Application API
@@ -263,46 +266,105 @@ export class ChatwootProvider implements PermissionProvider {
     if (!this.isConfigured()) return;
     const lookup = args.previousEmail ?? args.email;
     const user = await this.findUser(lookup);
-    if (!user) return;
+    if (!user) {
+      logger.info("syncUserProfile: user not found in chatwoot", {
+        email: lookup,
+      });
+      return;
+    }
     const patch: Record<string, string> = {};
     const fullName =
       [args.firstName, args.lastName].filter(Boolean).join(" ").trim() ||
       args.displayName ||
       "";
     if (fullName && fullName !== user.name) patch.name = fullName;
-    if (args.email && args.email.toLowerCase() !== user.email?.toLowerCase()) {
+    if (
+      args.email &&
+      args.email.toLowerCase() !== (user.email ?? "").toLowerCase()
+    ) {
       patch.email = args.email;
     }
-    // Chatwoot User nie trzyma telefonu (numery są na poziomie Contact
-    // w inboxach, nie na user). Pomijamy phone.
+    // Chatwoot User nie trzyma telefonu (numery są na poziomie Contact).
     if (Object.keys(patch).length === 0) return;
-    // PUT, nie PATCH — Chatwoot Platform API odrzuca PATCH na users.
-    const res = await platformFetch(`/platform/api/v1/users/${user.id}`, {
+
+    // Chatwoot Platform API w v4+ preferuje PUT. Starsze wersje akceptują
+    // PATCH. Próbujemy PUT jako pierwszy (szerzej zaimplementowany), po
+    // failu (405/404) → PATCH. Oba wyniki logowane żeby admin widział
+    // konkretny błąd w audit log.
+    let res = await platformFetch(`/platform/api/v1/users/${user.id}`, {
       method: "PUT",
       body: JSON.stringify(patch),
     });
+    if (res.status === 405 || res.status === 404) {
+      const fallback = await platformFetch(
+        `/platform/api/v1/users/${user.id}`,
+        { method: "PATCH", body: JSON.stringify(patch) },
+      );
+      if (fallback.ok) {
+        logger.info("syncUserProfile: PATCH fallback OK", {
+          userId: user.id,
+          fields: Object.keys(patch),
+        });
+        return;
+      }
+      res = fallback;
+    }
     if (!res.ok) {
       const body = await res.text().catch(() => "");
-      throw new Error(
-        `Chatwoot syncUserProfile ${user.id} failed: ${res.status} ${body.slice(0, 200)}`,
-      );
+      const err = `Chatwoot syncUserProfile ${user.id} failed: ${res.status} ${body.slice(0, 200)}`;
+      logger.error("syncUserProfile failed", {
+        userId: user.id,
+        status: res.status,
+        fields: Object.keys(patch),
+        body: body.slice(0, 200),
+      });
+      throw new Error(err);
     }
+    logger.info("syncUserProfile OK", {
+      userId: user.id,
+      fields: Object.keys(patch),
+    });
   }
 
+  /**
+   * Chatwoot Platform API **nie** wspiera `?q=email` search. Musimy
+   * paginować `/platform/api/v1/users` i filtrować lokalnie. Limit
+   * domyślny Chatwoota = 15 na stronę, przebiegamy do 100 stron (1500
+   * userów) — dla instancji z większą liczbą Chatwoot wymaga plików
+   * mapping-owych (poza zakresem dashboardu).
+   */
   private async findUser(email: string): Promise<ChatwootUser | null> {
-    const res = await platformFetch(
-      `/platform/api/v1/users?q=${encodeURIComponent(email)}`,
-    );
-    if (res.status === 404) return null;
-    if (!res.ok) return null;
-    const data = (await res.json()) as ChatwootUser[] | { data?: ChatwootUser[] };
-    const list = Array.isArray(data) ? data : data.data ?? [];
-    const match = list.find((u) => u.email?.toLowerCase() === email.toLowerCase());
-    if (!match) return null;
-    // Uzupełnij o szczegóły membership (findUser zwraca krótką formę).
-    const detail = await platformFetch(`/platform/api/v1/users/${match.id}`);
-    if (!detail.ok) return match;
-    return (await detail.json()) as ChatwootUser;
+    const target = email.toLowerCase();
+    for (let page = 1; page <= 100; page++) {
+      const res = await platformFetch(`/platform/api/v1/users?page=${page}`);
+      if (res.status === 404) return null;
+      if (!res.ok) {
+        logger.warn("findUser: list failed", { page, status: res.status });
+        return null;
+      }
+      const data = (await res.json()) as
+        | ChatwootUser[]
+        | { data?: ChatwootUser[]; payload?: ChatwootUser[] };
+      const list = Array.isArray(data)
+        ? data
+        : data.data ?? data.payload ?? [];
+      if (list.length === 0) return null;
+      const match = list.find(
+        (u) => (u.email ?? "").toLowerCase() === target,
+      );
+      if (match) {
+        // Pełne szczegóły (membership) — listing zwraca tylko krótką formę.
+        const detail = await platformFetch(
+          `/platform/api/v1/users/${match.id}`,
+        );
+        if (detail.ok) return (await detail.json()) as ChatwootUser;
+        return match;
+      }
+      // Heurystyka: jeśli page zwrócił mniej niż pełen zestaw (np. <15)
+      // to ostatnia strona — kończymy.
+      if (list.length < 15) return null;
+    }
+    return null;
   }
 
   private async findOrCreateUser(

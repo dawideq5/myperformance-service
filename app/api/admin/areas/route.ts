@@ -17,7 +17,7 @@ import { resolveRoleCatalog } from "@/lib/permissions/catalog";
  * Źródło: `getConfig()` każdego providera w `lib/permissions/providers/*`.
  */
 const REQUIRED_ENV_BY_PROVIDER: Record<string, string[]> = {
-  chatwoot: ["CHATWOOT_URL", "CHATWOOT_API_ACCESS_TOKEN"],
+  chatwoot: ["CHATWOOT_URL", "CHATWOOT_PLATFORM_TOKEN"],
   moodle: ["MOODLE_URL", "MOODLE_API_TOKEN"],
   directus: ["DIRECTUS_URL", "DIRECTUS_ADMIN_TOKEN"],
   documenso: ["DOCUMENSO_DB_URL"],

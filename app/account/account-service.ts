@@ -553,6 +553,48 @@ export const permissionAreaService = {
       { deleteLegacy?: boolean; userId?: string; limit?: number }
     >("/api/admin/iam/migrate-legacy-roles", opts ?? {}),
 
+  resyncProfiles: (opts?: { userId?: string; limit?: number }) =>
+    api.post<
+      {
+        totalUsers: number;
+        ok: number;
+        failed: number;
+        perUser: Array<{
+          userId: string;
+          username: string;
+          email: string | null;
+          results: Array<{
+            areaId: string;
+            status: "ok" | "skipped" | "failed";
+            error?: string;
+          }>;
+        }>;
+      },
+      { userId?: string; limit?: number }
+    >("/api/admin/iam/resync-profiles", opts ?? {}),
+
+  diagnoseProvider: (providerId: string, email?: string) => {
+    const qs = email ? `?email=${encodeURIComponent(email)}` : "";
+    return api.get<{
+      providerId: string;
+      label: string;
+      configured: boolean;
+      supportsCustomRoles: boolean;
+      roles:
+        | Array<{ id: string; name: string; userCount: number | null }>
+        | null;
+      rolesError?: string;
+      userLookup?: {
+        email: string;
+        found: boolean;
+        currentRole: string | null;
+        error?: string;
+      };
+    }>(
+      `/api/admin/iam/diagnostics/${encodeURIComponent(providerId)}${qs}`,
+    );
+  },
+
   bulkAssign: (payload: {
     userIds: string[];
     areaId: string;

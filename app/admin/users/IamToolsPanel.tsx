@@ -6,6 +6,8 @@ import {
   CheckCircle2,
   Loader2,
   RefreshCw,
+  Stethoscope,
+  UserRoundCog,
   XCircle,
 } from "lucide-react";
 
@@ -17,6 +19,21 @@ type SyncResult = Awaited<ReturnType<typeof permissionAreaService.syncKc>>;
 type MigrateResult = Awaited<
   ReturnType<typeof permissionAreaService.migrateLegacyRoles>
 >;
+type Diagnostic = Awaited<
+  ReturnType<typeof permissionAreaService.diagnoseProvider>
+>;
+type ResyncResult = Awaited<
+  ReturnType<typeof permissionAreaService.resyncProfiles>
+>;
+
+const PROVIDERS_TO_DIAGNOSE = [
+  "chatwoot",
+  "moodle",
+  "directus",
+  "documenso",
+  "outline",
+  "postal",
+];
 
 /**
  * Panel "Narzędzia IAM" w /admin/users — dwie akcje:
@@ -37,6 +54,11 @@ export function IamToolsPanel() {
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
   const [migrateResult, setMigrateResult] = useState<MigrateResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [diagnosing, setDiagnosing] = useState(false);
+  const [diagnostics, setDiagnostics] = useState<Diagnostic[] | null>(null);
+  const [diagnoseEmail, setDiagnoseEmail] = useState("");
+  const [resyncing, setResyncing] = useState(false);
+  const [resyncResult, setResyncResult] = useState<ResyncResult | null>(null);
 
   const runSync = useCallback(async () => {
     setSyncing(true);
@@ -54,6 +76,62 @@ export function IamToolsPanel() {
       setSyncing(false);
     }
   }, [deleteStale]);
+
+  const runResync = useCallback(async () => {
+    if (
+      !window.confirm(
+        "Przepchnąć profile (imię, nazwisko, email, telefon) z Keycloak do wszystkich aplikacji natywnych (Chatwoot, Moodle, Documenso, Outline, Directus, Postal)?\n\nOperacja nie zmienia ról, tylko dane profilu.",
+      )
+    ) {
+      return;
+    }
+    setResyncing(true);
+    setError(null);
+    try {
+      const res = await permissionAreaService.resyncProfiles();
+      setResyncResult(res);
+    } catch (err) {
+      setError(
+        err instanceof ApiRequestError
+          ? err.message
+          : "Nie udało się zresynchronizować profili",
+      );
+    } finally {
+      setResyncing(false);
+    }
+  }, []);
+
+  const runDiagnostics = useCallback(async () => {
+    setDiagnosing(true);
+    setError(null);
+    try {
+      const email = diagnoseEmail.trim() || undefined;
+      const results = await Promise.all(
+        PROVIDERS_TO_DIAGNOSE.map((p) =>
+          permissionAreaService.diagnoseProvider(p, email).catch(
+            (err): Diagnostic => ({
+              providerId: p,
+              label: p,
+              configured: false,
+              supportsCustomRoles: false,
+              roles: null,
+              rolesError:
+                err instanceof ApiRequestError ? err.message : String(err),
+            }),
+          ),
+        ),
+      );
+      setDiagnostics(results);
+    } catch (err) {
+      setError(
+        err instanceof ApiRequestError
+          ? err.message
+          : "Nie udało się zdiagnozować providerów",
+      );
+    } finally {
+      setDiagnosing(false);
+    }
+  }, [diagnoseEmail]);
 
   const runMigrate = useCallback(async () => {
     if (
@@ -106,7 +184,7 @@ export function IamToolsPanel() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         {/* ─── Sync KC ────────────────────────────────────────────────── */}
         <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3">
           <div className="flex items-start gap-2 mb-2">
@@ -158,6 +236,78 @@ export function IamToolsPanel() {
                 <div className="text-red-400">
                   Błędy: {syncResult.errors.length} — sprawdź audit log.
                 </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* ─── Resync profili ─────────────────────────────────────────── */}
+        <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3">
+          <div className="flex items-start gap-2 mb-2">
+            <UserRoundCog
+              className="w-4 h-4 text-[var(--accent)] mt-0.5"
+              aria-hidden="true"
+            />
+            <div>
+              <p className="text-sm font-medium text-[var(--text-main)]">
+                Resync profili do aplikacji
+              </p>
+              <p className="text-xs text-[var(--text-muted)] mt-0.5">
+                Przepchnij aktualne imię/nazwisko/email/telefon z KC do
+                Chatwoota, Moodla, Documenso, Outline i innych. Nie zmienia
+                ról — tylko dane profilu.
+              </p>
+            </div>
+          </div>
+          <Button
+            size="sm"
+            variant="secondary"
+            loading={resyncing}
+            leftIcon={
+              <UserRoundCog className="w-3.5 h-3.5" aria-hidden="true" />
+            }
+            onClick={() => void runResync()}
+          >
+            Resync wszystkich
+          </Button>
+
+          {resyncResult && (
+            <div className="mt-2 text-xs space-y-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge tone="success">OK: {resyncResult.ok}</Badge>
+                {resyncResult.failed > 0 && (
+                  <Badge tone="danger">Błędy: {resyncResult.failed}</Badge>
+                )}
+                <span className="text-[var(--text-muted)]">
+                  z {resyncResult.totalUsers} userów
+                </span>
+              </div>
+              {resyncResult.failed > 0 && (
+                <details>
+                  <summary className="cursor-pointer text-[var(--accent)] hover:underline">
+                    Pokaż błędy
+                  </summary>
+                  <ul className="mt-1 max-h-40 overflow-y-auto space-y-0.5">
+                    {resyncResult.perUser
+                      .filter((r) => r.results.some((x) => x.status === "failed"))
+                      .map((r) => (
+                        <li key={r.userId} className="text-[11px]">
+                          <span className="text-[var(--text-main)]">
+                            {r.email ?? r.username}
+                          </span>
+                          <ul className="ml-3 text-red-400">
+                            {r.results
+                              .filter((x) => x.status === "failed")
+                              .map((x, i) => (
+                                <li key={i}>
+                                  {x.areaId}: {x.error ?? "?"}
+                                </li>
+                              ))}
+                          </ul>
+                        </li>
+                      ))}
+                  </ul>
+                </details>
               )}
             </div>
           )}
@@ -271,6 +421,101 @@ export function IamToolsPanel() {
             </div>
           )}
         </div>
+      </div>
+
+      {/* ─── Diagnostyka providerów ─────────────────────────────────── */}
+      <div className="mt-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3">
+        <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
+          <div className="flex items-start gap-2">
+            <Stethoscope
+              className="w-4 h-4 text-[var(--accent)] mt-0.5"
+              aria-hidden="true"
+            />
+            <div>
+              <p className="text-sm font-medium text-[var(--text-main)]">
+                Diagnostyka providerów
+              </p>
+              <p className="text-xs text-[var(--text-muted)] mt-0.5">
+                Sprawdź, czy każdy provider jest skonfigurowany i widzi
+                swoje role. Opcjonalnie podaj email żeby zobaczyć jaką rolę
+                provider obecnie widzi dla tego usera.
+              </p>
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-end gap-2 mb-2">
+          <input
+            type="email"
+            placeholder="email@example.com (opcjonalnie)"
+            value={diagnoseEmail}
+            onChange={(e) => setDiagnoseEmail(e.target.value)}
+            className="flex-1 min-w-[220px] px-3 py-1.5 rounded-md bg-[var(--bg-main)] border border-[var(--border-subtle)] text-sm text-[var(--text-main)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
+          />
+          <Button
+            size="sm"
+            variant="secondary"
+            loading={diagnosing}
+            leftIcon={
+              <Stethoscope className="w-3.5 h-3.5" aria-hidden="true" />
+            }
+            onClick={() => void runDiagnostics()}
+          >
+            Testuj wszystkich
+          </Button>
+        </div>
+
+        {diagnostics && diagnostics.length > 0 && (
+          <ul className="divide-y divide-[var(--border-subtle)] border border-[var(--border-subtle)] rounded-lg bg-[var(--bg-main)] max-h-80 overflow-y-auto">
+            {diagnostics.map((d) => (
+              <li key={d.providerId} className="px-3 py-2 text-xs">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium text-sm text-[var(--text-main)]">
+                    {d.label}
+                  </span>
+                  {d.configured ? (
+                    <Badge tone="success">skonfigurowany</Badge>
+                  ) : (
+                    <Badge tone="warning">offline</Badge>
+                  )}
+                  {d.rolesError && (
+                    <Badge tone="danger">błąd: {d.rolesError.slice(0, 60)}</Badge>
+                  )}
+                  {d.roles && (
+                    <span className="text-[var(--text-muted)]">
+                      {d.roles.length} ról
+                    </span>
+                  )}
+                </div>
+                {d.userLookup && (
+                  <div className="mt-1 flex items-center gap-1">
+                    {d.userLookup.found ? (
+                      <CheckCircle2
+                        className="w-3 h-3 text-emerald-500"
+                        aria-hidden="true"
+                      />
+                    ) : (
+                      <XCircle
+                        className="w-3 h-3 text-red-500"
+                        aria-hidden="true"
+                      />
+                    )}
+                    <span className="text-[var(--text-muted)]">
+                      {d.userLookup.email}:{" "}
+                      {d.userLookup.found
+                        ? `aktualna rola = "${d.userLookup.currentRole}"`
+                        : "user nie znaleziony"}
+                      {d.userLookup.error && (
+                        <span className="text-red-400 ml-1">
+                          ({d.userLookup.error})
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </Card>
   );

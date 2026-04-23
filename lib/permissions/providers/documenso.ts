@@ -44,6 +44,7 @@ let pool: Pool | null = null;
 interface Config {
   dbUrl: string;
   teamId: number | null;
+  organisationId: string | null;
 }
 
 function getConfig(): Config {
@@ -51,7 +52,17 @@ function getConfig(): Config {
   if (!dbUrl) throw new ProviderNotConfiguredError("documenso");
   const rawTeam = getOptionalEnv("DOCUMENSO_TEAM_ID");
   const teamId = rawTeam ? Number(rawTeam) : null;
-  return { dbUrl, teamId: Number.isFinite(teamId) ? teamId : null };
+  // `Documenso v2+` wprowadziło OrganisationMember z rolami
+  // ORGANISATION_OWNER / ORGANISATION_ADMIN / ORGANISATION_MEMBER.
+  // Gdy DOCUMENSO_ORGANISATION_ID jest ustawione — propagujemy rolę
+  // również na poziom organizacji (MANAGER/ADMIN w naszym panelu →
+  // ORGANISATION_ADMIN, MEMBER → ORGANISATION_MEMBER).
+  const organisationId = getOptionalEnv("DOCUMENSO_ORGANISATION_ID") || null;
+  return {
+    dbUrl,
+    teamId: Number.isFinite(teamId) ? teamId : null,
+    organisationId,
+  };
 }
 
 function getPool(): Pool {
@@ -196,22 +207,45 @@ export class DocumensoProvider implements PermissionProvider {
       );
       const updated = (res.rowCount ?? 0) > 0;
 
-      if (updated && cfg.teamId !== null) {
-        // Propagacja do team membership (TeamMember.role jest team-level
-        // enum w Documenso v2). UPSERT po (teamId, userId).
+      if (updated && (cfg.teamId !== null || cfg.organisationId !== null)) {
         const userRes = await client.query<{ id: number }>(
           `SELECT id FROM "User" WHERE LOWER(email) = LOWER($1) LIMIT 1`,
           [args.email],
         );
         const userId = userRes.rows[0]?.id;
         if (userId) {
-          await client.query(
-            `INSERT INTO "TeamMember" ("teamId", "userId", role, "createdAt")
-             VALUES ($1, $2, $3::"TeamMemberRole", NOW())
-             ON CONFLICT ("teamId", "userId")
-             DO UPDATE SET role = EXCLUDED.role`,
-            [cfg.teamId, userId, teamRole],
-          );
+          // Team-level — gdy DOCUMENSO_TEAM_ID ustawiony.
+          if (cfg.teamId !== null) {
+            await client.query(
+              `INSERT INTO "TeamMember" ("teamId", "userId", role, "createdAt")
+               VALUES ($1, $2, $3::"TeamMemberRole", NOW())
+               ON CONFLICT ("teamId", "userId")
+               DO UPDATE SET role = EXCLUDED.role`,
+              [cfg.teamId, userId, teamRole],
+            );
+          }
+          // Organisation-level — gdy DOCUMENSO_ORGANISATION_ID ustawiony.
+          // Documenso v2 OrganisationMember.role enum:
+          //   ORGANISATION_OWNER / ORGANISATION_ADMIN / ORGANISATION_MEMBER
+          // Nie nadpisujemy OWNER (twórca organisation) — UPSERT tylko gdy
+          // userrole=admin/manager/member i aktualna nie jest OWNER.
+          if (cfg.organisationId !== null) {
+            const orgRole =
+              teamRole === ROLE_ADMIN
+                ? "ORGANISATION_ADMIN"
+                : teamRole === ROLE_MANAGER
+                  ? "ORGANISATION_ADMIN"
+                  : "ORGANISATION_MEMBER";
+            await client.query(
+              `INSERT INTO "OrganisationMember"
+                 ("organisationId", "userId", role, "createdAt")
+               VALUES ($1, $2, $3::"OrganisationMemberRole", NOW())
+               ON CONFLICT ("organisationId", "userId")
+               DO UPDATE SET role = EXCLUDED.role
+                 WHERE "OrganisationMember".role <> 'ORGANISATION_OWNER'`,
+              [cfg.organisationId, userId, orgRole],
+            );
+          }
         }
       }
       await client.query("COMMIT");
