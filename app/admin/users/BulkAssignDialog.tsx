@@ -1,25 +1,25 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Loader2, Users, XCircle } from "lucide-react";
+import { CheckCircle2, Users, XCircle } from "lucide-react";
 
-import {
-  Alert,
-  Badge,
-  Button,
-  Dialog,
-  FieldWrapper,
-} from "@/components/ui";
+import { Alert, Badge, Button, Dialog, FieldWrapper } from "@/components/ui";
 import { ApiRequestError } from "@/lib/api-client";
 import {
   permissionAreaService,
   type AdminUserSummary,
   type AreaDetail,
-  type AreaSummary,
   type AreaRole,
+  type AreaSummary,
 } from "@/app/account/account-service";
 
-interface BulkAssignDialogProps {
+/**
+ * Masowe przypisywanie roli — wybierasz aplikację + konkretną rolę, a
+ * dashboard wywołuje `assignUserAreaRole` dla każdego zaznaczonego usera.
+ * Pokazuje per-user wynik (ok/failed + nativeSync diff).
+ */
+
+interface Props {
   open: boolean;
   users: AdminUserSummary[];
   onClose: () => void;
@@ -38,12 +38,7 @@ type ResultEntry =
     }
   | { userId: string; status: "failed"; error: string };
 
-export function BulkAssignDialog({
-  open,
-  users,
-  onClose,
-  onDone,
-}: BulkAssignDialogProps) {
+export function BulkAssignDialog({ open, users, onClose, onDone }: Props) {
   const [areas, setAreas] = useState<AreaSummary[] | null>(null);
   const [selectedAreaId, setSelectedAreaId] = useState<string>("");
   const [detail, setDetail] = useState<AreaDetail | null>(null);
@@ -53,6 +48,7 @@ export function BulkAssignDialog({
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<ResultEntry[] | null>(null);
 
+  // Reset state when dialog opens/closes.
   useEffect(() => {
     if (!open) {
       setAreas(null);
@@ -69,8 +65,7 @@ export function BulkAssignDialog({
     permissionAreaService
       .list()
       .then((res) => {
-        if (cancelled) return;
-        setAreas(res.areas);
+        if (!cancelled) setAreas(res.areas);
       })
       .catch((err) => {
         if (cancelled) return;
@@ -88,6 +83,7 @@ export function BulkAssignDialog({
     };
   }, [open]);
 
+  // Fetch area detail (roles list) when area selected.
   useEffect(() => {
     if (!selectedAreaId) {
       setDetail(null);
@@ -101,8 +97,7 @@ export function BulkAssignDialog({
     permissionAreaService
       .detail(selectedAreaId)
       .then((res) => {
-        if (cancelled) return;
-        setDetail(res);
+        if (!cancelled) setDetail(res);
       })
       .catch((err) => {
         if (cancelled) return;
@@ -126,10 +121,7 @@ export function BulkAssignDialog({
     return m;
   }, [users]);
 
-  const availableRoles: AreaRole[] = useMemo(
-    () => detail?.roles ?? [],
-    [detail],
-  );
+  const availableRoles: AreaRole[] = detail?.roles ?? [];
 
   const submit = useCallback(
     async (e: React.FormEvent) => {
@@ -145,9 +137,7 @@ export function BulkAssignDialog({
           roleName: selectedRole === "" ? null : selectedRole,
         });
         setResults(res.results);
-        if (res.failed === 0) {
-          onDone();
-        }
+        if (res.failed === 0) onDone();
       } catch (err) {
         setError(
           err instanceof ApiRequestError
@@ -169,11 +159,11 @@ export function BulkAssignDialog({
       open={open}
       onClose={submitting ? () => {} : onClose}
       size="lg"
-      title="Masowe przypisanie roli"
+      title="Przypisz rolę zbiorczo"
       description={
         results
           ? "Wynik operacji"
-          : `${users.length} zaznaczonych użytkowników — wybierz aplikację i rolę do przypisania.`
+          : `${users.length} zaznaczonych użytkowników — wybierz aplikację i rolę.`
       }
       footer={
         <>
@@ -271,7 +261,7 @@ export function BulkAssignDialog({
             </div>
           </div>
 
-          <FieldWrapper id="bulk-area" label="Aplikacja / obszar">
+          <FieldWrapper id="bulk-area" label="Aplikacja">
             <select
               id="bulk-area"
               value={selectedAreaId}
@@ -341,13 +331,6 @@ export function BulkAssignDialog({
                   )}
               </ul>
             </div>
-          )}
-
-          {loading && (
-            <p className="text-sm text-[var(--text-muted)] py-2 flex items-center gap-2">
-              <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
-              Ładowanie…
-            </p>
           )}
         </form>
       )}

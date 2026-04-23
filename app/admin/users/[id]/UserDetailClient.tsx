@@ -41,7 +41,21 @@ import { IntegrationsPanel } from "./IntegrationsPanel";
 import { ActivityLog } from "./ActivityLog";
 import { SessionsCard } from "./SessionsCard";
 
-interface UserDetailClientProps {
+/**
+ * /admin/users/[id] — szczegóły użytkownika (edycja end-to-end).
+ *
+ * Sekcje:
+ *   - Nagłówek z szybkimi akcjami (wyłącz/włącz, wyloguj sesje,
+ *     odblokuj brute-force, usuń konto)
+ *   - Uprawnienia w aplikacjach (PermissionsPanel → UserRolesList)
+ *   - Bezpieczeństwo (SecurityPanel — reset hasła, actions)
+ *   - Integracje (IntegrationsPanel — Google, Kadromierz)
+ *   - Sesje (SessionsCard — active sessions + logout all)
+ *   - Aktywność (ActivityLog — event feed z Keycloak)
+ *   - Dane profilu (imię, nazwisko, email, telefon — edycja)
+ */
+
+interface Props {
   userId: string;
   selfId?: string;
   callerLabel: string;
@@ -50,9 +64,9 @@ interface UserDetailClientProps {
 
 type User = AdminUserSummary & { attributes: Record<string, string[]> };
 
-function formatDate(ts: number | null) {
+function formatDate(ts: number | null): string {
   if (!ts) return "—";
-  const ms = ts > 100000000000 ? ts : ts * 1000;
+  const ms = ts > 100_000_000_000 ? ts : ts * 1000;
   return new Date(ms).toLocaleString("pl-PL", {
     day: "2-digit",
     month: "2-digit",
@@ -62,7 +76,7 @@ function formatDate(ts: number | null) {
   });
 }
 
-function fullName(u: AdminUserSummary) {
+function fullName(u: AdminUserSummary): string {
   return (
     [u.firstName, u.lastName].filter(Boolean).join(" ").trim() || u.username
   );
@@ -73,19 +87,19 @@ export function UserDetailClient({
   selfId,
   callerLabel,
   callerEmail,
-}: UserDetailClientProps) {
+}: Props) {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [savingProfile, setSavingProfile] = useState(false);
-  const [profileDraft, setProfileDraft] = useState<{
-    firstName: string;
-    lastName: string;
-    email: string;
-    phone: string;
-  }>({ firstName: "", lastName: "", email: "", phone: "" });
+  const [profileDraft, setProfileDraft] = useState({
+    firstName: "",
+    lastName: "",
+    email: "",
+    phone: "",
+  });
   const [pendingAction, setPendingAction] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -98,7 +112,8 @@ export function UserDetailClient({
         firstName: res.firstName ?? "",
         lastName: res.lastName ?? "",
         email: res.email ?? "",
-        phone: res.attributes?.phone?.[0] ?? "",
+        phone:
+          res.attributes?.phoneNumber?.[0] ?? res.attributes?.phone?.[0] ?? "",
       });
     } catch (err) {
       setError(
@@ -125,11 +140,13 @@ export function UserDetailClient({
 
   const profileDirty = useMemo(() => {
     if (!user) return false;
+    const phone =
+      user.attributes?.phoneNumber?.[0] ?? user.attributes?.phone?.[0] ?? "";
     return (
       profileDraft.firstName !== (user.firstName ?? "") ||
       profileDraft.lastName !== (user.lastName ?? "") ||
       profileDraft.email !== (user.email ?? "") ||
-      profileDraft.phone !== (user.attributes?.phone?.[0] ?? "")
+      profileDraft.phone !== phone
     );
   }, [profileDraft, user]);
 
@@ -138,21 +155,24 @@ export function UserDetailClient({
     setSavingProfile(true);
     setError(null);
     try {
-      const phoneChanged =
-        profileDraft.phone !== (user.attributes?.phone?.[0] ?? "");
+      const currentPhone =
+        user.attributes?.phoneNumber?.[0] ?? user.attributes?.phone?.[0] ?? "";
+      const phoneChanged = profileDraft.phone !== currentPhone;
       await adminUserService.update(userId, {
         firstName: profileDraft.firstName,
         lastName: profileDraft.lastName,
         email: profileDraft.email,
         ...(phoneChanged && {
           attributes: {
-            phone: profileDraft.phone.trim()
+            phoneNumber: profileDraft.phone.trim()
               ? [profileDraft.phone.trim()]
               : null,
           },
         }),
       });
-      setNotice("Profil zaktualizowany");
+      setNotice(
+        "Profil zaktualizowany — zmiany zostały wypchane do Keycloak oraz natywnych aplikacji.",
+      );
       await refresh();
     } catch (err) {
       setError(
@@ -226,10 +246,11 @@ export function UserDetailClient({
     const label = user.email || user.username;
     if (
       !window.confirm(
-        `Czy na pewno usunąć konto ${label}?\n\nOperacja jest NIEODWRACALNA — konto Keycloak zostanie skasowane wraz ze wszystkimi sesjami i mapowaniami ról.`,
+        `Usunąć konto ${label}?\n\nOperacja NIEODWRACALNA — konto Keycloak zostanie skasowane wraz ze wszystkimi sesjami i mapowaniami ról.`,
       )
-    )
+    ) {
       return;
+    }
     setPendingAction("delete");
     setError(null);
     try {
@@ -291,7 +312,7 @@ export function UserDetailClient({
         </Link>
       </div>
 
-      <section className="mb-4 flex flex-wrap items-start justify-between gap-3">
+      <section className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold text-[var(--text-main)]">
             {fullName(user)}
@@ -387,32 +408,14 @@ export function UserDetailClient({
         </div>
       )}
 
-      <section className="mb-6">
-        <div className="flex items-center gap-2 mb-3">
-          <Shield className="w-5 h-5 text-[var(--accent)]" aria-hidden="true" />
-          <h2 className="text-lg font-semibold text-[var(--text-main)]">
-            Uprawnienia w aplikacjach
-          </h2>
-        </div>
-        <p className="text-sm text-[var(--text-muted)] mb-3">
-          Każda aplikacja ma kanoniczny zestaw ról przewidziany przez jej
-          twórców. User może mieć maksymalnie jedną rolę w każdej aplikacji —
-          zmiana jest synchronizowana do Keycloaka i natywnego systemu app
-          (jeśli istnieje).
-        </p>
+      <Section title="Uprawnienia w aplikacjach" icon={Shield}>
         <PermissionsPanel
           userId={userId}
           onChanged={() => setNotice("Uprawnienia zaktualizowane")}
         />
-      </section>
+      </Section>
 
-      <section className="mb-6">
-        <div className="flex items-center gap-2 mb-3">
-          <KeyRound className="w-5 h-5 text-[var(--accent)]" aria-hidden="true" />
-          <h2 className="text-lg font-semibold text-[var(--text-main)]">
-            Bezpieczeństwo
-          </h2>
-        </div>
+      <Section title="Bezpieczeństwo" icon={KeyRound}>
         <SecurityPanel
           userId={userId}
           email={user.email}
@@ -420,48 +423,24 @@ export function UserDetailClient({
           requiredActions={user.requiredActions}
           onUpdated={() => void refresh()}
         />
-      </section>
+      </Section>
 
-      <section className="mb-6">
-        <div className="flex items-center gap-2 mb-3">
-          <Link2 className="w-5 h-5 text-[var(--accent)]" aria-hidden="true" />
-          <h2 className="text-lg font-semibold text-[var(--text-main)]">
-            Integracje
-          </h2>
-        </div>
+      <Section title="Integracje" icon={Link2}>
         <IntegrationsPanel userId={userId} />
-      </section>
+      </Section>
 
-      <section className="mb-6">
-        <div className="flex items-center gap-2 mb-3">
-          <LogOut className="w-5 h-5 text-[var(--accent)]" aria-hidden="true" />
-          <h2 className="text-lg font-semibold text-[var(--text-main)]">
-            Sesje
-          </h2>
-        </div>
+      <Section title="Sesje" icon={LogOut}>
         <SessionsCard
           userId={userId}
           onAllTerminated={() => setNotice("Wszystkie sesje zakończone")}
         />
-      </section>
+      </Section>
 
-      <section className="mb-6">
-        <div className="flex items-center gap-2 mb-3">
-          <Activity className="w-5 h-5 text-[var(--accent)]" aria-hidden="true" />
-          <h2 className="text-lg font-semibold text-[var(--text-main)]">
-            Logi aktywności
-          </h2>
-        </div>
+      <Section title="Logi aktywności" icon={Activity}>
         <ActivityLog userId={userId} />
-      </section>
+      </Section>
 
-      <section>
-        <div className="flex items-center gap-2 mb-3">
-          <Pencil className="w-5 h-5 text-[var(--accent)]" aria-hidden="true" />
-          <h2 className="text-lg font-semibold text-[var(--text-main)]">
-            Dane profilu
-          </h2>
-        </div>
+      <Section title="Dane profilu" icon={Pencil}>
         <Card padding="md">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <FieldWrapper id="pr-first" label="Imię">
@@ -513,7 +492,10 @@ export function UserDetailClient({
                   firstName: user.firstName ?? "",
                   lastName: user.lastName ?? "",
                   email: user.email ?? "",
-                  phone: user.attributes?.phone?.[0] ?? "",
+                  phone:
+                    user.attributes?.phoneNumber?.[0] ??
+                    user.attributes?.phone?.[0] ??
+                    "",
                 })
               }
               disabled={!profileDirty || savingProfile}
@@ -531,7 +513,29 @@ export function UserDetailClient({
             </Button>
           </div>
         </Card>
-      </section>
+      </Section>
     </PageShell>
+  );
+}
+
+function Section({
+  title,
+  icon: Icon,
+  children,
+}: {
+  title: string;
+  icon: React.ComponentType<{ className?: string; "aria-hidden"?: boolean | "true" | "false" }>;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="mb-6">
+      <div className="flex items-center gap-2 mb-3">
+        <Icon className="w-5 h-5 text-[var(--accent)]" aria-hidden="true" />
+        <h2 className="text-lg font-semibold text-[var(--text-main)]">
+          {title}
+        </h2>
+      </div>
+      {children}
+    </section>
   );
 }
