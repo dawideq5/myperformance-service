@@ -225,37 +225,70 @@ export class DocumensoProvider implements PermissionProvider {
               [userId, cfg.organisationId],
             );
           }
-          // Team-level — gdy DOCUMENSO_TEAM_ID ustawiony.
-          if (cfg.teamId !== null) {
-            await client.query(
-              `INSERT INTO "TeamMember" ("teamId", "userId", role, "createdAt")
-               VALUES ($1, $2, $3::"TeamMemberRole", NOW())
-               ON CONFLICT ("teamId", "userId")
-               DO UPDATE SET role = EXCLUDED.role`,
-              [cfg.teamId, userId, teamRole],
-            );
-          }
-          // Organisation-level — gdy DOCUMENSO_ORGANISATION_ID ustawiony.
-          // Documenso v2 OrganisationMember.role enum:
-          //   ORGANISATION_OWNER / ORGANISATION_ADMIN / ORGANISATION_MEMBER
-          // Nie nadpisujemy OWNER (twórca organisation) — UPSERT tylko gdy
-          // userrole=admin/manager/member i aktualna nie jest OWNER.
+          // Organisation + team membership (Documenso v2 model).
+          // Uwaga: `OrganisationMember` NIE ma kolumny `role` — role trzyma
+          // `OrganisationGroup.organisationRole`, a przypisanie robi się
+          // przez `OrganisationGroupMember`. Team-role dziedziczy przez
+          // `TeamGroup` binding (group → team → teamRole).
           if (cfg.organisationId !== null) {
             const orgRole =
               teamRole === ROLE_ADMIN
-                ? "ORGANISATION_ADMIN"
+                ? "ADMIN"
                 : teamRole === ROLE_MANAGER
-                  ? "ORGANISATION_ADMIN"
-                  : "ORGANISATION_MEMBER";
+                  ? "MANAGER"
+                  : "MEMBER";
+
+            // 1. Upewnij się że user jest członkiem org (idempotentnie).
             await client.query(
               `INSERT INTO "OrganisationMember"
-                 ("organisationId", "userId", role, "createdAt")
-               VALUES ($1, $2, $3::"OrganisationMemberRole", NOW())
-               ON CONFLICT ("organisationId", "userId")
-               DO UPDATE SET role = EXCLUDED.role
-                 WHERE "OrganisationMember".role <> 'ORGANISATION_OWNER'`,
-              [cfg.organisationId, userId, orgRole],
+                 (id, "organisationId", "userId", "createdAt", "updatedAt")
+               VALUES (gen_random_uuid()::text, $1, $2, NOW(), NOW())
+               ON CONFLICT ("userId", "organisationId") DO NOTHING`,
+              [cfg.organisationId, userId],
             );
+
+            // 2. Team membership w v2 idzie przez OrganisationGroupMember →
+            //    OrganisationGroup → TeamGroup. Seed Documenso tworzy 3
+            //    INTERNAL_ORGANISATION grupy (ADMIN/MANAGER/MEMBER) bindowane
+            //    do każdego team. Dodanie user do tej grupy automatycznie
+            //    przyznaje team-role zgodnie z TeamGroup binding.
+            const groupRes = await client.query<{ id: string }>(
+              `SELECT id FROM "OrganisationGroup"
+                WHERE "organisationId" = $1
+                  AND "organisationRole" = $2::"OrganisationMemberRole"
+                  AND type = 'INTERNAL_ORGANISATION'
+                LIMIT 1`,
+              [cfg.organisationId, orgRole],
+            );
+            const targetGroupId = groupRes.rows[0]?.id;
+
+            if (targetGroupId) {
+              // 3. Usuń user z innych INTERNAL_ORGANISATION grup tej org
+              //    (single-role-per-org na poziomie grupy).
+              await client.query(
+                `DELETE FROM "OrganisationGroupMember" ogm
+                  USING "OrganisationMember" om, "OrganisationGroup" og
+                  WHERE ogm."organisationMemberId" = om.id
+                    AND ogm."groupId" = og.id
+                    AND om."userId" = $1
+                    AND og."organisationId" = $2
+                    AND og.type = 'INTERNAL_ORGANISATION'
+                    AND og.id <> $3`,
+                [userId, cfg.organisationId, targetGroupId],
+              );
+              // 4. Upewnij się że user jest w target grupie. INSERT przez
+              //    JOIN z OrganisationMember (FK) + unique constraint
+              //    (organisationMemberId, groupId) pilnuje idempotency.
+              await client.query(
+                `INSERT INTO "OrganisationGroupMember"
+                   (id, "organisationMemberId", "groupId")
+                 SELECT gen_random_uuid()::text, om.id, $1
+                   FROM "OrganisationMember" om
+                  WHERE om."userId" = $2 AND om."organisationId" = $3
+                 ON CONFLICT ("organisationMemberId", "groupId") DO NOTHING`,
+                [targetGroupId, userId, cfg.organisationId],
+              );
+            }
           }
         }
       }
@@ -282,21 +315,35 @@ export class DocumensoProvider implements PermissionProvider {
     const cfg = getConfig();
     const client = await getPool().connect();
     try {
-      // Gdy mamy skonfigurowany team — preferujemy team-level role.
-      if (cfg.teamId !== null) {
-        const res = await client.query<{ role: DocumensoTeamRole }>(
-          `SELECT tm.role
-             FROM "TeamMember" tm
-             JOIN "User" u ON u.id = tm."userId"
-            WHERE tm."teamId" = $1
+      // Org-level role: najwyższa przez OrganisationGroupMember → OrganisationGroup.
+      if (cfg.organisationId !== null) {
+        const res = await client.query<{ role: string }>(
+          `SELECT og."organisationRole" AS role
+             FROM "OrganisationGroupMember" ogm
+             JOIN "OrganisationGroup" og ON og.id = ogm."groupId"
+             JOIN "OrganisationMember" om ON om.id = ogm."organisationMemberId"
+             JOIN "User" u ON u.id = om."userId"
+            WHERE om."organisationId" = $1
+              AND og.type = 'INTERNAL_ORGANISATION'
               AND LOWER(u.email) = LOWER($2)
+            ORDER BY CASE og."organisationRole"
+                       WHEN 'ADMIN' THEN 3
+                       WHEN 'MANAGER' THEN 2
+                       WHEN 'MEMBER' THEN 1
+                     END DESC
             LIMIT 1`,
-          [cfg.teamId, email],
+          [cfg.organisationId, email],
         );
         const row = res.rows[0];
-        if (row?.role) return row.role;
+        if (row?.role) {
+          return row.role === "ADMIN"
+            ? ROLE_ADMIN
+            : row.role === "MANAGER"
+              ? ROLE_MANAGER
+              : ROLE_MEMBER;
+        }
       }
-      // Fallback — global User.roles. Mapujemy na team-enum dla spójności.
+      // Fallback — global User.roles.
       const res = await client.query<{ roles: string[] }>(
         `SELECT roles FROM "User" WHERE LOWER(email) = LOWER($1) LIMIT 1`,
         [email],
@@ -340,22 +387,24 @@ export class DocumensoProvider implements PermissionProvider {
     const cfg = getConfig();
     const client = await getPool().connect();
     try {
-      if (cfg.teamId !== null) {
+      if (cfg.organisationId !== null) {
+        // Documenso v2: liczy userów per org-role przez OrganisationGroupMember.
         const res = await client.query<{ role: string; count: string }>(
-          `SELECT role::text AS role, COUNT(*) AS count
-             FROM "TeamMember"
-            WHERE "teamId" = $1
-            GROUP BY role`,
-          [cfg.teamId],
+          `SELECT og."organisationRole"::text AS role, COUNT(DISTINCT om."userId") AS count
+             FROM "OrganisationGroupMember" ogm
+             JOIN "OrganisationGroup" og ON og.id = ogm."groupId"
+             JOIN "OrganisationMember" om ON om.id = ogm."organisationMemberId"
+            WHERE om."organisationId" = $1
+              AND og.type = 'INTERNAL_ORGANISATION'
+            GROUP BY og."organisationRole"`,
+          [cfg.organisationId],
         );
-        let member = 0,
-          manager = 0,
-          admin = 0;
+        let member = 0, manager = 0, admin = 0;
         for (const row of res.rows) {
           const n = Number(row.count) || 0;
-          if (row.role === ROLE_ADMIN) admin = n;
-          else if (row.role === ROLE_MANAGER) manager = n;
-          else if (row.role === ROLE_MEMBER) member = n;
+          if (row.role === "ADMIN") admin = n;
+          else if (row.role === "MANAGER") manager = n;
+          else if (row.role === "MEMBER") member = n;
         }
         return { member, manager, admin };
       }
