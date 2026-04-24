@@ -675,5 +675,19 @@ export const adminGroupService = {
     api.delete<{ ok: true }>(
       `/api/admin/groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(userId)}`,
     ),
+
+  bulkAssign: (payload: { userIds: string[]; groupId: string; replace?: boolean }) =>
+    api.post<
+      {
+        total: number;
+        ok: number;
+        failed: number;
+        results: Array<
+          | { userId: string; status: "ok"; removedGroups: string[] }
+          | { userId: string; status: "failed"; error: string }
+        >;
+      },
+      typeof payload
+    >("/api/admin/bulk/group", payload),
 };
 

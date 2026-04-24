@@ -9,9 +9,11 @@ import {
   ExternalLink,
   Loader2,
   Search,
+  Shield,
   Trash2,
   Unlock,
   UserPlus,
+  X,
 } from "lucide-react";
 
 import {
@@ -19,6 +21,7 @@ import {
   Badge,
   Button,
   Card,
+  Dialog,
   FieldWrapper,
   Input,
   PageShell,
@@ -26,8 +29,10 @@ import {
 import { AppHeader } from "@/components/AppHeader";
 import { ApiRequestError } from "@/lib/api-client";
 import {
+  adminGroupService,
   adminUserService,
   permissionAreaService,
+  type AdminGroup,
   type AdminIntegrationStatus,
   type AdminUserSummary,
   type AreaSummary,
@@ -105,8 +110,10 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
   const [integrations, setIntegrations] = useState<IntegrationsMap>({});
   const [locks, setLocks] = useState<LockMap>({});
 
-  // Modal (tylko invite — wszystko inne w /admin/users/[id])
+  // Modal + bulk group selection
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkGroupOpen, setBulkGroupOpen] = useState(false);
 
   // Feedback
   const [error, setError] = useState<string | null>(null);
@@ -327,6 +334,34 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
     [first, total],
   );
 
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds((p) => {
+      const n = new Set(p);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  }, []);
+
+  const toggleAll = useCallback(() => {
+    setSelectedIds((p) => {
+      const ids = users.map((u) => u.id);
+      const allSel = ids.every((i) => p.has(i));
+      const n = new Set(p);
+      if (allSel) for (const i of ids) n.delete(i);
+      else for (const i of ids) n.add(i);
+      return n;
+    });
+  }, [users]);
+
+  const allSelected = users.length > 0 && users.every((u) => selectedIds.has(u.id));
+  const someSelected = users.some((u) => selectedIds.has(u.id));
+
+  const selectedUsers = useMemo(
+    () => users.filter((u) => selectedIds.has(u.id)),
+    [users, selectedIds],
+  );
+
   // ── Render ──────────────────────────────────────────────────────────────
   return (
     <PageShell
@@ -358,6 +393,27 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
           </Button>
         </div>
       </section>
+
+      {selectedIds.size > 0 && (
+        <div className="sticky top-2 z-20 mb-4 flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded-lg border border-[var(--accent)] bg-[var(--bg-surface)] shadow-md">
+          <div className="text-sm text-[var(--text-main)]">
+            Zaznaczono <strong>{selectedIds.size}</strong>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              leftIcon={<Shield className="w-4 h-4" aria-hidden="true" />}
+              onClick={() => setBulkGroupOpen(true)}
+            >
+              Przypisz grupę
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setSelectedIds(new Set())}>
+              <X className="w-4 h-4" aria-hidden="true" />
+              Odznacz
+            </Button>
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="mb-4">
@@ -430,6 +486,18 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
           <table className="w-full text-sm">
             <thead className="border-b border-[var(--border-subtle)]">
               <tr className="text-left text-xs uppercase tracking-wider text-[var(--text-muted)]">
+                <th className="px-3 py-3 font-medium w-[40px]">
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    ref={(el) => {
+                      if (el) el.indeterminate = someSelected && !allSelected;
+                    }}
+                    onChange={toggleAll}
+                    aria-label="Zaznacz wszystkich na stronie"
+                    className="rounded border-[var(--border-subtle)]"
+                  />
+                </th>
                 <th className="px-4 py-3 font-medium">Użytkownik</th>
                 <th className="px-4 py-3 font-medium">Email</th>
                 <th className="px-4 py-3 font-medium">Status</th>
@@ -442,7 +510,7 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
               {loading && users.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={6}
+                    colSpan={7}
                     className="px-4 py-10 text-center text-[var(--text-muted)]"
                   >
                     <Loader2
@@ -454,7 +522,7 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
               ) : users.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={6}
+                    colSpan={7}
                     className="px-4 py-10 text-center text-[var(--text-muted)]"
                   >
                     Brak użytkowników spełniających kryteria.
@@ -467,9 +535,11 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
                     user={u}
                     isSelf={u.id === selfId}
                     isPending={pendingId === u.id}
+                    isSelected={selectedIds.has(u.id)}
                     presence={presence[u.id]}
                     integrations={integrations[u.id]}
                     lock={locks[u.id]}
+                    onToggleSelect={() => toggleSelect(u.id)}
                     onToggleEnabled={() => void toggleEnabled(u)}
                     onDelete={() => void deleteUser(u)}
                     onUnlock={() => void unlockUser(u)}
@@ -525,6 +595,17 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
         }}
       />
 
+      <BulkGroupDialog
+        open={bulkGroupOpen}
+        users={selectedUsers}
+        onClose={() => setBulkGroupOpen(false)}
+        onDone={(msg) => {
+          setBulkGroupOpen(false);
+          setSelectedIds(new Set());
+          setNotice(msg);
+        }}
+      />
+
     </PageShell>
   );
 }
@@ -534,9 +615,11 @@ function UserRow({
   user,
   isSelf,
   isPending,
+  isSelected,
   presence,
   integrations,
   lock,
+  onToggleSelect,
   onToggleEnabled,
   onDelete,
   onUnlock,
@@ -544,9 +627,11 @@ function UserRow({
   user: AdminUserSummary;
   isSelf: boolean;
   isPending: boolean;
+  isSelected: boolean;
   presence: number | undefined;
   integrations: AdminIntegrationStatus | undefined;
   lock: { numFailures: number; disabled: boolean; lastFailure: number | null } | undefined;
+  onToggleSelect: () => void;
   onToggleEnabled: () => void;
   onDelete: () => void;
   onUnlock: () => void;
@@ -556,7 +641,20 @@ function UserRow({
   const locked = lock?.disabled || (lock?.numFailures ?? 0) > 0;
 
   return (
-    <tr className="border-b border-[var(--border-subtle)] last:border-b-0 hover:bg-[var(--bg-main)]">
+    <tr
+      className={`border-b border-[var(--border-subtle)] last:border-b-0 hover:bg-[var(--bg-main)] ${
+        isSelected ? "bg-[var(--bg-main)]" : ""
+      }`}
+    >
+      <td className="px-3 py-3">
+        <input
+          type="checkbox"
+          checked={isSelected}
+          onChange={onToggleSelect}
+          aria-label={`Zaznacz ${user.email ?? user.username}`}
+          className="rounded border-[var(--border-subtle)]"
+        />
+      </td>
       <td className="px-4 py-3">
         <div className="font-medium text-[var(--text-main)]">
           {fullName(user)}
@@ -691,5 +789,146 @@ function UserRow({
         </div>
       </td>
     </tr>
+  );
+}
+
+// ── Bulk group assignment ──────────────────────────────────────────────────
+function BulkGroupDialog({
+  open,
+  users,
+  onClose,
+  onDone,
+}: {
+  open: boolean;
+  users: AdminUserSummary[];
+  onClose: () => void;
+  onDone: (msg: string) => void;
+}) {
+  const [groups, setGroups] = useState<AdminGroup[]>([]);
+  const [groupId, setGroupId] = useState("");
+  const [replace, setReplace] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setGroupId("");
+    setReplace(false);
+    setError(null);
+    void adminGroupService
+      .list()
+      .then((r) => setGroups(r.groups))
+      .catch(() => setGroups([]));
+  }, [open]);
+
+  const selectedGroup = useMemo(
+    () => groups.find((g) => g.id === groupId) ?? null,
+    [groups, groupId],
+  );
+
+  const submit = useCallback(async () => {
+    if (!groupId || users.length === 0) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await adminGroupService.bulkAssign({
+        userIds: users.map((u) => u.id),
+        groupId,
+        replace,
+      });
+      const groupName = selectedGroup?.name ?? "grupa";
+      onDone(
+        res.failed === 0
+          ? `Przypisano ${res.ok} userów do "${groupName}"`
+          : `Przypisano ${res.ok}/${res.total} (${res.failed} błędów) do "${groupName}"`,
+      );
+    } catch (err) {
+      setError(
+        err instanceof ApiRequestError ? err.message : "Nie udało się przypisać",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [groupId, users, replace, selectedGroup, onDone]);
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      size="lg"
+      title="Przypisz grupę zbiorczo"
+      description={`${users.length} użytkowników → grupa Keycloak`}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={loading}>
+            Anuluj
+          </Button>
+          <Button
+            onClick={() => void submit()}
+            loading={loading}
+            disabled={!groupId}
+            leftIcon={<Shield className="w-4 h-4" aria-hidden="true" />}
+          >
+            Przypisz
+          </Button>
+        </>
+      }
+    >
+      {error && (
+        <div className="mb-3">
+          <Alert tone="error">{error}</Alert>
+        </div>
+      )}
+      <div className="space-y-3">
+        <FieldWrapper id="bulk-group" label="Grupa" required>
+          <select
+            id="bulk-group"
+            value={groupId}
+            onChange={(e) => setGroupId(e.target.value)}
+            className="w-full px-3 py-2 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-sm"
+          >
+            <option value="">— wybierz —</option>
+            {groups.map((g) => (
+              <option key={g.id} value={g.id}>
+                {g.name}
+                {g.realmRoles.length > 0 ? ` (${g.realmRoles.length} ról)` : ""}
+              </option>
+            ))}
+          </select>
+        </FieldWrapper>
+        {selectedGroup && (
+          <div className="px-3 py-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
+            <p className="text-xs uppercase tracking-wider text-[var(--text-muted)] mb-1">
+              Role które user dziedziczy
+            </p>
+            <div className="flex flex-wrap gap-1">
+              {selectedGroup.realmRoles.length === 0 ? (
+                <span className="text-xs text-[var(--text-muted)]">brak</span>
+              ) : (
+                selectedGroup.realmRoles.map((r) => (
+                  <Badge key={r} tone="neutral" className="text-[10px] font-mono">
+                    {r}
+                  </Badge>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+        <label className="flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={replace}
+            onChange={(e) => setReplace(e.target.checked)}
+            className="mt-1 rounded border-[var(--border-subtle)]"
+          />
+          <span>
+            <strong>Nadpisz inne grupy</strong>
+            <span className="block text-xs text-[var(--text-muted)]">
+              Usunie userów ze wszystkich pozostałych grup KC, zostawi tylko tę.
+            </span>
+          </span>
+        </label>
+      </div>
+    </Dialog>
   );
 }
