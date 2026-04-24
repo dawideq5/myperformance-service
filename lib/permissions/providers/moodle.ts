@@ -1,3 +1,4 @@
+import mysql from "mysql2/promise";
 import { getOptionalEnv } from "@/lib/env";
 import type {
   AssignUserRoleArgs,
@@ -7,6 +8,46 @@ import type {
   ProfileSyncArgs,
 } from "./types";
 import { ProviderNotConfiguredError, ProviderUnsupportedError } from "./types";
+
+// ── DB fallback dla listRoles ────────────────────────────────────────────────
+// `core_role_get_roles` WS failuje w Moodle 5.x ("Nie znaleziono rekordu")
+// przy pustym contextid. Dashboard czyta `mdl_role` directnie przez
+// MOODLE_DB_URL gdy jest skonfigurowany — dzięki temu custom role dodane
+// przez admina Moodle (Site admin → Users → Permissions → Define roles)
+// pojawiają się w UI dashboardu przy kolejnym kc-sync.
+let dbPool: mysql.Pool | null = null;
+function getDbPool(): mysql.Pool | null {
+  const url = getOptionalEnv("MOODLE_DB_URL");
+  if (!url) return null;
+  if (!dbPool) {
+    dbPool = mysql.createPool({
+      uri: url,
+      connectionLimit: 3,
+      waitForConnections: true,
+    });
+  }
+  return dbPool;
+}
+
+interface MoodleDbRole {
+  id: number;
+  shortname: string;
+  name: string | null;
+  description: string | null;
+}
+
+async function listRolesFromDb(): Promise<MoodleDbRole[] | null> {
+  const pool = getDbPool();
+  if (!pool) return null;
+  try {
+    const [rows] = await pool.query(
+      "SELECT id, shortname, name, description FROM mdl_role ORDER BY sortorder",
+    );
+    return rows as MoodleDbRole[];
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Moodle provider — integracja przez Moodle Web Services.
@@ -220,6 +261,28 @@ export class MoodleProvider implements PermissionProvider {
 
   async listRoles(): Promise<NativeRole[]> {
     if (!this.isConfigured()) return [];
+
+    // Kolejność: DB (pełna lista w tym custom role) → WS → BASELINE.
+    // `core_role_get_roles` WS jest zbuggowane w Moodle 5.x, więc DB jest
+    // preferowane gdy MOODLE_DB_URL jest skonfigurowany.
+    const dbRoles = await listRolesFromDb();
+    if (dbRoles && dbRoles.length > 0) {
+      return dbRoles
+        .filter((r) => r.shortname && r.shortname.trim())
+        .map((r) => ({
+          id: r.shortname,
+          name:
+            PL_LABELS[r.shortname] ||
+            (r.name && r.name.trim()) ||
+            prettyShortname(r.shortname),
+          description: r.description ?? undefined,
+          permissions: [],
+          // Custom role = id > 8 (archetypes mają id 1-8 w każdej instalacji).
+          systemDefined: r.id <= 8,
+          userCount: null,
+        }));
+    }
+
     try {
       const raw = await moodleCall<MoodleRoleRaw[]>("core_role_get_roles");
       if (!Array.isArray(raw) || raw.length === 0) return BASELINE_MOODLE_ROLES;
@@ -267,36 +330,39 @@ export class MoodleProvider implements PermissionProvider {
 
     const user = await this.findOrCreateUser(args.email, args.displayName);
 
-    // `core_role_get_roles` failuje w Moodle 5.x ("Nie znaleziono rekordu")
-    // przy pustym contextid. Fallback: hardcoded ID dla canonical
-    // shortnames (są stałe w każdej instalacji Moodla).
-    const FALLBACK_ROLE_IDS: Record<string, number> = {
-      manager: 1,
-      coursecreator: 2,
-      editingteacher: 3,
-      teacher: 4,
-      student: 5,
-      guest: 6,
-      user: 7,
-      frontpage: 8,
-    };
+    // Mapowanie shortname → role id. Pierwszeństwo: DB (pełna lista w tym
+    // custom role), potem WS, potem hardcoded fallback dla 8 archetypes.
     let byShort: Map<string, MoodleRoleRaw>;
-    try {
-      const allRoles = await moodleCall<MoodleRoleRaw[]>(
-        "core_role_get_roles",
-      );
-      byShort = new Map(allRoles.map((r) => [r.shortname, r]));
-    } catch {
+    const dbRoles = await listRolesFromDb();
+    if (dbRoles && dbRoles.length > 0) {
       byShort = new Map(
-        Object.entries(FALLBACK_ROLE_IDS).map(([shortname, id]) => [
-          shortname,
-          {
-            id,
-            name: shortname,
-            shortname,
-          } as MoodleRoleRaw,
+        dbRoles.map((r) => [
+          r.shortname,
+          { id: r.id, name: r.name ?? r.shortname, shortname: r.shortname } as MoodleRoleRaw,
         ]),
       );
+    } else {
+      const FALLBACK_ROLE_IDS: Record<string, number> = {
+        manager: 1,
+        coursecreator: 2,
+        editingteacher: 3,
+        teacher: 4,
+        student: 5,
+        guest: 6,
+        user: 7,
+        frontpage: 8,
+      };
+      try {
+        const allRoles = await moodleCall<MoodleRoleRaw[]>("core_role_get_roles");
+        byShort = new Map(allRoles.map((r) => [r.shortname, r]));
+      } catch {
+        byShort = new Map(
+          Object.entries(FALLBACK_ROLE_IDS).map(([shortname, id]) => [
+            shortname,
+            { id, name: shortname, shortname } as MoodleRoleRaw,
+          ]),
+        );
+      }
     }
 
     // Zbiór wszystkich znanych shortname'ów = "zarządzane" przez dashboard.
