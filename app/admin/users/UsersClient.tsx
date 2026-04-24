@@ -29,13 +29,14 @@ import { AppHeader } from "@/components/AppHeader";
 import { ApiRequestError } from "@/lib/api-client";
 import {
   adminUserService,
+  permissionAreaService,
   type AdminIntegrationStatus,
   type AdminUserSummary,
+  type AreaSummary,
 } from "@/app/account/account-service";
 
 import { BulkAssignDialog } from "./BulkAssignDialog";
 import { InviteDialog } from "./InviteDialog";
-import { IamToolsPanel } from "./IamToolsPanel";
 
 /**
  * Zakładka /admin/users — przebudowana od zera (2026-04-23).
@@ -98,6 +99,8 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
   const [first, setFirst] = useState(0);
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
+  const [roleFilter, setRoleFilter] = useState<string>("");
+  const [areas, setAreas] = useState<AreaSummary[]>([]);
   const [loading, setLoading] = useState(false);
 
   // Side panels
@@ -117,6 +120,14 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
   const [notice, setNotice] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
 
+  // Role options for filter dropdown (loaded once).
+  useEffect(() => {
+    permissionAreaService
+      .list()
+      .then((res) => setAreas(res.areas))
+      .catch(() => setAreas([]));
+  }, []);
+
   // ── Data fetching ───────────────────────────────────────────────────────
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -126,6 +137,7 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
         search: search || undefined,
         first,
         max: PAGE_SIZE,
+        role: roleFilter || undefined,
       });
       setUsers(res.users);
       setTotal(res.total);
@@ -138,7 +150,7 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
     } finally {
       setLoading(false);
     }
-  }, [search, first]);
+  }, [search, first, roleFilter]);
 
   useEffect(() => {
     void refresh();
@@ -390,8 +402,6 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
         </div>
       </section>
 
-      <IamToolsPanel />
-
       {selectedIds.size > 0 && (
         <div className="sticky top-2 z-20 mb-4 flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded-lg border border-[var(--accent)] bg-[var(--bg-surface)] shadow-md">
           <div className="text-sm text-[var(--text-main)]">
@@ -425,28 +435,51 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
         </div>
       )}
 
-      {/* Search */}
+      {/* Search + role filter */}
       <Card padding="md" className="mb-4">
-        <form onSubmit={onSearchSubmit} className="flex gap-2 items-end">
-          <FieldWrapper id="user-search" label="Szukaj" className="flex-1">
+        <form onSubmit={onSearchSubmit} className="flex flex-wrap gap-2 items-end">
+          <FieldWrapper id="user-search" label="Szukaj" className="flex-1 min-w-[220px]">
             <Input
               id="user-search"
-              placeholder="Email, imię, nazwisko, login..."
+              placeholder="Email, imię, nazwisko, login…"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               leftIcon={<Search className="w-4 h-4" aria-hidden="true" />}
             />
           </FieldWrapper>
+          <FieldWrapper id="role-filter" label="Filtr po roli" className="min-w-[220px]">
+            <select
+              id="role-filter"
+              value={roleFilter}
+              onChange={(e) => {
+                setFirst(0);
+                setRoleFilter(e.target.value);
+              }}
+              className="w-full px-3 py-2 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-sm text-[var(--text-main)]"
+            >
+              <option value="">— wszystkie role —</option>
+              {areas.map((a) => (
+                <optgroup key={a.id} label={a.label}>
+                  {a.roles.map((r) => (
+                    <option key={r.name} value={r.name}>
+                      {r.label || r.name}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          </FieldWrapper>
           <Button type="submit" variant="secondary">
             Szukaj
           </Button>
-          {search && (
+          {(search || roleFilter) && (
             <Button
               type="button"
               variant="ghost"
               onClick={() => {
                 setSearch("");
                 setSearchInput("");
+                setRoleFilter("");
                 setFirst(0);
               }}
             >

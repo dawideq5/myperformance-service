@@ -438,6 +438,7 @@ async function ensureAudienceMappers(token, clientId, c) {
 //      do Coolify env vars tych aplikacji (robi to osobny skrypt
 //      `scripts/push-client-secrets.mjs`).
 const OBSOLETE_CLIENTS = [
+  // Historyczne wirtualne klienty "tab hints" — były bearer-only, nie służyły do SSO.
   "mp-account",
   "mp-calendar",
   "mp-certificates",
@@ -446,17 +447,13 @@ const OBSOLETE_CLIENTS = [
   "mp-keycloak",
   "mp-stepca",
   "mp-users",
-  // Legacy alias — `chatwoot` staje się `chatwoot-proxy` (via oauth2-proxy).
+  // Legacy Chatwoot aliasy (bridge via dashboard używany zamiast OIDC).
   "chatwoot",
-  // Klienci aplikacyjni — kasujemy i odtwarzamy z poprawnymi redirect URI.
-  "directus",
-  "documenso",
-  "moodle",
-  "outline",
-  "postal",
-  "stepca-oidc",
-  // Zrezygnowano z oauth2-proxy dla Chatwoota — used dashboard SSO bridge.
   "chatwoot-proxy",
+  // UWAGA: klienty aplikacyjne (directus/documenso/moodle/outline/postal/stepca-oidc)
+  // NIE są kasowane — ensureClient() robi idempotentny PUT, zachowując istniejące
+  // secrety. Kasowanie powodowało rotację secretów przy każdym uruchomieniu seed,
+  // co wymagało propagacji do Coolify envs + redeploy wszystkich apek.
 ];
 
 async function deleteObsoleteClients(token) {

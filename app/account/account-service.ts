@@ -292,11 +292,12 @@ export interface AdminIntegrationStatus {
 }
 
 export const adminUserService = {
-  list: (params?: { search?: string; first?: number; max?: number }) => {
+  list: (params?: { search?: string; first?: number; max?: number; role?: string }) => {
     const qs = new URLSearchParams();
     if (params?.search) qs.set("search", params.search);
     if (params?.first !== undefined) qs.set("first", String(params.first));
     if (params?.max !== undefined) qs.set("max", String(params.max));
+    if (params?.role) qs.set("role", params.role);
     const suffix = qs.toString() ? `?${qs.toString()}` : "";
     return api.get<AdminUserListResponse>(`/api/admin/users${suffix}`);
   },

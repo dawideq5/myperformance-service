@@ -32,6 +32,7 @@ export async function GET(request: Request) {
 
     const url = new URL(request.url);
     const search = url.searchParams.get("search")?.trim() ?? "";
+    const role = url.searchParams.get("role")?.trim() ?? "";
     const firstParam = Number(url.searchParams.get("first") ?? "0");
     const maxParam = Number(url.searchParams.get("max") ?? "50");
     const first = Number.isFinite(firstParam) && firstParam >= 0 ? firstParam : 0;
@@ -41,32 +42,81 @@ export async function GET(request: Request) {
 
     const adminToken = await keycloak.getServiceAccountToken();
 
-    const qs = new URLSearchParams();
-    qs.set("first", String(first));
-    qs.set("max", String(max));
-    qs.set("briefRepresentation", "false");
-    if (search) qs.set("search", search);
+    let rawUsers: Array<Record<string, unknown>> = [];
+    let total = 0;
 
-    const [usersRes, countRes] = await Promise.all([
-      keycloak.adminRequest(`/users?${qs.toString()}`, adminToken),
-      keycloak.adminRequest(
-        `/users/count${search ? `?search=${encodeURIComponent(search)}` : ""}`,
-        adminToken,
-      ),
-    ]);
-
-    if (!usersRes.ok) {
-      const details = await usersRes.text();
-      throw new ApiError(
-        "SERVICE_UNAVAILABLE",
-        "Failed to list users",
-        usersRes.status,
-        details,
-      );
+    if (role) {
+      // Filter by realm role. KC `/roles/{name}/users` nie wspiera `search` —
+      // jeśli mamy też wyszukiwarkę, robimy po pobraniu w JS.
+      const qs = new URLSearchParams();
+      qs.set("first", String(first));
+      qs.set("max", String(Math.max(max, 200)));
+      qs.set("briefRepresentation", "false");
+      const [usersRes, countRes] = await Promise.all([
+        keycloak.adminRequest(
+          `/roles/${encodeURIComponent(role)}/users?${qs.toString()}`,
+          adminToken,
+        ),
+        keycloak.adminRequest(
+          `/roles/${encodeURIComponent(role)}/users/count`,
+          adminToken,
+        ),
+      ]);
+      if (!usersRes.ok) {
+        const details = await usersRes.text();
+        throw new ApiError(
+          "SERVICE_UNAVAILABLE",
+          "Failed to list users by role",
+          usersRes.status,
+          details,
+        );
+      }
+      const all = (await usersRes.json()) as Array<Record<string, unknown>>;
+      const filtered = search
+        ? all.filter((u) => {
+            const hay =
+              `${u.username ?? ""} ${u.email ?? ""} ${u.firstName ?? ""} ${u.lastName ?? ""}`.toLowerCase();
+            return hay.includes(search.toLowerCase());
+          })
+        : all;
+      rawUsers = filtered.slice(0, max);
+      if (countRes.ok) {
+        const raw = await countRes.json().catch(() => null);
+        const countFromApi =
+          typeof raw === "number"
+            ? raw
+            : typeof raw === "object" && raw && "count" in raw
+              ? Number((raw as { count: number }).count) || 0
+              : all.length;
+        total = search ? filtered.length : countFromApi;
+      } else {
+        total = filtered.length;
+      }
+    } else {
+      const qs = new URLSearchParams();
+      qs.set("first", String(first));
+      qs.set("max", String(max));
+      qs.set("briefRepresentation", "false");
+      if (search) qs.set("search", search);
+      const [usersRes, countRes] = await Promise.all([
+        keycloak.adminRequest(`/users?${qs.toString()}`, adminToken),
+        keycloak.adminRequest(
+          `/users/count${search ? `?search=${encodeURIComponent(search)}` : ""}`,
+          adminToken,
+        ),
+      ]);
+      if (!usersRes.ok) {
+        const details = await usersRes.text();
+        throw new ApiError(
+          "SERVICE_UNAVAILABLE",
+          "Failed to list users",
+          usersRes.status,
+          details,
+        );
+      }
+      rawUsers = await usersRes.json();
+      total = countRes.ok ? Number(await countRes.text()) || 0 : rawUsers.length;
     }
-
-    const rawUsers: Array<Record<string, unknown>> = await usersRes.json();
-    const total = countRes.ok ? Number(await countRes.text()) || 0 : rawUsers.length;
 
     const users: AdminUserSummary[] = rawUsers.map((u) => ({
       id: String(u.id ?? ""),
