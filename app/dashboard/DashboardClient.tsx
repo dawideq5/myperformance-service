@@ -18,6 +18,7 @@ import {
   MessageSquare,
   Plug,
   School,
+  Shield,
   ShieldCheck,
   Truck,
   Users,
@@ -306,6 +307,18 @@ function TileGrid() {
             description="Zarządzanie użytkownikami i precyzyjne przypisywanie ról per panel (Keycloak SoT)"
             onClick={() => {
               window.location.href = "/admin/users";
+            }}
+          />
+        )}
+
+        {showAdminUsers && (
+          <Tile
+            icon={<Shield className="w-7 h-7 text-purple-500" aria-hidden="true" />}
+            iconBg="bg-purple-500/10"
+            title="Grupy"
+            description="Grupy Keycloak (Administrator, Sprzedawca, Serwisant) — mapowanie realm ról i członkostwo"
+            onClick={() => {
+              window.location.href = "/admin/groups";
             }}
           />
         )}

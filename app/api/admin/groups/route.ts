@@ -8,7 +8,7 @@ import {
   createSuccessResponse,
   handleApiError,
 } from "@/lib/api-utils";
-import { ROLE_CATALOG, requireAdminPanel } from "@/lib/admin-auth";
+import { requireAdminPanel } from "@/lib/admin-auth";
 
 export interface AdminGroupMember {
   id: string;
@@ -26,8 +26,6 @@ export interface AdminGroupSummary {
   memberCount: number;
   members: AdminGroupMember[];
 }
-
-const ROLE_NAMES = new Set<string>(ROLE_CATALOG.map((r) => r.name as string));
 
 async function fetchGroupRoles(
   id: string,
@@ -131,7 +129,7 @@ export async function POST(req: Request) {
 
     const description = body?.description?.trim() || "";
     const roleNames = Array.isArray(body?.realmRoles)
-      ? body.realmRoles.filter((r) => typeof r === "string" && ROLE_NAMES.has(r))
+      ? body.realmRoles.filter((r) => typeof r === "string" && r.trim())
       : [];
 
     const token = await keycloak.getServiceAccountToken();

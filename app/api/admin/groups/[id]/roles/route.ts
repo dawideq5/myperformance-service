@@ -8,13 +8,11 @@ import {
   createSuccessResponse,
   handleApiError,
 } from "@/lib/api-utils";
-import { ROLE_CATALOG, requireAdminPanel } from "@/lib/admin-auth";
+import { requireAdminPanel } from "@/lib/admin-auth";
 
 interface Ctx {
   params: Promise<{ id: string }>;
 }
-
-const ROLE_NAMES = new Set<string>(ROLE_CATALOG.map((r) => r.name as string));
 
 interface ReplacePayload {
   realmRoles?: string[];
@@ -31,10 +29,11 @@ export async function POST(req: Request, { params }: Ctx) {
     requireAdminPanel(session);
     const { id } = await params;
     const body = (await req.json().catch(() => null)) as ReplacePayload | null;
+    // Akceptujemy dowolną realm role z KC (łącznie z dynamicznymi moodle_*)
+    // — walidacja przez `byName` lookup poniżej (jeśli rola nie istnieje,
+    // po prostu nie jest dodana, zero cichego fail).
     const target = new Set(
-      (body?.realmRoles ?? []).filter(
-        (r) => typeof r === "string" && ROLE_NAMES.has(r),
-      ),
+      (body?.realmRoles ?? []).filter((r) => typeof r === "string" && r.trim()),
     );
 
     const token = await keycloak.getServiceAccountToken();

@@ -214,6 +214,17 @@ export class DocumensoProvider implements PermissionProvider {
         );
         const userId = userRes.rows[0]?.id;
         if (userId) {
+          // Documenso auto-tworzy "Personal Organisation" dla każdego nowego
+          // usera przy OIDC signup. Admin nie chce ich mnożyć — po dodaniu
+          // do shared org kasujemy personal orgs których owner to nasz user.
+          // ON DELETE CASCADE w OrganisationMember posprząta membership.
+          if (cfg.organisationId !== null) {
+            await client.query(
+              `DELETE FROM "Organisation"
+                WHERE type = 'PERSONAL' AND "ownerUserId" = $1 AND id <> $2`,
+              [userId, cfg.organisationId],
+            );
+          }
           // Team-level — gdy DOCUMENSO_TEAM_ID ustawiony.
           if (cfg.teamId !== null) {
             await client.query(

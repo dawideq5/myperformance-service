@@ -623,3 +623,57 @@ export const permissionAreaService = {
     >("/api/admin/bulk/area-role", payload),
 };
 
+// ---------------------------------------------------------------------------
+// Admin groups — Keycloak groups CRUD + member management
+// ---------------------------------------------------------------------------
+
+export interface AdminGroupMember {
+  id: string;
+  username: string;
+  email: string | null;
+  firstName: string | null;
+  lastName: string | null;
+}
+
+export interface AdminGroup {
+  id: string;
+  name: string;
+  description: string | null;
+  realmRoles: string[];
+  memberCount: number;
+  members: AdminGroupMember[];
+}
+
+export const adminGroupService = {
+  list: () => api.get<{ groups: AdminGroup[] }>("/api/admin/groups"),
+
+  create: (payload: { name: string; description?: string; realmRoles?: string[] }) =>
+    api.post<{ id: string; name: string }, typeof payload>("/api/admin/groups", payload),
+
+  update: (id: string, payload: { name?: string; description?: string }) =>
+    api.put<{ ok: true }, typeof payload>(
+      `/api/admin/groups/${encodeURIComponent(id)}`,
+      payload,
+    ),
+
+  remove: (id: string) =>
+    api.delete<{ ok: true }>(`/api/admin/groups/${encodeURIComponent(id)}`),
+
+  setRoles: (id: string, realmRoles: string[]) =>
+    api.post<
+      { ok: true; added: string[]; removed: string[] },
+      { realmRoles: string[] }
+    >(`/api/admin/groups/${encodeURIComponent(id)}/roles`, { realmRoles }),
+
+  addMember: (groupId: string, userId: string) =>
+    api.put<{ ok: true }, Record<string, never>>(
+      `/api/admin/groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(userId)}`,
+      {},
+    ),
+
+  removeMember: (groupId: string, userId: string) =>
+    api.delete<{ ok: true }>(
+      `/api/admin/groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(userId)}`,
+    ),
+};
+
