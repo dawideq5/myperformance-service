@@ -81,7 +81,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json().catch(() => ({}));
-    const { title, description, startDate, endDate, allDay, color, location, syncToGoogle } = body;
+    const { title, description, startDate, endDate, allDay, color, location } = body;
 
     if (!title || !startDate || !endDate) {
       return NextResponse.json({ error: "title, startDate and endDate are required" }, { status: 400 });
@@ -90,76 +90,80 @@ export async function POST(request: NextRequest) {
     const userId = await keycloak.getUserIdFromToken(session.accessToken);
     const serviceToken = await keycloak.getServiceAccountToken();
 
+    // Auto fan-out: zapisujemy zawsze lokalnie + best-effort do Google/Moodle
+    // jeśli user ma podłączone integracje. Failure poszczególnych providerów
+    // nie blokuje zapisu — zwracamy `syncedTo[]` w response.
+    const syncedTo: string[] = ["myperformance"];
+    const syncErrors: Array<{ provider: string; error: string }> = [];
     let googleEventId: string | undefined;
-    let googleSynced = false;
 
-    if (Boolean(syncToGoogle)) {
-      // Try to sync to Google Calendar if connected
-      try {
-        const googleTokens = await getFreshGoogleAccessTokenForUser(
-          session.accessToken,
-        );
-        const googleAccessToken = googleTokens.access_token;
-
-        if (googleAccessToken) {
-          // Google all-day events use half-open [start, end) — shift our
-          // inclusive end by +1 day before sending.
-          const googleEvent = {
-            summary: String(title).slice(0, 200),
-            description: description ? String(description).slice(0, 1000) : undefined,
-            start: {
-              dateTime: allDay ? undefined : String(startDate),
-              date: allDay ? String(startDate).split('T')[0] : undefined,
-            },
-            end: {
-              dateTime: allDay ? undefined : String(endDate),
-              date: allDay
-                ? shiftDateString(String(endDate).split('T')[0], 1)
-                : undefined,
-            },
-            location: location ? String(location).slice(0, 200) : undefined,
-          };
-
-          const calResp = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
+    // ── Google fan-out (idempotentny przez try/catch) ────────────────────────
+    try {
+      const googleTokens = await getFreshGoogleAccessTokenForUser(session.accessToken);
+      const googleAccessToken = googleTokens.access_token;
+      if (googleAccessToken) {
+        const googleEvent = {
+          summary: String(title).slice(0, 200),
+          description: description ? String(description).slice(0, 1000) : undefined,
+          start: {
+            dateTime: allDay ? undefined : String(startDate),
+            date: allDay ? String(startDate).split('T')[0] : undefined,
+          },
+          end: {
+            dateTime: allDay ? undefined : String(endDate),
+            date: allDay
+              ? shiftDateString(String(endDate).split('T')[0], 1)
+              : undefined,
+          },
+          location: location ? String(location).slice(0, 200) : undefined,
+        };
+        const calResp = await fetch(
+          "https://www.googleapis.com/calendar/v3/calendars/primary/events",
+          {
             method: "POST",
             headers: {
               Authorization: `Bearer ${googleAccessToken}`,
               "Content-Type": "application/json",
             },
             body: JSON.stringify(googleEvent),
-          });
-
-          if (calResp.ok) {
-            const calData = await calResp.json();
-            googleEventId = calData.id;
-            googleSynced = true;
-          } else {
-            const errorText = await calResp.text();
-            return NextResponse.json(
-              {
-                error:
-                  errorText ||
-                  "Nie udało się zapisać wydarzenia w Google Calendar",
-              },
-              { status: calResp.status || 502 },
-            );
-          }
-        } else {
-          return NextResponse.json(
-            { error: "Google access token unavailable" },
-            { status: 400 },
-          );
-        }
-      } catch (error) {
-        return NextResponse.json(
-          {
-            error:
-              error instanceof Error
-                ? error.message
-                : "Nie udało się zapisać wydarzenia w Google Calendar",
           },
-          { status: 502 },
         );
+        if (calResp.ok) {
+          const calData = await calResp.json();
+          googleEventId = calData.id;
+          syncedTo.push("google");
+        } else {
+          syncErrors.push({
+            provider: "google",
+            error: `HTTP ${calResp.status}`,
+          });
+        }
+      }
+    } catch (err) {
+      // User nie ma Google connected → silent skip (nie błąd).
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!/not.*connected|no.*token|unauthor/i.test(msg)) {
+        syncErrors.push({ provider: "google", error: msg });
+      }
+    }
+
+    // ── Moodle fan-out (createUserEvent — bezpośredni INSERT do mdl_event) ──
+    try {
+      const { syncEventToMoodleCalendar } = await import("@/lib/moodle");
+      const moodleId = await syncEventToMoodleCalendar({
+        userId,
+        serviceToken,
+        title: String(title),
+        description: description ? String(description) : undefined,
+        startDate: String(startDate),
+        endDate: String(endDate),
+        allDay: Boolean(allDay),
+      });
+      if (moodleId) syncedTo.push("moodle");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!/not.*configured|no.*role|not.*provisioned/i.test(msg)) {
+        syncErrors.push({ provider: "moodle", error: msg });
       }
     }
 
@@ -180,7 +184,10 @@ export async function POST(request: NextRequest) {
     events.push(newEvent);
     await saveEventsToKeycloak(serviceToken, userId, events);
 
-    return NextResponse.json({ event: newEvent, googleSynced }, { status: 201 });
+    return NextResponse.json(
+      { event: newEvent, syncedTo, syncErrors },
+      { status: 201 },
+    );
   } catch (error) {
     console.error("[Calendar Events POST]", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

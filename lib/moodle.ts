@@ -242,6 +242,51 @@ interface CreateEventPayload {
   userId: number;
 }
 
+/**
+ * High-level wrapper used przez fan-out z dashboardowego endpointu
+ * /api/calendar/events POST. Tłumaczy ISO date → unix sec, znajduje
+ * Moodle userid po emailu z Keycloak. Zwraca id stworzonego eventu
+ * lub null gdy user nie ma Moodle accountu / Moodle niedostępny —
+ * caller decyduje czy to traktować jako błąd.
+ */
+export async function syncEventToMoodleCalendar(args: {
+  userId: string; // Keycloak user id
+  serviceToken: string;
+  title: string;
+  description?: string;
+  startDate: string; // ISO
+  endDate: string;   // ISO
+  allDay: boolean;
+}): Promise<number | null> {
+  if (!isMoodleConfigured()) return null;
+  // Pobierz email z KC user (1 admin call).
+  const { keycloak } = await import("@/lib/keycloak");
+  const userResp = await keycloak.adminRequest(
+    `/users/${args.userId}`,
+    args.serviceToken,
+  );
+  if (!userResp.ok) return null;
+  const userData = (await userResp.json()) as { email?: string };
+  const email = userData.email;
+  if (!email) return null;
+
+  const moodleUser = await getUserByEmail(email);
+  if (!moodleUser) return null; // user nigdy nie zalogowany do Moodle
+
+  const startSec = Math.floor(new Date(args.startDate).getTime() / 1000);
+  const endSec = Math.floor(new Date(args.endDate).getTime() / 1000);
+  const duration = Math.max(0, endSec - startSec);
+
+  const ev = await createUserEvent({
+    userId: moodleUser.id,
+    name: args.title.slice(0, 200),
+    description: args.description?.slice(0, 1000),
+    timestart: startSec,
+    timeduration: args.allDay ? 86400 : duration,
+  });
+  return ev.id;
+}
+
 interface UpdateEventPayload {
   name: string;
   description?: string;
