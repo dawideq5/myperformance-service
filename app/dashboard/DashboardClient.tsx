@@ -317,7 +317,6 @@ function TileGrid() {
             title="Keycloak (konsola IdP)"
             description="Natywna konsola administracyjna Keycloak — realms, klienci, IdP, polityki"
             href="/admin/keycloak"
-            sameTab
           />
         )}
 

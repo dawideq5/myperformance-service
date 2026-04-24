@@ -9,11 +9,9 @@ import {
   ExternalLink,
   Loader2,
   Search,
-  Shield,
   Trash2,
   Unlock,
   UserPlus,
-  X,
 } from "lucide-react";
 
 import {
@@ -35,7 +33,6 @@ import {
   type AreaSummary,
 } from "@/app/account/account-service";
 
-import { BulkAssignDialog } from "./BulkAssignDialog";
 import { InviteDialog } from "./InviteDialog";
 
 /**
@@ -108,12 +105,8 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
   const [integrations, setIntegrations] = useState<IntegrationsMap>({});
   const [locks, setLocks] = useState<LockMap>({});
 
-  // Selection
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-
-  // Modals (jedyne dwa — invite + bulk)
+  // Modal (tylko invite — wszystko inne w /admin/users/[id])
   const [inviteOpen, setInviteOpen] = useState(false);
-  const [bulkOpen, setBulkOpen] = useState(false);
 
   // Feedback
   const [error, setError] = useState<string | null>(null);
@@ -323,42 +316,6 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
     }
   }, []);
 
-  // ── Selection ───────────────────────────────────────────────────────────
-  const selectedUsers = useMemo(
-    () => users.filter((u) => selectedIds.has(u.id)),
-    [users, selectedIds],
-  );
-
-  const toggleSelected = useCallback((id: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
-
-  const toggleAllOnPage = useCallback(() => {
-    setSelectedIds((prev) => {
-      const allIds = users.map((u) => u.id);
-      const allSelected = allIds.every((id) => prev.has(id));
-      if (allSelected) {
-        const next = new Set(prev);
-        for (const id of allIds) next.delete(id);
-        return next;
-      }
-      const next = new Set(prev);
-      for (const id of allIds) next.add(id);
-      return next;
-    });
-  }, [users]);
-
-  const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
-
-  const allOnPageSelected =
-    users.length > 0 && users.every((u) => selectedIds.has(u.id));
-  const someOnPageSelected = users.some((u) => selectedIds.has(u.id));
-
   const pages = useMemo(
     () => ({
       start: total > 0 ? first + 1 : 0,
@@ -401,28 +358,6 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
           </Button>
         </div>
       </section>
-
-      {selectedIds.size > 0 && (
-        <div className="sticky top-2 z-20 mb-4 flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded-lg border border-[var(--accent)] bg-[var(--bg-surface)] shadow-md">
-          <div className="text-sm text-[var(--text-main)]">
-            Zaznaczono <strong>{selectedIds.size}</strong> użytkowników
-          </div>
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              variant="secondary"
-              leftIcon={<Shield className="w-4 h-4" aria-hidden="true" />}
-              onClick={() => setBulkOpen(true)}
-            >
-              Przypisz rolę zbiorczo
-            </Button>
-            <Button variant="ghost" size="sm" onClick={clearSelection}>
-              <X className="w-4 h-4" aria-hidden="true" />
-              Odznacz
-            </Button>
-          </div>
-        </div>
-      )}
 
       {error && (
         <div className="mb-4">
@@ -495,21 +430,6 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
           <table className="w-full text-sm">
             <thead className="border-b border-[var(--border-subtle)]">
               <tr className="text-left text-xs uppercase tracking-wider text-[var(--text-muted)]">
-                <th className="px-3 py-3 font-medium w-[40px]">
-                  <input
-                    type="checkbox"
-                    checked={allOnPageSelected}
-                    ref={(el) => {
-                      if (el) {
-                        el.indeterminate =
-                          someOnPageSelected && !allOnPageSelected;
-                      }
-                    }}
-                    onChange={toggleAllOnPage}
-                    aria-label="Zaznacz wszystkich na stronie"
-                    className="rounded border-[var(--border-subtle)]"
-                  />
-                </th>
                 <th className="px-4 py-3 font-medium">Użytkownik</th>
                 <th className="px-4 py-3 font-medium">Email</th>
                 <th className="px-4 py-3 font-medium">Status</th>
@@ -522,7 +442,7 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
               {loading && users.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={7}
+                    colSpan={6}
                     className="px-4 py-10 text-center text-[var(--text-muted)]"
                   >
                     <Loader2
@@ -534,7 +454,7 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
               ) : users.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={7}
+                    colSpan={6}
                     className="px-4 py-10 text-center text-[var(--text-muted)]"
                   >
                     Brak użytkowników spełniających kryteria.
@@ -547,11 +467,9 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
                     user={u}
                     isSelf={u.id === selfId}
                     isPending={pendingId === u.id}
-                    isSelected={selectedIds.has(u.id)}
                     presence={presence[u.id]}
                     integrations={integrations[u.id]}
                     lock={locks[u.id]}
-                    onToggleSelect={() => toggleSelected(u.id)}
                     onToggleEnabled={() => void toggleEnabled(u)}
                     onDelete={() => void deleteUser(u)}
                     onUnlock={() => void unlockUser(u)}
@@ -607,17 +525,6 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
         }}
       />
 
-      <BulkAssignDialog
-        open={bulkOpen}
-        users={selectedUsers}
-        onClose={() => setBulkOpen(false)}
-        onDone={() => {
-          setBulkOpen(false);
-          clearSelection();
-          setNotice("Bulk assignment zakończony");
-          void refresh();
-        }}
-      />
     </PageShell>
   );
 }
@@ -627,11 +534,9 @@ function UserRow({
   user,
   isSelf,
   isPending,
-  isSelected,
   presence,
   integrations,
   lock,
-  onToggleSelect,
   onToggleEnabled,
   onDelete,
   onUnlock,
@@ -639,11 +544,9 @@ function UserRow({
   user: AdminUserSummary;
   isSelf: boolean;
   isPending: boolean;
-  isSelected: boolean;
   presence: number | undefined;
   integrations: AdminIntegrationStatus | undefined;
   lock: { numFailures: number; disabled: boolean; lastFailure: number | null } | undefined;
-  onToggleSelect: () => void;
   onToggleEnabled: () => void;
   onDelete: () => void;
   onUnlock: () => void;
@@ -653,20 +556,7 @@ function UserRow({
   const locked = lock?.disabled || (lock?.numFailures ?? 0) > 0;
 
   return (
-    <tr
-      className={`border-b border-[var(--border-subtle)] last:border-b-0 hover:bg-[var(--bg-main)] ${
-        isSelected ? "bg-[var(--bg-main)]" : ""
-      }`}
-    >
-      <td className="px-3 py-3">
-        <input
-          type="checkbox"
-          checked={isSelected}
-          onChange={onToggleSelect}
-          aria-label={`Zaznacz ${user.email ?? user.username}`}
-          className="rounded border-[var(--border-subtle)]"
-        />
-      </td>
+    <tr className="border-b border-[var(--border-subtle)] last:border-b-0 hover:bg-[var(--bg-main)]">
       <td className="px-4 py-3">
         <div className="font-medium text-[var(--text-main)]">
           {fullName(user)}

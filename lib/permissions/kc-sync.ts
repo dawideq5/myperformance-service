@@ -542,9 +542,11 @@ let startupSyncFired = false;
  * Non-blocking, fire-and-forget bootstrap sync. Bezpieczny do wywołania
  * wielokrotnie (deduplikacja przez `startupSyncFired` + `inflight`).
  *
- * Nie używa `deleteStale` — stale roles usuwa się explicite przez
- * `/api/admin/iam/sync-kc?deleteStale=true` (żeby przypadkowe awarie
- * Moodla nie usuwały ról o 3 w nocy).
+ * Ustawione `deleteStale: true` — realm roles z atrybutem `areaId` które
+ * nie występują już w seed ani w provider.listRoles() są kasowane. Dzięki
+ * temu gdy admin zmieni nazwę Moodle roli (test123 → test12345) albo ją
+ * usunie, KC nie zostaje z "martwą" rolą moodle_test123.
+ * Role bez `areaId` (np. `admin`, `manage_users`, panele) są nietykalne.
  */
 export function scheduleStartupKcSync(): void {
   if (startupSyncFired) return;
@@ -552,7 +554,7 @@ export function scheduleStartupKcSync(): void {
   // Drobny delay — czekamy aż Next się rozgrzeje, żeby bootstrap DB i
   // innych ecnnectorów nie walczył o token.
   setTimeout(() => {
-    syncAreasToKeycloak({ actor: "system:startup", deleteStale: false })
+    syncAreasToKeycloak({ actor: "system:startup", deleteStale: true })
       .then((r) => {
         logger.info("startup kc-sync finished", {
           rolesCreated: r.rolesCreated,
