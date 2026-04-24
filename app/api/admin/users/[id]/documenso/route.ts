@@ -166,20 +166,42 @@ export async function POST(req: Request, { params }: Ctx) {
     const token = await keycloak.getServiceAccountToken();
     const userResp = await keycloak.adminRequest(`/users/${userId}`, token);
     if (!userResp.ok) throw ApiError.notFound("User not found");
-    const userData = (await userResp.json()) as { email?: string };
+    const userData = (await userResp.json()) as {
+      email?: string;
+      firstName?: string;
+      lastName?: string;
+    };
     const email = userData.email;
     if (!email) throw ApiError.badRequest("User has no email");
+    const fullName =
+      [userData.firstName, userData.lastName].filter(Boolean).join(" ").trim() ||
+      null;
 
     const client = await getPool().connect();
     try {
-      const userRes = await client.query<{ id: number }>(
+      // Pre-create — gdy user nie zalogował się jeszcze do Documenso, sami
+      // zakładamy mu konto z KC profilu. OIDC przy pierwszym loginie złączy
+      // się po emailu (UNIQUE) i tylko zaktualizuje identityProvider.
+      let userRes = await client.query<{ id: number }>(
         `SELECT id FROM "User" WHERE LOWER(email) = LOWER($1) LIMIT 1`,
         [email],
       );
+      if (userRes.rows.length === 0 && body.action === "add") {
+        await client.query(
+          `INSERT INTO "User" (email, name, "identityProvider", roles)
+           VALUES ($1, $2, 'DOCUMENSO'::"IdentityProvider", ARRAY['USER']::"Role"[])
+           ON CONFLICT (email) DO NOTHING`,
+          [email, fullName],
+        );
+        userRes = await client.query<{ id: number }>(
+          `SELECT id FROM "User" WHERE LOWER(email) = LOWER($1) LIMIT 1`,
+          [email],
+        );
+      }
       const documensoUserId = userRes.rows[0]?.id;
       if (!documensoUserId) {
         throw ApiError.conflict(
-          "User nie zalogował się jeszcze do Documenso. Niech wykona pierwsze logowanie SSO.",
+          "User nie ma jeszcze konta w Documenso i nie udało się go utworzyć.",
         );
       }
 

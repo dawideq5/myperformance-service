@@ -9,7 +9,9 @@ import {
   adminGroupService,
   adminUserService,
   documensoMembershipService,
+  permissionAreaService,
   type AdminGroup,
+  type AreaSummary,
   type DocumensoMembership,
   type DocumensoOrganisation,
 } from "@/app/account/account-service";
@@ -17,6 +19,65 @@ import {
   UserRolesList,
   type UserRolesListValue,
 } from "@/components/UserRolesList";
+
+type DiffType = "unchanged" | "added" | "upgrade" | "downgrade";
+interface AreaDiff {
+  area: AreaSummary;
+  type: DiffType;
+  currentRoleLabel?: string | null;
+  incomingRoleLabel?: string;
+}
+
+function computeGroupDiff(
+  current: UserRolesListValue,
+  groupRoles: string[],
+  areas: AreaSummary[],
+): AreaDiff[] {
+  const groupSet = new Set(groupRoles);
+  return areas.map((area) => {
+    // Najwyższy priorytet rolą z grupy w obrębie area.
+    const incomingArr = area.roles.filter((r) => groupSet.has(r.name));
+    const incoming = incomingArr.length
+      ? incomingArr.reduce((best, r) => (r.priority > best.priority ? r : best))
+      : null;
+    const currentName = current[area.id] ?? null;
+    const currentRole = currentName
+      ? area.roles.find((r) => r.name === currentName)
+      : null;
+
+    if (!incoming) {
+      return { area, type: "unchanged" as const, currentRoleLabel: currentRole?.label ?? null };
+    }
+    if (!currentRole) {
+      return {
+        area,
+        type: "added" as const,
+        incomingRoleLabel: incoming.label,
+      };
+    }
+    if (incoming.priority > currentRole.priority) {
+      return {
+        area,
+        type: "upgrade" as const,
+        currentRoleLabel: currentRole.label,
+        incomingRoleLabel: incoming.label,
+      };
+    }
+    if (incoming.priority < currentRole.priority) {
+      return {
+        area,
+        type: "downgrade" as const,
+        currentRoleLabel: currentRole.label,
+        incomingRoleLabel: incoming.label,
+      };
+    }
+    return {
+      area,
+      type: "unchanged" as const,
+      currentRoleLabel: currentRole.label,
+    };
+  });
+}
 
 interface PermissionsPanelProps {
   userId: string;
@@ -26,6 +87,7 @@ interface PermissionsPanelProps {
 export function PermissionsPanel({ userId, onChanged }: PermissionsPanelProps) {
   const [value, setValue] = useState<UserRolesListValue>({});
   const [groups, setGroups] = useState<AdminGroup[]>([]);
+  const [areas, setAreas] = useState<AreaSummary[]>([]);
   const [userGroupIds, setUserGroupIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -58,6 +120,9 @@ export function PermissionsPanel({ userId, onChanged }: PermissionsPanelProps) {
           if (g.members.some((m) => m.id === userId)) ownGroups.add(g.id);
         }
         setUserGroupIds(ownGroups);
+      }),
+      permissionAreaService.list().then((r) => {
+        if (!cancelled) setAreas(r.areas);
       }),
     ])
       .catch((err) => {
@@ -251,22 +316,58 @@ export function PermissionsPanel({ userId, onChanged }: PermissionsPanelProps) {
               Przypisz
             </Button>
           </div>
-          {selectedPickGroup && (
-            <div className="px-3 py-2 rounded-lg border border-[var(--accent)]/30 bg-[var(--accent)]/5">
-              <p className="text-xs text-[var(--text-muted)] mb-1">
-                Po przypisaniu user otrzyma:
+          {selectedPickGroup && areas.length > 0 && (
+            <div className="space-y-1">
+              <p className="text-xs uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                Podgląd zmian po przypisaniu — zatwierdź &bdquo;Przypisz&rdquo; lub anuluj wyborem &bdquo;— wybierz —&rdquo;
               </p>
-              <div className="flex flex-wrap gap-1">
-                {selectedPickGroup.realmRoles.length === 0 ? (
-                  <span className="text-xs text-[var(--text-muted)]">brak ról</span>
-                ) : (
-                  selectedPickGroup.realmRoles.map((r) => (
-                    <Badge key={r} tone="info" className="text-[10px] font-mono">
-                      {r}
+              {computeGroupDiff(value, selectedPickGroup.realmRoles, areas).map((d) => {
+                const cls =
+                  d.type === "added"
+                    ? "border-blue-500/50 bg-blue-500/10"
+                    : d.type === "upgrade"
+                      ? "border-green-500/50 bg-green-500/10"
+                      : d.type === "downgrade"
+                        ? "border-red-500/50 bg-red-500/10"
+                        : "border-[var(--border-subtle)]";
+                const label =
+                  d.type === "added"
+                    ? `+ ${d.incomingRoleLabel}`
+                    : d.type === "upgrade"
+                      ? `${d.currentRoleLabel} → ${d.incomingRoleLabel}`
+                      : d.type === "downgrade"
+                        ? `${d.currentRoleLabel} → ${d.incomingRoleLabel}`
+                        : d.currentRoleLabel ?? "—";
+                return (
+                  <div
+                    key={d.area.id}
+                    className={`flex items-center justify-between gap-2 px-3 py-1.5 rounded-md border ${cls}`}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-[var(--text-main)]">
+                        {d.area.label}
+                      </div>
+                      <div className="text-xs text-[var(--text-muted)] truncate">
+                        {d.area.description}
+                      </div>
+                    </div>
+                    <Badge
+                      tone={
+                        d.type === "added"
+                          ? "info"
+                          : d.type === "upgrade"
+                            ? "success"
+                            : d.type === "downgrade"
+                              ? "danger"
+                              : "neutral"
+                      }
+                      className="text-[10px] whitespace-nowrap"
+                    >
+                      {label}
                     </Badge>
-                  ))
-                )}
-              </div>
+                  </div>
+                );
+              })}
             </div>
           )}
           <label className="flex items-start gap-2 text-xs text-[var(--text-muted)]">
@@ -402,8 +503,10 @@ function DocumensoMembershipSection({ userId }: { userId: string }) {
 
       {documensoUserId === null && (
         <Alert tone="info">
-          User nie zalogował się jeszcze do Documenso. Po pierwszym logowaniu
-          SSO konto zostanie utworzone i będzie można je przypisać.
+          User nie ma jeszcze konta w Documenso — zostanie utworzone
+          automatycznie przy pierwszym przypisaniu poniżej (pre-provisioning).
+          Po jego pierwszym SSO-loginie OIDC złączy się z istniejącym
+          rekordem po emailu.
         </Alert>
       )}
 
@@ -449,7 +552,7 @@ function DocumensoMembershipSection({ userId }: { userId: string }) {
         </div>
       )}
 
-      {documensoUserId !== null && availableOrgs.length > 0 && (
+      {availableOrgs.length > 0 && (
         <div className="space-y-2 pt-2 border-t border-[var(--border-subtle)]">
           <div className="text-xs uppercase tracking-wider text-[var(--text-muted)]">
             Dodaj do organizacji

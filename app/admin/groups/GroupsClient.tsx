@@ -28,9 +28,11 @@ import {
 interface GroupsClientProps {
   userLabel?: string;
   userEmail?: string;
+  /** Gdy true — komponent nie renderuje PageShell/AppHeader (parent already does). */
+  embedded?: boolean;
 }
 
-export function GroupsClient({ userLabel, userEmail }: GroupsClientProps) {
+export function GroupsClient({ userLabel, userEmail, embedded }: GroupsClientProps) {
   const [groups, setGroups] = useState<AdminGroup[]>([]);
   const [areas, setAreas] = useState<AreaSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -92,18 +94,26 @@ export function GroupsClient({ userLabel, userEmail }: GroupsClientProps) {
     [refresh],
   );
 
+  const Wrapper = embedded
+    ? ({ children }: { children: React.ReactNode }) => <>{children}</>
+    : ({ children }: { children: React.ReactNode }) => (
+        <PageShell
+          maxWidth="2xl"
+          header={
+            <AppHeader
+              backHref="/dashboard"
+              title="Grupy Keycloak"
+              userLabel={userLabel}
+              userSubLabel={userEmail}
+            />
+          }
+        >
+          {children}
+        </PageShell>
+      );
+
   return (
-    <PageShell
-      maxWidth="2xl"
-      header={
-        <AppHeader
-          backHref="/dashboard"
-          title="Grupy Keycloak"
-          userLabel={userLabel}
-          userSubLabel={userEmail}
-        />
-      }
-    >
+    <Wrapper>
       <section className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <p className="text-sm text-[var(--text-muted)] max-w-2xl">
           Tworzenie grup-person (np. Administrator, Sprzedawca, Serwisant).
@@ -257,7 +267,7 @@ export function GroupsClient({ userLabel, userEmail }: GroupsClientProps) {
           void refresh();
         }}
       />
-    </PageShell>
+    </Wrapper>
   );
 }
 

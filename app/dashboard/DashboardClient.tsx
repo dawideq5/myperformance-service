@@ -311,17 +311,6 @@ function TileGrid() {
           />
         )}
 
-        {showAdminUsers && (
-          <Tile
-            icon={<Shield className="w-7 h-7 text-purple-500" aria-hidden="true" />}
-            iconBg="bg-purple-500/10"
-            title="Grupy"
-            description="Grupy Keycloak (Administrator, Sprzedawca, Serwisant) — mapowanie realm ról i członkostwo"
-            onClick={() => {
-              window.location.href = "/admin/groups";
-            }}
-          />
-        )}
 
         {showKeycloak && (
           <ExternalTile

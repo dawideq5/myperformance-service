@@ -39,6 +39,7 @@ import {
 } from "@/app/account/account-service";
 
 import { InviteDialog } from "./InviteDialog";
+import { GroupsClient } from "../groups/GroupsClient";
 
 /**
  * Zakładka /admin/users — przebudowana od zera (2026-04-23).
@@ -109,6 +110,9 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
   const [presence, setPresence] = useState<PresenceMap>({});
   const [integrations, setIntegrations] = useState<IntegrationsMap>({});
   const [locks, setLocks] = useState<LockMap>({});
+
+  // Tab navigation between users list and groups management.
+  const [activeTab, setActiveTab] = useState<"users" | "groups">("users");
 
   // Modal + bulk group selection
   const [inviteOpen, setInviteOpen] = useState(false);
@@ -375,6 +379,37 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
         />
       }
     >
+      <nav className="mb-4 flex border-b border-[var(--border-subtle)] gap-1">
+        <button
+          type="button"
+          onClick={() => setActiveTab("users")}
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+            activeTab === "users"
+              ? "border-[var(--accent)] text-[var(--text-main)]"
+              : "border-transparent text-[var(--text-muted)] hover:text-[var(--text-main)]"
+          }`}
+        >
+          Użytkownicy
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("groups")}
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+            activeTab === "groups"
+              ? "border-[var(--accent)] text-[var(--text-main)]"
+              : "border-transparent text-[var(--text-muted)] hover:text-[var(--text-main)]"
+          }`}
+        >
+          Grupy
+        </button>
+      </nav>
+
+      {activeTab === "groups" && (
+        <GroupsClient userLabel="" userEmail={undefined} embedded />
+      )}
+
+      {activeTab === "users" && (
+      <>
       <section className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div className="max-w-2xl">
           <p className="text-sm text-[var(--text-muted)]">
@@ -605,6 +640,9 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
           setNotice(msg);
         }}
       />
+
+      </>
+      )}
 
     </PageShell>
   );
