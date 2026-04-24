@@ -724,14 +724,14 @@ export const documensoMembershipService = {
       userEmail: string | null;
     }>(`/api/admin/users/${encodeURIComponent(userId)}/documenso`),
 
-  add: (userId: string, organisationId: string, role: "ADMIN" | "MANAGER" | "MEMBER") =>
+  add: (userId: string, organisationId: string, role?: "ADMIN" | "MANAGER" | "MEMBER") =>
     api.post<
       { ok: true },
-      { action: "add"; organisationId: string; organisationRole: typeof role }
+      { action: "add"; organisationId: string; organisationRole?: typeof role }
     >(`/api/admin/users/${encodeURIComponent(userId)}/documenso`, {
       action: "add",
       organisationId,
-      organisationRole: role,
+      ...(role ? { organisationRole: role } : {}),
     }),
 
   remove: (userId: string, organisationId: string) =>

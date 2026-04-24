@@ -214,8 +214,25 @@ export async function POST(req: Request, { params }: Ctx) {
         return createSuccessResponse({ ok: true });
       }
 
-      // action = add
-      const role = body.organisationRole ?? "MEMBER";
+      // action = add — auto-detect organisationRole z realm roles user'a w KC.
+      // documenso_admin → ADMIN, documenso_manager → MANAGER, default → MEMBER.
+      // Klient może override przez `organisationRole` w body, ale jeśli pusty
+      // (toggle "Daj dostęp" w UI) — bierzemy z realm roles.
+      let role = body.organisationRole;
+      if (!role) {
+        const rolesRes = await keycloak.adminRequest(
+          `/users/${userId}/role-mappings/realm`,
+          token,
+        );
+        const userRoles = rolesRes.ok
+          ? ((await rolesRes.json()) as Array<{ name: string }>).map((r) => r.name)
+          : [];
+        role = userRoles.includes("documenso_admin")
+          ? "ADMIN"
+          : userRoles.includes("documenso_manager")
+            ? "MANAGER"
+            : "MEMBER";
+      }
       if (!["ADMIN", "MANAGER", "MEMBER"].includes(role)) {
         throw ApiError.badRequest("Invalid role");
       }

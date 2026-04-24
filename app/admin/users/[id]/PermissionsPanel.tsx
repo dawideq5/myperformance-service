@@ -636,7 +636,9 @@ function DocumensoMembershipSection({ userId }: { userId: string }) {
         if (memberByOrg.has(orgId)) {
           await documensoMembershipService.remove(userId, orgId);
         } else {
-          await documensoMembershipService.add(userId, orgId, "MEMBER");
+          // Backend automatycznie ustawia ADMIN/MANAGER/MEMBER zgodnie
+          // z realm roles user'a (documenso_admin/manager → wyższy poziom).
+          await documensoMembershipService.add(userId, orgId);
         }
         await refresh();
       } catch (err) {
@@ -673,11 +675,23 @@ function DocumensoMembershipSection({ userId }: { userId: string }) {
       ) : (
         <ul className="space-y-1.5">
           {allOrgs.map((o) => {
-            const has = memberByOrg.has(o.id);
+            const m = memberByOrg.get(o.id);
+            const has = !!m;
+            const roleLabel =
+              m?.organisationRole === "ADMIN"
+                ? "Administrator"
+                : m?.organisationRole === "MANAGER"
+                  ? "Menedżer"
+                  : m?.organisationRole === "MEMBER"
+                    ? "Użytkownik"
+                    : null;
+            const subtitle = `${o.teams.length} ${o.teams.length === 1 ? "zespół" : "zespoły"}${
+              roleLabel ? ` · ${roleLabel}` : ""
+            }`;
             return <AccessTile
               key={o.id}
               title={o.name}
-              subtitle={`${o.teams.length} ${o.teams.length === 1 ? "zespół" : "zespoły"}`}
+              subtitle={subtitle}
               tags={o.teams.map((t) => t.name)}
               hasAccess={has}
               pending={pending === o.id}
