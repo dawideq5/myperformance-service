@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   Clock,
   GraduationCap,
+  Plug,
 } from "lucide-react";
 
 import { AppHeader } from "@/components/AppHeader";
