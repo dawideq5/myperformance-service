@@ -474,44 +474,47 @@ function RoleCheckboxList({
   onToggle: (r: string) => void;
 }) {
   return (
-    <div className="max-h-[60vh] overflow-y-auto pr-1 space-y-4">
-      {areas.map((a) => (
-        <section key={a.id}>
-          <h4 className="text-xs uppercase tracking-wider text-[var(--text-muted)] mb-1.5">
-            {a.label}
-          </h4>
-          <div className="space-y-1">
-            {a.roles.map((r) => (
-              <label
-                key={r.name}
-                className="flex items-start gap-2 px-2.5 py-1.5 rounded border border-[var(--border-subtle)] hover:bg-[var(--bg-main)] cursor-pointer"
-              >
-                <input
-                  type="checkbox"
-                  checked={selected.has(r.name)}
-                  onChange={() => onToggle(r.name)}
-                  className="mt-1 rounded border-[var(--border-subtle)]"
-                />
-                <span className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-xs text-[var(--text-main)]">
-                      {r.name}
-                    </span>
-                    <span className="text-xs text-[var(--text-muted)]">
-                      {r.label || ""}
-                    </span>
-                  </div>
-                  {r.description && (
-                    <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
-                      {r.description}
-                    </p>
-                  )}
+    <div className="max-h-[60vh] overflow-y-auto pr-1 space-y-3">
+      {areas.map((a) => {
+        const activeCount = a.roles.filter((r) => selected.has(r.name)).length;
+        return (
+          <section
+            key={a.id}
+            className="px-3 py-2.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)]"
+          >
+            <header className="flex items-baseline justify-between gap-2 mb-2">
+              <h4 className="text-sm font-medium text-[var(--text-main)]">
+                {a.label}
+              </h4>
+              {activeCount > 0 && (
+                <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider">
+                  {activeCount}/{a.roles.length}
                 </span>
-              </label>
-            ))}
-          </div>
-        </section>
-      ))}
+              )}
+            </header>
+            <div className="flex flex-wrap gap-1.5">
+              {a.roles.map((r) => {
+                const active = selected.has(r.name);
+                return (
+                  <button
+                    key={r.name}
+                    type="button"
+                    onClick={() => onToggle(r.name)}
+                    title={r.description || r.name}
+                    className={`px-2.5 py-1 rounded-full text-xs border transition-colors ${
+                      active
+                        ? "bg-[var(--accent)] text-[var(--accent-fg)] border-[var(--accent)]"
+                        : "border-[var(--border-subtle)] text-[var(--text-muted)] hover:border-[var(--accent)]/40 hover:text-[var(--text-main)]"
+                    }`}
+                  >
+                    {r.label || r.name}
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        );
+      })}
     </div>
   );
 }
@@ -627,58 +630,12 @@ function MembersDialog({
         </div>
       )}
 
-      <section className="mb-4">
-        <h4 className="text-xs uppercase tracking-wider text-[var(--text-muted)] mb-2">
-          Dodaj użytkownika
-        </h4>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            void search();
-          }}
-          className="flex gap-2"
-        >
-          <Input
-            placeholder="Email, imię, nazwisko, login…"
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-          />
-          <Button type="submit" variant="secondary" loading={searching}>
-            Szukaj
-          </Button>
-        </form>
-        {searchResults.length > 0 && (
-          <ul className="mt-2 space-y-1 max-h-[180px] overflow-y-auto">
-            {searchResults.map((u) => {
-              const already = memberIds.has(u.id);
-              return (
-                <li
-                  key={u.id}
-                  className="flex items-center justify-between gap-2 px-3 py-1.5 rounded border border-[var(--border-subtle)] text-sm"
-                >
-                  <span>
-                    <span className="text-[var(--text-main)]">
-                      {[u.firstName, u.lastName].filter(Boolean).join(" ") || u.username}
-                    </span>{" "}
-                    <span className="text-[var(--text-muted)]">({u.email ?? u.username})</span>
-                  </span>
-                  <Button
-                    size="sm"
-                    variant={already ? "ghost" : "secondary"}
-                    disabled={already || pending === u.id}
-                    loading={pending === u.id}
-                    onClick={() => void addMember(u)}
-                  >
-                    {already ? "Już w grupie" : "Dodaj"}
-                  </Button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
+      <Alert tone="info">
+        Dodawanie użytkownika do grupy odbywa się w zakładce
+        <strong> Użytkownicy → wybierz konto → Uprawnienia → Grupy Keycloak</strong>.
+      </Alert>
 
-      <section>
+      <section className="mt-4">
         <h4 className="text-xs uppercase tracking-wider text-[var(--text-muted)] mb-2">
           Obecni członkowie
         </h4>

@@ -103,7 +103,6 @@ export function PermissionsPanel({ userId, onChanged }: PermissionsPanelProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pickGroupId, setPickGroupId] = useState("");
-  const [pickReplace, setPickReplace] = useState(true);
   const [pickPending, setPickPending] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -173,14 +172,10 @@ export function PermissionsPanel({ userId, onChanged }: PermissionsPanelProps) {
       await adminGroupService.bulkAssign({
         userIds: [userId],
         groupId: pickGroupId,
-        replace: pickReplace,
+        replace: true, // zawsze nadpisuj — single-persona policy
       });
       const groupName = selectedPickGroup?.name ?? "grupa";
-      setNotice(
-        pickReplace
-          ? `User przypisany do "${groupName}", inne grupy usunięte`
-          : `User dodany do "${groupName}"`,
-      );
+      setNotice(`Zapisano: ${groupName}`);
       // Re-fetch grupy + role (composite z grupy odzwierciedlają się w sesji
       // dopiero przy następnym tokenie, ale UI musi pokazać nowe).
       const r = await adminGroupService.list();
@@ -318,14 +313,24 @@ export function PermissionsPanel({ userId, onChanged }: PermissionsPanelProps) {
                   </option>
                 ))}
             </select>
-            <Button
-              onClick={() => void assignGroup()}
-              loading={pickPending}
-              disabled={!pickGroupId}
-              leftIcon={<Shield className="w-4 h-4" aria-hidden="true" />}
-            >
-              Przypisz
-            </Button>
+            {pickGroupId && (
+              <>
+                <Button
+                  variant="ghost"
+                  onClick={() => setPickGroupId("")}
+                  disabled={pickPending}
+                >
+                  Anuluj
+                </Button>
+                <Button
+                  onClick={() => void assignGroup()}
+                  loading={pickPending}
+                  leftIcon={<Shield className="w-4 h-4" aria-hidden="true" />}
+                >
+                  Zapisz
+                </Button>
+              </>
+            )}
           </div>
           {selectedPickGroup && areas.length > 0 && (
             <div className="space-y-1">
@@ -381,17 +386,6 @@ export function PermissionsPanel({ userId, onChanged }: PermissionsPanelProps) {
               })}
             </div>
           )}
-          <label className="flex items-start gap-2 text-xs text-[var(--text-muted)]">
-            <input
-              type="checkbox"
-              checked={pickReplace}
-              onChange={(e) => setPickReplace(e.target.checked)}
-              className="mt-0.5 rounded border-[var(--border-subtle)]"
-            />
-            <span>
-              Nadpisz inne grupy (zostanie tylko ta) — pozwala wymusić personę
-            </span>
-          </label>
         </div>
       </Card>
 
@@ -484,38 +478,21 @@ function ChatwootInboxSection({ userId }: { userId: string }) {
         </Alert>
       ) : allInboxes.length === 0 ? (
         <p className="text-sm text-[var(--text-muted)]">
-          Brak kanałów w Chatwoocie. Najpierw utwórz kanał w
-          <span className="font-mono"> /app/accounts/1/inboxes</span>.
+          Brak kanałów w Chatwoocie.
         </p>
       ) : (
         <ul className="space-y-1.5">
-          {allInboxes.map((i) => {
-            const has = assigned.has(i.id);
-            return (
-              <li
-                key={i.id}
-                className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg border border-[var(--border-subtle)]"
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium text-[var(--text-main)]">
-                    {i.name}
-                  </div>
-                  <div className="text-xs text-[var(--text-muted)]">
-                    {i.channel_type.replace("Channel::", "")}
-                  </div>
-                </div>
-                <Button
-                  size="sm"
-                  variant={has ? "secondary" : "primary"}
-                  onClick={() => void toggle(i)}
-                  loading={pending === i.id}
-                  disabled={pending !== null}
-                >
-                  {has ? "Usuń" : "Przypisz"}
-                </Button>
-              </li>
-            );
-          })}
+          {allInboxes.map((i) => (
+            <AccessTile
+              key={i.id}
+              title={i.name}
+              subtitle={i.channel_type.replace("Channel::", "")}
+              hasAccess={assigned.has(i.id)}
+              pending={pending === i.id}
+              disabled={pending !== null}
+              onToggle={() => void toggle(i)}
+            />
+          ))}
         </ul>
       )}
     </Card>
@@ -599,36 +576,18 @@ function MoodleCourseSection({ userId }: { userId: string }) {
         <p className="text-sm text-[var(--text-muted)]">Brak kursów.</p>
       ) : (
         <ul className="space-y-1.5">
-          {allCourses.map((c) => {
-            const has = enrolled.has(c.id);
-            return (
-              <li
-                key={c.id}
-                className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg border border-[var(--border-subtle)]"
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium text-[var(--text-main)]">
-                    {c.fullname}
-                  </div>
-                  <div className="text-xs text-[var(--text-muted)] flex items-center gap-2">
-                    <span className="font-mono">{c.shortname}</span>
-                    {c.visible === 0 && (
-                      <Badge tone="warning" className="text-[10px]">ukryty</Badge>
-                    )}
-                  </div>
-                </div>
-                <Button
-                  size="sm"
-                  variant={has ? "secondary" : "primary"}
-                  onClick={() => void toggle(c)}
-                  loading={pending === c.id}
-                  disabled={pending !== null}
-                >
-                  {has ? "Wypisz" : "Zapisz"}
-                </Button>
-              </li>
-            );
-          })}
+          {allCourses.map((c) => (
+            <AccessTile
+              key={c.id}
+              title={c.fullname}
+              subtitle={c.shortname}
+              tags={c.visible === 0 ? ["ukryty"] : undefined}
+              hasAccess={enrolled.has(c.id)}
+              pending={pending === c.id}
+              disabled={pending !== null}
+              onToggle={() => void toggle(c)}
+            />
+          ))}
         </ul>
       )}
     </Card>
@@ -642,9 +601,7 @@ function DocumensoMembershipSection({ userId }: { userId: string }) {
   const [documensoUserId, setDocumensoUserId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [pendingOrg, setPendingOrg] = useState<string | null>(null);
-  const [pickOrg, setPickOrg] = useState("");
-  const [pickRole, setPickRole] = useState<"MEMBER" | "MANAGER" | "ADMIN">("MEMBER");
+  const [pending, setPending] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -655,9 +612,7 @@ function DocumensoMembershipSection({ userId }: { userId: string }) {
       setMemberships(r.memberships);
       setDocumensoUserId(r.documensoUserId);
     } catch (err) {
-      setError(
-        err instanceof ApiRequestError ? err.message : "Nie udało się pobrać",
-      );
+      setError(err instanceof ApiRequestError ? err.message : "Nie udało się pobrać");
     } finally {
       setLoading(false);
     }
@@ -667,49 +622,30 @@ function DocumensoMembershipSection({ userId }: { userId: string }) {
     void refresh();
   }, [refresh]);
 
-  const handleAdd = useCallback(async () => {
-    if (!pickOrg) return;
-    setPendingOrg(pickOrg);
-    setError(null);
-    try {
-      await documensoMembershipService.add(userId, pickOrg, pickRole);
-      setPickOrg("");
-      await refresh();
-    } catch (err) {
-      setError(
-        err instanceof ApiRequestError ? err.message : "Nie udało się dodać",
-      );
-    } finally {
-      setPendingOrg(null);
-    }
-  }, [userId, pickOrg, pickRole, refresh]);
+  const memberByOrg = useMemo(() => {
+    const m = new Map<string, DocumensoMembership>();
+    for (const x of memberships) m.set(x.organisationId, x);
+    return m;
+  }, [memberships]);
 
-  const handleRemove = useCallback(
-    async (orgId: string, orgName: string) => {
-      if (!window.confirm(`Usunąć usera z organizacji "${orgName}"?`)) return;
-      setPendingOrg(orgId);
+  const toggle = useCallback(
+    async (orgId: string) => {
+      setPending(orgId);
       setError(null);
       try {
-        await documensoMembershipService.remove(userId, orgId);
+        if (memberByOrg.has(orgId)) {
+          await documensoMembershipService.remove(userId, orgId);
+        } else {
+          await documensoMembershipService.add(userId, orgId, "MEMBER");
+        }
         await refresh();
       } catch (err) {
-        setError(
-          err instanceof ApiRequestError ? err.message : "Nie udało się usunąć",
-        );
+        setError(err instanceof ApiRequestError ? err.message : "Operacja zawiodła");
       } finally {
-        setPendingOrg(null);
+        setPending(null);
       }
     },
-    [userId, refresh],
-  );
-
-  const memberOrgIds = useMemo(
-    () => new Set(memberships.map((m) => m.organisationId)),
-    [memberships],
-  );
-  const availableOrgs = useMemo(
-    () => allOrgs.filter((o) => !memberOrgIds.has(o.id)),
-    [allOrgs, memberOrgIds],
+    [userId, memberByOrg, refresh],
   );
 
   if (loading) {
@@ -725,112 +661,91 @@ function DocumensoMembershipSection({ userId }: { userId: string }) {
       <div className="mb-3">
         <h3 className="text-sm font-medium text-[var(--text-main)] flex items-center gap-2">
           <FileSignature className="w-4 h-4" aria-hidden="true" />
-          Documenso — organizacje i zespoły
+          Dokumenty (Documenso) — organizacje
         </h3>
         <p className="text-xs text-[var(--text-muted)] mt-0.5">
-          Przypisanie do organizacji daje user dostęp do wszystkich zespołów
-          tej organizacji (z odpowiednią rolą zespołową). Można przypisać do
-          wielu organizacji.
+          Przyznanie dostępu = członek organizacji wraz ze wszystkimi jej zespołami.
         </p>
       </div>
-
-      {error && (
-        <div className="mb-3">
-          <Alert tone="error">{error}</Alert>
-        </div>
-      )}
-
-      {documensoUserId === null && (
-        <Alert tone="info">
-          User nie ma jeszcze konta w Documenso — zostanie utworzone
-          automatycznie przy pierwszym przypisaniu poniżej (pre-provisioning).
-          Po jego pierwszym SSO-loginie OIDC złączy się z istniejącym
-          rekordem po emailu.
-        </Alert>
-      )}
-
-      {memberships.length > 0 && (
-        <div className="mb-3 space-y-1.5">
-          {memberships.map((m) => {
-            const org = allOrgs.find((o) => o.id === m.organisationId);
-            return (
-              <div
-                key={m.organisationId}
-                className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg border border-[var(--border-subtle)]"
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium text-[var(--text-main)]">
-                    {m.organisationName}
-                  </div>
-                  <div className="flex flex-wrap gap-1 mt-1">
-                    {m.organisationRole && (
-                      <Badge tone="info" className="text-[10px]">
-                        {m.organisationRole}
-                      </Badge>
-                    )}
-                    {org?.teams.map((t) => (
-                      <Badge key={t.id} tone="neutral" className="text-[10px]">
-                        {t.name}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => void handleRemove(m.organisationId, m.organisationName)}
-                  loading={pendingOrg === m.organisationId}
-                  disabled={pendingOrg === m.organisationId}
-                  className="text-red-500 hover:text-red-600"
-                >
-                  Usuń
-                </Button>
-              </div>
-            );
+      {error && <div className="mb-3"><Alert tone="error">{error}</Alert></div>}
+      {allOrgs.length === 0 ? (
+        <p className="text-sm text-[var(--text-muted)]">Brak organizacji.</p>
+      ) : (
+        <ul className="space-y-1.5">
+          {allOrgs.map((o) => {
+            const has = memberByOrg.has(o.id);
+            return <AccessTile
+              key={o.id}
+              title={o.name}
+              subtitle={`${o.teams.length} ${o.teams.length === 1 ? "zespół" : "zespoły"}`}
+              tags={o.teams.map((t) => t.name)}
+              hasAccess={has}
+              pending={pending === o.id}
+              disabled={pending !== null}
+              onToggle={() => void toggle(o.id)}
+            />;
           })}
-        </div>
+        </ul>
       )}
-
-      {availableOrgs.length > 0 && (
-        <div className="space-y-2 pt-2 border-t border-[var(--border-subtle)]">
-          <div className="text-xs uppercase tracking-wider text-[var(--text-muted)]">
-            Dodaj do organizacji
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <select
-              value={pickOrg}
-              onChange={(e) => setPickOrg(e.target.value)}
-              className="flex-1 min-w-[200px] px-3 py-2 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-sm"
-            >
-              <option value="">— organizacja —</option>
-              {availableOrgs.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.name} ({o.teams.length} zesp.)
-                </option>
-              ))}
-            </select>
-            <select
-              value={pickRole}
-              onChange={(e) =>
-                setPickRole(e.target.value as "MEMBER" | "MANAGER" | "ADMIN")
-              }
-              className="px-3 py-2 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-sm"
-            >
-              <option value="MEMBER">Member</option>
-              <option value="MANAGER">Manager</option>
-              <option value="ADMIN">Admin</option>
-            </select>
-            <Button
-              onClick={() => void handleAdd()}
-              disabled={!pickOrg || pendingOrg !== null}
-              loading={pendingOrg === pickOrg}
-              leftIcon={<Shield className="w-4 h-4" aria-hidden="true" />}
-            >
-              Dodaj
-            </Button>
-          </div>
-        </div>
+      {documensoUserId === null && (
+        <p className="mt-3 text-xs text-[var(--text-muted)]">
+          Konto Documenso zostanie utworzone automatycznie przy pierwszym
+          przypisaniu (pre-provisioning), OIDC złączy je przy pierwszym loginie.
+        </p>
       )}
     </Card>
+  );
+}
+
+// Reużywalny tile z toggle Dostęp / Brak — używany przez Documenso/Chatwoot/Moodle.
+function AccessTile({
+  title,
+  subtitle,
+  tags,
+  hasAccess,
+  pending,
+  disabled,
+  onToggle,
+}: {
+  title: string;
+  subtitle?: string;
+  tags?: string[];
+  hasAccess: boolean;
+  pending: boolean;
+  disabled: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <li
+      className={`flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg border transition-colors ${
+        hasAccess
+          ? "border-green-500/40 bg-green-500/5"
+          : "border-[var(--border-subtle)]"
+      }`}
+    >
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-medium text-[var(--text-main)]">{title}</div>
+        {subtitle && (
+          <div className="text-xs text-[var(--text-muted)]">{subtitle}</div>
+        )}
+        {tags && tags.length > 0 && (
+          <div className="flex flex-wrap gap-1 mt-1">
+            {tags.map((t) => (
+              <Badge key={t} tone="neutral" className="text-[10px]">{t}</Badge>
+            ))}
+          </div>
+        )}
+      </div>
+      <Button
+        size="sm"
+        variant={hasAccess ? "secondary" : "primary"}
+        onClick={onToggle}
+        loading={pending}
+        disabled={disabled}
+        className={hasAccess ? "min-w-[120px]" : "min-w-[120px]"}
+      >
+        {hasAccess ? "Brak dostępu" : "Daj dostęp"}
+      </Button>
+    </li>
   );
 }

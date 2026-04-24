@@ -174,14 +174,6 @@ export function ActivityLog({ userId, pollMs = 5000 }: ActivityLogProps) {
           )}
         </div>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setLive((v) => !v)}
-            className="text-xs text-[var(--text-muted)] hover:text-[var(--text-main)]"
-            title={live ? "Pauzuj auto-odświeżanie" : "Wznów auto-odświeżanie"}
-          >
-            {live ? "Pauza" : "Live"}
-          </button>
           <Button
             size="sm"
             variant="ghost"

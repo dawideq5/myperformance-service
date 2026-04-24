@@ -169,13 +169,6 @@ export function SessionsCard({
           )}
         </div>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setLive((v) => !v)}
-            className="text-xs text-[var(--text-muted)] hover:text-[var(--text-main)]"
-          >
-            {live ? "Pauza" : "Live"}
-          </button>
           {sessions.length > 0 && (
             <Button
               size="sm"

@@ -290,16 +290,16 @@ export function SecurityPanel({
           </FieldWrapper>
         )}
 
-        <label className="flex items-center gap-2 text-sm text-[var(--text-main)] mb-3 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={pwTemporary}
-            onChange={(e) => setPwTemporary(e.target.checked)}
-          />
-          <span>
-            Wymagaj zmiany przy najbliższym logowaniu
-          </span>
-        </label>
+        {pwMode === "manual" && (
+          <label className="flex items-center gap-2 text-sm text-[var(--text-main)] mb-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={pwTemporary}
+              onChange={(e) => setPwTemporary(e.target.checked)}
+            />
+            <span>Wymagaj zmiany przy najbliższym logowaniu</span>
+          </label>
+        )}
 
         {pwError && (
           <div className="mb-2">
@@ -385,7 +385,7 @@ export function SecurityPanel({
           {emailVerified && (
             <Button
               size="sm"
-              variant="ghost"
+              variant="secondary"
               onClick={() => {
                 if (
                   window.confirm(
@@ -398,7 +398,7 @@ export function SecurityPanel({
               loading={emailBusy === "unset"}
               disabled={!!emailBusy}
               leftIcon={<ShieldAlert className="w-4 h-4" aria-hidden="true" />}
-              className="text-amber-500 hover:text-amber-600"
+              className="border-amber-500/40 text-amber-500 hover:bg-amber-500/10"
             >
               Unieważnij weryfikację
             </Button>
@@ -481,9 +481,9 @@ export function SecurityPanel({
                         onClick={() => void runForceAction(a.id, false)}
                         loading={forceBusy === `${a.id}:queue`}
                         disabled={!!forceBusy}
-                        title="Dodaj do kolejki required_actions (user wykona przy najbliższym logowaniu)"
+                        title="User wykona akcję przy najbliższym logowaniu"
                       >
-                        Kolejka
+                        Wymuś przy kolejnym logowaniu
                       </Button>
                       <Button
                         size="sm"

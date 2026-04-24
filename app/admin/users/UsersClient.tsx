@@ -844,14 +844,12 @@ function BulkGroupDialog({
 }) {
   const [groups, setGroups] = useState<AdminGroup[]>([]);
   const [groupId, setGroupId] = useState("");
-  const [replace, setReplace] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
     setGroupId("");
-    setReplace(false);
     setError(null);
     void adminGroupService
       .list()
@@ -872,7 +870,7 @@ function BulkGroupDialog({
       const res = await adminGroupService.bulkAssign({
         userIds: users.map((u) => u.id),
         groupId,
-        replace,
+        replace: true,
       });
       const groupName = selectedGroup?.name ?? "grupa";
       onDone(
@@ -887,7 +885,7 @@ function BulkGroupDialog({
     } finally {
       setLoading(false);
     }
-  }, [groupId, users, replace, selectedGroup, onDone]);
+  }, [groupId, users, selectedGroup, onDone]);
 
   return (
     <Dialog
@@ -895,7 +893,7 @@ function BulkGroupDialog({
       onClose={onClose}
       size="lg"
       title="Przypisz grupę zbiorczo"
-      description={`${users.length} użytkowników → grupa Keycloak`}
+      description={`${users.length} użytkowników → grupa Keycloak (nadpisuje istniejące przypisania)`}
       footer={
         <>
           <Button variant="ghost" onClick={onClose} disabled={loading}>
@@ -907,7 +905,7 @@ function BulkGroupDialog({
             disabled={!groupId}
             leftIcon={<Shield className="w-4 h-4" aria-hidden="true" />}
           >
-            Przypisz
+            Zapisz
           </Button>
         </>
       }
@@ -952,20 +950,6 @@ function BulkGroupDialog({
             </div>
           </div>
         )}
-        <label className="flex items-start gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={replace}
-            onChange={(e) => setReplace(e.target.checked)}
-            className="mt-1 rounded border-[var(--border-subtle)]"
-          />
-          <span>
-            <strong>Nadpisz inne grupy</strong>
-            <span className="block text-xs text-[var(--text-muted)]">
-              Usunie userów ze wszystkich pozostałych grup KC, zostawi tylko tę.
-            </span>
-          </span>
-        </label>
       </div>
     </Dialog>
   );
