@@ -744,3 +744,56 @@ export const documensoMembershipService = {
     }),
 };
 
+// ── Chatwoot inboxes ────────────────────────────────────────────────────────
+export interface ChatwootInbox {
+  id: number;
+  name: string;
+  channel_type: string;
+  account_id: number;
+}
+export const chatwootInboxService = {
+  list: (userId: string) =>
+    api.get<{
+      allInboxes: ChatwootInbox[];
+      assignedInboxIds: number[];
+      chatwootUserId: number | null;
+      accountRole: number | null;
+    }>(`/api/admin/users/${encodeURIComponent(userId)}/chatwoot`),
+  add: (userId: string, inboxId: number) =>
+    api.post<{ ok: true }, { action: "add"; inboxId: number }>(
+      `/api/admin/users/${encodeURIComponent(userId)}/chatwoot`,
+      { action: "add", inboxId },
+    ),
+  remove: (userId: string, inboxId: number) =>
+    api.post<{ ok: true }, { action: "remove"; inboxId: number }>(
+      `/api/admin/users/${encodeURIComponent(userId)}/chatwoot`,
+      { action: "remove", inboxId },
+    ),
+};
+
+// ── Moodle courses ──────────────────────────────────────────────────────────
+export interface MoodleCourseRow {
+  id: number;
+  shortname: string;
+  fullname: string;
+  visible: number;
+}
+export const moodleCourseService = {
+  list: (userId: string) =>
+    api.get<{
+      allCourses: MoodleCourseRow[];
+      enrolledCourseIds: number[];
+      moodleUserId: number | null;
+    }>(`/api/admin/users/${encodeURIComponent(userId)}/moodle`),
+  add: (userId: string, courseId: number) =>
+    api.post<{ ok: true }, { action: "add"; courseId: number }>(
+      `/api/admin/users/${encodeURIComponent(userId)}/moodle`,
+      { action: "add", courseId },
+    ),
+  remove: (userId: string, courseId: number) =>
+    api.post<{ ok: true }, { action: "remove"; courseId: number }>(
+      `/api/admin/users/${encodeURIComponent(userId)}/moodle`,
+      { action: "remove", courseId },
+    ),
+};
+

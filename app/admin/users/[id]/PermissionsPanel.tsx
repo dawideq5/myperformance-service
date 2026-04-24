@@ -1,19 +1,30 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FileSignature, Loader2, Shield, Users } from "lucide-react";
+import {
+  FileSignature,
+  GraduationCap,
+  Loader2,
+  MessageSquare,
+  Shield,
+  Users,
+} from "lucide-react";
 
 import { Alert, Badge, Button, Card } from "@/components/ui";
 import { ApiRequestError } from "@/lib/api-client";
 import {
   adminGroupService,
   adminUserService,
+  chatwootInboxService,
   documensoMembershipService,
+  moodleCourseService,
   permissionAreaService,
   type AdminGroup,
   type AreaSummary,
+  type ChatwootInbox,
   type DocumensoMembership,
   type DocumensoOrganisation,
+  type MoodleCourseRow,
 } from "@/app/account/account-service";
 import {
   UserRolesList,
@@ -392,7 +403,235 @@ export function PermissionsPanel({ userId, onChanged }: PermissionsPanelProps) {
       />
 
       <DocumensoMembershipSection userId={userId} />
+      <ChatwootInboxSection userId={userId} />
+      <MoodleCourseSection userId={userId} />
     </div>
+  );
+}
+
+// ── Chatwoot inboxes ───────────────────────────────────────────────────────
+function ChatwootInboxSection({ userId }: { userId: string }) {
+  const [allInboxes, setAllInboxes] = useState<ChatwootInbox[]>([]);
+  const [assigned, setAssigned] = useState<Set<number>>(new Set());
+  const [chatwootUserId, setChatwootUserId] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [pending, setPending] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const r = await chatwootInboxService.list(userId);
+      setAllInboxes(r.allInboxes);
+      setAssigned(new Set(r.assignedInboxIds));
+      setChatwootUserId(r.chatwootUserId);
+    } catch (err) {
+      setError(err instanceof ApiRequestError ? err.message : "Nie udało się pobrać");
+    } finally {
+      setLoading(false);
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  const toggle = useCallback(
+    async (inbox: ChatwootInbox) => {
+      setPending(inbox.id);
+      setError(null);
+      try {
+        if (assigned.has(inbox.id)) {
+          await chatwootInboxService.remove(userId, inbox.id);
+        } else {
+          await chatwootInboxService.add(userId, inbox.id);
+        }
+        await refresh();
+      } catch (err) {
+        setError(err instanceof ApiRequestError ? err.message : "Operacja zawiodła");
+      } finally {
+        setPending(null);
+      }
+    },
+    [userId, assigned, refresh],
+  );
+
+  if (loading) {
+    return (
+      <Card padding="md">
+        <Loader2 className="w-4 h-4 animate-spin inline-block" aria-hidden="true" />
+      </Card>
+    );
+  }
+
+  return (
+    <Card padding="md">
+      <div className="mb-3">
+        <h3 className="text-sm font-medium text-[var(--text-main)] flex items-center gap-2">
+          <MessageSquare className="w-4 h-4" aria-hidden="true" />
+          Chatwoot — kanały (inboxes)
+        </h3>
+        <p className="text-xs text-[var(--text-muted)] mt-0.5">
+          Każdy zaznaczony kanał daje user dostęp do rozmów z tego inboxa.
+        </p>
+      </div>
+      {error && <Alert tone="error">{error}</Alert>}
+      {chatwootUserId === null ? (
+        <Alert tone="info">
+          User nie zalogował się jeszcze do Chatwoota. Po pierwszym logowaniu
+          przez SSO bridge, kanały będą tu przypisywane.
+        </Alert>
+      ) : allInboxes.length === 0 ? (
+        <p className="text-sm text-[var(--text-muted)]">
+          Brak kanałów w Chatwoocie. Najpierw utwórz kanał w
+          <span className="font-mono"> /app/accounts/1/inboxes</span>.
+        </p>
+      ) : (
+        <ul className="space-y-1.5">
+          {allInboxes.map((i) => {
+            const has = assigned.has(i.id);
+            return (
+              <li
+                key={i.id}
+                className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg border border-[var(--border-subtle)]"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium text-[var(--text-main)]">
+                    {i.name}
+                  </div>
+                  <div className="text-xs text-[var(--text-muted)]">
+                    {i.channel_type.replace("Channel::", "")}
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  variant={has ? "secondary" : "primary"}
+                  onClick={() => void toggle(i)}
+                  loading={pending === i.id}
+                  disabled={pending !== null}
+                >
+                  {has ? "Usuń" : "Przypisz"}
+                </Button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Card>
+  );
+}
+
+// ── Moodle courses ─────────────────────────────────────────────────────────
+function MoodleCourseSection({ userId }: { userId: string }) {
+  const [allCourses, setAllCourses] = useState<MoodleCourseRow[]>([]);
+  const [enrolled, setEnrolled] = useState<Set<number>>(new Set());
+  const [moodleUserId, setMoodleUserId] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [pending, setPending] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const r = await moodleCourseService.list(userId);
+      setAllCourses(r.allCourses);
+      setEnrolled(new Set(r.enrolledCourseIds));
+      setMoodleUserId(r.moodleUserId);
+    } catch (err) {
+      setError(err instanceof ApiRequestError ? err.message : "Nie udało się pobrać");
+    } finally {
+      setLoading(false);
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  const toggle = useCallback(
+    async (course: MoodleCourseRow) => {
+      setPending(course.id);
+      setError(null);
+      try {
+        if (enrolled.has(course.id)) {
+          await moodleCourseService.remove(userId, course.id);
+        } else {
+          await moodleCourseService.add(userId, course.id);
+        }
+        await refresh();
+      } catch (err) {
+        setError(err instanceof ApiRequestError ? err.message : "Operacja zawiodła");
+      } finally {
+        setPending(null);
+      }
+    },
+    [userId, enrolled, refresh],
+  );
+
+  if (loading) {
+    return (
+      <Card padding="md">
+        <Loader2 className="w-4 h-4 animate-spin inline-block" aria-hidden="true" />
+      </Card>
+    );
+  }
+
+  return (
+    <Card padding="md">
+      <div className="mb-3">
+        <h3 className="text-sm font-medium text-[var(--text-main)] flex items-center gap-2">
+          <GraduationCap className="w-4 h-4" aria-hidden="true" />
+          Akademia (Moodle) — kursy
+        </h3>
+        <p className="text-xs text-[var(--text-muted)] mt-0.5">
+          Zapisanie usera do kursu daje dostęp jako student. Wymaga aby kurs
+          miał metodę zapisu &bdquo;manual&rdquo; włączoną w Moodle.
+        </p>
+      </div>
+      {error && <Alert tone="error">{error}</Alert>}
+      {moodleUserId === null ? (
+        <Alert tone="info">
+          User nie zalogował się jeszcze do Moodle.
+        </Alert>
+      ) : allCourses.length === 0 ? (
+        <p className="text-sm text-[var(--text-muted)]">Brak kursów.</p>
+      ) : (
+        <ul className="space-y-1.5">
+          {allCourses.map((c) => {
+            const has = enrolled.has(c.id);
+            return (
+              <li
+                key={c.id}
+                className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg border border-[var(--border-subtle)]"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium text-[var(--text-main)]">
+                    {c.fullname}
+                  </div>
+                  <div className="text-xs text-[var(--text-muted)] flex items-center gap-2">
+                    <span className="font-mono">{c.shortname}</span>
+                    {c.visible === 0 && (
+                      <Badge tone="warning" className="text-[10px]">ukryty</Badge>
+                    )}
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  variant={has ? "secondary" : "primary"}
+                  onClick={() => void toggle(c)}
+                  loading={pending === c.id}
+                  disabled={pending !== null}
+                >
+                  {has ? "Wypisz" : "Zapisz"}
+                </Button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Card>
   );
 }
 
