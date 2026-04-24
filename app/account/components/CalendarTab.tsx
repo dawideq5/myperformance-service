@@ -1342,67 +1342,9 @@ function EventFormDialog({
     >
       <form onSubmit={onSubmit} className="space-y-4">
         {targetEditable && (
-          <div className="space-y-2">
-            <span className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">
-              Miejsce zapisu
-            </span>
-            <div className={targetGridClass}>
-              <button
-                type="button"
-                disabled={submitting}
-                onClick={() => patch({ target: "local" })}
-                className={`text-left p-3 rounded-xl border transition-colors ${
-                  form.target === "local"
-                    ? "border-[var(--accent)] bg-[var(--accent)]/10"
-                    : "border-[var(--border-subtle)] hover:border-[var(--accent)]/40"
-                }`}
-              >
-                <div className="text-sm font-medium text-[var(--text-main)]">
-                  Kalendarz MyPerformance
-                </div>
-                <div className="text-[11px] text-[var(--text-muted)] mt-0.5">
-                  Lokalnie, bez etykiety i bez zapisu do usług zewnętrznych
-                </div>
-              </button>
-              {googleAvailable && (
-                <button
-                  type="button"
-                  disabled={submitting}
-                  onClick={() => patch({ target: "google" })}
-                  className={`text-left p-3 rounded-xl border transition-colors ${
-                    form.target === "google"
-                      ? "border-[#4285F4] bg-[#4285F4]/10"
-                      : "border-[var(--border-subtle)] hover:border-[#4285F4]/40"
-                  }`}
-                >
-                  <div className="text-sm font-medium text-[var(--text-main)]">
-                    Google Calendar
-                  </div>
-                  <div className="text-[11px] text-[var(--text-muted)] mt-0.5">
-                    Zapis do Google i późniejsza edycja/usuwanie z poziomu kalendarza
-                  </div>
-                </button>
-              )}
-              {moodleAvailable && (
-                <button
-                  type="button"
-                  disabled={submitting}
-                  onClick={() => patch({ target: "moodle" })}
-                  className={`text-left p-3 rounded-xl border transition-colors ${
-                    form.target === "moodle"
-                      ? "border-[#F59E0B] bg-[#F59E0B]/10"
-                      : "border-[var(--border-subtle)] hover:border-[#F59E0B]/40"
-                  }`}
-                >
-                  <div className="text-sm font-medium text-[var(--text-main)]">
-                    Akademia (Moodle)
-                  </div>
-                  <div className="text-[11px] text-[var(--text-muted)] mt-0.5">
-                    Widoczne w Akademii jako wydarzenie użytkownika
-                  </div>
-                </button>
-              )}
-            </div>
+          <div className="px-3 py-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-xs text-[var(--text-muted)]">
+            Wydarzenie zostanie zapisane jako <strong className="text-[var(--text-main)]">MyPerformance</strong>
+            {" "}i zsynchronizowane ze wszystkimi podłączonymi kalendarzami (Google, Akademia).
           </div>
         )}
 

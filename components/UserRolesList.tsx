@@ -253,11 +253,6 @@ export function UserRolesList({
                     )}
                   </Badge>
                 )}
-                {a.dynamicRoles && (
-                  <Badge tone="neutral" title="Role pobierane z natywnej aplikacji">
-                    dynamiczne role
-                  </Badge>
-                )}
               </div>
               {a.description && (
                 <p className="text-xs text-[var(--text-muted)] mt-0.5">

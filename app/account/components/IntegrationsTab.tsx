@@ -117,7 +117,7 @@ function IntegrationTile({
           )
         }
         action={
-          connected ? (
+          connected && !canDisconnect ? null : connected ? (
             confirming ? (
               <div className="flex items-center gap-2">
                 <span className="text-xs text-[var(--text-muted)]">
@@ -638,9 +638,11 @@ function MoodleCard() {
     },
   );
 
-  const statusLabel: TileStatus = !hasRole
-    ? { tone: "idle", label: "Brak roli Moodle" }
-    : reason === "not_provisioned"
+  // Brak roli → nie pokazuj kafelka (user nie widzi Akademii w ogóle).
+  if (!hasRole) return null;
+
+  const statusLabel: TileStatus =
+    reason === "not_provisioned"
       ? {
           tone: "warning",
           label: "Konto Akademii czeka na inicjalizację",
@@ -648,7 +650,7 @@ function MoodleCard() {
       : reason === "unreachable"
         ? { tone: "warning", label: "Akademia chwilowo niedostępna" }
         : connected
-          ? { tone: "ok", label: "Połączone" }
+          ? { tone: "ok", label: "Połączono" }
           : { tone: "idle", label: "Niepołączone" };
 
   return (
@@ -665,10 +667,9 @@ function MoodleCard() {
       status={statusLabel}
       configureLabel="Skonfiguruj"
       onConfigure={() => void connectAction.run()}
-      onDisconnect={() => void disconnectAction.run()}
       configuring={connectAction.pending}
-      disconnecting={disconnectAction.pending}
-      canConfigure={hasRole && configured && reason !== "unreachable"}
+      canConfigure={configured && reason !== "unreachable"}
+      canDisconnect={false}
       secondary={
         <>
           {feedback && <Alert tone={feedback.tone}>{feedback.message}</Alert>}

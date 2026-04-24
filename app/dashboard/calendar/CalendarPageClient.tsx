@@ -1,14 +1,12 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useEffect } from "react";
 import Link from "next/link";
 import {
   Calendar,
   CheckCircle2,
   Clock,
   GraduationCap,
-  Plug,
-  Unplug,
 } from "lucide-react";
 
 import { AppHeader } from "@/components/AppHeader";
@@ -20,7 +18,6 @@ import {
 import { PageShell } from "@/components/ui";
 import { AccountProvider, useAccount } from "@/app/account/AccountProvider";
 import { CalendarTab } from "@/app/account/components/CalendarTab";
-import { moodleService } from "@/app/account/account-service";
 import { useAuthRedirect } from "@/hooks/useAuthRedirect";
 
 interface CalendarPageClientProps {
@@ -39,8 +36,7 @@ export function CalendarPageClient(props: CalendarPageClientProps) {
 }
 
 function CalendarPageBody({ userLabel, userEmail }: CalendarPageClientProps) {
-  const { googleStatus, kadromierzStatus, moodleStatus, refetchMoodleStatus, status } =
-    useAccount();
+  const { googleStatus, kadromierzStatus, moodleStatus, status } = useAccount();
   const { softLogout } = useAuthRedirect();
 
   useEffect(() => {
@@ -53,23 +49,7 @@ function CalendarPageBody({ userLabel, userEmail }: CalendarPageClientProps) {
   const googleConnected = googleStatus?.connected === true;
   const kadromierzConnected = kadromierzStatus?.connected === true;
   const moodleHasRole = moodleStatus?.hasRole === true;
-  const moodleConnected = moodleStatus?.connected === true;
-  const moodleDisconnected = moodleStatus?.userDisconnected === true;
-
-  const [moodleBusy, setMoodleBusy] = useState(false);
-  const toggleMoodle = useCallback(async () => {
-    setMoodleBusy(true);
-    try {
-      if (moodleDisconnected) {
-        await moodleService.reconnect();
-      } else {
-        await moodleService.disconnect();
-      }
-      await refetchMoodleStatus();
-    } finally {
-      setMoodleBusy(false);
-    }
-  }, [moodleDisconnected, refetchMoodleStatus]);
+  const moodleConnected = moodleHasRole;
 
   const integrationCount =
     (googleConnected ? 1 : 0) +
@@ -136,34 +116,16 @@ function CalendarPageBody({ userLabel, userEmail }: CalendarPageClientProps) {
             iconBg="bg-amber-500/10"
             title="Akademia — kalendarz"
             description={
-              moodleDisconnected
-                ? "Integracja wyłączona — ponownie włącz, aby widzieć terminy szkoleń"
-                : moodleConnected
-                  ? "Terminy szkoleń, zadań i wydarzeń kursów z Moodle"
-                  : moodleStatus?.reason === "not_provisioned"
-                    ? "Zaloguj się raz do Akademii, aby zainicjalizować konto"
-                    : "Akademia niedostępna — sprawdź połączenie sieciowe"
+              moodleStatus?.reason === "not_provisioned"
+                ? "Zaloguj się raz do Akademii, aby zainicjalizować konto"
+                : moodleStatus?.reason === "unreachable"
+                  ? "Akademia chwilowo niedostępna — odśwież za chwilę"
+                  : "Terminy szkoleń, zadań i wydarzeń kursów z Moodle"
             }
-            connected={moodleConnected}
+            connected={true}
             loading={accountLoading}
             primaryHref="https://moodle.myperformance.pl/"
-            primaryLabel={moodleConnected ? "Otwórz Akademię" : "Zaloguj się"}
-            secondaryLabel={
-              moodleDisconnected
-                ? "Włącz integrację"
-                : moodleConnected
-                  ? "Odłącz"
-                  : undefined
-            }
-            secondaryIcon={
-              moodleDisconnected ? (
-                <Plug className="w-4 h-4" aria-hidden="true" />
-              ) : (
-                <Unplug className="w-4 h-4" aria-hidden="true" />
-              )
-            }
-            onSecondary={toggleMoodle}
-            secondaryLoading={moodleBusy}
+            primaryLabel="Otwórz Akademię"
           />
         )}
       </section>
