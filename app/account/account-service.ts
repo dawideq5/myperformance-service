@@ -691,3 +691,56 @@ export const adminGroupService = {
     >("/api/admin/bulk/group", payload),
 };
 
+// ---------------------------------------------------------------------------
+// Documenso multi-org membership
+// ---------------------------------------------------------------------------
+
+export interface DocumensoTeamRow {
+  id: number;
+  name: string;
+  url: string;
+  organisationId: string;
+}
+
+export interface DocumensoOrganisation {
+  id: string;
+  name: string;
+  type: "PERSONAL" | "ORGANISATION";
+  teams: DocumensoTeamRow[];
+}
+
+export interface DocumensoMembership {
+  organisationId: string;
+  organisationName: string;
+  organisationRole: "ADMIN" | "MANAGER" | "MEMBER" | null;
+}
+
+export const documensoMembershipService = {
+  list: (userId: string) =>
+    api.get<{
+      allOrganisations: DocumensoOrganisation[];
+      memberships: DocumensoMembership[];
+      documensoUserId: number | null;
+      userEmail: string | null;
+    }>(`/api/admin/users/${encodeURIComponent(userId)}/documenso`),
+
+  add: (userId: string, organisationId: string, role: "ADMIN" | "MANAGER" | "MEMBER") =>
+    api.post<
+      { ok: true },
+      { action: "add"; organisationId: string; organisationRole: typeof role }
+    >(`/api/admin/users/${encodeURIComponent(userId)}/documenso`, {
+      action: "add",
+      organisationId,
+      organisationRole: role,
+    }),
+
+  remove: (userId: string, organisationId: string) =>
+    api.post<
+      { ok: true },
+      { action: "remove"; organisationId: string }
+    >(`/api/admin/users/${encodeURIComponent(userId)}/documenso`, {
+      action: "remove",
+      organisationId,
+    }),
+};
+
