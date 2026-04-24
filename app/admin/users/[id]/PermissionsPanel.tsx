@@ -194,7 +194,7 @@ export function PermissionsPanel({ userId, onChanged }: PermissionsPanelProps) {
     } finally {
       setPickPending(false);
     }
-  }, [pickGroupId, pickReplace, userId, selectedPickGroup, onChanged]);
+  }, [pickGroupId, userId, selectedPickGroup, onChanged]);
 
   const removeFromGroup = useCallback(
     async (g: AdminGroup) => {
