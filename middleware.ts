@@ -28,32 +28,28 @@ const userinfoCache = new Map<string, { valid: boolean; expiresAt: number }>();
 
 // Cache maintenance status — middleware nie powinien zapytać DB na każdy
 // request. 30s TTL — admin dostaje "live" feedback przy włączaniu/wyłączaniu.
+// Wcześniej fetch'owaliśmy /api/maintenance/status, ale Self-fetch przez
+// Traefik (TLS handshake na własną domenę) potrafił timeout'ować w cold-
+// startach kontenera — middleware musiał fail-open i maintenance nie
+// działał. Teraz czytamy bezpośrednio z DB (runtime = nodejs).
 let maintenanceCache: { active: boolean; checkedAt: number } | null = null;
 const MAINTENANCE_TTL_MS = 30_000;
 
-async function isMaintenanceMode(req: Request): Promise<boolean> {
+async function isMaintenanceMode(): Promise<boolean> {
   const now = Date.now();
   if (maintenanceCache && now - maintenanceCache.checkedAt < MAINTENANCE_TTL_MS) {
     return maintenanceCache.active;
   }
   try {
-    const baseUrl = new URL(req.url);
-    baseUrl.pathname = "/api/maintenance/status";
-    baseUrl.search = "";
-    const res = await fetch(baseUrl.toString(), {
-      cache: "no-store",
-      signal: AbortSignal.timeout(2_000),
-    });
-    if (!res.ok) {
-      maintenanceCache = { active: false, checkedAt: now };
-      return false;
-    }
-    const data = (await res.json()) as { enabled?: boolean };
-    const active = !!data.enabled;
+    const { isMaintenanceActive } = await import("@/lib/email/db");
+    const active = await isMaintenanceActive();
     maintenanceCache = { active, checkedAt: now };
     return active;
-  } catch {
-    // Fail-open: gdy endpoint down, nie blokujemy ruchu.
+  } catch (err) {
+    // Fail-open: gdy DB down, nie blokujemy ruchu (wolimy false-negative).
+    logger.warn("maintenance check failed", {
+      err: err instanceof Error ? err.message : String(err),
+    });
     maintenanceCache = { active: false, checkedAt: now };
     return false;
   }
@@ -243,7 +239,7 @@ export default withAuth(
       pathname.startsWith("/_next/") ||
       pathname.startsWith("/favicon");
     if (!skipMaintenanceCheck) {
-      const inMaintenance = await isMaintenanceMode(req);
+      const inMaintenance = await isMaintenanceMode();
       if (inMaintenance) {
         const isAdmin =
           token?.accessToken &&

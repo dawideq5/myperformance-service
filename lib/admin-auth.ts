@@ -164,21 +164,82 @@ export function canAccessPanel(
 }
 
 /**
- * "Dowolny panel admin" — true gdy user ma którąkolwiek z dedykowanych
- * ról administracyjnych (lub jest superadmin). Używane przy renderowaniu
- * łącznika do /admin w nawigacji.
+ * Centralna struktura "Co user może adminować".
+ *
+ * Source-of-truth: `AREAS` registry — każdy area deklaruje swoje role
+ * z `priority`. Rola admin to ta z `priority >= 90`. Funkcja
+ * `getAdminScopes()` derywuje z AREAS bez ręcznych list — dodanie nowego
+ * area z admin role automatycznie wprowadza nową scope.
+ *
+ * Superadmin (KC realm-admin / manage-realm) ma wszystkie scope'y.
+ */
+
+export interface AdminScope {
+  areaId: string;
+  label: string;
+  /** Realm role(s) jakie user posiada w tej area. */
+  roleNames: string[];
+}
+
+const ADMIN_PRIORITY_THRESHOLD = 90;
+
+export function getAdminScopes(
+  session: Session | null | undefined,
+): AdminScope[] {
+  const userRoles = new Set(rolesOf(session));
+  const sa = isSuperAdmin(session);
+  const scopes: AdminScope[] = [];
+  for (const area of AREAS) {
+    const adminRoles = area.kcRoles.filter(
+      (r) => r.priority >= ADMIN_PRIORITY_THRESHOLD,
+    );
+    if (adminRoles.length === 0) continue;
+    if (sa) {
+      scopes.push({
+        areaId: area.id,
+        label: area.label,
+        roleNames: adminRoles.map((r) => r.name),
+      });
+      continue;
+    }
+    const owned = adminRoles.filter((r) => userRoles.has(r.name));
+    if (owned.length > 0) {
+      scopes.push({
+        areaId: area.id,
+        label: area.label,
+        roleNames: owned.map((r) => r.name),
+      });
+    }
+  }
+  return scopes;
+}
+
+/** True dla każdego usera z którąkolwiek admin role (superadmin też). */
+export function isAnyAdmin(
+  session: Session | null | undefined,
+): boolean {
+  if (isSuperAdmin(session)) return true;
+  return getAdminScopes(session).length > 0;
+}
+
+/** True gdy user może adminować konkretne area (id z AREAS). */
+export function isAreaAdmin(
+  session: Session | null | undefined,
+  areaId: string,
+): boolean {
+  if (isSuperAdmin(session)) return true;
+  return getAdminScopes(session).some((s) => s.areaId === areaId);
+}
+
+/**
+ * "Dowolny panel admin" — true gdy user ma którąkolwiek admin role.
+ * Implementacja używa `isAnyAdmin` derywujące z AREAS, więc dodanie
+ * nowego area auto-rozszerza ten check.
  */
 export function canAccessAdminPanel(
   session: Session | null | undefined,
 ): boolean {
-  return hasAnyRole(session, [
-    ROLES.KEYCLOAK_ADMIN,
-    ROLES.INFRASTRUCTURE_ADMIN,
-    ROLES.EMAIL_ADMIN,
-    ROLES.SECURITY_ADMIN,
-    ROLES.MANAGE_USERS,
-    ROLES.CERTIFICATES_ADMIN,
-  ]);
+  return isAnyAdmin(session);
 }
 
 export function canAccessInfrastructure(
