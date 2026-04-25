@@ -126,28 +126,37 @@ export async function GET(req: Request) {
     if (!coolifyToken) {
       return redirectWithMessage(origin, intent.returnTo, "err", "COOLIFY_API_TOKEN missing");
     }
-    const envBody = JSON.stringify({
-      key: "MTLS_REQUIRED",
-      value: String(intent.params.mtlsRequired),
-    });
     const envHeaders = {
       Authorization: `Bearer ${coolifyToken}`,
       "Content-Type": "application/json",
     };
-    // PATCH update istniejącego env. Gdy 404 — env jeszcze nie istnieje
-    // (pierwsze włączenie), tworzymy POSTem.
-    let envRes = await fetch(`${apiBase.replace(/\/$/, "")}/applications/${uuid}/envs`, {
-      method: "PATCH",
-      headers: envHeaders,
-      body: envBody,
+    const apiPrefix = `${apiBase.replace(/\/$/, "")}/applications/${uuid}/envs`;
+
+    // Idempotent: DELETE wszystkich istniejących MTLS_REQUIRED (Coolify pozwala
+    // na duplikaty — POST tworzy nowy zamiast update'ować stary), potem POST
+    // świeżej wartości. Eliminuje stale duplikatów zostawiające stary value.
+    const listRes = await fetch(apiPrefix, {
+      headers: { Authorization: `Bearer ${coolifyToken}` },
     });
-    if (envRes.status === 404) {
-      envRes = await fetch(`${apiBase.replace(/\/$/, "")}/applications/${uuid}/envs`, {
-        method: "POST",
-        headers: envHeaders,
-        body: envBody,
-      });
+    if (listRes.ok) {
+      const arr = (await listRes.json()) as Array<{ key: string; uuid: string }>;
+      for (const e of arr.filter((x) => x.key === "MTLS_REQUIRED")) {
+        await fetch(`${apiPrefix}/${e.uuid}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${coolifyToken}` },
+        });
+      }
     }
+    const envRes = await fetch(apiPrefix, {
+      method: "POST",
+      headers: envHeaders,
+      body: JSON.stringify({
+        key: "MTLS_REQUIRED",
+        value: String(intent.params.mtlsRequired),
+        is_buildtime: true,
+        is_runtime: true,
+      }),
+    });
     if (!envRes.ok && envRes.status !== 201) {
       const errBody = await envRes.text().catch(() => "");
       auditLog({
