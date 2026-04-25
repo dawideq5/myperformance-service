@@ -90,7 +90,7 @@ export async function POST(req: Request) {
         blockedBy: actor,
         source: "wazuh-active-response",
         durationMinutes: payload.durationMinutes ?? 60,
-        details: payload.details ?? null,
+        details: payload.details,
       });
       await recordEvent({
         severity: sev === "info" ? "high" : sev,
@@ -99,7 +99,7 @@ export async function POST(req: Request) {
         title: `Wazuh: IP ${payload.ip} zablokowany — ${payload.ruleDescription ?? "rule " + (payload.ruleId ?? "?")}`,
         description: `Wazuh wykrył atak (rule ${payload.ruleId}, alert level ${payload.alertLevel}). IP zablokowany na ${payload.durationMinutes ?? 60} min.`,
         srcIp: payload.ip,
-        details: payload.details ?? null,
+        details: payload.details,
       });
       logger.info("Wazuh AR: IP blocked", { ip: payload.ip, rule: payload.ruleId });
       return NextResponse.json({ ok: true, action: "blocked", ip: payload.ip });
@@ -128,7 +128,7 @@ export async function POST(req: Request) {
         title: payload.ruleDescription ?? "Wazuh alert",
         description: `Rule ${payload.ruleId} · level ${payload.alertLevel} · agent ${payload.agentName ?? "?"}`,
         srcIp: payload.ip,
-        details: payload.details ?? null,
+        details: payload.details,
       });
       return NextResponse.json({ ok: true, action: "logged" });
     }
