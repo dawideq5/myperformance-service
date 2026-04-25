@@ -11,7 +11,11 @@ import {
   Input,
 } from "@/components/ui";
 import { ApiRequestError } from "@/lib/api-client";
-import { adminUserService } from "@/app/account/account-service";
+import {
+  adminGroupService,
+  adminUserService,
+  type AdminGroup,
+} from "@/app/account/account-service";
 import {
   UserRolesList,
   type UserRolesListValue,
@@ -31,6 +35,8 @@ export function InviteDialog({ open, onClose, onInvited }: InviteDialogProps) {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [areaRoles, setAreaRoles] = useState<UserRolesListValue>({});
+  const [groups, setGroups] = useState<AdminGroup[]>([]);
+  const [groupId, setGroupId] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const emailRef = useRef<HTMLInputElement | null>(null);
@@ -41,9 +47,19 @@ export function InviteDialog({ open, onClose, onInvited }: InviteDialogProps) {
     setFirstName("");
     setLastName("");
     setAreaRoles({});
+    setGroupId("");
     setError(null);
     setTimeout(() => emailRef.current?.focus(), 50);
+    void adminGroupService
+      .list()
+      .then((r) => setGroups(r.groups))
+      .catch(() => setGroups([]));
   }, [open]);
+
+  const selectedGroup = useMemo(
+    () => groups.find((g) => g.id === groupId) ?? null,
+    [groups, groupId],
+  );
 
   const roleCount = useMemo(
     () => Object.values(areaRoles).filter(Boolean).length,
@@ -76,6 +92,18 @@ export function InviteDialog({ open, onClose, onInvited }: InviteDialogProps) {
           lastName: lastName.trim() || undefined,
           areaRoles: payload,
         });
+        // Po stworzeniu, jeśli wybrana grupa — dodaj user (replace=true).
+        if (groupId && res.id) {
+          try {
+            await adminGroupService.bulkAssign({
+              userIds: [res.id],
+              groupId,
+              replace: true,
+            });
+          } catch {
+            // best-effort
+          }
+        }
         onInvited({
           email: trimmedEmail,
           roleAssignmentErrors: res.roleAssignmentErrors ?? [],
@@ -90,7 +118,7 @@ export function InviteDialog({ open, onClose, onInvited }: InviteDialogProps) {
         setLoading(false);
       }
     },
-    [email, firstName, lastName, areaRoles, onInvited],
+    [email, firstName, lastName, areaRoles, groupId, onInvited],
   );
 
   return (
@@ -153,13 +181,57 @@ export function InviteDialog({ open, onClose, onInvited }: InviteDialogProps) {
         <div>
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-sm font-semibold text-[var(--text-main)]">
-              Uprawnienia w aplikacjach
+              Grupa Keycloak (persona)
+            </h3>
+            <span className="text-xs text-[var(--text-muted)]">opcjonalne</span>
+          </div>
+          <select
+            value={groupId}
+            onChange={(e) => setGroupId(e.target.value)}
+            disabled={loading}
+            className="w-full px-3 py-2 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-sm"
+          >
+            <option value="">— bez grupy —</option>
+            {groups.map((g) => (
+              <option key={g.id} value={g.id}>
+                {g.name}
+                {g.realmRoles.length > 0 ? ` (${g.realmRoles.length} ról)` : ""}
+              </option>
+            ))}
+          </select>
+          {selectedGroup && (
+            <div className="px-3 py-2 rounded-lg border border-[var(--accent)]/30 bg-[var(--accent)]/5">
+              <p className="text-xs text-[var(--text-muted)] mb-1">
+                User otrzyma realm roles:
+              </p>
+              <div className="flex flex-wrap gap-1">
+                {selectedGroup.realmRoles.length === 0 ? (
+                  <span className="text-xs text-[var(--text-muted)]">brak ról</span>
+                ) : (
+                  selectedGroup.realmRoles.map((r) => (
+                    <span
+                      key={r}
+                      className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[var(--bg-main)] border border-[var(--border-subtle)]"
+                    >
+                      {r}
+                    </span>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-3">
+          <div className="flex items-baseline justify-between">
+            <h3 className="text-sm font-semibold text-[var(--text-main)]">
+              Lub uprawnienia per aplikacja
             </h3>
             <span className="text-xs text-[var(--text-muted)]">
               opcjonalne — możesz zmienić później
             </span>
           </div>
-          <div className="max-h-[55vh] overflow-y-auto pr-1">
+          <div className="max-h-[40vh] overflow-y-auto pr-1">
             <UserRolesList
               value={areaRoles}
               onChange={setAreaRoles}

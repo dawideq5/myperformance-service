@@ -471,12 +471,7 @@ function ChatwootInboxSection({ userId }: { userId: string }) {
         </p>
       </div>
       {error && <Alert tone="error">{error}</Alert>}
-      {chatwootUserId === null ? (
-        <Alert tone="info">
-          User nie zalogował się jeszcze do Chatwoota. Po pierwszym logowaniu
-          przez SSO bridge, kanały będą tu przypisywane.
-        </Alert>
-      ) : allInboxes.length === 0 ? (
+      {allInboxes.length === 0 ? (
         <p className="text-sm text-[var(--text-muted)]">
           Brak kanałów w Chatwoocie.
         </p>
@@ -568,11 +563,7 @@ function MoodleCourseSection({ userId }: { userId: string }) {
         </p>
       </div>
       {error && <Alert tone="error">{error}</Alert>}
-      {moodleUserId === null ? (
-        <Alert tone="info">
-          User nie zalogował się jeszcze do Moodle.
-        </Alert>
-      ) : allCourses.length === 0 ? (
+      {allCourses.length === 0 ? (
         <p className="text-sm text-[var(--text-muted)]">Brak kursów.</p>
       ) : (
         <ul className="space-y-1.5">

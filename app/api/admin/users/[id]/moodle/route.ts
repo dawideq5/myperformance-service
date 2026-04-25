@@ -124,20 +124,40 @@ export async function POST(req: Request, { params }: Ctx) {
     const token = await keycloak.getServiceAccountToken();
     const userResp = await keycloak.adminRequest(`/users/${userId}`, token);
     if (!userResp.ok) throw ApiError.notFound("User not found");
-    const userData = (await userResp.json()) as { email?: string };
+    const userData = (await userResp.json()) as {
+      email?: string;
+      firstName?: string;
+      lastName?: string;
+    };
     const email = userData.email;
     if (!email) throw ApiError.badRequest("User has no email");
 
     const p = getPool();
+    let moodleUserId: number | undefined;
     const [userRows] = await p.execute(
       `SELECT id FROM mdl_user WHERE LOWER(email) = LOWER(?) LIMIT 1`,
       [email],
     );
-    const moodleUserId = (userRows as Array<{ id: number }>)[0]?.id;
-    if (!moodleUserId) {
-      throw ApiError.conflict(
-        "User nie zalogował się jeszcze do Moodle — niech wykona pierwsze logowanie SSO.",
+    moodleUserId = (userRows as Array<{ id: number }>)[0]?.id;
+
+    // Pre-create — gdy user nie zalogował się jeszcze do Moodle, sami
+    // tworzymy konto przez provider (WS core_user_create_users z auth=oidc).
+    // Przy pierwszym SSO loginie OIDC złączy się po emailu.
+    if (!moodleUserId && body.action === "add") {
+      const { MoodleProvider } = await import("@/lib/permissions/providers/moodle");
+      const provider = new MoodleProvider();
+      const displayName =
+        [userData.firstName, userData.lastName].filter(Boolean).join(" ").trim() ||
+        email;
+      await provider.assignUserRole({ email, displayName, roleId: null });
+      const [rows] = await p.execute(
+        `SELECT id FROM mdl_user WHERE LOWER(email) = LOWER(?) LIMIT 1`,
+        [email],
       );
+      moodleUserId = (rows as Array<{ id: number }>)[0]?.id;
+    }
+    if (!moodleUserId) {
+      throw ApiError.conflict("Nie udało się utworzyć użytkownika w Moodle");
     }
 
     // Manual enrol instance.

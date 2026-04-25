@@ -121,21 +121,40 @@ export async function POST(req: Request, { params }: Ctx) {
     const token = await keycloak.getServiceAccountToken();
     const userResp = await keycloak.adminRequest(`/users/${userId}`, token);
     if (!userResp.ok) throw ApiError.notFound("User not found");
-    const userData = (await userResp.json()) as { email?: string };
+    const userData = (await userResp.json()) as {
+      email?: string;
+      firstName?: string;
+      lastName?: string;
+    };
     const email = userData.email;
     if (!email) throw ApiError.badRequest("User has no email");
 
     const client = await getPool().connect();
     try {
+      let chatwootUserId: number | undefined;
       const userRes = await client.query<{ id: number }>(
         `SELECT id FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1`,
         [email],
       );
-      const chatwootUserId = userRes.rows[0]?.id;
-      if (!chatwootUserId) {
-        throw ApiError.conflict(
-          "User nie ma jeszcze konta w Chatwoocie. Niech zaloguje się przez SSO bridge.",
+      chatwootUserId = userRes.rows[0]?.id;
+
+      // Pre-create — gdy user nie zalogował się jeszcze do Chatwoota,
+      // tworzymy mu konto agent przez provider's assignUserRole (Platform API).
+      if (!chatwootUserId && body.action === "add") {
+        const { ChatwootProvider } = await import("@/lib/permissions/providers/chatwoot");
+        const provider = new ChatwootProvider();
+        const displayName =
+          [userData.firstName, userData.lastName].filter(Boolean).join(" ").trim() ||
+          email;
+        await provider.assignUserRole({ email, displayName, roleId: "agent" });
+        const re = await client.query<{ id: number }>(
+          `SELECT id FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1`,
+          [email],
         );
+        chatwootUserId = re.rows[0]?.id;
+      }
+      if (!chatwootUserId) {
+        throw ApiError.conflict("Nie udało się utworzyć użytkownika w Chatwoocie");
       }
 
       if (body.action === "remove") {
