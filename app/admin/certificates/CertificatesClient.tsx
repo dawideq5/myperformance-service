@@ -264,7 +264,7 @@ export function CertificatesClient({
 
         <div className="lg:col-span-3 space-y-6">
           <TabPanel tabId="services" active={tab === "services"}>
-            <ServicesPanel certs={certs} />
+            <ServicesPanel />
           </TabPanel>
           <TabPanel tabId="issue" active={tab === "issue"}>
             <IssuePanel onIssued={refreshAll} />
@@ -1185,7 +1185,7 @@ interface PanelState {
   mtlsRequired: boolean;
 }
 
-function ServicesPanel({ certs }: { certs: IssuedCertificate[] }) {
+function ServicesPanel() {
   const [panels, setPanels] = useState<PanelState[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1234,21 +1234,6 @@ function ServicesPanel({ certs }: { certs: IssuedCertificate[] }) {
     return () => clearTimeout(t);
   }, [notice]);
 
-  const certsByRole = useMemo(() => {
-    const map = new Map<PanelRole, IssuedCertificate[]>();
-    for (const c of certs) {
-      const cRoles = c.roles ?? (c.role ? c.role.split(",") : []);
-      for (const r of cRoles) {
-        const role = r.trim() as PanelRole;
-        if (!["sprzedawca", "serwisant", "kierowca"].includes(role)) continue;
-        const arr = map.get(role) ?? [];
-        arr.push(c);
-        map.set(role, arr);
-      }
-    }
-    return map;
-  }, [certs]);
-
   const performToggle = useCallback(async () => {
     if (!reauthFor) return;
     setReauthPending(true);
@@ -1275,8 +1260,6 @@ function ServicesPanel({ certs }: { certs: IssuedCertificate[] }) {
     }
   }, [reauthFor]);
 
-  const now = Date.now();
-
   return (
     <Card padding="md">
       <header className="mb-4">
@@ -1300,10 +1283,6 @@ function ServicesPanel({ certs }: { certs: IssuedCertificate[] }) {
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {panels.map((p) => {
-            const panelCerts = certsByRole.get(p.role) ?? [];
-            const active = panelCerts.filter(
-              (c) => !c.revokedAt && new Date(c.notAfter).getTime() > now,
-            );
             return (
               <div
                 key={p.role}
@@ -1337,52 +1316,6 @@ function ServicesPanel({ certs }: { certs: IssuedCertificate[] }) {
                       <Unlock className="w-3 h-3" aria-hidden="true" />
                       Otwarte
                     </Badge>
-                  )}
-                </div>
-
-                <div className="mb-3 px-3 py-2 rounded-md bg-[var(--bg-main)] border border-[var(--border-subtle)]">
-                  <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-1">
-                    Aktywne certyfikaty
-                  </div>
-                  <div className="text-2xl font-bold text-[var(--text-main)]">
-                    {active.length}
-                    <span className="text-xs font-normal text-[var(--text-muted)] ml-2">
-                      / {panelCerts.length} wystawionych
-                    </span>
-                  </div>
-                </div>
-
-                <div className="mb-3">
-                  <div className="text-[10px] uppercase tracking-wider text-[var(--text-muted)] mb-1.5">
-                    Posiadacze
-                  </div>
-                  {active.length === 0 ? (
-                    <p className="text-xs text-[var(--text-muted)]">Brak aktywnych.</p>
-                  ) : (
-                    <ul className="space-y-1">
-                      {active.slice(0, 4).map((c) => {
-                        const days = Math.max(
-                          0,
-                          Math.floor((new Date(c.notAfter).getTime() - now) / 86_400_000),
-                        );
-                        return (
-                          <li key={c.id} className="flex items-center justify-between gap-2 text-xs">
-                            <span className="truncate">
-                              <span className="text-[var(--text-main)]">{c.subject}</span>
-                              <span className="text-[var(--text-muted)] ml-1">({c.email})</span>
-                            </span>
-                            <Badge tone={days < 30 ? "warning" : "neutral"} className="text-[10px]">
-                              {days}d
-                            </Badge>
-                          </li>
-                        );
-                      })}
-                      {active.length > 4 && (
-                        <li className="text-xs text-[var(--text-muted)]">
-                          +{active.length - 4} więcej…
-                        </li>
-                      )}
-                    </ul>
                   )}
                 </div>
 
