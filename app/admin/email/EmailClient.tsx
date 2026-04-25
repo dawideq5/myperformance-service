@@ -762,8 +762,8 @@ function TemplateEditor({
                 title="Email preview"
                 srcDoc={previewHtml}
                 className="w-full"
-                style={{ height: "640px", border: "none", background: "#fff" }}
-                sandbox=""
+                style={{ height: "720px", border: "none", background: "#fff" }}
+                sandbox="allow-same-origin"
               />
             </div>
           </Card>
@@ -1307,14 +1307,14 @@ function LayoutsPanel() {
                 title="Layout preview"
                 srcDoc={draftHtml.replace(
                   "{{content}}",
-                  '<p>Cześć Anna,</p><p>To jest przykładowa treść maila wyświetlana w layoutcie. <strong>Pogrubienie</strong>, <a href="#">link</a>, listy itd.</p>',
+                  '<p>Cześć Anna,</p><p>To jest przykładowa treść maila wyświetlana w layoutcie. <strong>Pogrubienie</strong>, <a href="#">link</a>, listy itd.</p><div class="button-container" style="text-align:center;margin:32px 0 8px 0;"><a href="#" class="button" style="display:inline-block;padding:14px 28px;background-color:#0c0c0e;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:bold;font-size:16px;">Przykładowy CTA</a></div>',
                 ).replace(/\{\{brand\.name\}\}/g, "MyPerformance")
                   .replace(/\{\{brand\.url\}\}/g, "https://myperformance.pl")
                   .replace(/\{\{brand\.supportEmail\}\}/g, "support@myperformance.pl")
                   .replace(/\{\{subject\}\}/g, "Przykładowy temat")}
                 className="w-full"
-                style={{ height: "640px", border: "none" }}
-                sandbox=""
+                style={{ height: "720px", border: "none" }}
+                sandbox="allow-same-origin"
               />
             </div>
           </Card>

@@ -172,22 +172,24 @@ export const EMAIL_ACTIONS: CatalogAction[] = [
     editability: "full",
     trigger: "Pierwszy successful login po stworzeniu konta",
     defaultSubject: "Witaj w {{brand.name}}, {{user.firstName}}!",
-    defaultBody: `Cześć {{user.firstName}},
+    defaultBody: `# Cześć {{user.firstName}}!
 
-Witamy w {{brand.name}}! Twoje konto zostało aktywowane i jesteś już zalogowany/-a.
+Cieszymy się, że dołączasz do {{brand.name}}. Twoje konto jest aktywne — możesz już z niego korzystać.
 
-Co znajdziesz na platformie:
-• **Dashboard** — wszystkie aplikacje w jednym miejscu
-• **Akademia** — kursy i szkolenia
-• **Centrum dokumentów** — podpisywanie elektroniczne
-• **Knowledge Base** — procedury i how-to
+## Co masz pod ręką
 
-Zacznij od panelu głównego: {{brand.url}}
+• **Dashboard** — wszystkie aplikacje w jednym widoku, jednym kliknięciem
+• **Akademia** — kursy, szkolenia i certyfikaty zawodowe
+• **Centrum dokumentów** — bezpieczne podpisywanie umów online
+• **Knowledge Base** — procedury, how-to, instrukcje krok-po-kroku
 
-W razie pytań pisz na {{brand.supportEmail}}.
+## Co warto zrobić w pierwszej kolejności
 
-Pozdrawiamy,
-zespół {{brand.name}}`,
+• Uzupełnij swój profil (imię, nazwisko, telefon) — przyspieszy to zaproszenia od współpracowników
+• Sprawdź zakładkę „Akademia" — tam znajdziesz onboarding dopasowany do Twojej roli
+• Zapamiętaj adres dashboardu — wszystkie codzienne zadania zaczynają się tam
+
+[[Otwórz Dashboard|{{brand.url}}]]`,
     variables: [...VARS_USER, ...VARS_BRAND, ...VARS_TIME],
   },
   {
@@ -200,15 +202,17 @@ zespół {{brand.name}}`,
     editability: "kc-localization",
     trigger: "Po rejestracji lub admin tworzy nowego user-a",
     defaultSubject: "Aktywuj konto w {{brand.name}}",
-    defaultBody: `Cześć {{user.firstName}},
+    defaultBody: `# Witaj {{user.firstName}}
 
-Aby aktywować konto kliknij w link poniżej:
+Twoje konto w {{brand.name}} zostało utworzone. Aby je aktywować i ustawić hasło, potwierdź swój adres email klikając przycisk poniżej.
 
-{{link}}
+[[Aktywuj konto|{{link}}]]
 
-Link wygasa za {{linkExpiration}} minut.
+Link wygasa za **{{linkExpiration}} minut**. Po wygaśnięciu poproś administratora o ponowne wygenerowanie linka.
 
-Jeśli to nie ty próbowałeś założyć konto, zignoruj tę wiadomość.`,
+---
+
+Jeśli to nie Ty zakładałeś konto, zignoruj tę wiadomość — bez kliknięcia w link konto pozostaje nieaktywne.`,
     variables: [
       ...VARS_USER,
       ...VARS_BRAND,
@@ -237,16 +241,25 @@ Jeśli to nie ty próbowałeś założyć konto, zignoruj tę wiadomość.`,
     description: 'Wysyłany gdy user kliknie „Zapomniałem hasła"',
     editability: "kc-localization",
     trigger: "User kliknął reset hasła lub admin wymusił reset",
-    defaultSubject: "Reset hasła do {{brand.name}}",
-    defaultBody: `Cześć {{user.firstName}},
+    defaultSubject: "Resetowanie hasła — {{brand.name}}",
+    defaultBody: `# Cześć {{user.firstName}}
 
-Otrzymaliśmy prośbę o zresetowanie hasła. Aby ustawić nowe hasło kliknij:
+Otrzymaliśmy prośbę o zresetowanie hasła do Twojego konta {{brand.name}}. Kliknij poniższy przycisk, aby ustawić nowe hasło.
 
-{{link}}
+[[Ustaw nowe hasło|{{link}}]]
 
-Link wygasa za {{linkExpiration}} minut.
+Link jest jednorazowy i wygasa za **{{linkExpiration}} minut**.
 
-Jeśli to nie ty prosiłeś o reset, zignoruj tę wiadomość. Twoje hasło nie zostanie zmienione.`,
+## Wskazówki dotyczące bezpieczeństwa
+
+• Wybierz hasło o długości co najmniej 12 znaków
+• Połącz duże i małe litery, cyfry oraz znaki specjalne
+• Nie używaj tego samego hasła co w innych serwisach
+• Nigdy nie udostępniaj go nikomu — pracownicy {{brand.name}} nigdy nie poproszą o hasło telefonicznie ani mailem
+
+---
+
+**Nie prosiłeś o reset?** Zignoruj tę wiadomość — Twoje hasło pozostanie bez zmian. Jeśli zauważysz powtarzające się próby resetu, sprawdź zakładkę bezpieczeństwa w panelu konta.`,
     variables: [
       ...VARS_USER,
       ...VARS_BRAND,
@@ -276,15 +289,17 @@ Jeśli to nie ty prosiłeś o reset, zignoruj tę wiadomość. Twoje hasło nie 
     editability: "kc-localization",
     trigger: "User zmienia email w profilu",
     defaultSubject: "Potwierdź nowy adres email — {{brand.name}}",
-    defaultBody: `Cześć {{user.firstName}},
+    defaultBody: `# Cześć {{user.firstName}}
 
-Otrzymaliśmy prośbę o zmianę adresu email na ten ({{user.email}}).
+W ustawieniach Twojego konta zmieniono adres email na **{{user.email}}**. Aby zmiana stała się skuteczna, potwierdź że jesteś właścicielem tej skrzynki.
 
-Aby potwierdzić, kliknij:
+[[Potwierdź nowy adres|{{link}}]]
 
-{{link}}
+Link jest jednorazowy i wygasa za **{{linkExpiration}} minut**.
 
-Link wygasa za {{linkExpiration}} minut.`,
+---
+
+**To nie Ty?** Zignoruj tę wiadomość — adres email nie zostanie zmieniony. Dla bezpieczeństwa zalecamy także zalogowanie się do konta i sprawdzenie listy aktywnych sesji.`,
     variables: [
       ...VARS_USER,
       ...VARS_BRAND,
@@ -314,17 +329,19 @@ Link wygasa za {{linkExpiration}} minut.`,
     editability: "kc-localization",
     trigger: "Admin wymusi required-action",
     defaultSubject: "Wymagana akcja na koncie {{brand.name}}",
-    defaultBody: `Cześć {{user.firstName}},
+    defaultBody: `# Cześć {{user.firstName}}
 
-Administrator zażądał od Ciebie wykonania następujących akcji:
+Administrator zlecił wykonanie kilku czynności na Twoim koncie. Aby kontynuować korzystanie z platformy, wykonaj je teraz.
+
+## Do zrobienia
 
 {{requiredActions}}
 
-Aby je wykonać, kliknij:
+Cały proces zajmuje zwykle 1–2 minuty. Kliknij poniższy przycisk, aby przejść do bezpiecznego ekranu wykonania.
 
-{{link}}
+[[Wykonaj akcje|{{link}}]]
 
-Link wygasa za {{linkExpiration}} minut.`,
+Link wygasa za **{{linkExpiration}} minut**. Po wygaśnięciu zaloguj się ponownie — system zaproponuje akcje od nowa.`,
     variables: [
       ...VARS_USER,
       ...VARS_BRAND,
@@ -360,16 +377,18 @@ Link wygasa za {{linkExpiration}} minut.`,
     description: "Gdy user loguje się przez Google/Microsoft a istnieje już konto z tym emailem",
     editability: "kc-localization",
     trigger: "First login z IdP gdy KC chce połączyć z istniejącym kontem",
-    defaultSubject: "Powiąż konto Google z {{brand.name}}",
-    defaultBody: `Cześć {{user.firstName}},
+    defaultSubject: "Połącz konto z {{identityProviderName}} — {{brand.name}}",
+    defaultBody: `# Cześć {{user.firstName}}
 
-Próbujesz zalogować się przez {{identityProviderName}} a istnieje już konto z adresem {{user.email}}.
+Próbujesz zalogować się do {{brand.name}} przez **{{identityProviderName}}**, ale na adres {{user.email}} mamy już istniejące konto. Aby uniknąć zduplikowania, łączymy te dwa logowania w jedno.
 
-Aby je połączyć kliknij:
+Po potwierdzeniu będziesz mógł się logować zarówno hasłem, jak i przez {{identityProviderName}} — zawsze do tego samego konta.
 
-{{link}}
+[[Połącz konta|{{link}}]]
 
-Po połączeniu będziesz mógł logować się przez {{identityProviderName}}.`,
+---
+
+**To nie Ty?** Zignoruj tę wiadomość — bez kliknięcia w link konta pozostają niezależne.`,
     variables: [
       ...VARS_USER,
       ...VARS_BRAND,
@@ -398,20 +417,31 @@ Po połączeniu będziesz mógł logować się przez {{identityProviderName}}.`,
     description: "Powiadomienie security gdy user loguje się z nowego device/lokacji",
     editability: "full",
     trigger: "Login z urządzenia którego user nie używał wcześniej",
-    defaultSubject: "Nowe logowanie do {{brand.name}}",
-    defaultBody: `Cześć {{user.firstName}},
+    defaultSubject: "Nowe logowanie do konta {{brand.name}}",
+    defaultBody: `# Cześć {{user.firstName}}
 
-Wykryliśmy logowanie do Twojego konta z nowego urządzenia.
+Zarejestrowaliśmy logowanie do Twojego konta z urządzenia, którego wcześniej nie używałeś.
 
-**Szczegóły:**
-• Data: {{now.date}}, {{now.time}}
-• Urządzenie: {{device.userAgent}}
-• Lokalizacja: {{device.location}}
-• Adres IP: {{device.ip}}
+## Szczegóły logowania
 
-**Jeśli to ty** — możesz zignorować tę wiadomość.
+• **Data i godzina:** {{now.date}}, {{now.time}}
+• **Urządzenie:** {{device.userAgent}}
+• **Lokalizacja:** {{device.location}}
+• **Adres IP:** {{device.ip}}
 
-**Jeśli to nie ty** — natychmiast zmień hasło: {{brand.url}}/account/security i skontaktuj się z {{brand.supportEmail}}.`,
+## To Ty?
+
+Świetnie — możesz zignorować tę wiadomość. Wysyłamy ją automatycznie po każdym pierwszym logowaniu z nowego urządzenia, żeby zwiększyć Twoje bezpieczeństwo.
+
+## To nie Ty?
+
+Działaj natychmiast:
+
+• **Zmień hasło** — kliknij przycisk poniżej
+• Wyloguj wszystkie aktywne sesje w panelu konta → Bezpieczeństwo
+• Sprawdź ostatnie operacje na koncie
+
+[[Zabezpiecz konto|{{brand.url}}/account/security]]`,
     variables: [...VARS_USER, ...VARS_BRAND, ...VARS_TIME, ...VARS_DEVICE],
   },
   {
@@ -424,11 +454,19 @@ Wykryliśmy logowanie do Twojego konta z nowego urządzenia.
     editability: "kc-localization",
     trigger: "Admin ustawia user.enabled=false",
     defaultSubject: "Twoje konto {{brand.name}} zostało wyłączone",
-    defaultBody: `Cześć {{user.firstName}},
+    defaultBody: `# Cześć {{user.firstName}}
 
-Administrator wyłączył Twoje konto. Nie będziesz mógł zalogować się dopóki konto nie zostanie ponownie aktywowane.
+Informujemy, że administrator wyłączył dostęp do Twojego konta {{brand.name}}. Próby logowania zakończą się błędem do czasu ponownej aktywacji.
 
-W razie pytań skontaktuj się z {{brand.supportEmail}}.`,
+## Co to oznacza
+
+• Nie zalogujesz się do panelu ani powiązanych aplikacji
+• Aktywne sesje zostały wygaszone
+• Twoje dane pozostają na koncie i nie zostały usunięte
+
+## Co dalej
+
+Skontaktuj się ze swoim przełożonym lub działem, który zarządza dostępami w organizacji. Jeśli wyłączenie jest tymczasowe (np. urlop), administrator przywróci dostęp w odpowiednim momencie.`,
     variables: [...VARS_USER, ...VARS_BRAND],
   },
 
@@ -443,18 +481,23 @@ W razie pytań skontaktuj się z {{brand.supportEmail}}.`,
     editability: "full",
     trigger: "POST /api/calendar/events utworzy wydarzenie z attendee'ami",
     defaultSubject: "Zaproszenie: {{event.title}} ({{event.startDate}})",
-    defaultBody: `Cześć {{user.firstName}},
+    defaultBody: `# Zaproszenie na wydarzenie
 
-{{event.organizer}} zaprosił/-a Cię na wydarzenie:
+Cześć {{user.firstName}}, {{event.organizer}} zaprasza Cię na:
 
-**{{event.title}}**
-• Data: {{event.startDate}}, {{event.startTime}}
-• Czas trwania: {{event.duration}}
-• Miejsce: {{event.location}}
+## {{event.title}}
+
+• **Data:** {{event.startDate}}, godz. {{event.startTime}}
+• **Czas trwania:** {{event.duration}}
+• **Miejsce:** {{event.location}}
 
 {{event.description}}
 
-Zobacz w kalendarzu: {{event.url}}`,
+[[Zobacz w kalendarzu|{{event.url}}]]
+
+---
+
+Aby dodać wydarzenie do swojego kalendarza zewnętrznego (Google, Outlook), użyj opcji „Eksportuj" po otwarciu wydarzenia. Wszelkie zmiany terminu lub miejsca będą do Ciebie automatycznie wysłane.`,
     variables: [
       ...VARS_USER,
       ...VARS_BRAND,
@@ -556,15 +599,16 @@ Zobacz w kalendarzu: {{event.url}}`,
     editability: "full",
     trigger: "Cron co minutę checkuje wydarzenia w nadchodzących 15 min",
     defaultSubject: "Za {{event.minutesUntilStart}} min: {{event.title}}",
-    defaultBody: `Przypomnienie!
+    defaultBody: `# Przypomnienie
 
-Za {{event.minutesUntilStart}} minut zaczyna się:
-**{{event.title}}**
-o {{event.startTime}}
+Za **{{event.minutesUntilStart}} minut** zaczyna się:
 
-Miejsce: {{event.location}}
+## {{event.title}}
 
-{{event.url}}`,
+• **Godzina rozpoczęcia:** {{event.startTime}}
+• **Miejsce:** {{event.location}}
+
+[[Otwórz wydarzenie|{{event.url}}]]`,
     variables: [
       ...VARS_USER,
       ...VARS_BRAND,
@@ -615,12 +659,17 @@ Miejsce: {{event.location}}
     editability: "full",
     trigger: "DELETE wydarzenia z attendee'ami",
     defaultSubject: "Anulowano: {{event.title}}",
-    defaultBody: `Wydarzenie zostało anulowane:
+    defaultBody: `# Wydarzenie odwołane
 
-**{{event.title}}**
-{{event.startDate}}, {{event.startTime}}
+Cześć {{user.firstName}}, organizator anulował wydarzenie:
 
-{{event.cancellationReason}}`,
+## {{event.title}}
+
+• **Pierwotny termin:** {{event.startDate}}, godz. {{event.startTime}}
+
+**Powód anulowania:** {{event.cancellationReason}}
+
+Wydarzenie zostało automatycznie usunięte z Twojego kalendarza. Jeśli zostanie zaplanowane ponownie, otrzymasz nowe zaproszenie.`,
     variables: [
       ...VARS_USER,
       {
@@ -819,19 +868,38 @@ Miejsce: {{event.location}}
     editability: "full",
     trigger: "Admin wystawia cert",
     defaultSubject: "Twój certyfikat dostępu — {{brand.name}}",
-    defaultBody: `Cześć {{user.fullName}},
+    defaultBody: `# Cześć {{user.fullName}}
 
-W załączniku znajdziesz plik certyfikatu (.p12) wymagany do logowania w panelach.
+W załączniku znajdziesz plik certyfikatu klienta wymagany do logowania w panelach: **{{cert.roles}}**.
 
-**Hasło do pliku:** {{cert.password}}
+## Dane certyfikatu
 
-**Ważność:** do {{cert.validUntil}}
+• **Plik:** zaszyfrowany .p12 w załączniku tej wiadomości
+• **Hasło do pliku:** \`{{cert.password}}\`
+• **Ważny do:** {{cert.validUntil}}
+• **Numer seryjny:** \`{{cert.serial}}\`
 
-Instrukcja instalacji:
-• Windows: kliknij dwukrotnie plik, wpisz hasło, zatwierdź instalację w "Personal" store
-• macOS: dwuklik, wybierz "login" keychain, wpisz hasło
+> Hasło widoczne jest tylko teraz — zapisz je w bezpiecznym menedżerze haseł, ponieważ nie będzie można go odzyskać.
 
-W razie problemów: {{brand.supportEmail}}`,
+## Instalacja na Windows 10/11
+
+• Pobierz załącznik na komputer
+• Kliknij dwukrotnie plik — uruchomi się **Kreator importu certyfikatów**
+• Wybierz lokalizację magazynu: **Bieżący użytkownik**
+• Wpisz hasło z punktu wyżej
+• Wybierz: **Wybierz magazyn certyfikatów ręcznie → Osobiste**
+• Po imporcie odśwież przeglądarkę i wejdź na panel
+
+## Instalacja na macOS
+
+• Pobierz załącznik
+• Kliknij dwukrotnie — otworzy się **Pęk kluczy**
+• Wybierz pęk **logowanie**, wpisz hasło z punktu wyżej
+• Po imporcie restartuj przeglądarkę
+
+## Jak działa logowanie
+
+Po zainstalowaniu certyfikatu wejście na panel automatycznie poprosi o jego wybór. Wybierz nowo zainstalowany cert i kontynuuj logowanie standardowym hasłem do {{brand.name}}.`,
     variables: [
       ...VARS_USER,
       ...VARS_BRAND,
@@ -875,13 +943,22 @@ W razie problemów: {{brand.supportEmail}}`,
     editability: "full",
     trigger: "Admin DELETE w /admin/users",
     defaultSubject: "Twoje konto {{brand.name}} zostało usunięte",
-    defaultBody: `Cześć {{user.fullName}},
+    defaultBody: `# Cześć {{user.fullName}}
 
-Informujemy, że Twoje konto w {{brand.name}} zostało dezaktywowane przez administratora.
+Informujemy, że Twoje konto w {{brand.name}} zostało zamknięte przez administratora w dniu {{now.date}}.
 
-Zostało Ci odebrane prawo dostępu do wszystkich aplikacji platformy.
+## Co to oznacza
 
-W razie pytań: {{brand.supportEmail}}`,
+• Dostęp do wszystkich aplikacji platformy został odebrany
+• Wszystkie aktywne sesje zostały zakończone
+• Dane Twojego konta są w trakcie usuwania zgodnie z polityką prywatności
+• Zachowane pozostają jedynie te informacje, które wymaga prawo (faktury, dokumenty podpisane elektronicznie itp.)
+
+## Co dalej
+
+Jeśli uważasz, że to pomyłka, skontaktuj się ze swoim przełożonym lub działem administrującym dostępami w organizacji. Po zamknięciu konta nie możesz się już zalogować — także w celu pobrania własnych dokumentów. Jeśli potrzebujesz dostępu do swoich danych, poproś administratora o wyeksportowanie ich przed ostatecznym usunięciem.
+
+Dziękujemy za czas spędzony w {{brand.name}}.`,
     variables: [...VARS_USER, ...VARS_BRAND, ...VARS_TIME],
   },
   {
@@ -894,16 +971,24 @@ W razie pytań: {{brand.supportEmail}}`,
     editability: "full",
     trigger: "Admin assignuje user-a do grupy KC z UI dashboardu",
     defaultSubject: "Nowe uprawnienia w {{brand.name}}",
-    defaultBody: `Cześć {{user.firstName}},
+    defaultBody: `# Cześć {{user.firstName}}
 
-Administrator nadał Ci dostęp do nowej części platformy:
+Administrator nadał Ci dostęp do nowej części platformy.
 
-**Grupa:** {{group.name}}
-**Aplikacje:** {{group.apps}}
+## Co dostajesz
 
-Możesz już z nich korzystać po następnym logowaniu.
+• **Grupa:** {{group.name}}
+• **Aplikacje, które się odblokowały:** {{group.apps}}
 
-{{brand.url}}`,
+## Jak zacząć
+
+Aby zmiana stała się widoczna w przeglądarce, wyloguj się i zaloguj ponownie do dashboardu — uprawnienia są pobierane przy starcie sesji.
+
+[[Otwórz Dashboard|{{brand.url}}]]
+
+---
+
+Jeśli widzisz jakąś aplikację po raz pierwszy, sprawdź zakładkę „Akademia" — tam zwykle jest krótki onboarding wprowadzający w nowe narzędzie.`,
     variables: [
       ...VARS_USER,
       ...VARS_BRAND,

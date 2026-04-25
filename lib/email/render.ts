@@ -37,9 +37,11 @@ export function renderVars(
  *   - *italic* / _italic_
  *   - bullet lists ("• ", "- ", "* ")
  *   - linki [text](url)
+ *   - przyciski CTA: [[Tekst przycisku|https://url]] → renderowane jako
+ *     <a class="button"> na całą szerokość, czarne tło z layoutu
+ *   - nagłówki sekcji # H1 / ## H2
  *   - paragrafy (puste linie)
  *   - line breaks
- * Bardziej zaawansowane MD wymagałoby `marked` ale jako MVP wystarczy to.
  */
 export function markdownToHtml(input: string): string {
   const escapeHtml = (s: string) =>
@@ -80,12 +82,12 @@ export function markdownToHtml(input: string): string {
     // Linki [text](url)
     out = out.replace(
       /\[([^\]]+)\]\(([^)]+)\)/g,
-      '<a href="$2" style="color:#000;text-decoration:underline;">$1</a>',
+      '<a href="$2" style="color:#0c0c0e;text-decoration:underline;">$1</a>',
     );
     // Bare URLs https://...
     out = out.replace(
       /(^|\s)(https?:\/\/[^\s<]+)/g,
-      '$1<a href="$2" style="color:#000;text-decoration:underline;">$2</a>',
+      '$1<a href="$2" style="color:#0c0c0e;text-decoration:underline;">$2</a>',
     );
     return out;
   }
@@ -95,6 +97,40 @@ export function markdownToHtml(input: string): string {
     if (line === "") {
       flushList();
       flushParagraph();
+      continue;
+    }
+    // Button na własnej linii: [[Tekst|url]]
+    const buttonMatch = line.match(/^\[\[([^|\]]+)\|([^\]]+)\]\]$/);
+    if (buttonMatch) {
+      flushList();
+      flushParagraph();
+      const label = escapeHtml(buttonMatch[1].trim());
+      const url = buttonMatch[2].trim();
+      htmlBlocks.push(
+        `<div class="button-container" style="text-align:center;margin:32px 0 8px 0;">` +
+        `<a href="${url}" class="button" style="display:inline-block;padding:14px 28px;background-color:#0c0c0e;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:bold;font-size:16px;">` +
+        `${label}</a></div>`,
+      );
+      continue;
+    }
+    // H2: ## tekst
+    const h2Match = line.match(/^##\s+(.+)$/);
+    if (h2Match) {
+      flushList();
+      flushParagraph();
+      htmlBlocks.push(
+        `<h2 style="font-size:18px;color:#111111;margin:28px 0 12px 0;font-weight:600;">${inline(h2Match[1])}</h2>`,
+      );
+      continue;
+    }
+    // H1: # tekst (zwykle nie używamy bo layout ma swój h1, ale zostawiamy)
+    const h1Match = line.match(/^#\s+(.+)$/);
+    if (h1Match) {
+      flushList();
+      flushParagraph();
+      htmlBlocks.push(
+        `<h1 style="font-size:24px;color:#111111;margin:0 0 20px 0;">${inline(h1Match[1])}</h1>`,
+      );
       continue;
     }
     const bulletMatch = line.match(/^[•\-\*]\s+(.*)$/);
@@ -207,11 +243,17 @@ export async function renderTemplate(
   const renderedBodyText = renderVars(body, ctx);
   const renderedBodyHtml = markdownToHtml(renderedBodyText);
 
-  const finalContext = { ...ctx, subject: renderedSubject };
-  const layoutHtml = layout
-    ? renderVars(layout.html, finalContext)
+  // Pipeline: NAJPIERW wstaw content do layoutu (ze surowymi placeholderami
+  // {{brand.name}} itp w layoutcie), POTEM renderVars na całym wyniku.
+  // Ważne: jeśli zrobimy renderVars(layout) najpierw, to {{content}} które
+  // nie jest w context zostanie zamienione na pusty string — zanim applyLayout
+  // ma szansę wstawić body.
+  const rawLayoutHtml = layout
+    ? layout.html
     : `<html><body>{{content}}</body></html>`;
-  const html = applyLayout(layoutHtml, renderedBodyHtml);
+  const withContent = applyLayout(rawLayoutHtml, renderedBodyHtml);
+  const finalContext = { ...ctx, subject: renderedSubject };
+  const html = renderVars(withContent, finalContext);
 
   return {
     subject: renderedSubject,
