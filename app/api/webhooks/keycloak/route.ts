@@ -40,6 +40,9 @@ interface KeycloakEvent {
   userId?: string;
   sessionId?: string;
   ipAddress?: string;
+  resourceType?: string;
+  resourcePath?: string;
+  representation?: string; // phasetwo wysyła stringified JSON gdy includeRepresentation=true
   details?: Record<string, unknown> & {
     email?: string;
     username?: string;
@@ -48,6 +51,30 @@ interface KeycloakEvent {
     userId?: string;
   };
   time?: number;
+}
+
+/**
+ * Phasetwo dla `admin.USER-CREATE` wysyła `representation` jako stringified
+ * JSON user-a. Próbujemy go sparse'ować i pobrać email + userId, żeby przy
+ * następnym DELETE móc cascadą usunąć z natywnych apek.
+ */
+function extractEmailFromRepresentation(repr?: string): string | null {
+  if (!repr) return null;
+  try {
+    const obj = JSON.parse(repr) as { email?: string };
+    return obj.email ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Z resourcePath wyciągamy userId. Phasetwo path = "users/<uuid>".
+ */
+function extractUserIdFromPath(path?: string): string | null {
+  if (!path) return null;
+  const m = path.match(/^users\/([0-9a-f-]{36})/i);
+  return m?.[1] ?? null;
 }
 
 function safeEqualString(a: string, b: string): boolean {
@@ -198,18 +225,29 @@ export async function POST(request: NextRequest) {
     time: event.time,
   });
 
+  // Resolve userId — phasetwo wysyła event.userId dla auth events ale dla
+  // admin events musimy parsować resourcePath ("users/<uuid>").
+  const resolvedUserId =
+    event.userId ?? extractUserIdFromPath(event.resourcePath) ?? null;
+
+  // Email cache — przy CREATE/UPDATE phasetwo wysyła `representation`
+  // (gdy includeRepresentation=true). Wyciągamy email i zapisujemy w
+  // iam_audit_log z details.email — przy DELETE odczytamy najnowszy.
+  const reprEmail = extractEmailFromRepresentation(event.representation);
+
   // Audyt każdego webhooka — niezależnie od typu — daje admin pełną
-  // historię tego co KC zgłasza do dashboardu.
+  // historię tego co KC zgłasza do dashboardu + email cache.
   await appendIamAudit({
     actor: `kc-webhook:${event.realmId ?? "?"}`,
     operation: "user.deprovision",
     targetType: "user",
-    targetId: event.userId ?? event.details?.email ?? "?",
+    targetId: resolvedUserId ?? event.details?.email ?? "?",
     status: "ok",
     details: {
       kind: "webhook.received",
       eventType: event.type,
       ip: event.ipAddress,
+      email: reprEmail ?? event.details?.email ?? null,
     },
   }).catch(() => undefined);
 
@@ -229,13 +267,24 @@ export async function POST(request: NextRequest) {
 
   // ── Cascading delete ────────────────────────────────────────────────────
   if (normalizedType === "DELETE_USER") {
-    let email = event.details?.email ?? event.details?.username;
-    if (!email && event.userId) {
-      email = (await resolveEmailFromUserId(event.userId)) ?? undefined;
+    let email =
+      event.details?.email ??
+      event.details?.username ??
+      reprEmail ??
+      undefined;
+    // Fallback 1: pobierz z KC Admin API (działa tylko przed faktycznym
+    // delete — dla DELETE event user już nie istnieje, więc 404).
+    if (!email && resolvedUserId) {
+      email = (await resolveEmailFromUserId(resolvedUserId)) ?? undefined;
+    }
+    // Fallback 2: lookup w iam_audit_log po wcześniejszych webhook event
+    // które miały representation (USER-CREATE / USER-UPDATE).
+    if (!email && resolvedUserId) {
+      email = (await lookupEmailFromAuditCache(resolvedUserId)) ?? undefined;
     }
     if (!email) {
       logger.warn("DELETE_USER without resolvable email — skipping", {
-        userId: event.userId,
+        userId: resolvedUserId,
       });
       return NextResponse.json({ accepted: false, reason: "no email" });
     }
@@ -245,7 +294,7 @@ export async function POST(request: NextRequest) {
     });
     logger.info("enqueued user deprovision via webhook", {
       email,
-      userId: event.userId,
+      userId: resolvedUserId,
     });
     return NextResponse.json({ accepted: true, action: "deprovision", email });
   }
@@ -286,6 +335,35 @@ export async function POST(request: NextRequest) {
   }
 
   return NextResponse.json({ ok: true });
+}
+
+/**
+ * Cache lookup: szukamy najnowszego webhook.received auditu z details.email
+ * dla danego userId. Pozwala odzyskać email user-a po DELETE — phasetwo
+ * dla USER-CREATE/USER-UPDATE wysyła representation którego email zapisujemy
+ * przy każdym webhooku.
+ */
+async function lookupEmailFromAuditCache(
+  userId: string,
+): Promise<string | null> {
+  try {
+    const { withIamClient } = await import("@/lib/permissions/db");
+    return await withIamClient(async (c) => {
+      const res = await c.query<{ details: { email?: string | null } }>(
+        `SELECT details
+           FROM iam_audit_log
+          WHERE target_type = 'user'
+            AND target_id = $1
+            AND details->>'email' IS NOT NULL
+          ORDER BY ts DESC
+          LIMIT 1`,
+        [userId],
+      );
+      return res.rows[0]?.details?.email ?? null;
+    });
+  } catch {
+    return null;
+  }
 }
 
 async function resolveEmailFromUserId(userId: string): Promise<string | null> {
