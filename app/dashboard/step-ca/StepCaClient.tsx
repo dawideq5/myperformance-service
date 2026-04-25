@@ -17,8 +17,6 @@ import {
   Button,
   Card,
   Dialog,
-  FieldWrapper,
-  Input,
   PageShell,
 } from "@/components/ui";
 import { ApiRequestError, api } from "@/lib/api-client";
@@ -41,14 +39,6 @@ interface Props {
   userEmail?: string;
 }
 
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("pl-PL", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
-}
-
 export function StepCaClient({ caUrl, certs, userLabel, userEmail }: Props) {
   const [panels, setPanels] = useState<PanelState[]>([]);
   const [loading, setLoading] = useState(true);
@@ -56,12 +46,11 @@ export function StepCaClient({ caUrl, certs, userLabel, userEmail }: Props) {
   const [notice, setNotice] = useState<string | null>(null);
   const [pendingRole, setPendingRole] = useState<PanelRole | null>(null);
 
-  // Reauth dialog state
+  // Reauth state — dialog confirm + redirect do KC.
   const [reauthFor, setReauthFor] = useState<{
     role: PanelRole;
     nextValue: boolean;
   } | null>(null);
-  const [password, setPassword] = useState("");
   const [reauthPending, setReauthPending] = useState(false);
   const [reauthError, setReauthError] = useState<string | null>(null);
 
@@ -105,7 +94,6 @@ export function StepCaClient({ caUrl, certs, userLabel, userEmail }: Props) {
 
   const requestToggle = (role: PanelRole, current: boolean) => {
     setReauthError(null);
-    setPassword("");
     setReauthFor({ role, nextValue: !current });
   };
 
@@ -114,33 +102,47 @@ export function StepCaClient({ caUrl, certs, userLabel, userEmail }: Props) {
     setReauthPending(true);
     setReauthError(null);
     try {
-      // 1. step-up: hasło → krótki token JWT.
-      const stepUp = await api.post<{ stepUpToken: string }, { password: string; purpose: string }>(
-        "/api/admin/reauth",
-        { password, purpose: "step-up:mtls-toggle" },
-      );
-      // 2. toggle z stepUpToken.
-      setPendingRole(reauthFor.role);
       const r = await api.post<
-        { ok: true; mtlsRequired: boolean; message: string },
-        { mtlsRequired: boolean; stepUpToken: string }
-      >(`/api/admin/panels/${reauthFor.role}/mtls`, {
-        mtlsRequired: reauthFor.nextValue,
-        stepUpToken: stepUp.stepUpToken,
+        { authorizeUrl: string },
+        {
+          action: "panel-mtls-toggle";
+          params: { role: PanelRole; mtlsRequired: boolean };
+          returnTo: string;
+        }
+      >("/api/admin/step-up/init", {
+        action: "panel-mtls-toggle",
+        params: { role: reauthFor.role, mtlsRequired: reauthFor.nextValue },
+        returnTo: "/dashboard/step-ca",
       });
-      setNotice(r.message);
-      setReauthFor(null);
-      setPassword("");
-      await refresh();
+      // Pełna nawigacja do Keycloak — KC native UI z polem hasła +
+      // "Or sign in with Google". Po sukcesie redirect na callback który
+      // wykonuje akcję i wraca tutaj z `?step_up_ok=...`.
+      window.location.href = r.authorizeUrl;
     } catch (err) {
       setReauthError(
-        err instanceof ApiRequestError ? err.message : "Nie udało się przełączyć",
+        err instanceof ApiRequestError ? err.message : "Nie udało się rozpocząć ponownej autentykacji",
       );
-    } finally {
       setReauthPending(false);
-      setPendingRole(null);
     }
-  }, [reauthFor, password, refresh]);
+  }, [reauthFor]);
+
+  // Po powrocie z KC callback — pokaż notice/error z query params.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const u = new URL(window.location.href);
+    const ok = u.searchParams.get("step_up_ok");
+    const err = u.searchParams.get("step_up_err");
+    if (ok) {
+      setNotice(ok);
+      u.searchParams.delete("step_up_ok");
+      window.history.replaceState({}, "", u.toString());
+      void refresh();
+    } else if (err) {
+      setError(err);
+      u.searchParams.delete("step_up_err");
+      window.history.replaceState({}, "", u.toString());
+    }
+  }, [refresh]);
 
   const now = Date.now();
 
@@ -318,13 +320,10 @@ export function StepCaClient({ caUrl, certs, userLabel, userEmail }: Props) {
         open={!!reauthFor}
         targetRole={reauthFor?.role ?? null}
         nextValue={reauthFor?.nextValue ?? false}
-        password={password}
-        setPassword={setPassword}
         pending={reauthPending}
         error={reauthError}
         onClose={() => {
           setReauthFor(null);
-          setPassword("");
           setReauthError(null);
         }}
         onConfirm={() => void performToggle()}
@@ -337,8 +336,6 @@ function ReauthDialog({
   open,
   targetRole,
   nextValue,
-  password,
-  setPassword,
   pending,
   error,
   onClose,
@@ -347,8 +344,6 @@ function ReauthDialog({
   open: boolean;
   targetRole: PanelRole | null;
   nextValue: boolean;
-  password: string;
-  setPassword: (s: string) => void;
   pending: boolean;
   error: string | null;
   onClose: () => void;
@@ -372,41 +367,27 @@ function ReauthDialog({
           <Button
             onClick={onConfirm}
             loading={pending}
-            disabled={password.length < 4}
             leftIcon={<AlertTriangle className="w-4 h-4" aria-hidden="true" />}
           >
-            Potwierdź
+            Potwierdź i zaloguj się ponownie
           </Button>
         </>
       }
     >
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (password.length >= 4) onConfirm();
-        }}
-        className="space-y-4"
-      >
-        {error && <Alert tone="error">{error}</Alert>}
-        <Alert tone="warning">
-          Ta operacja zmienia konfigurację bezpieczeństwa panelu i wymaga
-          ponownego uwierzytelnienia twoim hasłem Keycloak (jak w Documenso).
-          {nextValue
-            ? " Po włączeniu, panel ponownie wymaga certyfikatu klienckiego."
-            : " Po wyłączeniu, panel jest dostępny bez certyfikatu — używaj tylko awaryjnie."}
-        </Alert>
-        <FieldWrapper id="reauth-password" label="Hasło Keycloak" required>
-          <Input
-            id="reauth-password"
-            type="password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            disabled={pending}
-            autoFocus
-          />
-        </FieldWrapper>
-      </form>
+      {error && (
+        <div className="mb-3">
+          <Alert tone="error">{error}</Alert>
+        </div>
+      )}
+      <Alert tone="warning">
+        Ta operacja zmienia konfigurację bezpieczeństwa panelu. Po kliknięciu
+        &bdquo;Potwierdź&rdquo; zostaniesz przekierowany na ekran logowania
+        Keycloak (hasło lub Google) — po pomyślnej autentykacji akcja
+        zostanie wykonana automatycznie i wrócisz tutaj.
+        {nextValue
+          ? " Po włączeniu panel ponownie wymaga certyfikatu klienckiego."
+          : " Po wyłączeniu panel jest dostępny bez certyfikatu — używaj tylko awaryjnie."}
+      </Alert>
     </Dialog>
   );
 }
