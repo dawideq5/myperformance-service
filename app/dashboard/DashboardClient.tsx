@@ -309,6 +309,18 @@ function TileGrid() {
           />
         )}
 
+        {showAdminUsers && (
+          <Tile
+            icon={<Mail className="w-7 h-7 text-indigo-500" aria-hidden="true" />}
+            iconBg="bg-indigo-500/10"
+            title="Email i branding"
+            description="Centralny panel: branding, szablony Keycloak, Postal (serwery/skrzynki/domeny), test send"
+            onClick={() => {
+              window.location.href = "/admin/email";
+            }}
+          />
+        )}
+
 
         {showKeycloak && (
           <ExternalTile

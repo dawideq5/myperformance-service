@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { timingSafeEqual } from "crypto";
+import { createHmac, timingSafeEqual } from "crypto";
 import { keycloak } from "@/lib/keycloak";
 import { log } from "@/lib/logger";
+import {
+  enqueueProfilePropagation,
+  enqueueUserDeprovision,
+} from "@/lib/permissions/sync";
+import { appendIamAudit } from "@/lib/permissions/db";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,9 +19,15 @@ export const dynamic = "force-dynamic";
  * which meant a misdeployment silently opened an unauthenticated admin
  * action channel.
  *
+ * Auth (przyjmuje obie metody):
+ *   - Bearer:  Authorization: Bearer <KEYCLOAK_WEBHOOK_SECRET>
+ *   - HMAC:    X-Keycloak-Signature: sha256=<hex(HMAC-SHA256(body, secret))>
+ *              (format używany przez phasetwo keycloak-events SPI)
+ *
  * Handles:
  *   - VERIFY_EMAIL / VERIFY_EMAIL_ERROR → strip VERIFY_EMAIL required action
- *   - UPDATE_EMAIL → reset emailVerified flag
+ *   - UPDATE_EMAIL / admin.UPDATE_EMAIL → reset emailVerified + propagate profile
+ *   - DELETE_USER  / admin.DELETE_USER  → cascading delete via enqueueUserDeprovision
  *   - REGISTER → log only (hook for welcome flow)
  */
 
@@ -29,20 +40,57 @@ interface KeycloakEvent {
   userId?: string;
   sessionId?: string;
   ipAddress?: string;
-  details?: Record<string, unknown>;
+  details?: Record<string, unknown> & {
+    email?: string;
+    username?: string;
+    previous_email?: string;
+    updated_email?: string;
+    userId?: string;
+  };
   time?: number;
 }
 
-function authorize(request: NextRequest): "ok" | "missing-secret" | "unauthorized" {
+function safeEqualString(a: string, b: string): boolean {
+  const aBuf = Buffer.from(a, "utf-8");
+  const bBuf = Buffer.from(b, "utf-8");
+  if (aBuf.length !== bBuf.length) return false;
+  return timingSafeEqual(aBuf, bBuf);
+}
+
+function safeEqualHex(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  try {
+    return timingSafeEqual(Buffer.from(a, "hex"), Buffer.from(b, "hex"));
+  } catch {
+    return false;
+  }
+}
+
+function authorize(
+  request: NextRequest,
+  rawBody: string,
+): "ok" | "missing-secret" | "unauthorized" {
   const secret = process.env.KEYCLOAK_WEBHOOK_SECRET?.trim();
   if (!secret) return "missing-secret";
 
-  const header = request.headers.get("authorization") ?? "";
-  const expected = `Bearer ${secret}`;
-  const headerBuf = Buffer.from(header, "utf-8");
-  const expectedBuf = Buffer.from(expected, "utf-8");
-  if (headerBuf.length !== expectedBuf.length) return "unauthorized";
-  return timingSafeEqual(headerBuf, expectedBuf) ? "ok" : "unauthorized";
+  // Method 1: Authorization: Bearer <secret> (legacy / simple SPI).
+  const authHeader = request.headers.get("authorization") ?? "";
+  if (authHeader.startsWith("Bearer ")) {
+    if (safeEqualString(authHeader, `Bearer ${secret}`)) return "ok";
+  }
+
+  // Method 2: HMAC-SHA256 signature (phasetwo keycloak-events SPI default).
+  const sigHeader = (
+    request.headers.get("x-keycloak-signature") ??
+    request.headers.get("x-hub-signature-256") ??
+    ""
+  ).replace(/^sha256=/, "").trim();
+  if (sigHeader) {
+    const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
+    if (safeEqualHex(sigHeader, expected)) return "ok";
+  }
+
+  return "unauthorized";
 }
 
 async function handleVerifyEmailEvent(userId: string): Promise<void> {
@@ -104,7 +152,10 @@ async function handleUpdateEmailEvent(userId: string): Promise<void> {
 }
 
 export async function POST(request: NextRequest) {
-  const authResult = authorize(request);
+  // Important: read body as text once — we need raw bytes for HMAC verify
+  // AND parsed JSON for routing. JSON.parse is cheap, so parse after auth.
+  const rawBody = await request.text();
+  const authResult = authorize(request, rawBody);
   if (authResult === "missing-secret") {
     logger.error("KEYCLOAK_WEBHOOK_SECRET not configured — refusing webhook");
     return NextResponse.json({ error: "Webhook disabled" }, { status: 503 });
@@ -116,7 +167,7 @@ export async function POST(request: NextRequest) {
 
   let event: KeycloakEvent;
   try {
-    event = (await request.json()) as KeycloakEvent;
+    event = JSON.parse(rawBody) as KeycloakEvent;
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
@@ -128,17 +179,75 @@ export async function POST(request: NextRequest) {
     time: event.time,
   });
 
+  // Audyt każdego webhooka — niezależnie od typu — daje admin pełną
+  // historię tego co KC zgłasza do dashboardu.
+  await appendIamAudit({
+    actor: `kc-webhook:${event.realmId ?? "?"}`,
+    operation: "user.deprovision",
+    targetType: "user",
+    targetId: event.userId ?? event.details?.email ?? "?",
+    status: "ok",
+    details: {
+      kind: "webhook.received",
+      eventType: event.type,
+      ip: event.ipAddress,
+    },
+  }).catch(() => undefined);
+
+  // Normalize event type — phasetwo prefixuje admin events przez "admin.",
+  // KC built-in event-listener-jboss-logging używa zwykłej nazwy.
+  const normalizedType = event.type?.replace(/^(admin\.|access\.)/, "") ?? "";
+
+  // ── Cascading delete ────────────────────────────────────────────────────
+  if (normalizedType === "DELETE_USER") {
+    let email = event.details?.email ?? event.details?.username;
+    if (!email && event.userId) {
+      email = (await resolveEmailFromUserId(event.userId)) ?? undefined;
+    }
+    if (!email) {
+      logger.warn("DELETE_USER without resolvable email — skipping", {
+        userId: event.userId,
+      });
+      return NextResponse.json({ accepted: false, reason: "no email" });
+    }
+    await enqueueUserDeprovision({
+      email,
+      actor: "kc-webhook:DELETE_USER",
+    });
+    logger.info("enqueued user deprovision via webhook", {
+      email,
+      userId: event.userId,
+    });
+    return NextResponse.json({ accepted: true, action: "deprovision", email });
+  }
+
   if (!event.userId) {
     return NextResponse.json({ ok: true, skipped: "no-user" });
   }
 
-  switch (event.type) {
+  switch (normalizedType) {
     case "VERIFY_EMAIL":
     case "VERIFY_EMAIL_ERROR":
       await handleVerifyEmailEvent(event.userId);
       break;
     case "UPDATE_EMAIL":
       await handleUpdateEmailEvent(event.userId);
+      // Profile propagation w tle — apki dostają nowy email.
+      await enqueueProfilePropagation(event.userId, {
+        previousEmail: event.details?.previous_email,
+        actor: "kc-webhook:UPDATE_EMAIL",
+      }).catch((err) => {
+        logger.warn("profile propagation enqueue failed", { err });
+      });
+      break;
+    case "UPDATE_USER":
+      // KC wysyła UPDATE_USER przy zmianie firstName/lastName/attributes —
+      // propagate do natywnych apek żeby imię/nazwisko były świeże wszędzie.
+      await enqueueProfilePropagation(event.userId, {
+        actor: "kc-webhook:UPDATE_USER",
+      }).catch((err) => {
+        logger.warn("profile propagation enqueue failed", { err });
+      });
       break;
     case "REGISTER":
       logger.info("new user registered", { userId: event.userId });
@@ -148,6 +257,22 @@ export async function POST(request: NextRequest) {
   }
 
   return NextResponse.json({ ok: true });
+}
+
+async function resolveEmailFromUserId(userId: string): Promise<string | null> {
+  // For DELETE_USER post-event the user is już usunięty z KC — Admin API
+  // zwróci 404. Phasetwo SPI wkłada email w details, więc primary path =
+  // event.details.email. Ten helper jest fallback dla starszych wersji SPI
+  // i pre-events.
+  try {
+    const adminToken = await keycloak.getServiceAccountToken();
+    const res = await keycloak.adminRequest(`/users/${userId}`, adminToken);
+    if (!res.ok) return null;
+    const u = (await res.json()) as { email?: string };
+    return u.email ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /** Liveness probe for the webhook endpoint itself. */
