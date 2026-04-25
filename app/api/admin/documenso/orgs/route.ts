@@ -1,32 +1,20 @@
 export const dynamic = "force-dynamic";
 
-import { Pool } from "pg";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
-import { getOptionalEnv } from "@/lib/env";
 import { requireAdminPanel } from "@/lib/admin-auth";
+import { withExternalClient } from "@/lib/db";
 import {
-  ApiError,
   createSuccessResponse,
   handleApiError,
 } from "@/lib/api-utils";
-
-let pool: Pool | null = null;
-function getPool(): Pool {
-  if (pool) return pool;
-  const url = getOptionalEnv("DOCUMENSO_DB_URL");
-  if (!url) throw new ApiError("SERVICE_UNAVAILABLE", "DOCUMENSO_DB_URL not set", 503);
-  pool = new Pool({ connectionString: url, max: 3, idleTimeoutMillis: 30_000 });
-  return pool;
-}
 
 export async function GET() {
   try {
     const session = await getServerSession(authOptions);
     requireAdminPanel(session);
 
-    const client = await getPool().connect();
-    try {
+    return await withExternalClient("DOCUMENSO_DB_URL", async (client) => {
       const orgsRes = await client.query<{ id: string; name: string; type: string }>(
         `SELECT id, name, type FROM "Organisation" WHERE type = 'ORGANISATION' ORDER BY name`,
       );
@@ -51,9 +39,7 @@ export async function GET() {
           teams: teamsByOrg.get(o.id) ?? [],
         })),
       });
-    } finally {
-      client.release();
-    }
+    });
   } catch (error) {
     return handleApiError(error);
   }

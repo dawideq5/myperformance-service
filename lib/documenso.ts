@@ -1,4 +1,4 @@
-import { Pool } from "pg";
+import { withExternalClient } from "@/lib/db";
 import { getOptionalEnv } from "@/lib/env";
 import { log } from "@/lib/logger";
 
@@ -265,23 +265,8 @@ export function documensoGlobalRolesForTeamRole(
   return teamRole === "ADMIN" ? ["USER", "ADMIN"] : ["USER"];
 }
 
-let documensoPool: Pool | null = null;
-
-function getDocumensoPool(): Pool | null {
-  const url = getOptionalEnv("DOCUMENSO_DB_URL");
-  if (!url) return null;
-  if (!documensoPool) {
-    documensoPool = new Pool({
-      connectionString: url,
-      max: 3,
-      idleTimeoutMillis: 30_000,
-      connectionTimeoutMillis: 10_000,
-    });
-    documensoPool.on("error", (err) => {
-      log.error("documenso.pg_pool_error", { message: err.message });
-    });
-  }
-  return documensoPool;
+function isDocumensoDbConfigured(): boolean {
+  return getOptionalEnv("DOCUMENSO_DB_URL").trim().length > 0;
 }
 
 /**
@@ -299,11 +284,9 @@ export async function syncDocumensoUserRole(
   role: DocumensoRole,
   name?: string | null,
 ): Promise<"updated" | "noop" | "skipped"> {
-  const pool = getDocumensoPool();
-  if (!pool) return "skipped";
+  if (!isDocumensoDbConfigured()) return "skipped";
   const rolesArray = role === "ADMIN" ? ["USER", "ADMIN"] : ["USER"];
-  const client = await pool.connect();
-  try {
+  return await withExternalClient("DOCUMENSO_DB_URL", async (client) => {
     // `name` update tylko gdy podany i nie-pusty — KC jako źródło prawdy,
     // ale pomijamy puste stringi żeby przy pustym firstName/lastName w KC
     // nie wymazywać ręcznie wpisanej nazwy.
@@ -326,9 +309,7 @@ export async function syncDocumensoUserRole(
         : [email, rolesArray],
     );
     return (res.rowCount ?? 0) > 0 ? "updated" : "noop";
-  } finally {
-    client.release();
-  }
+  });
 }
 
 export function computeDocumensoStats(docs: DocumensoDocument[]): DocumensoDocumentStats {

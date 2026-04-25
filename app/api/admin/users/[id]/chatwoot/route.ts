@@ -1,11 +1,11 @@
 export const dynamic = "force-dynamic";
 
-import { Pool } from "pg";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
 import { keycloak } from "@/lib/keycloak";
 import { getOptionalEnv } from "@/lib/env";
 import { requireAdminPanel } from "@/lib/admin-auth";
+import { withExternalClient } from "@/lib/db";
 import {
   ApiError,
   createSuccessResponse,
@@ -14,15 +14,6 @@ import {
 
 interface Ctx {
   params: Promise<{ id: string }>;
-}
-
-let pool: Pool | null = null;
-function getPool(): Pool {
-  if (pool) return pool;
-  const url = getOptionalEnv("CHATWOOT_DB_URL");
-  if (!url) throw new ApiError("SERVICE_UNAVAILABLE", "CHATWOOT_DB_URL not set", 503);
-  pool = new Pool({ connectionString: url, max: 3, idleTimeoutMillis: 30_000 });
-  return pool;
 }
 
 interface InboxRow {
@@ -60,8 +51,7 @@ export async function GET(_req: Request, { params }: Ctx) {
       });
     }
 
-    const client = await getPool().connect();
-    try {
+    return await withExternalClient("CHATWOOT_DB_URL", async (client) => {
       const userRes = await client.query<{ id: number }>(
         `SELECT id FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1`,
         [email],
@@ -95,9 +85,7 @@ export async function GET(_req: Request, { params }: Ctx) {
         chatwootUserId,
         accountRole,
       });
-    } finally {
-      client.release();
-    }
+    });
   } catch (error) {
     return handleApiError(error);
   }
@@ -129,8 +117,7 @@ export async function POST(req: Request, { params }: Ctx) {
     const email = userData.email;
     if (!email) throw ApiError.badRequest("User has no email");
 
-    const client = await getPool().connect();
-    try {
+    return await withExternalClient("CHATWOOT_DB_URL", async (client) => {
       let chatwootUserId: number | undefined;
       const userRes = await client.query<{ id: number }>(
         `SELECT id FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1`,
@@ -172,9 +159,7 @@ export async function POST(req: Request, { params }: Ctx) {
       }
 
       return createSuccessResponse({ ok: true });
-    } finally {
-      client.release();
-    }
+    });
   } catch (error) {
     return handleApiError(error);
   }

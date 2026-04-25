@@ -58,3 +58,42 @@ export async function withTx<T>(
     }
   });
 }
+
+/**
+ * External-DB pools (Chatwoot, Documenso). Każdy provider ma swój
+ * connection string z env, ale dzielimy pool dla wielu route handlerów
+ * — wcześniej 2× chatwoot, 3× documenso miało osobne `let pool` w
+ * każdym pliku.
+ */
+
+const externalPools = new Map<string, Pool>();
+
+export function getExternalPool(envName: string): Pool {
+  const cached = externalPools.get(envName);
+  if (cached) return cached;
+  const url = getOptionalEnv(envName).trim();
+  if (!url) throw new Error(`${envName} not configured`);
+  const p = new Pool({
+    connectionString: url,
+    max: 5,
+    idleTimeoutMillis: 30_000,
+    connectionTimeoutMillis: 10_000,
+  });
+  p.on("error", (err) => {
+    logger.error(`pg pool error (${envName})`, { err: err.message });
+  });
+  externalPools.set(envName, p);
+  return p;
+}
+
+export async function withExternalClient<T>(
+  envName: string,
+  fn: (c: PoolClient) => Promise<T>,
+): Promise<T> {
+  const c = await getExternalPool(envName).connect();
+  try {
+    return await fn(c);
+  } finally {
+    c.release();
+  }
+}

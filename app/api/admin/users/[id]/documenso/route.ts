@@ -1,11 +1,10 @@
 export const dynamic = "force-dynamic";
 
-import { Pool } from "pg";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
 import { keycloak } from "@/lib/keycloak";
-import { getOptionalEnv } from "@/lib/env";
 import { requireAdminPanel } from "@/lib/admin-auth";
+import { withExternalClient } from "@/lib/db";
 import {
   ApiError,
   createSuccessResponse,
@@ -14,19 +13,6 @@ import {
 
 interface Ctx {
   params: Promise<{ id: string }>;
-}
-
-let pool: Pool | null = null;
-function getPool(): Pool {
-  if (pool) return pool;
-  const url = getOptionalEnv("DOCUMENSO_DB_URL");
-  if (!url) throw new ApiError("SERVICE_UNAVAILABLE", "DOCUMENSO_DB_URL not set", 503);
-  pool = new Pool({
-    connectionString: url,
-    max: 3,
-    idleTimeoutMillis: 30_000,
-  });
-  return pool;
 }
 
 interface OrgRow {
@@ -76,8 +62,7 @@ export async function GET(_req: Request, { params }: Ctx) {
       });
     }
 
-    const client = await getPool().connect();
-    try {
+    return await withExternalClient("DOCUMENSO_DB_URL", async (client) => {
       // Documenso user id (wymagany do query memberships).
       const userRes = await client.query<{ id: number }>(
         `SELECT id FROM "User" WHERE LOWER(email) = LOWER($1) LIMIT 1`,
@@ -134,9 +119,7 @@ export async function GET(_req: Request, { params }: Ctx) {
         documensoUserId,
         userEmail: email,
       });
-    } finally {
-      client.release();
-    }
+    });
   } catch (error) {
     return handleApiError(error);
   }
@@ -177,8 +160,7 @@ export async function POST(req: Request, { params }: Ctx) {
       [userData.firstName, userData.lastName].filter(Boolean).join(" ").trim() ||
       null;
 
-    const client = await getPool().connect();
-    try {
+    return await withExternalClient("DOCUMENSO_DB_URL", async (client) => {
       // Pre-create — gdy user nie zalogował się jeszcze do Documenso, sami
       // zakładamy mu konto z KC profilu. OIDC przy pierwszym loginie złączy
       // się po emailu (UNIQUE) i tylko zaktualizuje identityProvider.
@@ -237,57 +219,65 @@ export async function POST(req: Request, { params }: Ctx) {
         throw ApiError.badRequest("Invalid role");
       }
 
-      await client.query("BEGIN");
-      // 1. Upsert org membership.
-      await client.query(
-        `INSERT INTO "OrganisationMember"
-           (id, "organisationId", "userId", "createdAt", "updatedAt")
-         VALUES (gen_random_uuid()::text, $1, $2, NOW(), NOW())
-         ON CONFLICT ("userId", "organisationId") DO NOTHING`,
-        [body.organisationId, documensoUserId],
-      );
-      // 2. Find INTERNAL_ORGANISATION group with target role.
-      const grpRes = await client.query<{ id: string }>(
-        `SELECT id FROM "OrganisationGroup"
-          WHERE "organisationId" = $1
-            AND "organisationRole" = $2::"OrganisationMemberRole"
-            AND type = 'INTERNAL_ORGANISATION'
-          LIMIT 1`,
-        [body.organisationId, role],
-      );
-      const targetGroupId = grpRes.rows[0]?.id;
-      if (targetGroupId) {
-        // 3. Remove user from other INTERNAL_ORGANISATION groups in this org.
-        await client.query(
-          `DELETE FROM "OrganisationGroupMember" ogm
-            USING "OrganisationMember" om, "OrganisationGroup" og
-            WHERE ogm."organisationMemberId" = om.id
-              AND ogm."groupId" = og.id
-              AND om."userId" = $1
-              AND og."organisationId" = $2
-              AND og.type = 'INTERNAL_ORGANISATION'
-              AND og.id <> $3`,
-          [documensoUserId, body.organisationId, targetGroupId],
-        );
-        // 4. Insert into target group.
-        await client.query(
-          `INSERT INTO "OrganisationGroupMember" (id, "organisationMemberId", "groupId")
-           SELECT gen_random_uuid()::text, om.id, $1
-             FROM "OrganisationMember" om
-            WHERE om."userId" = $2 AND om."organisationId" = $3
-           ON CONFLICT ("organisationMemberId", "groupId") DO NOTHING`,
-          [targetGroupId, documensoUserId, body.organisationId],
-        );
+      try {
+        await client.query("BEGIN");
+        await runTxBody(client, body, documensoUserId, role);
+        await client.query("COMMIT");
+        return createSuccessResponse({ ok: true });
+      } catch (err) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw err;
       }
-      await client.query("COMMIT");
-      return createSuccessResponse({ ok: true });
-    } catch (err) {
-      await client.query("ROLLBACK").catch(() => {});
-      throw err;
-    } finally {
-      client.release();
-    }
+    });
   } catch (error) {
     return handleApiError(error);
   }
+}
+
+async function runTxBody(
+  client: import("pg").PoolClient,
+  body: PostPayload,
+  documensoUserId: number,
+  role: string,
+): Promise<void> {
+  // 1. Upsert org membership.
+  await client.query(
+    `INSERT INTO "OrganisationMember"
+       (id, "organisationId", "userId", "createdAt", "updatedAt")
+     VALUES (gen_random_uuid()::text, $1, $2, NOW(), NOW())
+     ON CONFLICT ("userId", "organisationId") DO NOTHING`,
+    [body.organisationId, documensoUserId],
+  );
+  // 2. Find INTERNAL_ORGANISATION group with target role.
+  const grpRes = await client.query<{ id: string }>(
+    `SELECT id FROM "OrganisationGroup"
+      WHERE "organisationId" = $1
+        AND "organisationRole" = $2::"OrganisationMemberRole"
+        AND type = 'INTERNAL_ORGANISATION'
+      LIMIT 1`,
+    [body.organisationId, role],
+  );
+  const targetGroupId = grpRes.rows[0]?.id;
+  if (!targetGroupId) return;
+  // 3. Remove user from other INTERNAL_ORGANISATION groups in this org.
+  await client.query(
+    `DELETE FROM "OrganisationGroupMember" ogm
+      USING "OrganisationMember" om, "OrganisationGroup" og
+      WHERE ogm."organisationMemberId" = om.id
+        AND ogm."groupId" = og.id
+        AND om."userId" = $1
+        AND og."organisationId" = $2
+        AND og.type = 'INTERNAL_ORGANISATION'
+        AND og.id <> $3`,
+    [documensoUserId, body.organisationId, targetGroupId],
+  );
+  // 4. Insert into target group.
+  await client.query(
+    `INSERT INTO "OrganisationGroupMember" (id, "organisationMemberId", "groupId")
+     SELECT gen_random_uuid()::text, om.id, $1
+       FROM "OrganisationMember" om
+      WHERE om."userId" = $2 AND om."organisationId" = $3
+     ON CONFLICT ("organisationMemberId", "groupId") DO NOTHING`,
+    [targetGroupId, documensoUserId, body.organisationId],
+  );
 }
