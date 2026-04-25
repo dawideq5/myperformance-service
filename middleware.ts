@@ -266,6 +266,28 @@ export default withAuth(
       return passThrough();
     }
 
+    // Lokalna walidacja JWT exp — gdy access token jest świeży (>30s do exp)
+    // i podpis OK, ufamy mu bez calling KC userinfo. JWT callback w app/auth
+    // odpowiada za refresh przed expiry, więc gdy doszło do middleware token
+    // jest valid. Ten skrót redukuje burst 401 cascading przy parallel
+    // requestach po refresh oraz lessens KC load.
+    try {
+      const parts = accessToken.split(".");
+      if (parts.length === 3) {
+        const payloadJson = Buffer.from(parts[1], "base64url").toString("utf-8");
+        const payload = JSON.parse(payloadJson) as { exp?: number };
+        if (payload.exp && payload.exp * 1000 > now + 30_000) {
+          userinfoCache.set(cacheKey, {
+            valid: true,
+            expiresAt: now + MIDDLEWARE_USERINFO_CACHE_TTL_MS,
+          });
+          return passThrough();
+        }
+      }
+    } catch {
+      // niepoprawny JWT — leci do KC userinfo dla pewności
+    }
+
     try {
       const issuer = getIssuerForMiddleware();
       if (!issuer) {

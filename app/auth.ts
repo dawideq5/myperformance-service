@@ -154,8 +154,10 @@ function buildAuthOptions(): AuthOptions {
           return token;
         }
 
-        // Token still valid — return cached
-        const bufferSec = 60;
+        // Token still valid — return cached. Buffer 5 min: refresh token
+        // 5 min przed exp żeby parallel requesty po wygaśnięciu nie wpadały
+        // w 401 cascade. Access token = 30 min, więc refresh trigger = 25 min.
+        const bufferSec = 300;
         if (
           token.expiresAt &&
           Date.now() / 1000 < token.expiresAt - bufferSec
