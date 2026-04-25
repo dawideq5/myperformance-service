@@ -747,9 +747,9 @@ function AccessTile({
         onClick={onToggle}
         loading={pending}
         disabled={disabled}
-        className={hasAccess ? "min-w-[120px]" : "min-w-[120px]"}
+        className="min-w-[130px]"
       >
-        {hasAccess ? "Brak dostępu" : "Daj dostęp"}
+        {hasAccess ? "Wyłącz dostęp" : "Włącz dostęp"}
       </Button>
     </li>
   );

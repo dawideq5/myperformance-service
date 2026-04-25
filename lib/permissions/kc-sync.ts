@@ -207,54 +207,11 @@ async function doSync(opts?: {
     }
   }
 
-  // 5. Composite groups per area.
-  const existingGroups = await listTopLevelGroups(token);
-  const groupsByName = new Map(existingGroups.map((g) => [g.name, g]));
-
-  for (const area of AREAS) {
-    const groupName = kcGroupNameForArea(area);
-    const areaRoleNames = targetRoles
-      .filter((t) => t.area.id === area.id)
-      .map((t) => t.name);
-    try {
-      let group = groupsByName.get(groupName);
-      if (!group) {
-        group = await createGroup(token, {
-          name: groupName,
-          attributes: { areaId: [area.id], managedBy: ["kc-sync"] },
-        });
-        result.groupsCreated++;
-      }
-      // Sync composite role mapping — odczytaj obecne, policz diff.
-      const currentRoles = await getGroupRealmRoles(token, group.id);
-      const currentNames = new Set(currentRoles.map((r) => r.name));
-      const toAdd = areaRoleNames.filter((n) => !currentNames.has(n));
-      const toRemove = currentRoles.filter(
-        (r) => !areaRoleNames.includes(r.name),
-      );
-      if (toAdd.length > 0) {
-        const toAddFull = await Promise.all(
-          toAdd.map((n) => fetchRoleByName(token, n)),
-        );
-        await addGroupRealmRoles(
-          token,
-          group.id,
-          toAddFull.filter(Boolean) as RoleRepresentation[],
-        );
-        result.groupsUpdated++;
-      }
-      if (toRemove.length > 0) {
-        await removeGroupRealmRoles(token, group.id, toRemove);
-        result.groupsUpdated++;
-      }
-    } catch (err) {
-      result.errors.push({
-        step: "group.sync",
-        name: groupName,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
+  // 5. Composite `app-<areaId>` groups — POMINIĘTE (2026-04-25).
+  // Wcześniej kc-sync auto-tworzył per-area composite group jako convenience
+  // mapping, ale admin nie widział wartości i zaśmiecało listę grup
+  // w `/admin/users` → tab "Grupy". Grupy tworzy admin ręcznie (Administrator,
+  // Sprzedawca, itd.) — żadnych auto-generated app-* groups.
 
   await appendIamAudit({
     actor,

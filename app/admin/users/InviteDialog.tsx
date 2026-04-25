@@ -199,7 +199,11 @@ export function InviteDialog({ open, onClose, onInvited }: InviteDialogProps) {
         </>
       }
     >
-      <form id="invite-user-form" onSubmit={submit} className="space-y-5">
+      <form
+        id="invite-user-form"
+        onSubmit={submit}
+        className="space-y-5 max-h-[70vh] overflow-y-auto pr-2"
+      >
         {error && <Alert tone="error">{error}</Alert>}
 
         <div className="space-y-3">
@@ -287,13 +291,11 @@ export function InviteDialog({ open, onClose, onInvited }: InviteDialogProps) {
               opcjonalne — możesz zmienić później
             </span>
           </div>
-          <div className="max-h-[35vh] overflow-y-auto pr-1">
-            <UserRolesList
-              value={areaRoles}
-              onChange={setAreaRoles}
-              disabled={loading}
-            />
-          </div>
+          <UserRolesList
+            value={areaRoles}
+            onChange={setAreaRoles}
+            disabled={loading}
+          />
         </div>
 
         <PerAppPicker
@@ -377,7 +379,7 @@ function PerAppPicker({
           {selected.size > 0 ? `${selected.size} zaznaczonych` : "opcjonalne"}
         </span>
       </div>
-      <div className="grid gap-1 max-h-[20vh] overflow-y-auto pr-1">
+      <div className="grid gap-1">
         {items.map((it) => {
           const has = selected.has(it.id);
           return (

@@ -88,8 +88,11 @@ export async function GET() {
       attributes?: Record<string, string[]>;
     }>;
 
+    // Pomijamy auto-generated `app-*` legacy groups (kc-sync je już nie tworzy).
+    const filtered = raw.filter((g) => !g.name.startsWith("app-"));
+
     const groups: AdminGroupSummary[] = await Promise.all(
-      raw.map(async (g) => {
+      filtered.map(async (g) => {
         const [realmRoles, members] = await Promise.all([
           fetchGroupRoles(g.id, token),
           fetchGroupMembers(g.id, token),

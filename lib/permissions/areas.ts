@@ -333,27 +333,6 @@ export const AREAS: PermissionArea[] = [
       },
     ],
   },
-  {
-    id: "admin",
-    label: "Administracja platformą",
-    description: "Panele /admin/* — zarządzanie kontami, certyfikatami, konsole.",
-    provider: "keycloak-only",
-    icon: "ShieldCheck",
-    kcRoles: [
-      {
-        name: "manage_users",
-        label: "Administrator kont",
-        description: "Zarządzanie użytkownikami (/admin/users).",
-        priority: 50,
-      },
-      {
-        name: "admin",
-        label: "Super-administrator",
-        description: "Dostęp do wszystkich paneli /admin/* + realm-wide settings.",
-        priority: 99,
-      },
-    ],
-  },
 ];
 
 export function getArea(id: string): PermissionArea | null {
