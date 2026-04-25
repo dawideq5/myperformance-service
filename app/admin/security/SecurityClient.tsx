@@ -649,76 +649,275 @@ function BlocksPanel() {
   );
 }
 
-// ── Agents (placeholder dla Wazuh) ──────────────────────────────────────────
+// ── Wazuh SIEM — live status ────────────────────────────────────────────────
+
+interface WazuhStatusData {
+  deployed: boolean;
+  dashboardUrl: string;
+  oidcLoginUrl: string;
+  integration: { arWebhook: boolean; iptablesSync: boolean };
+  events24h: {
+    total: number;
+    bySeverity: Record<string, number>;
+    autoBlocks: number;
+    uniqueSrcIps: number;
+  };
+  recentEvents: Array<{
+    id: number;
+    ts: string;
+    severity: string;
+    category: string;
+    title: string;
+    srcIp: string | null;
+  }>;
+  topSrcIps: Array<{ ip: string; count: number; blocked: boolean }>;
+}
 
 function AgentsPanel() {
+  const [data, setData] = useState<WazuhStatusData | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .get<WazuhStatusData>("/api/admin/wazuh/status")
+      .then((r) => setData(r))
+      .catch((e: unknown) =>
+        setError(e instanceof ApiRequestError ? e.message : "fetch error"),
+      );
+  }, []);
+
+  if (error) {
+    return (
+      <Alert tone="error" title="Nie udało się pobrać statusu Wazuh">
+        {error}
+      </Alert>
+    );
+  }
+  if (!data) {
+    return (
+      <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
+        <Loader2 className="w-4 h-4 animate-spin" /> Ładowanie statusu Wazuh…
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <Card padding="lg">
-        <div className="flex items-start gap-3 mb-3">
-          <AlertTriangle className="w-6 h-6 text-amber-400 flex-shrink-0" />
-          <div>
-            <h3 className="text-base font-semibold">
-              Wazuh SIEM jeszcze nie wdrożony
-            </h3>
-            <p className="text-xs text-[var(--text-muted)] mt-1">
-              Custom panel działa już teraz w trybie ograniczonym (manualne
-              blokady, agregacja zdarzeń z dashboardu). Pełna funkcjonalność
-              SIEM (FIM, vulnerabilities, real-time threat detection,
-              auto-block) będzie dostępna po deployu Wazuh All-in-One.
-            </p>
+        <div className="flex items-start justify-between gap-3 mb-2">
+          <div className="flex items-start gap-3">
+            <ShieldCheck className="w-6 h-6 text-emerald-400 flex-shrink-0" />
+            <div>
+              <h3 className="text-base font-semibold flex items-center gap-2">
+                Wazuh SIEM aktywny
+                <Badge tone="success">Coolify-managed</Badge>
+              </h3>
+              <p className="text-xs text-[var(--text-muted)] mt-1">
+                Manager + Indexer + Dashboard (v4.10.0) wdrożone jako custom
+                compose w Coolify. Dashboard zabezpieczony mTLS + OIDC SSO.
+              </p>
+            </div>
           </div>
+          <a
+            href={data.dashboardUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-md bg-[var(--accent)] text-white hover:opacity-90"
+          >
+            Otwórz Wazuh
+            <ChevronRight className="w-3.5 h-3.5" />
+          </a>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
+          <StatusPill
+            label="AR webhook"
+            ok={data.integration.arWebhook}
+            okText="HMAC OK"
+            failText="brak secret"
+          />
+          <StatusPill
+            label="iptables sync"
+            ok={data.integration.iptablesSync}
+            okText="MYPERFORMANCE_BLOCK"
+            failText="off"
+          />
+          <StatusPill
+            label="OIDC SSO"
+            ok={true}
+            okText="Keycloak realm"
+            failText="—"
+          />
+          <StatusPill
+            label="mTLS gate"
+            ok={true}
+            okText="wymagany cert"
+            failText="—"
+          />
         </div>
       </Card>
 
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <KpiCard
+          label="Wazuh events / 24h"
+          value={data.events24h.total}
+          icon={<Activity className="w-4 h-4 text-[var(--text-muted)]" />}
+        />
+        <KpiCard
+          label="Auto-blocks (AR, 24h)"
+          value={data.events24h.autoBlocks}
+          icon={<Ban className="w-4 h-4 text-[var(--text-muted)]" />}
+          tone="success"
+        />
+        <KpiCard
+          label="Unikalne źródła IP"
+          value={data.events24h.uniqueSrcIps}
+          icon={<Globe className="w-4 h-4 text-[var(--text-muted)]" />}
+        />
+        <KpiCard
+          label="High/Critical (24h)"
+          value={
+            (data.events24h.bySeverity.high ?? 0) +
+            (data.events24h.bySeverity.critical ?? 0)
+          }
+          icon={<TrendingUp className="w-4 h-4 text-red-400" />}
+          tone="danger"
+        />
+      </div>
+
       <Card padding="md">
-        <h4 className="text-sm font-semibold mb-2">Plan wdrożenia Wazuh</h4>
-        <ol className="text-xs text-[var(--text-muted)] space-y-1.5 list-decimal list-inside">
-          <li>
-            Wkleić docker-compose Wazuh All-in-One do Coolify Resources →
-            Docker Compose
-          </li>
-          <li>
-            Skopiować passwords z <code>/etc/wazuh-secrets.env</code> (już
-            wygenerowane na serwerze) do env w Coolify
-          </li>
-          <li>Deploy → Wazuh dostępny pod wazuh.myperformance.pl (mTLS)</li>
-          <li>
-            Install agent na hoście:{" "}
-            <code>
-              sudo WAZUH_MANAGER=&apos;wazuh.manager&apos; apt install wazuh-agent
-            </code>
-          </li>
-          <li>
-            Custom decoders dla Keycloak/Postal/Coolify wgrywane przez{" "}
-            <code>/var/ossec/etc/decoders/local_*.xml</code>
-          </li>
-          <li>
-            Active Response: skrypt block-ip-traefik.sh + reguły w manager
-          </li>
-        </ol>
-        <p className="mt-3 text-[11px] text-[var(--text-muted)]">
-          Pełna instrukcja:{" "}
-          <code>docs/plan_wazuh_siem.md</code> w repozytorium.
-        </p>
+        <h4 className="text-sm font-semibold mb-2">
+          Top źródła ataków (24h)
+        </h4>
+        {data.topSrcIps.length === 0 ? (
+          <p className="text-xs text-[var(--text-muted)]">
+            Brak zdarzeń z Wazuh w ostatniej dobie.
+          </p>
+        ) : (
+          <ul className="space-y-1.5">
+            {data.topSrcIps.map((row) => (
+              <li
+                key={row.ip}
+                className="flex items-center justify-between text-xs"
+              >
+                <span className="font-mono">{row.ip}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[var(--text-muted)]">
+                    {row.count} zdarzeń
+                  </span>
+                  {row.blocked ? (
+                    <Badge tone="success">zablokowany</Badge>
+                  ) : (
+                    <Badge tone="warning">aktywny</Badge>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </Card>
 
       <Card padding="md">
         <h4 className="text-sm font-semibold mb-2">
-          Co Wazuh doda po wdrożeniu
+          Najnowsze zdarzenia z Wazuh
         </h4>
+        {data.recentEvents.length === 0 ? (
+          <p className="text-xs text-[var(--text-muted)]">
+            Brak zdarzeń. Przy pierwszej próbie ataku integracja zaloguje event.
+          </p>
+        ) : (
+          <div className="space-y-1.5">
+            {data.recentEvents.map((ev) => (
+              <div
+                key={ev.id}
+                className="flex items-start justify-between text-xs gap-2 border-b border-[var(--border)] pb-1.5 last:border-0"
+              >
+                <div className="min-w-0">
+                  <div className="font-medium truncate">{ev.title}</div>
+                  <div className="text-[var(--text-muted)]">
+                    {ev.category}
+                    {ev.srcIp && (
+                      <>
+                        {" · "}
+                        <span className="font-mono">{ev.srcIp}</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <Badge tone={severityTone(ev.severity)}>
+                    {ev.severity}
+                  </Badge>
+                  <span className="text-[10px] text-[var(--text-muted)]">
+                    {new Date(ev.ts).toLocaleTimeString("pl-PL")}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      <Card padding="md">
+        <h4 className="text-sm font-semibold mb-2">Funkcjonalność</h4>
         <ul className="text-xs text-[var(--text-muted)] space-y-1 list-disc list-inside">
-          <li>Auto-block IP po brute force detection (Active Response)</li>
-          <li>File Integrity Monitoring na <code>/data/coolify</code> + critical configs</li>
-          <li>Vulnerability detection (CVE matching) per agent</li>
-          <li>MITRE ATT&amp;CK mapping</li>
-          <li>Compliance reports (PCI-DSS, GDPR, NIST out of the box)</li>
           <li>
-            Log aggregation z całego stacku (KC, Postal, Coolify, Documenso,
-            Moodle, Outline, Chatwoot, dashboard)
+            <strong>Active Response</strong> — manager wywołuje webhook
+            <code className="mx-1">/api/webhooks/wazuh/active-response</code>
+            (HMAC), automatyczna blokada IP w iptables chain
+            <code className="mx-1">MYPERFORMANCE_BLOCK</code>.
+          </li>
+          <li>
+            <strong>OIDC SSO</strong> — login przez Keycloak
+            (<code>wazuh_admin</code> → all_access,
+            {" "}<code>wazuh_readonly</code> → kibana_user).
+          </li>
+          <li>
+            <strong>Host monitoring</strong> — agent na VPS (ID 001) zbiera
+            syslog, journald, auth logs, Docker container logs.
+          </li>
+          <li>
+            <strong>Integracja z dashboard</strong> — wszystkie wazuh.* eventy
+            lądują w <code>mp_security_events</code>, KPI agregowane na żywo.
           </li>
         </ul>
       </Card>
     </div>
   );
+}
+
+function StatusPill({
+  label,
+  ok,
+  okText,
+  failText,
+}: {
+  label: string;
+  ok: boolean;
+  okText: string;
+  failText: string;
+}) {
+  return (
+    <div className="rounded-md border border-[var(--border)] px-2.5 py-1.5">
+      <div className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">
+        {label}
+      </div>
+      <div className="flex items-center gap-1 text-xs mt-0.5">
+        {ok ? (
+          <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+        ) : (
+          <ShieldAlert className="w-3.5 h-3.5 text-amber-400" />
+        )}
+        <span>{ok ? okText : failText}</span>
+      </div>
+    </div>
+  );
+}
+
+function severityTone(
+  s: string,
+): "danger" | "warning" | "info" | "neutral" {
+  if (s === "critical" || s === "high") return "danger";
+  if (s === "medium") return "warning";
+  if (s === "info") return "info";
+  return "neutral";
 }
