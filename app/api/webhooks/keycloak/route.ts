@@ -79,15 +79,34 @@ function authorize(
     if (safeEqualString(authHeader, `Bearer ${secret}`)) return "ok";
   }
 
-  // Method 2: HMAC-SHA256 signature (phasetwo keycloak-events SPI default).
-  const sigHeader = (
+  // Method 2: HMAC-SHA256 signature. Phasetwo keycloak-events SPI używa
+  // headera `X-Keycloak-Signature` z hex HMAC. Akceptujemy też prefiks
+  // `sha256=` (GitHub-style) i alternatywne nagłówki dla kompatybilności.
+  const sigHeaderRaw =
     request.headers.get("x-keycloak-signature") ??
+    request.headers.get("x-keycloak-webhook-signature") ??
     request.headers.get("x-hub-signature-256") ??
-    ""
-  ).replace(/^sha256=/, "").trim();
-  if (sigHeader) {
+    "";
+  if (sigHeaderRaw) {
+    const sig = sigHeaderRaw.replace(/^sha256=/, "").trim();
     const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
-    if (safeEqualHex(sigHeader, expected)) return "ok";
+    if (safeEqualHex(sig, expected)) return "ok";
+    // Debug: logujemy długość + pierwsze znaki żeby diagnozować rozjazd.
+    logger.warn("HMAC mismatch", {
+      headerName: request.headers.get("x-keycloak-signature")
+        ? "x-keycloak-signature"
+        : request.headers.get("x-keycloak-webhook-signature")
+          ? "x-keycloak-webhook-signature"
+          : "x-hub-signature-256",
+      headerLen: sig.length,
+      headerPrefix: sig.slice(0, 8),
+      expectedPrefix: expected.slice(0, 8),
+      bodyLen: rawBody.length,
+    });
+  } else {
+    logger.warn("no signature header on webhook", {
+      headers: Array.from(request.headers.keys()).slice(0, 20),
+    });
   }
 
   return "unauthorized";
