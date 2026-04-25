@@ -39,7 +39,7 @@ import {
 import { AppHeader } from "@/components/AppHeader";
 import { api, ApiRequestError } from "@/lib/api-client";
 
-type TabId = "start" | "templates" | "layouts" | "smtp" | "branding" | "postal";
+type TabId = "start" | "templates" | "layouts" | "smtp" | "branding" | "postal" | "ovh";
 
 export function EmailClient({
   userLabel,
@@ -77,6 +77,11 @@ export function EmailClient({
         id: "postal",
         label: "Postal (infrastruktura)",
         icon: <Server className="w-5 h-5" />,
+      },
+      {
+        id: "ovh",
+        label: "OVH Cloud",
+        icon: <Code2 className="w-5 h-5" />,
       },
     ],
     [],
@@ -121,6 +126,9 @@ export function EmailClient({
           </TabPanel>
           <TabPanel tabId="postal" active={tab === "postal"}>
             <PostalPanel />
+          </TabPanel>
+          <TabPanel tabId="ovh" active={tab === "ovh"}>
+            <OvhPanel />
           </TabPanel>
         </div>
       </div>
@@ -2496,6 +2504,357 @@ function PostalPanel() {
           </div>
         </Card>
       )}
+    </div>
+  );
+}
+
+// ── OVH Cloud panel ─────────────────────────────────────────────────────────
+
+interface OvhConfigUI {
+  endpoint: "ovh-eu" | "ovh-us" | "ovh-ca";
+  appKey: string | null;
+  appSecret: string | null;
+  consumerKey: string | null;
+  enabled: boolean;
+  updatedAt: string;
+  updatedBy: string | null;
+}
+
+interface OvhDomainRow {
+  name: string;
+  mailboxCount: number;
+}
+
+interface OvhMailbox {
+  email: string;
+  domain: string;
+  size: number;
+  description: string | null;
+  isBlocked: boolean;
+  state: string;
+  primaryEmailAddress: string;
+}
+
+function OvhPanel() {
+  const [config, setConfig] = useState<OvhConfigUI | null>(null);
+  const [draft, setDraft] = useState<Partial<OvhConfigUI>>({});
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [testResult, setTestResult] = useState<{
+    ok: boolean;
+    account?: { nichandle?: string; email?: string; firstname?: string; name?: string };
+    error?: string;
+    hint?: string;
+  } | null>(null);
+  const [domains, setDomains] = useState<OvhDomainRow[]>([]);
+  const [domainsLoading, setDomainsLoading] = useState(false);
+  const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
+  const [mailboxes, setMailboxes] = useState<OvhMailbox[]>([]);
+  const [mailboxesTotal, setMailboxesTotal] = useState(0);
+  const [mailboxesLoading, setMailboxesLoading] = useState(false);
+
+  const loadConfig = useCallback(async () => {
+    try {
+      const r = await api.get<{ config: OvhConfigUI }>(
+        "/api/admin/email/ovh/config",
+      );
+      setConfig(r.config);
+    } catch (err) {
+      setError(err instanceof ApiRequestError ? err.message : "Load failed");
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadConfig();
+  }, [loadConfig]);
+
+  async function save() {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const r = await api.put<{ config: OvhConfigUI }, Partial<OvhConfigUI>>(
+        "/api/admin/email/ovh/config",
+        draft,
+      );
+      setConfig(r.config);
+      setDraft({});
+      setNotice('Credentials zapisane. Kliknij „Testuj" żeby sprawdzić czy działają.');
+    } catch (err) {
+      setError(err instanceof ApiRequestError ? err.message : "Save failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runTest() {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    setTestResult(null);
+    try {
+      const r = await api.post<typeof testResult, Record<string, never>>(
+        "/api/admin/email/ovh/test",
+        {},
+      );
+      setTestResult(r);
+      if (r?.ok) setNotice("Połączenie działa — możesz pobrać domeny.");
+    } catch (err) {
+      setError(err instanceof ApiRequestError ? err.message : "Test failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function loadDomains() {
+    setDomainsLoading(true);
+    setError(null);
+    try {
+      const r = await api.get<{ domains: OvhDomainRow[] }>(
+        "/api/admin/email/ovh/domains",
+      );
+      setDomains(r.domains);
+    } catch (err) {
+      setError(err instanceof ApiRequestError ? err.message : "Load domains failed");
+    } finally {
+      setDomainsLoading(false);
+    }
+  }
+
+  async function loadMailboxes(domain: string) {
+    setSelectedDomain(domain);
+    setMailboxesLoading(true);
+    try {
+      const r = await api.get<{ accounts: OvhMailbox[]; total: number; shown: number }>(
+        `/api/admin/email/ovh/mailboxes?domain=${encodeURIComponent(domain)}`,
+      );
+      setMailboxes(r.accounts);
+      setMailboxesTotal(r.total);
+    } catch (err) {
+      setError(err instanceof ApiRequestError ? err.message : "Load mailboxes failed");
+    } finally {
+      setMailboxesLoading(false);
+    }
+  }
+
+  const merged = { ...config, ...draft };
+  const dirty = Object.keys(draft).length > 0;
+  const hasCreds =
+    config?.appKey && config?.appSecret && config?.consumerKey;
+
+  return (
+    <div className="space-y-4">
+      <Card padding="md">
+        <div className="flex gap-3 items-start">
+          <Info className="w-5 h-5 text-sky-400 flex-shrink-0 mt-0.5" />
+          <div className="text-xs text-[var(--text-muted)]">
+            Integracja z OVH Cloud API — pobieranie listy domen i skrzynek
+            mailowych z Twojego konta. Wymaga 3 kluczy: <strong>App Key</strong>{" "}
+            (16 hex), <strong>App Secret</strong> (32 hex),{" "}
+            <strong>Consumer Key</strong> (32 hex). Wygeneruj je na{" "}
+            <a
+              href="https://eu.api.ovh.com/createApp/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[var(--accent)] hover:underline"
+            >
+              eu.api.ovh.com/createApp
+            </a>{" "}
+            (App Key + Secret), a Consumer Key na{" "}
+            <a
+              href="https://eu.api.ovh.com/createToken/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[var(--accent)] hover:underline"
+            >
+              eu.api.ovh.com/createToken
+            </a>{" "}
+            z uprawnieniami: <code>GET /me</code>, <code>GET /domain</code>,{" "}
+            <code>GET /email/domain</code>, <code>GET /email/domain/*/account</code>,{" "}
+            <code>GET /email/domain/*/account/*</code>.
+          </div>
+        </div>
+      </Card>
+
+      <Card padding="lg">
+        <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+          <SettingsIcon className="w-4 h-4" /> Credentials OVH
+        </h3>
+        {error && <Alert tone="error" className="mb-3">{error}</Alert>}
+        {notice && <Alert tone="success" className="mb-3">{notice}</Alert>}
+
+        <div className="grid md:grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs text-[var(--text-muted)] block mb-1">
+              Endpoint OVH (region)
+            </label>
+            <select
+              className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-2 text-sm"
+              value={merged.endpoint ?? "ovh-eu"}
+              onChange={(e) =>
+                setDraft({ ...draft, endpoint: e.target.value as OvhConfigUI["endpoint"] })
+              }
+            >
+              <option value="ovh-eu">ovh-eu (Europa)</option>
+              <option value="ovh-us">ovh-us (USA)</option>
+              <option value="ovh-ca">ovh-ca (Kanada)</option>
+            </select>
+          </div>
+          <Input
+            label="App Key (16 hex chars)"
+            value={merged.appKey ?? ""}
+            onChange={(e) => setDraft({ ...draft, appKey: e.target.value })}
+            placeholder="np. 2eaa5f70025cf8ba"
+          />
+          <Input
+            label="App Secret (32 hex chars)"
+            type="password"
+            value={merged.appSecret === "***" ? "" : merged.appSecret ?? ""}
+            onChange={(e) => setDraft({ ...draft, appSecret: e.target.value })}
+            placeholder={merged.appSecret === "***" ? "(istniejące hasło)" : "32 hex chars"}
+          />
+          <Input
+            label="Consumer Key (32 hex chars)"
+            type="password"
+            value={merged.consumerKey === "***" ? "" : merged.consumerKey ?? ""}
+            onChange={(e) => setDraft({ ...draft, consumerKey: e.target.value })}
+            placeholder={merged.consumerKey === "***" ? "(istniejący token)" : "32 hex chars"}
+          />
+        </div>
+        <div className="mt-4 flex gap-2 flex-wrap">
+          <Button
+            onClick={save}
+            loading={busy}
+            disabled={!dirty}
+            leftIcon={<Save className="w-4 h-4" />}
+          >
+            Zapisz
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={runTest}
+            loading={busy}
+            disabled={!hasCreds}
+            leftIcon={<CheckCircle2 className="w-4 h-4" />}
+          >
+            Testuj połączenie
+          </Button>
+          {hasCreds && (
+            <Button
+              variant="ghost"
+              onClick={loadDomains}
+              loading={domainsLoading}
+            >
+              Pobierz domeny + skrzynki
+            </Button>
+          )}
+        </div>
+
+        {testResult && (
+          <div className="mt-4">
+            {testResult.ok ? (
+              <Alert tone="success">
+                <strong>Połączenie OK.</strong> Konto:{" "}
+                <code>{testResult.account?.nichandle}</code> ({testResult.account?.firstname} {testResult.account?.name},{" "}
+                {testResult.account?.email}).
+              </Alert>
+            ) : (
+              <Alert tone="error">
+                <div><strong>Test nieudany:</strong> {testResult.error}</div>
+                {testResult.hint && (
+                  <div className="mt-2 text-xs">{testResult.hint}</div>
+                )}
+              </Alert>
+            )}
+          </div>
+        )}
+      </Card>
+
+      {domains.length > 0 && (
+        <Card padding="lg">
+          <h3 className="text-sm font-semibold mb-3">
+            Domeny email z OVH ({domains.length})
+          </h3>
+          <div className="grid gap-2">
+            {domains.map((d) => (
+              <button
+                key={d.name}
+                type="button"
+                onClick={() => loadMailboxes(d.name)}
+                className={`text-left flex items-center justify-between gap-3 px-3 py-2 rounded-lg border ${
+                  selectedDomain === d.name
+                    ? "border-[var(--accent)] bg-[var(--accent)]/5"
+                    : "border-[var(--border-subtle)] hover:bg-[var(--bg-surface)]"
+                }`}
+              >
+                <div className="font-medium text-sm">{d.name}</div>
+                <Badge tone="neutral">
+                  {d.mailboxCount === -1 ? "?" : d.mailboxCount} skrzynk(i)
+                </Badge>
+              </button>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {selectedDomain && (
+        <Card padding="lg">
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+            Skrzynki dla {selectedDomain}
+            {mailboxesLoading && (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            )}
+          </h3>
+          {mailboxes.length === 0 && !mailboxesLoading && (
+            <p className="text-xs text-[var(--text-muted)]">Brak skrzynek lub błąd pobierania.</p>
+          )}
+          {mailboxesTotal > mailboxes.length && (
+            <p className="text-[11px] text-[var(--text-muted)] mb-3">
+              Pokazano {mailboxes.length} z {mailboxesTotal} (limit dla performance).
+            </p>
+          )}
+          <div className="grid gap-1.5">
+            {mailboxes.map((m) => (
+              <div
+                key={m.email}
+                className="flex items-center justify-between gap-3 px-3 py-2 rounded border border-[var(--border-subtle)] text-xs"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="font-mono">{m.email}</div>
+                  {m.description && (
+                    <div className="text-[10px] text-[var(--text-muted)] mt-0.5 truncate">
+                      {m.description}
+                    </div>
+                  )}
+                </div>
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  {m.isBlocked && <Badge tone="danger">zablokowana</Badge>}
+                  <Badge tone={m.state === "ok" ? "success" : "neutral"}>
+                    {m.state}
+                  </Badge>
+                  <Badge tone="neutral">{m.size} MB</Badge>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      <Card padding="md">
+        <h4 className="text-xs font-semibold mb-2 flex items-center gap-1.5">
+          <Info className="w-3.5 h-3.5 text-amber-400" />
+          Co dalej?
+        </h4>
+        <p className="text-[11px] text-[var(--text-muted)]">
+          Po pobraniu listy skrzynek z OVH możesz: w zakładce{" "}
+          <strong>&bdquo;Konfiguracje SMTP&rdquo;</strong> dodać konfiguracje dla
+          poszczególnych skrzynek (preset OVH wypełnia ssl0.ovh.net:465);
+          następnie w szablonach maili przypisać która skrzynka ma być użyta
+          dla konkretnej akcji (np. sales-mail dla offer template, support-mail
+          dla password-reset).
+        </p>
+      </Card>
     </div>
   );
 }
