@@ -389,6 +389,22 @@ export const AREAS: PermissionArea[] = [
     ],
   },
   {
+    id: "maintenance",
+    label: "Prace serwisowe — bypass",
+    description: "Wejście na platformę podczas trybu konserwacji. Bez tej roli user widzi tylko stronę /maintenance.",
+    provider: "keycloak-only",
+    icon: "Wrench",
+    kcRoles: [
+      {
+        name: "maintenance_bypass",
+        label: "Bypass",
+        description:
+          "Pozwala zalogować się i pracować podczas prac serwisowych. Standardowo tylko superadmin i osoby zgrupowane przy maintenance mają tę rolę.",
+        priority: 50,
+      },
+    ],
+  },
+  {
     id: "core",
     label: "Dostęp do platformy",
     description: "Bazowa rola — auto-przypisywana każdemu zalogowanemu userowi.",

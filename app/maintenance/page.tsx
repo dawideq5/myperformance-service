@@ -1,4 +1,5 @@
 import { getMaintenance, getBranding } from "@/lib/email/db";
+import { MaintenanceCanvas } from "./MaintenanceCanvas";
 
 export const dynamic = "force-dynamic";
 
@@ -8,86 +9,102 @@ export default async function MaintenancePage() {
     getBranding().catch(() => null),
   ]);
   const brandName = b?.brandName ?? "MyPerformance";
-  const supportEmail = b?.supportEmail ?? "support@myperformance.pl";
+  const expiresAt = m?.expiresAt
+    ? new Date(m.expiresAt).toLocaleString("pl-PL", {
+        day: "2-digit",
+        month: "long",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : null;
 
   return (
     <html lang="pl">
       <head>
         <meta charSet="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Tryb konserwacji — {brandName}</title>
+        <meta
+          name="viewport"
+          content="width=device-width, initial-scale=1.0"
+        />
+        <meta name="robots" content="noindex,nofollow" />
+        <title>Trwają prace serwisowe — {brandName}</title>
         <style>{`
-          *{margin:0;padding:0;box-sizing:border-box}
+          *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
           html,body{height:100%}
           body{
-            font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
-            background:#f4f4f5;color:#333;
+            font-family:-apple-system,BlinkMacSystemFont,"Inter","Segoe UI",Roboto,sans-serif;
+            background:radial-gradient(ellipse at top, #1a1a1f 0%, #0a0a0c 70%);
+            color:#fff;
             display:flex;align-items:center;justify-content:center;
+            min-height:100vh;
+            position:relative;overflow:hidden;
+            -webkit-font-smoothing:antialiased;
           }
-          .card{
-            max-width:560px;width:90%;
-            background:#fff;border-radius:12px;overflow:hidden;
-            box-shadow:0 4px 20px rgba(0,0,0,0.08);
+          .panel{
+            position:relative;z-index:1;
+            text-align:center;
+            padding:0 24px;
+            max-width:520px;
+            animation:fadeIn 600ms ease-out;
           }
-          .header{
-            background:#0c0c0e;color:#fff;
-            padding:40px 32px;text-align:center;
+          @keyframes fadeIn{
+            from{opacity:0;transform:translateY(8px)}
+            to{opacity:1;transform:translateY(0)}
           }
-          .header h1{
-            font-size:32px;font-weight:800;letter-spacing:-0.5px;
-            margin:0;
+          .brand{
+            font-size:13px;letter-spacing:0.18em;text-transform:uppercase;
+            color:rgba(255,255,255,0.55);
+            margin-bottom:32px;font-weight:500;
           }
-          .icon{
-            font-size:48px;margin-bottom:12px;
+          h1{
+            font-size:clamp(28px,4vw,40px);font-weight:700;
+            letter-spacing:-0.02em;line-height:1.15;
+            margin-bottom:18px;
           }
-          .body{padding:36px 32px;line-height:1.6}
-          .body h2{font-size:22px;color:#111;margin-bottom:12px}
-          .body p{color:#444;margin-bottom:14px;font-size:15px}
-          .message{
-            background:#fef3c7;border:1px solid #fde68a;border-radius:8px;
-            padding:14px 16px;margin:18px 0;
-            color:#92400e;font-size:14px;
+          p.lead{
+            font-size:16px;line-height:1.65;
+            color:rgba(255,255,255,0.72);
+            max-width:440px;margin:0 auto 28px;
           }
-          .footer{
-            background:#fafafa;padding:18px 32px;
-            text-align:center;font-size:13px;color:#666;
-            border-top:1px solid #eee;
+          .meta{
+            display:inline-flex;align-items:center;gap:10px;
+            padding:10px 18px;
+            background:rgba(255,255,255,0.04);
+            border:1px solid rgba(255,255,255,0.08);
+            border-radius:999px;
+            font-size:13px;color:rgba(255,255,255,0.7);
+            margin-top:8px;
+            backdrop-filter:blur(10px);
           }
-          .footer a{color:#0c0c0e;text-decoration:none;font-weight:600}
-          .footer a:hover{text-decoration:underline}
+          .dot{
+            width:7px;height:7px;border-radius:50%;
+            background:#f59e0b;
+            box-shadow:0 0 10px rgba(245,158,11,0.7);
+            animation:pulse 1.8s infinite ease-in-out;
+          }
+          @keyframes pulse{
+            0%,100%{opacity:1;transform:scale(1)}
+            50%{opacity:0.55;transform:scale(0.85)}
+          }
         `}</style>
       </head>
       <body>
-        <div className="card">
-          <div className="header">
-            <div className="icon">🔧</div>
-            <h1>{brandName}</h1>
-          </div>
-          <div className="body">
-            <h2>Trwają prace serwisowe</h2>
-            <p>
-              Pracujemy nad ulepszeniami platformy. Wszystkie aplikacje są
-              chwilowo niedostępne dla użytkowników.
-            </p>
-            {m?.message && <div className="message">{m.message}</div>}
-            <p>
-              Powrócimy zaraz —{" "}
-              {m?.expiresAt
-                ? `przewidywany koniec: ${new Date(
-                    m.expiresAt,
-                  ).toLocaleString("pl-PL")}`
-                : "zwykle prace trwają nie dłużej niż kilkadziesiąt minut"}.
-            </p>
-            <p>
-              Trwające zlecenia, dokumenty i wiadomości są bezpieczne — nic
-              nie zostanie utracone podczas tej konserwacji.
-            </p>
-          </div>
-          <div className="footer">
-            Pytania? Napisz na{" "}
-            <a href={`mailto:${supportEmail}`}>{supportEmail}</a>
-          </div>
-        </div>
+        <MaintenanceCanvas />
+        <main className="panel">
+          <div className="brand">{brandName}</div>
+          <h1>Wracamy za chwilę</h1>
+          <p className="lead">
+            {m?.message?.trim()
+              ? m.message
+              : "Aktualizujemy platformę. Twoje dane są bezpieczne — żadne zlecenie ani dokument nie zostaną utracone."}
+          </p>
+          {expiresAt && (
+            <div className="meta">
+              <span className="dot" aria-hidden="true" />
+              do {expiresAt}
+            </div>
+          )}
+        </main>
       </body>
     </html>
   );

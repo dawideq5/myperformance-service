@@ -229,11 +229,18 @@ export default withAuth(
     const isApi = pathname.startsWith("/api/");
 
     // ── Maintenance mode ─────────────────────────────────────────────────
-    // Sprawdzamy DLA wszystkich ścieżek prócz: samego endpointu maintenance,
-    // strony /maintenance, public assets, ścieżek admin (admin musi móc
-    // dalej działać żeby wyłączyć tryb).
+    // Always-allow whitelist: maintenance page, status endpoint, admin
+    // toggle endpoint (admin musi móc wyłączyć tryb), /login + KC OAuth
+    // callback (każdy user musi móc się zalogować podczas maintenance —
+    // dopiero PO loginie sprawdzamy rolę), public assets.
+    //
+    // Dostęp podczas maintenance ma tylko: superadmin (realm-admin /
+    // manage-realm) ALBO user z explicit rolą `maintenance_bypass`.
     const skipMaintenanceCheck =
       pathname === "/maintenance" ||
+      pathname === "/login" ||
+      pathname === "/forbidden" ||
+      pathname.startsWith("/api/auth/") ||
       pathname.startsWith("/api/maintenance/") ||
       pathname.startsWith("/api/admin/maintenance") ||
       pathname.startsWith("/_next/") ||
@@ -241,12 +248,16 @@ export default withAuth(
     if (!skipMaintenanceCheck) {
       const inMaintenance = await isMaintenanceMode();
       if (inMaintenance) {
-        const isAdmin =
-          token?.accessToken &&
-          collectRoles(token.accessToken as string).some(
-            (r) => SUPERADMIN_ROLES.has(r) || r === "admin",
-          );
-        if (!isAdmin) {
+        const userRoles = token?.accessToken
+          ? collectRoles(token.accessToken as string)
+          : [];
+        const canBypass = userRoles.some(
+          (r) =>
+            SUPERADMIN_ROLES.has(r) ||
+            r === "admin" ||
+            r === "maintenance_bypass",
+        );
+        if (!canBypass) {
           if (isApi) {
             return withRequestIdHeaders(
               NextResponse.json(
@@ -411,11 +422,11 @@ export default withAuth(
 );
 
 export const config = {
+  // Match every path EXCEPT static assets and NextAuth's own routes —
+  // maintenance gate musi działać na całej powierzchni (włącznie z `/`,
+  // landingiem, dowolnym URL który user wpisze ręcznie). Pozostała
+  // logika auth-protected dalej operuje na isProtected w callbacku.
   matcher: [
-    "/dashboard/:path*",
-    "/account/:path*",
-    "/admin/:path*",
-    "/api/account/:path*",
-    "/api/admin/:path*",
+    "/((?!_next/static|_next/image|favicon\\.ico|api/auth/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|js|css|woff|woff2|ttf)$).*)",
   ],
 };

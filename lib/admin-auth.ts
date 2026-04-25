@@ -64,6 +64,9 @@ export const ROLES = {
   INFRASTRUCTURE_ADMIN: "infrastructure_admin",
   EMAIL_ADMIN: "email_admin",
   SECURITY_ADMIN: "security_admin",
+
+  // Maintenance bypass — uprawnia wejście podczas prac serwisowych
+  MAINTENANCE_BYPASS: "maintenance_bypass",
 } as const;
 
 export type AppRole = (typeof ROLES)[keyof typeof ROLES];
@@ -109,7 +112,23 @@ export const ROLE_CATALOG: RoleSpec[] = [
   { name: ROLES.INFRASTRUCTURE_ADMIN, description: "/admin/infrastructure — VPS, DNS, snapshoty, backupy, maintenance mode", default: false },
   { name: ROLES.EMAIL_ADMIN, description: "/admin/email — branding, KC templates, Postal, catalog", default: false },
   { name: ROLES.SECURITY_ADMIN, description: "/admin/security — events, blocks, Wazuh agregacja", default: false },
+  { name: ROLES.MAINTENANCE_BYPASS, description: "Prace serwisowe: bypass — pozwala wejść podczas trybu konserwacji", default: false },
 ];
+
+/**
+ * Czy user może wejść do platformy mimo aktywnego trybu konserwacji.
+ *
+ * Zasada: superadmin (realm-admin) ZAWSZE może wejść (failsafe), oraz
+ * dowolny user z explicit nadaną rolą `maintenance_bypass`. Każdy inny
+ * trafia na /maintenance niezależnie od jakichkolwiek innych ról
+ * (włącznie z `keycloak_admin` — admin IdP bez bypass nie wchodzi).
+ */
+export function canBypassMaintenance(
+  session: Session | null | undefined,
+): boolean {
+  if (isSuperAdmin(session)) return true;
+  return hasAny(session, [ROLES.MAINTENANCE_BYPASS]);
+}
 
 /**
  * Keycloak realm-management roles that implicitly grant full admin.

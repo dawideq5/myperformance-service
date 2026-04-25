@@ -81,6 +81,7 @@ const ROLES = [
   { name: "infrastructure_admin", description: "/admin/infrastructure — VPS/DNS/snapshoty/backupy",     default: false },
   { name: "email_admin",         description: "/admin/email — branding, KC templates, Postal, catalog", default: false },
   { name: "security_admin",      description: "/admin/security — events, blocks, Wazuh agregacja",      default: false },
+  { name: "maintenance_bypass",  description: "Prace serwisowe: bypass — wejście podczas trybu konserwacji", default: false },
 
   // panel realm-roles — used by both the mTLS panels and dashboard gating
   { name: "sprzedawca",          description: "Dostęp do panelu sprzedawcy",                           default: false },
