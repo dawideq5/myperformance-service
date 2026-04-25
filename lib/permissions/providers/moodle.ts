@@ -472,7 +472,12 @@ export class MoodleProvider implements PermissionProvider {
 
     const [firstName, ...rest] = (displayName || email).split(" ");
     const lastName = rest.join(" ").trim() || firstName || "User";
-    const username = email.split("@")[0].toLowerCase().replace(/[^a-z0-9._-]/g, "") || email;
+    // Moodle username MUSI matchować KC `preferred_username` claim (Moodle
+    // auth_oidc szuka po `bindingusernameclaim`). KC default = email, więc
+    // używamy całego emaila jako username (lowercase). Inaczej plugin
+    // przy pierwszym SSO logowaniu zwraca: "Nieprawidłowe dane logowania:
+    // nie znaleziono użytkownika w platformie Moodle".
+    const username = email.toLowerCase();
     const password = randomPassword();
 
     const created = await moodleCall<Array<{ id: number; username: string }>>(
