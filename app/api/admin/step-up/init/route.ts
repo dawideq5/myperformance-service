@@ -40,10 +40,14 @@ export async function POST(req: Request) {
       throw ApiError.badRequest("action + params + returnTo required");
     }
 
-    // returnTo musi być same-origin path.
-    const reqUrl = new URL(req.url);
-    const returnUrl = new URL(body.returnTo, reqUrl.origin);
-    if (returnUrl.origin !== reqUrl.origin) {
+    // Public origin — bierzemy z NEXTAUTH_URL (canonical), bo req.url
+    // za reverse-proxy może być http://localhost:3000.
+    const publicOrigin = (process.env.NEXTAUTH_URL || "").replace(/\/$/, "");
+    if (!publicOrigin) {
+      throw new ApiError("SERVICE_UNAVAILABLE", "NEXTAUTH_URL not set", 503);
+    }
+    const returnUrl = new URL(body.returnTo, publicOrigin);
+    if (returnUrl.origin !== publicOrigin) {
       throw ApiError.badRequest("returnTo must be same-origin");
     }
 
@@ -85,7 +89,7 @@ export async function POST(req: Request) {
     });
 
     // Zbuduj KC authorize URL z prompt=login (wymusza re-auth).
-    const redirectUri = `${reqUrl.origin}/api/admin/step-up/callback`;
+    const redirectUri = `${publicOrigin}/api/admin/step-up/callback`;
     const authorizeUrl = new URL(`${publicIssuer}/protocol/openid-connect/auth`);
     authorizeUrl.searchParams.set("response_type", "code");
     authorizeUrl.searchParams.set("client_id", clientId);

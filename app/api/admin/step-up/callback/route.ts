@@ -31,7 +31,7 @@ export async function GET(req: Request) {
   const code = reqUrl.searchParams.get("code");
   const state = reqUrl.searchParams.get("state");
   const error = reqUrl.searchParams.get("error");
-  const origin = reqUrl.origin;
+  const origin = (process.env.NEXTAUTH_URL || reqUrl.origin).replace(/\/$/, "");
 
   const jar = await cookies();
   const intentCookie = jar.get("step_up_intent")?.value;
@@ -82,7 +82,7 @@ export async function GET(req: Request) {
   const issuer = keycloak.getIssuer();
   const clientId = process.env.KEYCLOAK_CLIENT_ID || "";
   const clientSecret = process.env.KEYCLOAK_CLIENT_SECRET || "";
-  const redirectUri = `${origin}/api/admin/step-up/callback`;
+  const redirectUri = `${(process.env.NEXTAUTH_URL || origin).replace(/\/$/, "")}/api/admin/step-up/callback`;
   const params = new URLSearchParams();
   params.set("grant_type", "authorization_code");
   params.set("code", code);

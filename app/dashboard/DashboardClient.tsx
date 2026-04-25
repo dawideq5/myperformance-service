@@ -47,7 +47,6 @@ import {
   canAccessMoodleAsTeacher,
   canAccessPanel,
   canAccessPostal,
-  canAccessStepCa,
   canManageCertificates,
 } from "@/lib/admin-auth";
 import { cn } from "@/lib/utils";
@@ -113,7 +112,6 @@ function TileGrid() {
   const showPostal = canAccessPostal(session);
   const showKeycloak = canAccessKeycloakAdmin(session);
   const showAdminUsers = canAccessAdminPanel(session);
-  const showStepCa = canAccessStepCa(session);
   const showCerts = canManageCertificates(session);
   const showSprzedawca = canAccessPanel(session, "sprzedawca");
   const showSerwisant = canAccessPanel(session, "serwisant");
@@ -123,7 +121,7 @@ function TileGrid() {
     showCalendar || showKadromierz || showDirectus ||
     showDocumenso || showMoodle || showKnowledge ||
     showChatwoot || showPostal || showKeycloak ||
-    showAdminUsers || showStepCa || showCerts ||
+    showAdminUsers || showCerts ||
     showSprzedawca || showSerwisant || showKierowca;
 
   return (
@@ -319,18 +317,6 @@ function TileGrid() {
             title="Keycloak (konsola IdP)"
             description="Natywna konsola administracyjna Keycloak — realms, klienci, IdP, polityki"
             href="/admin/keycloak"
-          />
-        )}
-
-        {showStepCa && (
-          <Tile
-            icon={<ShieldCheck className="w-7 h-7 text-teal-500" aria-hidden="true" />}
-            iconBg="bg-teal-500/10"
-            title="Step CA"
-            description="Infrastruktura PKI — prowizjonerzy, root cert, self-service"
-            onClick={() => {
-              window.location.href = "/dashboard/step-ca";
-            }}
           />
         )}
 
