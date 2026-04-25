@@ -213,9 +213,19 @@ export async function POST(request: NextRequest) {
     },
   }).catch(() => undefined);
 
-  // Normalize event type — phasetwo prefixuje admin events przez "admin.",
-  // KC built-in event-listener-jboss-logging używa zwykłej nazwy.
-  const normalizedType = event.type?.replace(/^(admin\.|access\.)/, "") ?? "";
+  // Normalize event type. Phasetwo używa formatu "admin.USER-DELETE",
+  // built-in jboss-logging "DELETE_USER", access events typu "UPDATE_EMAIL".
+  // Zamieniamy myślniki na podkreślenia + reorder dla admin events:
+  //   "admin.USER-DELETE" → "DELETE_USER"
+  //   "admin.USER-UPDATE" → "UPDATE_USER"
+  //   "access.UPDATE_EMAIL" / "UPDATE_EMAIL" → "UPDATE_EMAIL"
+  let normalizedType = event.type ?? "";
+  const adminMatch = normalizedType.match(/^admin\.(\w+)-(\w+)$/);
+  if (adminMatch) {
+    normalizedType = `${adminMatch[2]}_${adminMatch[1]}`; // DELETE_USER, UPDATE_USER, CREATE_USER
+  } else {
+    normalizedType = normalizedType.replace(/^(admin\.|access\.)/, "");
+  }
 
   // ── Cascading delete ────────────────────────────────────────────────────
   if (normalizedType === "DELETE_USER") {
