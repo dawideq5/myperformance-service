@@ -4,10 +4,7 @@ import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
 import { requireAdminPanel } from "@/lib/admin-auth";
 import { getBranding, updateBranding, type BrandingPatch } from "@/lib/email/db";
-import {
-  propagateBranding,
-  listPropagationTargets,
-} from "@/lib/email/branding";
+import { listPropagationTargets } from "@/lib/email/branding";
 import {
   ApiError,
   createSuccessResponse,

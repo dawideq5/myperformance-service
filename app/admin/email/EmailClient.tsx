@@ -301,7 +301,7 @@ function StartPanel({ onGoTo }: { onGoTo: (t: TabId) => void }) {
           </li>
           <li>
             • Pełny edytor wizualny HTML — Keycloak akceptuje plain HTML
-            (textarea), nie ma drag-and-drop builder'a.
+            (textarea), nie ma drag-and-drop buildera.
           </li>
           <li>
             • Email gateway przez dashboard — kiedyś planowane, ale wymaga
@@ -1437,7 +1437,7 @@ function CatalogPanel() {
             edytowalna treść:
             <span className="ml-1">
               <Badge tone="success">edytuj tutaj</Badge> = w zakładce
-              „Treść maili Keycloak",
+              &bdquo;Treść maili Keycloak&rdquo;,
             </span>
             <span className="ml-1">
               <Badge tone="warning">tylko branding</Badge> = treść hardcoded,
@@ -1604,7 +1604,7 @@ function TestSendPanel() {
           <Info className="w-5 h-5 text-sky-400 flex-shrink-0 mt-0.5" />
           <div className="text-xs text-[var(--text-muted)]">
             Wysyłka idzie przez ten sam SMTP gateway co cert-delivery — Postal
-            transactional. Jeśli mail nie dochodzi, sprawdź zakładkę „Postal" →
+            transactional. Jeśli mail nie dochodzi, sprawdź zakładkę &bdquo;Postal&rdquo; →
             domeny → status DKIM/SPF (powinny być wszystkie zielone).
           </div>
         </div>
@@ -1685,7 +1685,7 @@ function TestSendPanel() {
         <p className="text-xs text-[var(--text-muted)]">
           SMTP_HOST + SMTP_USER + SMTP_PASSWORD są w envach dashboardu (Coolify
           → MyPerformance Dashboard). Aby zmienić skrzynkę przez którą wysyła
-          dashboard, idź do zakładki „Postal", wygeneruj nowy klucz SMTP, i
+          dashboard, idź do zakładki &bdquo;Postal&rdquo;, wygeneruj nowy klucz SMTP, i
           podstaw go w Coolify env.
         </p>
       </Card>

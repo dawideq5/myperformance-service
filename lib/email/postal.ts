@@ -1,15 +1,12 @@
 import mysql from "mysql2/promise";
 import { randomBytes } from "crypto";
 import { getOptionalEnv } from "@/lib/env";
-import { log } from "@/lib/logger";
 
 /**
  * Postal admin layer — direct MariaDB. Postal Web API jest minimalne
  * (tylko send/messages), więc admin operacje (organizations, servers,
  * credentials, routes, domains) jadą przez DB. Kompatybilne z Postal 3.3.x.
  */
-
-const logger = log.child({ module: "postal-admin" });
 
 let pool: mysql.Pool | null = null;
 
