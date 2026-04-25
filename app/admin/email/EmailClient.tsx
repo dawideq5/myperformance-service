@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  CheckCircle2,
   ChevronRight,
   Code2,
   ExternalLink,
@@ -500,6 +501,7 @@ function TemplateEditor({
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [pickerState, setPickerState] = useState<PickerState>(EMPTY_PICKER_STATE);
   const slashHandle = useRef<SlashTextareaHandle | null>(null);
+  const bodyTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const editable =
     template.editability === "full" ||
@@ -660,21 +662,22 @@ function TemplateEditor({
           </Card>
 
           <Card padding="md">
-            <div className="flex items-center justify-between mb-1">
-              <label className="text-xs text-[var(--text-muted)]">
-                Treść (markdown + zmienne — wpisz &bdquo;/&rdquo; aby wstawić)
-              </label>
-              <span className="text-[10px] text-[var(--text-muted)]">
-                Linki: [tekst](url) · pogrubienie: **tekst** · listy: • elem
-              </span>
-            </div>
+            <label className="text-xs text-[var(--text-muted)] block mb-2">
+              Treść maila — użyj toolbara, markdown lub klawiszy (⌘B/⌘I)
+            </label>
+            <FormatToolbar
+              textareaRef={bodyTextareaRef}
+              value={body}
+              onChange={setBody}
+            />
             <SlashTextarea
               value={body}
               onChange={setBody}
               variables={template.variables}
-              rows={18}
+              rows={16}
               onPickerStateChange={setPickerState}
               handleRef={slashHandle}
+              textareaRef={bodyTextareaRef}
             />
           </Card>
 
@@ -752,6 +755,9 @@ function TemplateEditor({
             <VariablePickerPanel
               state={pickerState}
               onPick={(v) => slashHandle.current?.insertVariable(v)}
+              onPickLiteral={(text) =>
+                slashHandle.current?.insertLiteral(text)
+              }
               onHighlight={(idx) =>
                 slashHandle.current?.setHighlightedIdx(idx)
               }
@@ -810,6 +816,160 @@ function TemplateEditor({
   );
 }
 
+// ── Format toolbar (nad textarea) ───────────────────────────────────────────
+
+interface FormatAction {
+  label: string;
+  shortcut?: string;
+  /** Wstawia syntax wokół zaznaczenia, lub na pozycji kursora gdy brak. */
+  wrap?: { before: string; after: string; placeholder?: string };
+  /** Wstawia syntax na początku linii (dla list, headings, button). */
+  linePrefix?: string;
+  /** Wstawia template tekst w nowej linii. */
+  template?: string;
+  icon: React.ReactNode;
+}
+
+const FORMAT_ACTIONS: FormatAction[] = [
+  {
+    label: "Pogrubienie",
+    shortcut: "⌘B",
+    wrap: { before: "**", after: "**", placeholder: "tekst" },
+    icon: <strong className="text-[13px]">B</strong>,
+  },
+  {
+    label: "Kursywa",
+    shortcut: "⌘I",
+    wrap: { before: "*", after: "*", placeholder: "tekst" },
+    icon: <em className="text-[13px]">I</em>,
+  },
+  {
+    label: "Przekreślenie",
+    wrap: { before: "~~", after: "~~", placeholder: "tekst" },
+    icon: <span className="text-[13px] line-through">S</span>,
+  },
+  {
+    label: "Kod",
+    wrap: { before: "`", after: "`", placeholder: "kod" },
+    icon: <span className="text-[12px] font-mono">{"<>"}</span>,
+  },
+  {
+    label: "Nagłówek 1",
+    linePrefix: "# ",
+    icon: <span className="text-[10px] font-bold">H1</span>,
+  },
+  {
+    label: "Nagłówek 2",
+    linePrefix: "## ",
+    icon: <span className="text-[10px] font-bold">H2</span>,
+  },
+  {
+    label: "Lista punktowana",
+    linePrefix: "• ",
+    icon: <span className="text-[14px]">•</span>,
+  },
+  {
+    label: "Link",
+    wrap: { before: "[", after: "](https://)", placeholder: "tekst linku" },
+    icon: <span className="text-[10px] underline">link</span>,
+  },
+  {
+    label: "Przycisk CTA",
+    template: "[[Tekst przycisku|https://]]",
+    icon: <span className="text-[9px] px-1 py-0.5 bg-[var(--accent)] text-white rounded">CTA</span>,
+  },
+  {
+    label: "Pozioma linia",
+    template: "---",
+    icon: <span className="text-[14px]">─</span>,
+  },
+];
+
+function FormatToolbar({
+  textareaRef,
+  value,
+  onChange,
+}: {
+  textareaRef: React.RefObject<HTMLTextAreaElement | null>;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  function applyAction(action: FormatAction) {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const before = value.slice(0, start);
+    const selected = value.slice(start, end);
+    const after = value.slice(end);
+
+    if (action.wrap) {
+      const text = selected || action.wrap.placeholder || "";
+      const newValue =
+        before + action.wrap.before + text + action.wrap.after + after;
+      onChange(newValue);
+      const newPos = start + action.wrap.before.length + text.length;
+      setTimeout(() => {
+        ta.focus();
+        ta.setSelectionRange(
+          start + action.wrap!.before.length,
+          newPos,
+        );
+      }, 0);
+      return;
+    }
+    if (action.linePrefix) {
+      // Znajdź początek linii (po ostatnim \n przed start)
+      const lineStart = before.lastIndexOf("\n") + 1;
+      const newValue =
+        value.slice(0, lineStart) +
+        action.linePrefix +
+        value.slice(lineStart);
+      onChange(newValue);
+      const newPos = start + action.linePrefix.length;
+      setTimeout(() => {
+        ta.focus();
+        ta.setSelectionRange(newPos, newPos);
+      }, 0);
+      return;
+    }
+    if (action.template) {
+      const insertion = (start === 0 || before.endsWith("\n") ? "" : "\n") + action.template + "\n";
+      const newValue = before + insertion + after;
+      onChange(newValue);
+      const newPos = start + insertion.length;
+      setTimeout(() => {
+        ta.focus();
+        ta.setSelectionRange(newPos, newPos);
+      }, 0);
+      return;
+    }
+  }
+
+  return (
+    <div className="flex flex-wrap gap-1 mb-2 px-2 py-1.5 border border-[var(--border-subtle)] rounded-lg bg-[var(--bg-main)]">
+      {FORMAT_ACTIONS.map((a) => (
+        <button
+          key={a.label}
+          type="button"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            applyAction(a);
+          }}
+          className="w-8 h-8 flex items-center justify-center rounded hover:bg-[var(--bg-surface)] text-[var(--text-main)]"
+          title={`${a.label}${a.shortcut ? ` (${a.shortcut})` : ""}`}
+        >
+          {a.icon}
+        </button>
+      ))}
+      <div className="flex-1" />
+      <div className="text-[10px] text-[var(--text-muted)] self-center px-2">
+        Wpisz <kbd className="px-1 py-0.5 rounded bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-[9px]">/</kbd> aby wstawić zmienną
+      </div>
+    </div>
+  );
+}
+
 // ── Slash command picker (split: textarea + zewnętrzny picker UI) ───────────
 
 interface PickerState {
@@ -828,6 +988,7 @@ const EMPTY_PICKER_STATE: PickerState = {
 
 interface SlashTextareaHandle {
   insertVariable: (v: CatalogVariable) => void;
+  insertLiteral: (text: string) => void;
   closePicker: () => void;
   setHighlightedIdx: (idx: number) => void;
 }
@@ -839,6 +1000,7 @@ const SlashTextarea = function SlashTextarea({
   rows,
   onPickerStateChange,
   handleRef,
+  textareaRef,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -846,8 +1008,10 @@ const SlashTextarea = function SlashTextarea({
   rows: number;
   onPickerStateChange: (state: PickerState) => void;
   handleRef?: React.MutableRefObject<SlashTextareaHandle | null>;
+  textareaRef?: React.MutableRefObject<HTMLTextAreaElement | null>;
 }) {
-  const taRef = useRef<HTMLTextAreaElement>(null);
+  const localRef = useRef<HTMLTextAreaElement>(null);
+  const taRef = textareaRef ?? localRef;
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [startIndex, setStartIndex] = useState(-1);
@@ -928,16 +1092,64 @@ const SlashTextarea = function SlashTextarea({
     taRef.current?.focus();
   }
 
+  function insertLiteral(text: string) {
+    const ta = taRef.current;
+    if (!ta || startIndex < 0) return;
+    const cursor = ta.selectionStart;
+    const before = value.slice(0, startIndex);
+    const after = value.slice(cursor);
+    const newValue = before + text + after;
+    onChange(newValue);
+    setOpen(false);
+    setStartIndex(-1);
+    setQuery("");
+    setTimeout(() => {
+      const newPos = before.length + text.length;
+      ta.focus();
+      ta.setSelectionRange(newPos, newPos);
+    }, 0);
+  }
+
   // Imperative handle do parenta — używane przez kliknięcie myszą w pickerze.
   if (handleRef) {
     handleRef.current = {
       insertVariable,
+      insertLiteral,
       closePicker,
       setHighlightedIdx,
     };
   }
 
+  function wrapSelection(beforeStr: string, afterStr: string, placeholder = "") {
+    const ta = taRef.current;
+    if (!ta) return;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const sel = value.slice(start, end);
+    const text = sel || placeholder;
+    const newValue =
+      value.slice(0, start) + beforeStr + text + afterStr + value.slice(end);
+    onChange(newValue);
+    setTimeout(() => {
+      ta.focus();
+      ta.setSelectionRange(start + beforeStr.length, start + beforeStr.length + text.length);
+    }, 0);
+  }
+
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    // Keyboard shortcuts dla formatowania (Ctrl/Cmd + B/I)
+    if ((e.ctrlKey || e.metaKey) && !open) {
+      if (e.key === "b" || e.key === "B") {
+        e.preventDefault();
+        wrapSelection("**", "**", "tekst");
+        return;
+      }
+      if (e.key === "i" || e.key === "I") {
+        e.preventDefault();
+        wrapSelection("*", "*", "tekst");
+        return;
+      }
+    }
     if (!open) return;
     if (e.key === "Escape") {
       e.preventDefault();
@@ -979,21 +1191,93 @@ const SlashTextarea = function SlashTextarea({
 function VariablePickerPanel({
   state,
   onPick,
+  onPickLiteral,
   onHighlight,
   onClose,
 }: {
   state: PickerState;
   onPick: (v: CatalogVariable) => void;
+  /** Wstawia plain text zamiast {{path}} — np. user wpisuje URL ręcznie. */
+  onPickLiteral: (literal: string) => void;
   onHighlight: (idx: number) => void;
   onClose: () => void;
 }) {
-  const grouped = useMemo(() => {
+  const [manualMode, setManualMode] = useState<CatalogVariable | null>(null);
+  const [manualValue, setManualValue] = useState("");
+
+  function inferType(v: CatalogVariable): "url" | "email" | "text" {
+    if (v.key.toLowerCase().includes("link") || v.key.toLowerCase().includes("url")) return "url";
+    if (v.key.toLowerCase().includes("email")) return "email";
+    return "text";
+  }
+
+  function manualPlaceholder(v: CatalogVariable): string {
+    const t = inferType(v);
+    if (t === "url") return "https://...";
+    if (t === "email") return "ktos@example.com";
+    return v.example;
+  }
+
+  if (manualMode) {
+    const t = inferType(manualMode);
+    return (
+      <Card padding="md" className="border-[var(--accent)]/40">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold flex items-center gap-2">
+            <Search className="w-4 h-4 text-[var(--accent)]" />
+            Wpisz wartość ręcznie
+          </h3>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setManualMode(null)}
+            leftIcon={<X className="w-3.5 h-3.5" />}
+          >
+            Wróć
+          </Button>
+        </div>
+        <div className="text-xs text-[var(--text-muted)] mb-3">
+          <strong className="text-[var(--text-main)]">{manualMode.label}</strong> · zamiast wstawiać <code className="text-[10px]">{`{{${manualMode.key}}}`}</code> (które system wypełni runtime), wstaw stałą wartość.
+        </div>
+        <Input
+          label={t === "url" ? "URL" : t === "email" ? "Adres email" : "Wartość"}
+          type={t === "email" ? "email" : "text"}
+          value={manualValue}
+          onChange={(e) => setManualValue(e.target.value)}
+          placeholder={manualPlaceholder(manualMode)}
+          autoFocus
+        />
+        <div className="mt-3 text-[11px] text-amber-300/80">
+          Uwaga: po wstawieniu jako stała wartość, ten fragment nie będzie się
+          aktualizował dynamicznie. Używaj tylko dla URL-i które są stałe (np.
+          link do polityki prywatności) lub gdy chcesz nadpisać systemową wartość.
+        </div>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button variant="ghost" onClick={() => setManualMode(null)}>
+            Anuluj
+          </Button>
+          <Button
+            onClick={() => {
+              if (manualValue.trim()) {
+                onPickLiteral(manualValue.trim());
+                setManualMode(null);
+                setManualValue("");
+              }
+            }}
+            disabled={!manualValue.trim()}
+          >
+            Wstaw
+          </Button>
+        </div>
+      </Card>
+    );
+  }
+
+  const grouped = (() => {
     const out: Record<string, CatalogVariable[]> = {};
-    for (const v of state.filtered) {
-      (out[v.group] ??= []).push(v);
-    }
+    for (const v of state.filtered) (out[v.group] ??= []).push(v);
     return out;
-  }, [state.filtered]);
+  })();
 
   return (
     <Card padding="md" className="border-[var(--accent)]/40">
@@ -1035,39 +1319,58 @@ function VariablePickerPanel({
               {items.map((v) => {
                 const idx = state.filtered.indexOf(v);
                 const highlighted = idx === state.highlightedIdx;
+                const t = inferType(v);
                 return (
-                  <button
+                  <div
                     key={v.key}
-                    type="button"
                     onMouseEnter={() => onHighlight(idx)}
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      onPick(v);
-                    }}
-                    className={`w-full text-left px-3 py-2.5 flex items-center justify-between gap-3 border-b border-[var(--border-subtle)]/50 ${
+                    className={`flex items-center gap-2 border-b border-[var(--border-subtle)]/50 ${
                       highlighted
                         ? "bg-[var(--accent)]/10"
                         : "hover:bg-[var(--bg-main)]"
                     }`}
                   >
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-medium text-[var(--text-main)] truncate">
-                        {v.label}
-                      </div>
-                      <code className="text-[10px] text-[var(--text-muted)] block truncate">
-                        {`{{${v.key}}}`}
-                      </code>
-                      {v.description && (
-                        <div className="text-[11px] text-[var(--text-muted)] mt-0.5 truncate">
-                          {v.description}
+                    <button
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        onPick(v);
+                      }}
+                      className="flex-1 min-w-0 text-left px-3 py-2.5 flex items-center justify-between gap-3"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium text-[var(--text-main)] truncate">
+                          {v.label}
                         </div>
-                      )}
-                    </div>
-                    <div className="text-[10px] text-[var(--text-muted)] flex-shrink-0 max-w-[140px] truncate">
-                      <span className="opacity-60">np. </span>
-                      {v.example}
-                    </div>
-                  </button>
+                        <code className="text-[10px] text-[var(--text-muted)] block truncate">
+                          {`{{${v.key}}}`}
+                        </code>
+                        {v.description && (
+                          <div className="text-[11px] text-[var(--text-muted)] mt-0.5 truncate">
+                            {v.description}
+                          </div>
+                        )}
+                      </div>
+                      <div className="text-[10px] text-[var(--text-muted)] flex-shrink-0 max-w-[120px] truncate">
+                        <span className="opacity-60">np. </span>
+                        {v.example}
+                      </div>
+                    </button>
+                    {(t === "url" || t === "email" || t === "text") && (
+                      <button
+                        type="button"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          setManualMode(v);
+                          setManualValue("");
+                        }}
+                        title="Wpisz wartość ręcznie zamiast użyć systemowej"
+                        className="flex-shrink-0 px-2 py-1 mr-2 text-[10px] rounded border border-[var(--border-subtle)] hover:border-[var(--accent)] hover:text-[var(--accent)] text-[var(--text-muted)]"
+                      >
+                        wpisz ręcznie
+                      </button>
+                    )}
+                  </div>
                 );
               })}
             </div>
@@ -1458,6 +1761,7 @@ function SmtpConfigsPanel() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [showTest, setShowTest] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -1533,22 +1837,62 @@ function SmtpConfigsPanel() {
         ))}
       </div>
 
-      <Button
-        onClick={() =>
-          setEditing({
-            alias: "",
-            label: "",
-            smtpHost: "smtp-iut9wf1rz9ey54g7lbkje0je",
-            smtpPort: 25,
-            useTls: false,
-            fromEmail: "noreply@myperformance.pl",
-            fromDisplay: "MyPerformance",
-            isDefault: false,
-          })
-        }
-      >
-        + Dodaj nową konfigurację
-      </Button>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          onClick={() =>
+            setEditing({
+              alias: "",
+              label: "",
+              smtpHost: "smtp-iut9wf1rz9ey54g7lbkje0je",
+              smtpPort: 25,
+              useTls: false,
+              fromEmail: "noreply@myperformance.pl",
+              fromDisplay: "MyPerformance",
+              isDefault: false,
+            })
+          }
+        >
+          + Postal (wewnętrzny)
+        </Button>
+        <Button
+          variant="secondary"
+          onClick={() =>
+            setEditing({
+              alias: "ovh",
+              label: "OVH Cloud — skrzynka osobista",
+              smtpHost: "ssl0.ovh.net",
+              smtpPort: 465,
+              useTls: true,
+              smtpUser: "",
+              smtpPassword: "",
+              fromEmail: "",
+              fromDisplay: "MyPerformance",
+              isDefault: false,
+            })
+          }
+        >
+          + OVH (preset SSL/TLS)
+        </Button>
+        <Button
+          variant="secondary"
+          onClick={() =>
+            setEditing({
+              alias: "",
+              label: "",
+              smtpHost: "",
+              smtpPort: 587,
+              useTls: false,
+              smtpUser: "",
+              smtpPassword: "",
+              fromEmail: "",
+              fromDisplay: "MyPerformance",
+              isDefault: false,
+            })
+          }
+        >
+          + Inny serwer SMTP
+        </Button>
+      </div>
 
       {editing && (
         <Card padding="lg" className="border-[var(--accent)]">
@@ -1645,16 +1989,185 @@ function SmtpConfigsPanel() {
               Ustaw jako domyślny (używany dla szablonów bez przypisanego SMTP)
             </label>
           </div>
-          <div className="mt-4 flex gap-2">
+          <div className="mt-4 flex gap-2 flex-wrap">
             <Button onClick={save} loading={busy} leftIcon={<Save className="w-4 h-4" />}>
               Zapisz
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => setShowTest(true)}
+              leftIcon={<Send className="w-4 h-4" />}
+            >
+              Testuj połączenie i wyślij test
             </Button>
             <Button variant="ghost" onClick={() => setEditing(null)}>
               Anuluj
             </Button>
           </div>
+          {editing.smtpHost?.includes("ovh.net") && (
+            <div className="mt-4 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-main)] p-3">
+              <h4 className="text-xs font-semibold mb-2 flex items-center gap-1.5">
+                <Info className="w-3.5 h-3.5 text-sky-400" />
+                Konfiguracja OVH — referencja
+              </h4>
+              <div className="grid md:grid-cols-2 gap-3 text-[11px] text-[var(--text-muted)]">
+                <div>
+                  <div className="font-semibold text-[var(--text-main)] mb-1">SMTP (wysyłka)</div>
+                  <div>Host: <code>ssl0.ovh.net</code> lub <code>smtp.mail.ovh.net</code></div>
+                  <div>Port: <code>465</code> (SSL/TLS)</div>
+                  <div>User: pełen adres email</div>
+                  <div>Hasło: ustawione dla skrzynki w OVH</div>
+                </div>
+                <div>
+                  <div className="font-semibold text-[var(--text-main)] mb-1">IMAP (odbiór)</div>
+                  <div>Host: <code>ssl0.ovh.net</code> lub <code>imap.mail.ovh.net</code></div>
+                  <div>Port: <code>993</code> (SSL/TLS)</div>
+                  <div className="mt-2 font-semibold text-[var(--text-main)]">POP3</div>
+                  <div>Host: <code>ssl0.ovh.net</code> lub <code>pop3.mail.ovh.net</code></div>
+                  <div>Port: <code>995</code> (SSL/TLS)</div>
+                </div>
+              </div>
+            </div>
+          )}
         </Card>
       )}
+
+      {showTest && editing && (
+        <SmtpTestDialog
+          config={editing}
+          onClose={() => setShowTest(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── SMTP test dialog ────────────────────────────────────────────────────────
+
+function SmtpTestDialog({
+  config,
+  onClose,
+}: {
+  config: Partial<SmtpConfigFull>;
+  onClose: () => void;
+}) {
+  const [to, setTo] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{
+    verified?: boolean;
+    sent?: boolean;
+    messageId?: string;
+    accepted?: string[];
+    error?: string;
+    errorCode?: string;
+    hint?: string;
+  } | null>(null);
+
+  async function runTest() {
+    setBusy(true);
+    setResult(null);
+    try {
+      const r = await api.post<typeof result, Partial<SmtpConfigFull> & { to: string }>(
+        "/api/admin/email/smtp-configs/test",
+        {
+          to,
+          smtpHost: config.smtpHost!,
+          smtpPort: config.smtpPort ?? 25,
+          smtpUser: config.smtpUser ?? null,
+          smtpPassword:
+            config.smtpPassword === "***" ? null : config.smtpPassword ?? null,
+          useTls: config.useTls ?? false,
+          fromEmail: config.fromEmail!,
+          fromDisplay: config.fromDisplay ?? null,
+          replyTo: config.replyTo ?? null,
+        },
+      );
+      setResult(r);
+    } catch (err) {
+      setResult({
+        error: err instanceof ApiRequestError ? err.message : "Test failed",
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+      <Card padding="lg" className="w-full max-w-lg">
+        <h3 className="text-base font-semibold mb-2">Testuj połączenie SMTP</h3>
+        <p className="text-xs text-[var(--text-muted)] mb-4">
+          Najpierw nawiązuje połączenie i autoryzuje (verify), potem wysyła
+          testowy email. Każdy etap raportowany osobno — łatwo zdiagnozować
+          gdzie problem.
+        </p>
+        <div className="grid grid-cols-2 gap-2 text-[11px] mb-4 p-3 rounded bg-[var(--bg-main)]">
+          <div className="text-[var(--text-muted)]">Host:</div>
+          <div className="font-mono">{config.smtpHost}:{config.smtpPort}</div>
+          <div className="text-[var(--text-muted)]">TLS:</div>
+          <div>{config.useTls ? "tak (SSL/TLS)" : "nie (plain/STARTTLS)"}</div>
+          <div className="text-[var(--text-muted)]">User:</div>
+          <div className="font-mono">{config.smtpUser || "(brak)"}</div>
+          <div className="text-[var(--text-muted)]">From:</div>
+          <div className="font-mono">{config.fromEmail}</div>
+        </div>
+        <Input
+          label="Wyślij test na adres"
+          type="email"
+          value={to}
+          onChange={(e) => setTo(e.target.value)}
+          placeholder="ty@example.com"
+        />
+        {result && (
+          <div className="mt-4 space-y-2">
+            <div className="flex items-center gap-2 text-xs">
+              {result.verified ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+              ) : (
+                <X className="w-4 h-4 text-red-400" />
+              )}
+              <span>Połączenie + autoryzacja: {result.verified ? "OK" : "FAILED"}</span>
+            </div>
+            <div className="flex items-center gap-2 text-xs">
+              {result.sent ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+              ) : (
+                <X className="w-4 h-4 text-red-400" />
+              )}
+              <span>
+                Wysyłka: {result.sent ? `OK (id: ${result.messageId})` : "FAILED"}
+              </span>
+            </div>
+            {result.error && (
+              <Alert tone="error">
+                <strong>Błąd:</strong> {result.error}
+                {result.errorCode && <code className="ml-2 text-[10px]">[{result.errorCode}]</code>}
+                {result.hint && (
+                  <div className="mt-2 text-xs">{result.hint}</div>
+                )}
+              </Alert>
+            )}
+            {result.sent && (
+              <Alert tone="success">
+                Sprawdź skrzynkę {to} — testowa wiadomość powinna dotrzeć w
+                ciągu kilku sekund.
+              </Alert>
+            )}
+          </div>
+        )}
+        <div className="mt-5 flex justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>
+            Zamknij
+          </Button>
+          <Button
+            onClick={runTest}
+            loading={busy}
+            disabled={!to.trim() || !config.smtpHost || !config.fromEmail}
+          >
+            Uruchom test
+          </Button>
+        </div>
+      </Card>
     </div>
   );
 }
