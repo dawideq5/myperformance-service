@@ -147,6 +147,44 @@ async function ensureSchema(client: PoolClient): Promise<void> {
       started_by   TEXT
     );
     INSERT INTO mp_maintenance (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+
+    -- Blocked IPs — Active Response (manual + auto Wazuh w przyszłości).
+    -- Traefik dynamic file generowany na podstawie tej tabeli przez cron.
+    CREATE TABLE IF NOT EXISTS mp_blocked_ips (
+      ip          TEXT PRIMARY KEY,
+      reason      TEXT NOT NULL,
+      blocked_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+      expires_at  TIMESTAMPTZ,
+      blocked_by  TEXT NOT NULL,
+      source      TEXT NOT NULL DEFAULT 'manual',
+      attempts    INT NOT NULL DEFAULT 0,
+      country     TEXT,
+      details     JSONB
+    );
+    CREATE INDEX IF NOT EXISTS mp_blocked_ips_expires_idx
+      ON mp_blocked_ips (expires_at) WHERE expires_at IS NOT NULL;
+
+    -- Security events — agregacja z różnych źródeł (KC, webhook, Postal,
+    -- nasze IAM audit, w przyszłości Wazuh). Insert-only, retencja 90 dni.
+    CREATE TABLE IF NOT EXISTS mp_security_events (
+      id           BIGSERIAL PRIMARY KEY,
+      ts           TIMESTAMPTZ NOT NULL DEFAULT now(),
+      severity     TEXT NOT NULL CHECK (severity IN ('info','low','medium','high','critical')),
+      category     TEXT NOT NULL,
+      source       TEXT NOT NULL,
+      title        TEXT NOT NULL,
+      description  TEXT,
+      src_ip       TEXT,
+      target_user  TEXT,
+      details      JSONB,
+      acknowledged BOOLEAN NOT NULL DEFAULT FALSE
+    );
+    CREATE INDEX IF NOT EXISTS mp_security_events_ts_idx
+      ON mp_security_events (ts DESC);
+    CREATE INDEX IF NOT EXISTS mp_security_events_severity_idx
+      ON mp_security_events (severity, ts DESC);
+    CREATE INDEX IF NOT EXISTS mp_security_events_src_ip_idx
+      ON mp_security_events (src_ip);
   `);
 }
 

@@ -7,6 +7,7 @@ import {
   enqueueUserDeprovision,
 } from "@/lib/permissions/sync";
 import { appendIamAudit } from "@/lib/permissions/db";
+import { recordEvent as recordSecurityEvent } from "@/lib/security/db";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -264,6 +265,27 @@ export async function POST(request: NextRequest) {
   } else {
     normalizedType = normalizedType.replace(/^(admin\.|access\.)/, "");
   }
+
+  // ── Record security event (best-effort, nie blokuje główny flow) ─────
+  void recordSecurityEvent({
+    severity:
+      normalizedType === "DELETE_USER"
+        ? "high"
+        : normalizedType.includes("ERROR") || normalizedType === "LOGIN_ERROR"
+          ? "medium"
+          : "info",
+    category: `keycloak.${normalizedType.toLowerCase()}`,
+    source: "keycloak-webhook",
+    title: `Keycloak: ${normalizedType}`,
+    description: `Realm event z Keycloak — ${event.type}`,
+    srcIp: event.ipAddress,
+    targetUser: event.details?.email ?? event.details?.username,
+    details: {
+      eventType: event.type,
+      realmId: event.realmId,
+      userId: resolvedUserId,
+    },
+  }).catch(() => undefined);
 
   // ── Cascading delete ────────────────────────────────────────────────────
   if (normalizedType === "DELETE_USER") {

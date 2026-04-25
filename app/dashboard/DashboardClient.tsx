@@ -334,6 +334,18 @@ function TileGrid() {
           />
         )}
 
+        {showAdminUsers && (
+          <Tile
+            icon={<Shield className="w-7 h-7 text-indigo-500" aria-hidden="true" />}
+            iconBg="bg-indigo-500/10"
+            title="Bezpieczeństwo / SIEM"
+            description="Alerty, zablokowane IP, agenci Wazuh, MITRE ATT&CK — centrum monitorowania bezpieczeństwa platformy"
+            onClick={() => {
+              window.location.href = "/admin/security";
+            }}
+          />
+        )}
+
 
         {showKeycloak && (
           <ExternalTile
