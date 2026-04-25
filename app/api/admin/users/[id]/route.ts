@@ -9,7 +9,10 @@ import {
   handleApiError,
 } from "@/lib/api-utils";
 import { requireAdminPanel } from "@/lib/admin-auth";
-import { propagateProfileFromKc } from "@/lib/permissions/sync";
+import {
+  enqueueUserDeprovision,
+  propagateProfileFromKc,
+} from "@/lib/permissions/sync";
 import { log } from "@/lib/logger";
 
 interface Ctx {
@@ -196,6 +199,23 @@ export async function DELETE(_req: Request, { params }: Ctx) {
     }
 
     const adminToken = await keycloak.getServiceAccountToken();
+
+    // Pobierz email PRZED usunięciem — providers natywne identyfikują userów
+    // po emailu (KC sub jest immaterial dla Moodle/Chatwoot/Documenso/etc.).
+    const lookup = await keycloak.adminRequest(`/users/${id}`, adminToken);
+    if (lookup.status === 404) throw ApiError.notFound("User not found");
+    if (!lookup.ok) {
+      const details = await lookup.text();
+      throw new ApiError(
+        "SERVICE_UNAVAILABLE",
+        "Failed to load user before deletion",
+        lookup.status,
+        details,
+      );
+    }
+    const userToDelete = (await lookup.json()) as { email?: string };
+    const userEmail = userToDelete.email;
+
     const res = await keycloak.adminRequest(`/users/${id}`, adminToken, {
       method: "DELETE",
     });
@@ -209,6 +229,22 @@ export async function DELETE(_req: Request, { params }: Ctx) {
         res.status,
         details,
       );
+    }
+
+    // Cascading delete do natywnych aplikacji. Queued z retry — providers
+    // które chwilowo down (np. Documenso DB restart) zostaną retryowane.
+    // KC jest source of truth: brak userka w KC = brak nigdzie.
+    if (userEmail) {
+      await enqueueUserDeprovision({
+        email: userEmail,
+        actor: `delete-user:${session.user?.email ?? "admin"}`,
+      }).catch((err) => {
+        log.error("admin.users.deprovision_enqueue_failed", {
+          userId: id,
+          email: userEmail,
+          err: err instanceof Error ? err.message : String(err),
+        });
+      });
     }
 
     return createSuccessResponse({ ok: true });

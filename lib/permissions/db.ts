@@ -429,6 +429,7 @@ export type IamAuditOperation =
   | "mapping.upsert"
   | "user.assign"
   | "user.unassign"
+  | "user.deprovision"
   | "sync.push"
   | "sync.pull"
   | "seed.apply"

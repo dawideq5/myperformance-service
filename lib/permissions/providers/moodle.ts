@@ -451,6 +451,49 @@ export class MoodleProvider implements PermissionProvider {
     await moodleCall("core_user_update_users", { users: [update] });
   }
 
+  async deleteUser(args: { email: string; previousEmail?: string }): Promise<void> {
+    if (!this.isConfigured()) return;
+    const lookup = args.previousEmail ?? args.email;
+    const user = await this.findUser(lookup);
+    if (!user) return;
+    // core_user_delete_users — Moodle robi soft delete (deleted=1, anonimizuje
+    // email + username). Zachowuje audit + completion records, blokuje login.
+    // Dodatkowo usuwamy auth_oidc_token entry żeby przy ewentualnym ponownym
+    // utworzeniu user-a w KC z tym samym sub nie matchował starej duszy.
+    await moodleCall("core_user_delete_users", { userids: [user.id] });
+    const pool = getDbPool();
+    if (pool) {
+      await pool
+        .query("DELETE FROM mdl_auth_oidc_token WHERE userid = ?", [user.id])
+        .catch(() => undefined);
+    }
+  }
+
+  async listUserEmails(): Promise<string[] | null> {
+    if (!this.isConfigured()) return null;
+    const pool = getDbPool();
+    if (pool) {
+      const [rows] = await pool.query(
+        `SELECT email FROM mdl_user WHERE deleted = 0 AND auth = 'oidc' AND email IS NOT NULL AND email <> ''`,
+      );
+      return (rows as Array<{ email: string }>).map((r) => r.email.toLowerCase());
+    }
+    // Fallback przez WS — Moodle wymaga query, więc paginacja po '@'.
+    try {
+      const users = await moodleCall<MoodleUserRaw[]>(
+        "core_user_get_users",
+        { criteria: [{ key: "auth", value: "oidc" }] },
+      );
+      const arr = (users as unknown as { users?: MoodleUserRaw[] }).users
+        ?? (Array.isArray(users) ? users : []);
+      return arr
+        .map((u) => u.email?.toLowerCase())
+        .filter((e): e is string => !!e);
+    } catch {
+      return null;
+    }
+  }
+
   private async findUser(email: string): Promise<MoodleUserRaw | null> {
     try {
       const users = await moodleCall<MoodleUserRaw[]>(

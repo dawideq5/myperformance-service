@@ -341,6 +341,30 @@ export class OutlineProvider implements PermissionProvider {
     await outlineFetch("/api/users.update", { id: user.id, ...updates });
   }
 
+  async deleteUser(args: { email: string; previousEmail?: string }): Promise<void> {
+    if (!this.isConfigured()) return;
+    const lookup = args.previousEmail ?? args.email;
+    const user = await this.findUser(lookup);
+    if (!user) return;
+    // Outline supports `users.delete` (hard) and `users.suspend` (soft).
+    // Soft delete preferowany — zachowuje autorstwo dokumentów i komentarzy.
+    if (!user.isSuspended) {
+      await outlineFetch("/api/users.suspend", { id: user.id });
+    }
+  }
+
+  async listUserEmails(): Promise<string[] | null> {
+    if (!this.isConfigured()) return null;
+    try {
+      const all = await this.listUsers();
+      return all
+        .map((u) => u.email?.toLowerCase())
+        .filter((e): e is string => !!e);
+    } catch {
+      return null;
+    }
+  }
+
   private async findUser(email: string): Promise<OutlineUser | null> {
     try {
       const users = await outlineFetch<OutlineUser[]>("/api/users.list", {

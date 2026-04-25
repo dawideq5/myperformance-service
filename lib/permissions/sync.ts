@@ -54,6 +54,19 @@ function ensureHandlersRegistered(): void {
       throw new Error(result.nativeError ?? "native sync failed");
     }
   });
+  registerJobHandler("user.deprovision", async (payload: JobPayload) => {
+    const email = payload.args.email as string;
+    const previousEmail = payload.args.previousEmail as string | undefined;
+    const results = await deprovisionUserInternal({ email, previousEmail });
+    const failed = results.filter((r) => r.status === "failed");
+    if (failed.length > 0) {
+      throw new Error(
+        `${failed.length}/${results.length} providers failed: ${failed
+          .map((f) => `${f.areaId}(${f.error ?? "n/a"})`)
+          .join(", ")}`,
+      );
+    }
+  });
 }
 
 /**
@@ -541,6 +554,193 @@ export async function enqueueProfilePropagation(
     idempotencyKey: `profile.propagate:${userId}`,
     actor: opts.actor ?? "system:event",
     args: { userId, previousEmail: opts.previousEmail },
+  });
+}
+
+/**
+ * Cascading delete user-a ze wszystkich natywnych aplikacji (Moodle,
+ * Chatwoot, Outline, Documenso, Directus, Postal). Wywoływane PO udanym
+ * usunięciu user-a w Keycloak — KC jest source of truth.
+ *
+ * Idempotent per provider: gdy user-a już nie ma w aplikacji, no-op.
+ * Failure jednego providera nie blokuje pozostałych (best-effort), ale
+ * zwracamy listę statusów. Caller decyduje czy potrzebuje retry (queue
+ * version: `enqueueUserDeprovision` automatycznie retryuje failed jobs).
+ */
+export interface UserDeprovisionResult {
+  areaId: string;
+  status: "ok" | "skipped" | "failed";
+  error?: string;
+}
+
+export async function deprovisionUser(args: {
+  email: string;
+  previousEmail?: string;
+}): Promise<UserDeprovisionResult[]> {
+  return deprovisionUserInternal(args);
+}
+
+async function deprovisionUserInternal(args: {
+  email: string;
+  previousEmail?: string;
+}): Promise<UserDeprovisionResult[]> {
+  const results: UserDeprovisionResult[] = [];
+  // Dedup providers — wiele AREAS może mapować do jednego providera (np.
+  // chatwoot ma kilka area-rol). Wystarczy jeden delete na provider.
+  const seen = new Set<string>();
+  for (const area of AREAS) {
+    if (area.provider !== "native") continue;
+    const provider = getProvider(area.nativeProviderId);
+    if (!provider || !provider.isConfigured()) {
+      results.push({ areaId: area.id, status: "skipped" });
+      continue;
+    }
+    if (seen.has(provider.id)) {
+      results.push({ areaId: area.id, status: "skipped" });
+      continue;
+    }
+    seen.add(provider.id);
+    try {
+      await provider.deleteUser({
+        email: args.email,
+        previousEmail: args.previousEmail,
+      });
+      results.push({ areaId: area.id, status: "ok" });
+    } catch (err) {
+      results.push({
+        areaId: area.id,
+        status: "failed",
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+  return results;
+}
+
+/**
+ * Reconcile: znajdź użytkowników w aplikacjach natywnych, których nie ma
+ * w Keycloak (drift) i usuń ich. Uruchamiane manualnie z UI lub via cron.
+ *
+ * Algorytm:
+ *   1. Pobierz wszystkie KC user emails (lowercase set).
+ *   2. Dla każdego unikalnego providera: wywołaj `listUserEmails()`.
+ *   3. Dla każdego email-a w providerze, którego nie ma w KC set →
+ *      `provider.deleteUser({ email })`.
+ *
+ * Dryrun (`apply=false`) zwraca tylko listę candidate-ów do usunięcia.
+ */
+export interface ReconcileResult {
+  providerId: string;
+  scanned: number;
+  drifted: string[];
+  deleted: string[];
+  failed: Array<{ email: string; error: string }>;
+  skipped?: string;
+}
+
+export async function reconcileUsers(opts: {
+  apply: boolean;
+}): Promise<ReconcileResult[]> {
+  const adminToken = await keycloak.getServiceAccountToken();
+  const kcEmails = await listAllKcUserEmails(adminToken);
+  const kcSet = new Set(kcEmails.map((e) => e.toLowerCase()));
+
+  const results: ReconcileResult[] = [];
+  const seen = new Set<string>();
+  for (const area of AREAS) {
+    if (area.provider !== "native") continue;
+    const provider = getProvider(area.nativeProviderId);
+    if (!provider || !provider.isConfigured()) continue;
+    if (seen.has(provider.id)) continue;
+    seen.add(provider.id);
+
+    const native = await provider.listUserEmails().catch(() => null);
+    if (!native) {
+      results.push({
+        providerId: provider.id,
+        scanned: 0,
+        drifted: [],
+        deleted: [],
+        failed: [],
+        skipped: "listUserEmails returned null",
+      });
+      continue;
+    }
+    const drifted = native
+      .map((e) => e.toLowerCase())
+      .filter((e) => !kcSet.has(e));
+
+    const deleted: string[] = [];
+    const failed: Array<{ email: string; error: string }> = [];
+    if (opts.apply) {
+      for (const email of drifted) {
+        try {
+          await provider.deleteUser({ email });
+          deleted.push(email);
+        } catch (err) {
+          failed.push({
+            email,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    }
+    results.push({
+      providerId: provider.id,
+      scanned: native.length,
+      drifted,
+      deleted,
+      failed,
+    });
+  }
+  return results;
+}
+
+async function listAllKcUserEmails(adminToken: string): Promise<string[]> {
+  const all: string[] = [];
+  let first = 0;
+  const max = 100;
+  for (let i = 0; i < 200; i++) {
+    const res = await keycloak.adminRequest(
+      `/users?first=${first}&max=${max}&briefRepresentation=true`,
+      adminToken,
+    );
+    if (!res.ok) break;
+    const page = (await res.json()) as Array<{ email?: string }>;
+    if (page.length === 0) break;
+    for (const u of page) {
+      if (u.email) all.push(u.email);
+    }
+    if (page.length < max) break;
+    first += max;
+  }
+  return all;
+}
+
+/**
+ * Fire-and-forget cascading delete z queue + retry. Wywoływane przez DELETE
+ * /api/admin/users/:id po udanym KC delete. Failed providers retryują się
+ * automatycznie z backoff.
+ */
+export async function enqueueUserDeprovision(args: {
+  email: string;
+  previousEmail?: string;
+  actor?: string;
+}): Promise<void> {
+  ensureHandlersRegistered();
+  await appendIamAudit({
+    actor: args.actor ?? "system:event",
+    operation: "user.deprovision",
+    targetType: "user",
+    targetId: args.email,
+    status: "ok",
+    details: { previousEmail: args.previousEmail },
+  });
+  await enqueueJob({
+    kind: "user.deprovision",
+    idempotencyKey: `user.deprovision:${args.email.toLowerCase()}`,
+    actor: args.actor ?? "system:event",
+    args: { email: args.email, previousEmail: args.previousEmail },
   });
 }
 

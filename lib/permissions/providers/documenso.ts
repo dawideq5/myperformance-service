@@ -379,6 +379,76 @@ export class DocumensoProvider implements PermissionProvider {
     }
   }
 
+  async listUserEmails(): Promise<string[] | null> {
+    if (!this.isConfigured()) return null;
+    const client = await getPool().connect();
+    try {
+      const res = await client.query<{ email: string }>(
+        `SELECT email FROM "User" WHERE email NOT LIKE 'deleted+%@deleted.local'`,
+      );
+      return res.rows.map((r) => r.email.toLowerCase());
+    } catch {
+      return null;
+    } finally {
+      client.release();
+    }
+  }
+
+  async deleteUser(args: { email: string; previousEmail?: string }): Promise<void> {
+    if (!this.isConfigured()) return;
+    const lookup = args.previousEmail ?? args.email;
+    const client = await getPool().connect();
+    try {
+      // Documenso przechowuje podpisy + drafty per User. Hard DELETE rozbije
+      // foreign keys (Document.userId, OrganisationMember.userId, sessions itp.).
+      // Zamiast tego: anonimizujemy email + name, usuwamy z OrganisationMember
+      // (zabranie dostępu do org-ów) i invalidujemy sesje. Tożsamość znika
+      // z punktu widzenia user-a, audyt podpisów pozostaje (compliance).
+      await client.query("BEGIN");
+      const userRes = await client.query<{ id: number }>(
+        `SELECT id FROM "User" WHERE LOWER(email) = LOWER($1) LIMIT 1`,
+        [lookup],
+      );
+      const userId = userRes.rows[0]?.id;
+      if (!userId) {
+        await client.query("ROLLBACK");
+        return;
+      }
+      // Usuń członkostwa w org/team — pełne odebranie dostępu.
+      await client.query(
+        `DELETE FROM "OrganisationMember" WHERE "userId" = $1`,
+        [userId],
+      ).catch(() => undefined);
+      // Invaliduj sesje (jeśli tabela istnieje w danej wersji schematu).
+      await client.query(
+        `DELETE FROM "Session" WHERE "userId" = $1`,
+        [userId],
+      ).catch(() => undefined);
+      // Anonimizuj.
+      const anon = `deleted+${userId}@deleted.local`;
+      await client.query(
+        `UPDATE "User"
+            SET email = $2,
+                name = 'Konto usunięte',
+                "disabled" = true
+          WHERE id = $1`,
+        [userId, anon],
+      ).catch(async () => {
+        // Starsze schematy bez kolumny "disabled" — fallback na sam rename.
+        await client.query(
+          `UPDATE "User" SET email = $2, name = 'Konto usunięte' WHERE id = $1`,
+          [userId, anon],
+        );
+      });
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
   private async countByRole(): Promise<{
     member: number;
     manager: number;

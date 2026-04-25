@@ -326,6 +326,81 @@ export class ChatwootProvider implements PermissionProvider {
     });
   }
 
+  async deleteUser(args: { email: string; previousEmail?: string }): Promise<void> {
+    if (!this.isConfigured()) return;
+    const lookup = args.previousEmail ?? args.email;
+    const user = await this.findUser(lookup);
+    if (!user) return;
+    // Chatwoot Platform API: DELETE /platform/api/v1/users/{id} — hard delete.
+    // Wcześniej musimy usunąć user-a ze wszystkich account_users (Chatwoot
+    // odrzuci hard delete gdy user należy do account-u). Iterujemy po
+    // accountach i usuwamy membership.
+    const memberships = await this.listUserAccounts(user.id);
+    for (const m of memberships) {
+      await platformFetch(
+        `/platform/api/v1/accounts/${m.account_id}/account_users`,
+        {
+          method: "DELETE",
+          body: JSON.stringify({ user_id: user.id }),
+        },
+      ).catch(() => {
+        // best-effort — final DELETE i tak by zwrócił błąd, który złapiemy
+      });
+    }
+    const res = await platformFetch(`/platform/api/v1/users/${user.id}`, {
+      method: "DELETE",
+    });
+    if (res.status === 404) return; // już usunięty
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(
+        `Chatwoot deleteUser ${user.id} failed: ${res.status} ${body.slice(0, 200)}`,
+      );
+    }
+    logger.info("deleteUser OK", { userId: user.id, email: lookup });
+  }
+
+  async listUserEmails(): Promise<string[] | null> {
+    if (!this.isConfigured()) return null;
+    const out: string[] = [];
+    for (let page = 1; page <= 100; page++) {
+      const res = await platformFetch(`/platform/api/v1/users?page=${page}`);
+      if (res.status === 404) break;
+      if (!res.ok) return null;
+      const data = (await res.json()) as
+        | ChatwootUser[]
+        | { data?: ChatwootUser[]; payload?: ChatwootUser[] };
+      const list = Array.isArray(data)
+        ? data
+        : (data.data ?? data.payload ?? []);
+      if (list.length === 0) break;
+      for (const u of list) {
+        if (u.email) out.push(u.email.toLowerCase());
+      }
+      if (list.length < 15) break; // Chatwoot default page size
+    }
+    return out;
+  }
+
+  private async listUserAccounts(
+    userId: number,
+  ): Promise<Array<{ account_id: number }>> {
+    try {
+      const res = await platformFetch(
+        `/platform/api/v1/users/${userId}`,
+      );
+      if (!res.ok) return [];
+      const data = (await res.json()) as {
+        accounts?: Array<{ id?: number; account_id?: number }>;
+      };
+      return (data.accounts ?? [])
+        .map((a) => ({ account_id: a.account_id ?? a.id ?? 0 }))
+        .filter((a) => a.account_id > 0);
+    } catch {
+      return [];
+    }
+  }
+
   /**
    * Chatwoot Platform API **nie** wspiera `?q=email` search. Musimy
    * paginować `/platform/api/v1/users` i filtrować lokalnie. Limit

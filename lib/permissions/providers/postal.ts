@@ -175,6 +175,32 @@ export class PostalProvider implements PermissionProvider {
     }
   }
 
+  async deleteUser(args: { email: string; previousEmail?: string }): Promise<void> {
+    if (!this.isConfigured()) return;
+    const lookup = args.previousEmail ?? args.email;
+    // Postal trzyma userów w `users`, organizations w `organization_users`,
+    // servers w `server_users`. Hard DELETE FROM users — FK ON DELETE CASCADE
+    // w postal schema usuwa membership.
+    await getPool().execute(
+      `DELETE FROM users WHERE LOWER(email_address) = LOWER(?)`,
+      [lookup],
+    );
+  }
+
+  async listUserEmails(): Promise<string[] | null> {
+    if (!this.isConfigured()) return null;
+    try {
+      const [rows] = await getPool().execute<mysql.RowDataPacket[]>(
+        `SELECT email_address FROM users WHERE email_address IS NOT NULL`,
+      );
+      return rows
+        .map((r) => (r.email_address as string)?.toLowerCase())
+        .filter((e): e is string => !!e);
+    } catch {
+      return null;
+    }
+  }
+
   private async countByRole(): Promise<{ user: number; admin: number }> {
     try {
       const [rows] = await getPool().execute<mysql.RowDataPacket[]>(

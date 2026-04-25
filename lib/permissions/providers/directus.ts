@@ -247,6 +247,33 @@ export class DirectusProvider implements PermissionProvider {
     });
   }
 
+  async deleteUser(args: { email: string; previousEmail?: string }): Promise<void> {
+    if (!this.isConfigured()) return;
+    const lookup = args.previousEmail ?? args.email;
+    const user = await this.findUserByEmail(lookup);
+    if (!user) return;
+    // Directus DELETE /users/{id} — hard delete. Soft-delete via status=archived
+    // możliwy ale Directus niezbyt egzekwuje (archived user wciąż może mieć
+    // prawa). Hard delete bezpieczniejszy z punktu KC=SoT.
+    await directusFetch(`/users/${encodeURIComponent(user.id)}`, {
+      method: "DELETE",
+    });
+  }
+
+  async listUserEmails(): Promise<string[] | null> {
+    if (!this.isConfigured()) return null;
+    try {
+      const users = await directusFetch<DirectusUserRaw[]>(
+        "/users?fields=email&limit=-1",
+      );
+      return users
+        .map((u) => u.email?.toLowerCase())
+        .filter((e): e is string => !!e);
+    } catch {
+      return null;
+    }
+  }
+
   private async findUserByEmail(email: string): Promise<DirectusUserRaw | null> {
     const filter = encodeURIComponent(email.toLowerCase());
     const users = await directusFetch<DirectusUserRaw[]>(

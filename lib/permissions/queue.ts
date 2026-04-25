@@ -29,7 +29,8 @@ export type JobKind =
   | "profile.propagate"
   | "role.assign"
   | "role.unassign"
-  | "seed.apply";
+  | "seed.apply"
+  | "user.deprovision";
 
 export interface JobPayload {
   kind: JobKind;

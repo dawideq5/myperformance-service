@@ -93,6 +93,33 @@ export interface PermissionProvider {
    * zaktualizować danego pola. Używane przy zmianie profilu w KC.
    */
   syncUserProfile(args: ProfileSyncArgs): Promise<void>;
+
+  /**
+   * Usuwa (lub deaktywuje) użytkownika z aplikacji natywnej. Wywoływane
+   * gdy admin usuwa user'a z Keycloak — Keycloak jest source of truth,
+   * więc brak go w KC = brak w żadnej aplikacji. Przyjmuje email zamiast id,
+   * bo native systems mają własne user-id i email jest jedynym wspólnym
+   * lookup keyem.
+   *
+   * Implementacje powinny być **idempotentne**: jeśli user już nie istnieje
+   * w aplikacji, no-op (bez throwa). Failure tylko gdy aplikacja jest
+   * dostępna ale operacja zwróciła błąd (network/auth/permission).
+   *
+   * Soft delete (suspend/archive) jest preferowany nad hard delete tam gdzie
+   * aplikacja oferuje obie opcje — chroni audyt i historyczne dane (np.
+   * komentarze w Outline, wiadomości w Chatwoot, podpisy w Documenso).
+   */
+  deleteUser(args: { email: string; previousEmail?: string }): Promise<void>;
+
+  /**
+   * Lista WSZYSTKICH user emails znanych przez aplikację natywną. Używane
+   * przez reconcile job: sprawdzamy każdy email vs Keycloak i usuwamy te
+   * których w KC nie ma (drift detection).
+   *
+   * Zwraca lowercase emails. Optional — provider który nie potrafi listować
+   * może zwrócić `null` (skip w reconcile, log).
+   */
+  listUserEmails(): Promise<string[] | null>;
 }
 
 export class ProviderNotConfiguredError extends Error {
