@@ -346,15 +346,19 @@ export interface CaStatus {
   url: string;
   provisioner?: string;
   provisionerType?: string;
+  rootNotAfter?: string;
+  rootDaysLeft?: number;
+  rootSubject?: string;
   error?: string;
 }
 
 export async function getCaStatus(): Promise<CaStatus> {
   const url = getBaseUrl();
   try {
-    const [health, provRes] = await Promise.all([
+    const [health, provRes, rootsRes] = await Promise.all([
       fetch(`${url}/health`, { signal: AbortSignal.timeout(5000) }),
       fetch(`${url}/provisioners`, { signal: AbortSignal.timeout(5000) }),
+      fetch(`${url}/roots.pem`, { signal: AbortSignal.timeout(5000) }),
     ]);
     if (!health.ok) return { online: false, url, error: `health ${health.status}` };
     let provisioner: string | undefined;
@@ -367,7 +371,31 @@ export async function getCaStatus(): Promise<CaStatus> {
         provisionerType = p.type;
       }
     }
-    return { online: true, url, provisioner, provisionerType };
+    let rootNotAfter: string | undefined;
+    let rootDaysLeft: number | undefined;
+    let rootSubject: string | undefined;
+    if (rootsRes.ok) {
+      try {
+        const pem = await rootsRes.text();
+        const cert = forge.pki.certificateFromPem(pem);
+        rootNotAfter = cert.validity.notAfter.toISOString();
+        rootDaysLeft = Math.floor(
+          (cert.validity.notAfter.getTime() - Date.now()) / 86_400_000,
+        );
+        rootSubject = cert.subject.getField("CN")?.value as string | undefined;
+      } catch {
+        // root inspection is best-effort — never fails health
+      }
+    }
+    return {
+      online: true,
+      url,
+      provisioner,
+      provisionerType,
+      rootNotAfter,
+      rootDaysLeft,
+      rootSubject,
+    };
   } catch (err) {
     return { online: false, url, error: err instanceof Error ? err.message : "unknown" };
   }

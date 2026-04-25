@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
-  AlertTriangle,
   EyeOff,
   Fingerprint,
   FileSignature,
@@ -15,7 +14,6 @@ import {
   ShieldAlert,
   ShieldCheck,
   ShieldX,
-  Unlock,
 } from "lucide-react";
 
 import {
@@ -25,7 +23,6 @@ import {
   Card,
   CardHeader,
   Checkbox,
-  Dialog,
   Input,
   PageShell,
   TabPanel,
@@ -53,6 +50,9 @@ type CaStatus = {
   url: string;
   provisioner?: string;
   provisionerType?: string;
+  rootNotAfter?: string;
+  rootDaysLeft?: number;
+  rootSubject?: string;
   error?: string;
 };
 type AuditEvent = {
@@ -312,6 +312,13 @@ function CaStatusBadge({ status }: { status: CaStatus | null }) {
       </div>
     );
   }
+  const expiringSoon =
+    typeof status.rootDaysLeft === "number" && status.rootDaysLeft < 90;
+  const expiryColor = expiringSoon
+    ? status.rootDaysLeft! < 30
+      ? "text-red-400"
+      : "text-amber-400"
+    : "text-[var(--text-muted)]";
   return (
     <div className="hidden sm:flex items-center gap-2">
       <span
@@ -324,6 +331,21 @@ function CaStatusBadge({ status }: { status: CaStatus | null }) {
           <span className="text-[var(--text-main)]">online</span>
         ) : (
           <span className="text-red-400">offline — {status.error ?? "nieznany błąd"}</span>
+        )}
+        {status.online && typeof status.rootDaysLeft === "number" && (
+          <>
+            {" · "}
+            <span
+              className={expiryColor}
+              title={
+                status.rootNotAfter
+                  ? `Root CA wygasa: ${new Date(status.rootNotAfter).toLocaleString("pl-PL")}`
+                  : undefined
+              }
+            >
+              root: {status.rootDaysLeft} dni
+            </span>
+          </>
         )}
       </span>
     </div>
@@ -1171,221 +1193,103 @@ function AuditPanel({ audit }: { audit: AuditEvent[] }) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// Services panel — widok paneli z toggle mTLS + lista posiadaczy certów.
-// Przeniesione z osobnej strony /dashboard/step-ca, żeby cała tematyka cert
-// była w jednym miejscu.
+// Services panel — informacyjny widok paneli mTLS.
+//
+// mTLS jest WYMUSZANY przez Traefik (clientAuthType: RequireAndVerifyClientCert
+// w /data/coolify/proxy/dynamic/mtls.yml). Panele bez certu nie przechodzą
+// nawet TLS handshake. UI nie ma toggle — to jest enterprise default.
 // ────────────────────────────────────────────────────────────────────────────
 
-type PanelRole = "sprzedawca" | "serwisant" | "kierowca";
-
 interface PanelState {
-  role: PanelRole;
+  role: string;
   label: string;
   domain: string;
-  mtlsRequired: boolean;
+  tlsOption: string;
 }
 
 function ServicesPanel() {
   const [panels, setPanels] = useState<PanelState[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [reauthFor, setReauthFor] = useState<{ role: PanelRole; nextValue: boolean } | null>(null);
-  const [reauthPending, setReauthPending] = useState(false);
-  const [reauthError, setReauthError] = useState<string | null>(null);
-
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const r = await api.get<{ panels: PanelState[] }>("/api/admin/panels/mtls-state");
-      setPanels(r.panels);
-    } catch (err) {
-      setError(err instanceof ApiRequestError ? err.message : "Nie udało się pobrać stanu");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const u = new URL(window.location.href);
-    const ok = u.searchParams.get("step_up_ok");
-    const err = u.searchParams.get("step_up_err");
-    if (ok) {
-      setNotice(ok);
-      u.searchParams.delete("step_up_ok");
-      window.history.replaceState({}, "", u.toString());
-      void refresh();
-    } else if (err) {
-      setError(err);
-      u.searchParams.delete("step_up_err");
-      window.history.replaceState({}, "", u.toString());
-    }
-  }, [refresh]);
-
-  useEffect(() => {
-    if (!notice) return;
-    const t = setTimeout(() => setNotice(null), 6000);
-    return () => clearTimeout(t);
-  }, [notice]);
-
-  const performToggle = useCallback(async () => {
-    if (!reauthFor) return;
-    setReauthPending(true);
-    setReauthError(null);
-    try {
-      const r = await api.post<
-        { authorizeUrl: string },
-        {
-          action: "panel-mtls-toggle";
-          params: { role: PanelRole; mtlsRequired: boolean };
-          returnTo: string;
+    let cancelled = false;
+    async function load() {
+      try {
+        const r = await api.get<{ panels: PanelState[] }>(
+          "/api/admin/panels/mtls-state",
+        );
+        if (!cancelled) setPanels(r.panels);
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            err instanceof ApiRequestError
+              ? err.message
+              : "Nie udało się pobrać listy paneli",
+          );
         }
-      >("/api/admin/step-up/init", {
-        action: "panel-mtls-toggle",
-        params: { role: reauthFor.role, mtlsRequired: reauthFor.nextValue },
-        returnTo: "/admin/certificates",
-      });
-      window.location.href = r.authorizeUrl;
-    } catch (err) {
-      setReauthError(
-        err instanceof ApiRequestError ? err.message : "Nie udało się rozpocząć ponownej autentykacji",
-      );
-      setReauthPending(false);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     }
-  }, [reauthFor]);
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <Card padding="md">
-      <header className="mb-4">
-        <h2 className="text-base font-semibold text-[var(--text-main)]">
-          Serwisy używające certyfikatów mTLS
-        </h2>
-        <p className="text-xs text-[var(--text-muted)] mt-0.5">
-          Stan wymogu certyfikatu, liczba aktywnych certyfikatów i kto je posiada.
-          Awaryjny przełącznik wymaga ponownej autentykacji w Keycloak.
-        </p>
-      </header>
+      <CardHeader
+        icon={<ShieldCheck className="w-6 h-6 text-emerald-500" />}
+        iconBgClassName="bg-emerald-500/10"
+        title="Panele chronione mTLS"
+        description="Każdy panel wymaga certyfikatu klienckiego podpisanego przez wewnętrzną CA. Wymóg jest wymuszony przez Traefik na poziomie TLS handshake — bez certu połączenie zostaje odrzucone, zanim trafi do aplikacji."
+      />
 
-      {error && <div className="mb-4"><Alert tone="error">{error}</Alert></div>}
-      {notice && <div className="mb-4"><Alert tone="success">{notice}</Alert></div>}
+      {error && <div className="mt-4"><Alert tone="error">{error}</Alert></div>}
 
       {loading ? (
-        <div className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
+        <div className="mt-4 flex items-center gap-2 text-sm text-[var(--text-muted)]">
           <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
           Ładowanie…
         </div>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {panels.map((p) => {
-            return (
-              <div
-                key={p.role}
-                className={`p-4 rounded-xl border ${
-                  p.mtlsRequired
-                    ? "border-green-500/30 bg-[var(--bg-surface)]"
-                    : "border-amber-500/40 bg-amber-500/5"
-                }`}
-              >
-                <div className="flex items-start justify-between gap-2 mb-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm font-semibold text-[var(--text-main)] truncate">
-                      {p.label}
-                    </div>
-                    <a
-                      href={`https://${p.domain}/`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs text-[var(--text-muted)] hover:text-[var(--accent)] truncate block"
-                    >
-                      {p.domain} ↗
-                    </a>
+        <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {panels.map((p) => (
+            <div
+              key={p.role}
+              className="p-4 rounded-xl border border-emerald-500/30 bg-[var(--bg-surface)]"
+            >
+              <div className="flex items-start justify-between gap-2 mb-2">
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-semibold text-[var(--text-main)] truncate">
+                    {p.label}
                   </div>
-                  {p.mtlsRequired ? (
-                    <Badge tone="success" className="flex-shrink-0 whitespace-nowrap inline-flex items-center gap-1">
-                      <Lock className="w-3 h-3" aria-hidden="true" />
-                      mTLS wymagane
-                    </Badge>
-                  ) : (
-                    <Badge tone="warning" className="flex-shrink-0 whitespace-nowrap inline-flex items-center gap-1">
-                      <Unlock className="w-3 h-3" aria-hidden="true" />
-                      Otwarte
-                    </Badge>
-                  )}
+                  <a
+                    href={`https://${p.domain}/`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-[var(--text-muted)] hover:text-[var(--accent)] truncate block"
+                  >
+                    {p.domain} ↗
+                  </a>
                 </div>
-
-                <Button
-                  size="sm"
-                  variant={p.mtlsRequired ? "secondary" : "primary"}
-                  onClick={() => {
-                    setReauthError(null);
-                    setReauthFor({ role: p.role, nextValue: !p.mtlsRequired });
-                  }}
-                  leftIcon={
-                    p.mtlsRequired ? (
-                      <ShieldAlert className="w-4 h-4" aria-hidden="true" />
-                    ) : (
-                      <ShieldCheck className="w-4 h-4" aria-hidden="true" />
-                    )
-                  }
-                  className={`w-full ${
-                    p.mtlsRequired ? "border-amber-500/40 text-amber-500 hover:bg-amber-500/10" : ""
-                  }`}
+                <Badge
+                  tone="success"
+                  className="flex-shrink-0 whitespace-nowrap inline-flex items-center gap-1"
                 >
-                  {p.mtlsRequired ? "Wyłącz wymóg awaryjnie" : "Włącz wymóg cert"}
-                </Button>
+                  <Lock className="w-3 h-3" aria-hidden="true" />
+                  mTLS wymagane
+                </Badge>
               </div>
-            );
-          })}
+              <p className="text-[11px] text-[var(--text-muted)] font-mono">
+                tls.options: {p.tlsOption}
+              </p>
+            </div>
+          ))}
         </div>
       )}
-
-      <Dialog
-        open={!!reauthFor}
-        onClose={reauthPending ? () => {} : () => setReauthFor(null)}
-        title="Potwierdź zmianę bezpieczeństwa"
-        description={
-          reauthFor
-            ? `${reauthFor.nextValue ? "Włączasz" : "Wyłączasz"} wymóg mTLS dla panelu "${reauthFor.role}".`
-            : ""
-        }
-        footer={
-          <>
-            <Button
-              variant="ghost"
-              onClick={() => setReauthFor(null)}
-              disabled={reauthPending}
-            >
-              Anuluj
-            </Button>
-            <Button
-              onClick={() => void performToggle()}
-              loading={reauthPending}
-              leftIcon={<AlertTriangle className="w-4 h-4" aria-hidden="true" />}
-            >
-              Potwierdź
-            </Button>
-          </>
-        }
-      >
-        {reauthError && (
-          <div className="mb-3"><Alert tone="error">{reauthError}</Alert></div>
-        )}
-        <Alert tone="warning">
-          Ta operacja zmienia konfigurację bezpieczeństwa panelu. Po kliknięciu
-          &bdquo;Potwierdź&rdquo; zostaniesz przekierowany na ekran logowania
-          Keycloak (hasło lub Google) — po pomyślnej autentykacji akcja
-          zostanie wykonana automatycznie i wrócisz tutaj.
-          {reauthFor?.nextValue
-            ? " Po włączeniu panel ponownie wymaga certyfikatu klienckiego."
-            : " Po wyłączeniu panel jest dostępny bez certyfikatu — używaj tylko awaryjnie."}
-        </Alert>
-      </Dialog>
     </Card>
   );
 }
