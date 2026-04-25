@@ -101,6 +101,13 @@ export default withAuth(
     if (!roles.includes(REQUIRED_ROLE) && !roles.includes("admin")) {
       return NextResponse.redirect(new URL("/forbidden", req.url));
     }
+    // mTLS hard-require gdy MTLS_REQUIRED=true (toggle z dashboard).
+    if (process.env.MTLS_REQUIRED === "true") {
+      const serial = extractCertSerial(req.headers);
+      if (!serial) {
+        return NextResponse.redirect(new URL("/forbidden/no-cert", req.url));
+      }
+    }
     const gate = await verifyDeviceBinding(req);
     if (!gate.ok) {
       const url = new URL("/forbidden/device", req.url);
