@@ -319,6 +319,28 @@ export const AREAS: PermissionArea[] = [
     ],
   },
   {
+    id: "wazuh",
+    label: "Wazuh SIEM",
+    description: "Monitoring bezpieczeństwa, wykrywanie zagrożeń, FIM, alerty.",
+    provider: "keycloak-only",
+    icon: "ShieldAlert",
+    nativeAdminUrl: "https://wazuh.myperformance.pl",
+    kcRoles: [
+      {
+        name: "wazuh_readonly",
+        label: "Read-only",
+        description: "Podgląd dashboardu Wazuh i alertów (bez zmian konfiguracji).",
+        priority: 10,
+      },
+      {
+        name: "wazuh_admin",
+        label: "Administrator",
+        description: "Pełny dostęp do Wazuh — agenty, reguły, polityki, użytkownicy.",
+        priority: 90,
+      },
+    ],
+  },
+  {
     id: "core",
     label: "Dostęp do platformy",
     description: "Bazowa rola — auto-przypisywana każdemu zalogowanemu userowi.",
