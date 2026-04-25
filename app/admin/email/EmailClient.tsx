@@ -498,6 +498,8 @@ function TemplateEditor({
   const [notice, setNotice] = useState<string | null>(null);
   const [showTestSend, setShowTestSend] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [pickerState, setPickerState] = useState<PickerState>(EMPTY_PICKER_STATE);
+  const slashHandle = useRef<SlashTextareaHandle | null>(null);
 
   const editable =
     template.editability === "full" ||
@@ -671,6 +673,8 @@ function TemplateEditor({
               onChange={setBody}
               variables={template.variables}
               rows={18}
+              onPickerStateChange={setPickerState}
+              handleRef={slashHandle}
             />
           </Card>
 
@@ -742,31 +746,42 @@ function TemplateEditor({
           </div>
         </div>
 
-        {/* RIGHT: Live preview */}
+        {/* RIGHT: Variable picker (gdy aktywny) ALBO live preview (default) */}
         <div className="space-y-3">
-          <Card padding="md" className="h-fit">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-semibold flex items-center gap-2">
-                <Eye className="w-4 h-4 text-[var(--accent)]" />
-                Podgląd na żywo
-              </h3>
-              {previewLoading && (
-                <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--text-muted)]" />
-              )}
-            </div>
-            <div className="text-[11px] text-[var(--text-muted)] mb-3">
-              <strong>Temat:</strong> {previewSubject || subject}
-            </div>
-            <div className="rounded-lg overflow-hidden border border-[var(--border-subtle)] bg-white">
-              <iframe
-                title="Email preview"
-                srcDoc={previewHtml}
-                className="w-full"
-                style={{ height: "720px", border: "none", background: "#fff" }}
-                sandbox="allow-same-origin"
-              />
-            </div>
-          </Card>
+          {pickerState.open ? (
+            <VariablePickerPanel
+              state={pickerState}
+              onPick={(v) => slashHandle.current?.insertVariable(v)}
+              onHighlight={(idx) =>
+                slashHandle.current?.setHighlightedIdx(idx)
+              }
+              onClose={() => slashHandle.current?.closePicker()}
+            />
+          ) : (
+            <Card padding="md" className="h-fit">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-semibold flex items-center gap-2">
+                  <Eye className="w-4 h-4 text-[var(--accent)]" />
+                  Podgląd na żywo
+                </h3>
+                {previewLoading && (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--text-muted)]" />
+                )}
+              </div>
+              <div className="text-[11px] text-[var(--text-muted)] mb-3">
+                <strong>Temat:</strong> {previewSubject || subject}
+              </div>
+              <div className="rounded-lg overflow-hidden border border-[var(--border-subtle)] bg-white">
+                <iframe
+                  title="Email preview"
+                  srcDoc={previewHtml}
+                  className="w-full"
+                  style={{ height: "720px", border: "none", background: "#fff" }}
+                  sandbox="allow-same-origin"
+                />
+              </div>
+            </Card>
+          )}
         </div>
       </div>
 
@@ -795,27 +810,51 @@ function TemplateEditor({
   );
 }
 
-// ── Slash command picker (textarea z wstawianiem zmiennych) ────────────────
+// ── Slash command picker (split: textarea + zewnętrzny picker UI) ───────────
 
-function SlashTextarea({
+interface PickerState {
+  open: boolean;
+  query: string;
+  filtered: CatalogVariable[];
+  highlightedIdx: number;
+}
+
+const EMPTY_PICKER_STATE: PickerState = {
+  open: false,
+  query: "",
+  filtered: [],
+  highlightedIdx: 0,
+};
+
+interface SlashTextareaHandle {
+  insertVariable: (v: CatalogVariable) => void;
+  closePicker: () => void;
+  setHighlightedIdx: (idx: number) => void;
+}
+
+const SlashTextarea = function SlashTextarea({
   value,
   onChange,
   variables,
   rows,
+  onPickerStateChange,
+  handleRef,
 }: {
   value: string;
   onChange: (v: string) => void;
   variables: CatalogVariable[];
   rows: number;
+  onPickerStateChange: (state: PickerState) => void;
+  handleRef?: React.MutableRefObject<SlashTextareaHandle | null>;
 }) {
-  const ref = useRef<HTMLTextAreaElement>(null);
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [pickerQuery, setPickerQuery] = useState("");
-  const [pickerStartIndex, setPickerStartIndex] = useState(-1);
+  const taRef = useRef<HTMLTextAreaElement>(null);
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [startIndex, setStartIndex] = useState(-1);
   const [highlightedIdx, setHighlightedIdx] = useState(0);
 
   const filtered = useMemo(() => {
-    const q = pickerQuery.toLowerCase();
+    const q = query.toLowerCase();
     if (!q) return variables;
     return variables.filter(
       (v) =>
@@ -823,50 +862,58 @@ function SlashTextarea({
         v.label.toLowerCase().includes(q) ||
         v.description.toLowerCase().includes(q),
     );
-  }, [variables, pickerQuery]);
+  }, [variables, query]);
 
+  // Reset highlighted gdy filtered się zmienia.
   useEffect(() => {
     setHighlightedIdx(0);
-  }, [pickerQuery]);
+  }, [query]);
 
-  function handleChange(newValue: string) {
-    onChange(newValue);
-    const ta = ref.current;
-    if (!ta) return;
-    const cursor = ta.selectionStart;
-    // Detekcja "/" — szukamy ostatniego "/" przed kursorem (po nim tylko word chars)
+  // Publikuj stan picker'a do parenta — ten renderuje UI w prawej kolumnie.
+  useEffect(() => {
+    onPickerStateChange({ open, query, filtered, highlightedIdx });
+  }, [open, query, filtered, highlightedIdx, onPickerStateChange]);
+
+  function detectPicker(newValue: string, cursor: number) {
     let i = cursor - 1;
     while (i >= 0) {
       const ch = newValue[i];
       if (ch === "/") {
         const before = i === 0 ? "" : newValue[i - 1];
-        // Slash musi być na początku lub po spacji/nowej linii
         if (i === 0 || /\s/.test(before)) {
-          setPickerOpen(true);
-          setPickerStartIndex(i);
-          setPickerQuery(newValue.slice(i + 1, cursor));
+          setOpen(true);
+          setStartIndex(i);
+          setQuery(newValue.slice(i + 1, cursor));
           return;
         }
       }
       if (/\s/.test(newValue[i])) break;
       i--;
     }
-    setPickerOpen(false);
-    setPickerStartIndex(-1);
+    setOpen(false);
+    setStartIndex(-1);
+    setQuery("");
+  }
+
+  function handleChange(newValue: string) {
+    onChange(newValue);
+    const ta = taRef.current;
+    if (!ta) return;
+    detectPicker(newValue, ta.selectionStart);
   }
 
   function insertVariable(v: CatalogVariable) {
-    const ta = ref.current;
-    if (!ta || pickerStartIndex < 0) return;
+    const ta = taRef.current;
+    if (!ta || startIndex < 0) return;
     const cursor = ta.selectionStart;
-    const before = value.slice(0, pickerStartIndex);
+    const before = value.slice(0, startIndex);
     const after = value.slice(cursor);
     const insertion = `{{${v.key}}}`;
     const newValue = before + insertion + after;
     onChange(newValue);
-    setPickerOpen(false);
-    setPickerStartIndex(-1);
-    setPickerQuery("");
+    setOpen(false);
+    setStartIndex(-1);
+    setQuery("");
     setTimeout(() => {
       const newPos = before.length + insertion.length;
       ta.focus();
@@ -874,11 +921,27 @@ function SlashTextarea({
     }, 0);
   }
 
+  function closePicker() {
+    setOpen(false);
+    setStartIndex(-1);
+    setQuery("");
+    taRef.current?.focus();
+  }
+
+  // Imperative handle do parenta — używane przez kliknięcie myszą w pickerze.
+  if (handleRef) {
+    handleRef.current = {
+      insertVariable,
+      closePicker,
+      setHighlightedIdx,
+    };
+  }
+
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (!pickerOpen) return;
+    if (!open) return;
     if (e.key === "Escape") {
       e.preventDefault();
-      setPickerOpen(false);
+      closePicker();
       return;
     }
     if (e.key === "ArrowDown") {
@@ -900,71 +963,118 @@ function SlashTextarea({
     }
   }
 
-  // Group filtered by group
+  return (
+    <Textarea
+      ref={taRef as React.Ref<HTMLTextAreaElement>}
+      value={value}
+      onChange={(e) => handleChange(e.target.value)}
+      onKeyDown={handleKeyDown}
+      rows={rows}
+      className="font-mono text-sm"
+    />
+  );
+};
+
+/** Panel wyboru zmiennej — renderowany w prawej kolumnie zamiast preview. */
+function VariablePickerPanel({
+  state,
+  onPick,
+  onHighlight,
+  onClose,
+}: {
+  state: PickerState;
+  onPick: (v: CatalogVariable) => void;
+  onHighlight: (idx: number) => void;
+  onClose: () => void;
+}) {
   const grouped = useMemo(() => {
     const out: Record<string, CatalogVariable[]> = {};
-    for (const v of filtered) {
+    for (const v of state.filtered) {
       (out[v.group] ??= []).push(v);
     }
     return out;
-  }, [filtered]);
+  }, [state.filtered]);
 
   return (
-    <div className="relative">
-      <Textarea
-        ref={ref as React.Ref<HTMLTextAreaElement>}
-        value={value}
-        onChange={(e) => handleChange(e.target.value)}
-        onKeyDown={handleKeyDown}
-        rows={rows}
-        className="font-mono text-sm"
-      />
-      {pickerOpen && filtered.length > 0 && (
-        <div className="absolute z-10 left-0 right-0 mt-1 max-h-72 overflow-y-auto rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-xl">
-          <div className="px-3 py-2 text-[10px] uppercase text-[var(--text-muted)] border-b border-[var(--border-subtle)] flex items-center gap-2">
-            <Search className="w-3 h-3" />
-            Wstaw zmienną — wpisz aby filtrować, ↑↓ aby wybrać, Enter aby wstawić
+    <Card padding="md" className="border-[var(--accent)]/40">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-semibold flex items-center gap-2">
+          <Search className="w-4 h-4 text-[var(--accent)]" />
+          Wstaw zmienną
+        </h3>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onClose}
+          leftIcon={<X className="w-3.5 h-3.5" />}
+        >
+          Zamknij
+        </Button>
+      </div>
+      <div className="text-[11px] text-[var(--text-muted)] mb-3">
+        Wpisuj dalej w polu treści aby filtrować · <kbd className="px-1.5 py-0.5 rounded bg-[var(--bg-main)] border border-[var(--border-subtle)] text-[10px]">↑↓</kbd> nawigacja · <kbd className="px-1.5 py-0.5 rounded bg-[var(--bg-main)] border border-[var(--border-subtle)] text-[10px]">Enter</kbd> wstawia · <kbd className="px-1.5 py-0.5 rounded bg-[var(--bg-main)] border border-[var(--border-subtle)] text-[10px]">Esc</kbd> anuluje
+      </div>
+      {state.query && (
+        <div className="text-[11px] text-[var(--text-muted)] mb-2">
+          Filtr: <code className="text-[var(--accent)]">{state.query}</code>
+          {state.filtered.length === 0 && " · brak dopasowań"}
+        </div>
+      )}
+      <div className="max-h-[640px] overflow-y-auto rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
+        {state.filtered.length === 0 ? (
+          <div className="p-4 text-xs text-[var(--text-muted)]">
+            Brak zmiennych pasujących do filtra. Skasuj wpisany tekst po
+            ukośniku albo naciśnij Esc, aby zamknąć picker.
           </div>
-          {Object.entries(grouped).map(([group, items]) => (
+        ) : (
+          Object.entries(grouped).map(([group, items]) => (
             <div key={group}>
-              <div className="px-3 py-1 text-[10px] uppercase text-[var(--text-muted)] bg-[var(--bg-main)]">
+              <div className="px-3 py-1.5 text-[10px] uppercase text-[var(--text-muted)] bg-[var(--bg-main)] border-b border-[var(--border-subtle)] sticky top-0">
                 {group}
               </div>
               {items.map((v) => {
-                const idx = filtered.indexOf(v);
-                const highlighted = idx === highlightedIdx;
+                const idx = state.filtered.indexOf(v);
+                const highlighted = idx === state.highlightedIdx;
                 return (
                   <button
                     key={v.key}
                     type="button"
-                    onMouseEnter={() => setHighlightedIdx(idx)}
+                    onMouseEnter={() => onHighlight(idx)}
                     onMouseDown={(e) => {
                       e.preventDefault();
-                      insertVariable(v);
+                      onPick(v);
                     }}
-                    className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between gap-3 ${
+                    className={`w-full text-left px-3 py-2.5 flex items-center justify-between gap-3 border-b border-[var(--border-subtle)]/50 ${
                       highlighted
-                        ? "bg-[var(--accent)]/10 text-[var(--accent)]"
+                        ? "bg-[var(--accent)]/10"
                         : "hover:bg-[var(--bg-main)]"
                     }`}
                   >
-                    <div className="min-w-0">
-                      <div className="font-medium truncate">{v.label}</div>
-                      <code className="text-[10px] text-[var(--text-muted)]">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium text-[var(--text-main)] truncate">
+                        {v.label}
+                      </div>
+                      <code className="text-[10px] text-[var(--text-muted)] block truncate">
                         {`{{${v.key}}}`}
                       </code>
+                      {v.description && (
+                        <div className="text-[11px] text-[var(--text-muted)] mt-0.5 truncate">
+                          {v.description}
+                        </div>
+                      )}
                     </div>
-                    <div className="text-[10px] text-[var(--text-muted)] flex-shrink-0">
+                    <div className="text-[10px] text-[var(--text-muted)] flex-shrink-0 max-w-[140px] truncate">
+                      <span className="opacity-60">np. </span>
                       {v.example}
                     </div>
                   </button>
                 );
               })}
             </div>
-          ))}
-        </div>
-      )}
-    </div>
+          ))
+        )}
+      </div>
+    </Card>
   );
 }
 
@@ -1699,6 +1809,7 @@ interface PostalDomainRow {
   spfStatus: string | null;
   dkimStatus: string | null;
   mxStatus: string | null;
+  returnPathStatus: string | null;
 }
 
 function PostalPanel() {
@@ -1765,27 +1876,54 @@ function PostalPanel() {
       {error && <Alert tone="error">{error}</Alert>}
 
       <Card padding="md">
-        <h3 className="text-sm font-semibold mb-3">Domeny — status DNS</h3>
+        <h3 className="text-sm font-semibold mb-1">Domeny — status DNS</h3>
+        <p className="text-[11px] text-[var(--text-muted)] mb-3">
+          SPF i DKIM muszą być OK żeby maile docierały (deliverability). MX
+          to gdzie kierowane są maile <strong>przychodzące</strong> — jeśli
+          nasz Postal odbiera tylko outgoing (typowy setup), MX wskazuje na
+          inne serwery i Postal pokazuje status <em>info</em> (nie błąd).
+        </p>
         <div className="grid gap-2">
           {domains.map((d) => {
-            const allOk = d.spfStatus === "OK" && d.dkimStatus === "OK";
+            const sendingOk = d.spfStatus === "OK" && d.dkimStatus === "OK";
             return (
               <div key={d.id} className="text-xs border border-[var(--border-subtle)] rounded-lg px-3 py-2">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-sm">{d.name}</span>
-                    {allOk && <Badge tone="success">OK</Badge>}
+                    {sendingOk && <Badge tone="success">wysyłka OK</Badge>}
                   </div>
-                  <div className="flex gap-1">
-                    <Badge tone={d.spfStatus === "OK" ? "success" : "warning"}>SPF: {d.spfStatus ?? "?"}</Badge>
-                    <Badge tone={d.dkimStatus === "OK" ? "success" : "warning"}>DKIM: {d.dkimStatus ?? "?"}</Badge>
-                    <Badge tone={d.mxStatus === "OK" ? "success" : "warning"}>MX: {d.mxStatus ?? "?"}</Badge>
+                  <div className="flex gap-1 flex-wrap">
+                    <Badge tone={d.spfStatus === "OK" ? "success" : "warning"} title="Sender Policy Framework — autoryzuje nasz Postal do wysyłania w imieniu domeny">SPF: {d.spfStatus ?? "?"}</Badge>
+                    <Badge tone={d.dkimStatus === "OK" ? "success" : "warning"} title="DKIM — kryptograficzny podpis maila, krytyczny dla deliverability">DKIM: {d.dkimStatus ?? "?"}</Badge>
+                    <Badge tone={d.mxStatus === "OK" ? "success" : "neutral"} title="MX — gdzie odbierane są maile przychodzące">MX: {d.mxStatus ?? "?"}</Badge>
+                    <Badge tone={d.returnPathStatus === "OK" ? "success" : "warning"} title="Return-Path — adres bounces; wpływa na deliverability">Return-Path: {d.returnPathStatus ?? "?"}</Badge>
                   </div>
                 </div>
-                {!allOk && (
+                {!sendingOk && (
                   <p className="mt-2 text-[11px] text-[var(--text-muted)]">
-                    Dodaj brakujące rekordy DNS w panelu domeny — szczegóły w Postal UI:{" "}
+                    SPF lub DKIM brakuje — to wymaga DODANIA brakujących
+                    rekordów DNS w panelu domeny. Bez tego maile będą lądować
+                    w spamie. Szczegóły rekordów (kopiuj-wklej):{" "}
                     <a href="https://postal.myperformance.pl" target="_blank" rel="noopener noreferrer" className="text-[var(--accent)] hover:underline">postal.myperformance.pl</a>
+                  </p>
+                )}
+                {sendingOk && d.mxStatus !== "OK" && (
+                  <p className="mt-2 text-[11px] text-[var(--text-muted)]">
+                    <strong>Wysyłka działa</strong> (SPF + DKIM OK). Status MX
+                    wskazuje że <em>maile przychodzące</em> idą do innego
+                    serwera (np. OVH, Google Workspace). To poprawne dla
+                    setupu &bdquo;outgoing-only&rdquo;. Aby odbierać przez Postal — zmień
+                    rekordy MX domeny aby wskazywały na ten serwer.
+                  </p>
+                )}
+                {sendingOk && d.returnPathStatus !== "OK" && (
+                  <p className="mt-2 text-[11px] text-amber-300">
+                    <strong>Brak Return-Path:</strong> dodaj CNAME{" "}
+                    <code className="bg-[var(--bg-main)] px-1 rounded">psrp.{d.name}</code> →{" "}
+                    <code className="bg-[var(--bg-main)] px-1 rounded">psrp.postal.myperformance.pl</code>{" "}
+                    w DNS. Bez tego niektórzy odbiorcy (Gmail, Outlook) mogą
+                    obniżać reputację — bounces nie wracają na właściwy adres.
                   </p>
                 )}
               </div>
