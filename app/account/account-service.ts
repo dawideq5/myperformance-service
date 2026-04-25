@@ -715,6 +715,18 @@ export interface DocumensoMembership {
   organisationRole: "ADMIN" | "MANAGER" | "MEMBER" | null;
 }
 
+export const documensoCatalogService = {
+  list: () => api.get<{ organisations: DocumensoOrganisation[] }>("/api/admin/documenso/orgs"),
+};
+
+export const chatwootCatalogService = {
+  list: () => api.get<{ inboxes: ChatwootInbox[] }>("/api/admin/chatwoot/inboxes"),
+};
+
+export const moodleCatalogService = {
+  list: () => api.get<{ courses: MoodleCourseRow[] }>("/api/admin/moodle/courses"),
+};
+
 export const documensoMembershipService = {
   list: (userId: string) =>
     api.get<{
