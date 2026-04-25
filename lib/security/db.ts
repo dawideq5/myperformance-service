@@ -219,6 +219,27 @@ export async function listEvents(args: {
   });
 }
 
+/**
+ * Counter dla brute force detection — ile LOGIN_ERROR z tego IP w ostatnich
+ * `windowMinutes` minutach.
+ */
+export async function countRecentEvents(args: {
+  srcIp: string;
+  category: string;
+  windowMinutes: number;
+}): Promise<number> {
+  return withClient(async (c) => {
+    const res = await c.query(
+      `SELECT COUNT(*) AS count FROM mp_security_events
+        WHERE src_ip = $1
+          AND category = $2
+          AND ts > now() - ($3 || ' minutes')::interval`,
+      [args.srcIp, args.category, String(args.windowMinutes)],
+    );
+    return Number(res.rows[0].count);
+  });
+}
+
 export async function dashboardStats(): Promise<{
   alertsLast24h: number;
   alertsLast7d: number;

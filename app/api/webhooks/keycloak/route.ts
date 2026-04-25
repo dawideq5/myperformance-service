@@ -8,6 +8,7 @@ import {
 } from "@/lib/permissions/sync";
 import { appendIamAudit } from "@/lib/permissions/db";
 import { recordEvent as recordSecurityEvent } from "@/lib/security/db";
+import { checkBruteForce } from "@/lib/security/brute-force";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -286,6 +287,15 @@ export async function POST(request: NextRequest) {
       userId: resolvedUserId,
     },
   }).catch(() => undefined);
+
+  // ── Brute force detection ──────────────────────────────────────────────
+  // Po LOGIN_ERROR sprawdź czy threshold (5+ w 5 min). Auto-block + alert.
+  if (normalizedType === "LOGIN_ERROR" && event.ipAddress) {
+    void checkBruteForce({
+      srcIp: event.ipAddress,
+      targetUser: event.details?.username ?? event.details?.email,
+    }).catch(() => undefined);
+  }
 
   // ── Cascading delete ────────────────────────────────────────────────────
   if (normalizedType === "DELETE_USER") {

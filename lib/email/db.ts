@@ -148,6 +148,24 @@ async function ensureSchema(client: PoolClient): Promise<void> {
     );
     INSERT INTO mp_maintenance (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 
+    -- Email-based 2FA codes (krótkotrwałe, jednorazowe).
+    CREATE TABLE IF NOT EXISTS mp_2fa_codes (
+      id          BIGSERIAL PRIMARY KEY,
+      user_id     TEXT NOT NULL,
+      email       TEXT NOT NULL,
+      code_hash   TEXT NOT NULL,
+      purpose     TEXT NOT NULL,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+      expires_at  TIMESTAMPTZ NOT NULL,
+      used_at     TIMESTAMPTZ,
+      attempts    INT NOT NULL DEFAULT 0,
+      src_ip      TEXT
+    );
+    CREATE INDEX IF NOT EXISTS mp_2fa_codes_user_idx
+      ON mp_2fa_codes (user_id, expires_at);
+    CREATE INDEX IF NOT EXISTS mp_2fa_codes_cleanup_idx
+      ON mp_2fa_codes (expires_at) WHERE used_at IS NULL;
+
     -- Blocked IPs — Active Response (manual + auto Wazuh w przyszłości).
     -- Traefik dynamic file generowany na podstawie tej tabeli przez cron.
     CREATE TABLE IF NOT EXISTS mp_blocked_ips (
