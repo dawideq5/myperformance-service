@@ -240,6 +240,7 @@ export default withAuth(
       pathname === "/maintenance" ||
       pathname === "/login" ||
       pathname === "/forbidden" ||
+      pathname === "/api/health" ||
       pathname.startsWith("/api/auth/") ||
       pathname.startsWith("/api/maintenance/") ||
       pathname.startsWith("/api/admin/maintenance") ||
