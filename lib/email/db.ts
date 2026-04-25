@@ -79,6 +79,50 @@ async function ensureSchema(client: PoolClient): Promise<void> {
     );
     CREATE INDEX IF NOT EXISTS mp_postal_audit_ts_idx
       ON mp_postal_audit (ts DESC);
+
+    -- Globalne layouty (szkielety) maili — header MyPerformance + slot {{content}}.
+    CREATE TABLE IF NOT EXISTS mp_email_layouts (
+      id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      slug         TEXT NOT NULL UNIQUE,
+      name         TEXT NOT NULL,
+      description  TEXT,
+      html         TEXT NOT NULL,
+      is_default   BOOLEAN NOT NULL DEFAULT FALSE,
+      updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_by   TEXT
+    );
+
+    -- Aliasy SMTP (np. transactional/marketing/system) → mapowane na Postal
+    -- credential. Per template wybieramy alias.
+    CREATE TABLE IF NOT EXISTS mp_smtp_configs (
+      id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      alias             TEXT NOT NULL UNIQUE,
+      label             TEXT NOT NULL,
+      smtp_host         TEXT NOT NULL,
+      smtp_port         INT NOT NULL DEFAULT 25,
+      smtp_user         TEXT,
+      smtp_password     TEXT,
+      use_tls           BOOLEAN NOT NULL DEFAULT FALSE,
+      from_email        TEXT NOT NULL,
+      from_display      TEXT,
+      reply_to          TEXT,
+      postal_server_id  INT,
+      is_default        BOOLEAN NOT NULL DEFAULT FALSE,
+      updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_by        TEXT
+    );
+
+    -- Szablony per actionKey (z templates-catalog.ts).
+    CREATE TABLE IF NOT EXISTS mp_email_templates (
+      action_key       TEXT PRIMARY KEY,
+      enabled          BOOLEAN NOT NULL DEFAULT TRUE,
+      subject          TEXT NOT NULL,
+      body             TEXT NOT NULL,
+      layout_id        UUID REFERENCES mp_email_layouts(id) ON DELETE SET NULL,
+      smtp_config_id   UUID REFERENCES mp_smtp_configs(id) ON DELETE SET NULL,
+      updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_by       TEXT
+    );
   `);
 }
 
@@ -279,4 +323,446 @@ export async function appendPostalAudit(entry: PostalAuditEntry): Promise<void> 
       ],
     ),
   );
+}
+
+// ── Layouts ─────────────────────────────────────────────────────────────────
+
+export interface EmailLayout {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  html: string;
+  isDefault: boolean;
+  updatedAt: string;
+  updatedBy: string | null;
+}
+
+const DEFAULT_LAYOUT_HTML = `<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{subject}}</title>
+</head>
+<body style="margin:0;padding:0;background:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#1a1a1a;">
+  <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#f5f5f5;padding:40px 16px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="max-width:600px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.06);">
+          <!-- Header -->
+          <tr>
+            <td style="padding:32px 40px 24px;background:#000000;">
+              <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:600;letter-spacing:-0.5px;">{{brand.name}}</h1>
+            </td>
+          </tr>
+          <!-- Body slot -->
+          <tr>
+            <td style="padding:36px 40px;line-height:1.6;font-size:15px;color:#1a1a1a;">
+              {{content}}
+            </td>
+          </tr>
+          <!-- Footer -->
+          <tr>
+            <td style="padding:24px 40px;background:#fafafa;border-top:1px solid #e5e5e5;color:#737373;font-size:12px;line-height:1.5;">
+              <p style="margin:0 0 8px 0;">
+                Ta wiadomość została wysłana przez <a href="{{brand.url}}" style="color:#000;text-decoration:underline;">{{brand.name}}</a>.
+              </p>
+              <p style="margin:0;">
+                Pomoc: <a href="mailto:{{brand.supportEmail}}" style="color:#000;text-decoration:underline;">{{brand.supportEmail}}</a>
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+
+export async function ensureDefaultLayout(): Promise<void> {
+  await withEmailClient(async (c) => {
+    await c.query(
+      `INSERT INTO mp_email_layouts (slug, name, description, html, is_default)
+       VALUES ('default', 'MyPerformance domyślny', 'Standardowy szkielet z czarnym headerem MyPerformance, białym tłem treści i szarą stopką. Slot {{content}} dla treści.', $1, TRUE)
+       ON CONFLICT (slug) DO NOTHING`,
+      [DEFAULT_LAYOUT_HTML],
+    );
+  });
+}
+
+export async function listLayouts(): Promise<EmailLayout[]> {
+  return withEmailClient(async (c) => {
+    const res = await c.query(
+      `SELECT id, slug, name, description, html, is_default, updated_at, updated_by
+         FROM mp_email_layouts ORDER BY is_default DESC, name`,
+    );
+    return res.rows.map(rowToLayout);
+  });
+}
+
+export async function getDefaultLayout(): Promise<EmailLayout | null> {
+  await ensureDefaultLayout();
+  return withEmailClient(async (c) => {
+    const res = await c.query(
+      `SELECT id, slug, name, description, html, is_default, updated_at, updated_by
+         FROM mp_email_layouts WHERE is_default = TRUE LIMIT 1`,
+    );
+    return res.rows[0] ? rowToLayout(res.rows[0]) : null;
+  });
+}
+
+export async function getLayout(id: string): Promise<EmailLayout | null> {
+  return withEmailClient(async (c) => {
+    const res = await c.query(
+      `SELECT id, slug, name, description, html, is_default, updated_at, updated_by
+         FROM mp_email_layouts WHERE id = $1`,
+      [id],
+    );
+    return res.rows[0] ? rowToLayout(res.rows[0]) : null;
+  });
+}
+
+export async function upsertLayout(args: {
+  slug: string;
+  name: string;
+  description?: string | null;
+  html: string;
+  isDefault?: boolean;
+  actor: string;
+}): Promise<EmailLayout> {
+  return withEmailClient(async (c) => {
+    if (args.isDefault) {
+      await c.query(`UPDATE mp_email_layouts SET is_default = FALSE`);
+    }
+    const res = await c.query(
+      `INSERT INTO mp_email_layouts (slug, name, description, html, is_default, updated_by)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (slug) DO UPDATE SET
+         name = EXCLUDED.name,
+         description = EXCLUDED.description,
+         html = EXCLUDED.html,
+         is_default = EXCLUDED.is_default,
+         updated_at = now(),
+         updated_by = EXCLUDED.updated_by
+       RETURNING id, slug, name, description, html, is_default, updated_at, updated_by`,
+      [
+        args.slug,
+        args.name,
+        args.description ?? null,
+        args.html,
+        !!args.isDefault,
+        args.actor,
+      ],
+    );
+    return rowToLayout(res.rows[0]);
+  });
+}
+
+interface LayoutRow {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  html: string;
+  is_default: boolean;
+  updated_at: Date;
+  updated_by: string | null;
+}
+
+function rowToLayout(r: LayoutRow): EmailLayout {
+  return {
+    id: r.id,
+    slug: r.slug,
+    name: r.name,
+    description: r.description,
+    html: r.html,
+    isDefault: r.is_default,
+    updatedAt: r.updated_at.toISOString(),
+    updatedBy: r.updated_by,
+  };
+}
+
+// ── SMTP Configs ────────────────────────────────────────────────────────────
+
+export interface SmtpConfig {
+  id: string;
+  alias: string;
+  label: string;
+  smtpHost: string;
+  smtpPort: number;
+  smtpUser: string | null;
+  smtpPassword: string | null;
+  useTls: boolean;
+  fromEmail: string;
+  fromDisplay: string | null;
+  replyTo: string | null;
+  postalServerId: number | null;
+  isDefault: boolean;
+  updatedAt: string;
+  updatedBy: string | null;
+}
+
+export async function ensureDefaultSmtpConfig(): Promise<void> {
+  await withEmailClient(async (c) => {
+    await c.query(
+      `INSERT INTO mp_smtp_configs
+         (alias, label, smtp_host, smtp_port, smtp_user, smtp_password, use_tls, from_email, from_display, reply_to, is_default)
+       VALUES ('transactional', 'Transactional (Postal)', $1, $2, $3, $4, $5, $6, 'MyPerformance', $6, TRUE)
+       ON CONFLICT (alias) DO NOTHING`,
+      [
+        process.env.SMTP_HOST ?? "smtp-iut9wf1rz9ey54g7lbkje0je",
+        Number(process.env.SMTP_PORT ?? 25),
+        process.env.SMTP_USER ?? null,
+        process.env.SMTP_PASSWORD ?? null,
+        false,
+        "noreply@myperformance.pl",
+      ],
+    );
+  });
+}
+
+export async function listSmtpConfigs(): Promise<SmtpConfig[]> {
+  await ensureDefaultSmtpConfig();
+  return withEmailClient(async (c) => {
+    const res = await c.query(
+      `SELECT id, alias, label, smtp_host, smtp_port, smtp_user, smtp_password,
+              use_tls, from_email, from_display, reply_to, postal_server_id,
+              is_default, updated_at, updated_by
+         FROM mp_smtp_configs ORDER BY is_default DESC, label`,
+    );
+    return res.rows.map(rowToSmtp);
+  });
+}
+
+export async function getDefaultSmtpConfig(): Promise<SmtpConfig | null> {
+  await ensureDefaultSmtpConfig();
+  return withEmailClient(async (c) => {
+    const res = await c.query(
+      `SELECT id, alias, label, smtp_host, smtp_port, smtp_user, smtp_password,
+              use_tls, from_email, from_display, reply_to, postal_server_id,
+              is_default, updated_at, updated_by
+         FROM mp_smtp_configs WHERE is_default = TRUE LIMIT 1`,
+    );
+    return res.rows[0] ? rowToSmtp(res.rows[0]) : null;
+  });
+}
+
+export async function getSmtpConfig(id: string): Promise<SmtpConfig | null> {
+  return withEmailClient(async (c) => {
+    const res = await c.query(
+      `SELECT id, alias, label, smtp_host, smtp_port, smtp_user, smtp_password,
+              use_tls, from_email, from_display, reply_to, postal_server_id,
+              is_default, updated_at, updated_by
+         FROM mp_smtp_configs WHERE id = $1`,
+      [id],
+    );
+    return res.rows[0] ? rowToSmtp(res.rows[0]) : null;
+  });
+}
+
+export async function upsertSmtpConfig(args: {
+  alias: string;
+  label: string;
+  smtpHost: string;
+  smtpPort: number;
+  smtpUser?: string | null;
+  smtpPassword?: string | null;
+  useTls?: boolean;
+  fromEmail: string;
+  fromDisplay?: string | null;
+  replyTo?: string | null;
+  postalServerId?: number | null;
+  isDefault?: boolean;
+  actor: string;
+}): Promise<SmtpConfig> {
+  return withEmailClient(async (c) => {
+    if (args.isDefault) {
+      await c.query(`UPDATE mp_smtp_configs SET is_default = FALSE`);
+    }
+    const res = await c.query(
+      `INSERT INTO mp_smtp_configs
+         (alias, label, smtp_host, smtp_port, smtp_user, smtp_password, use_tls,
+          from_email, from_display, reply_to, postal_server_id, is_default, updated_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+       ON CONFLICT (alias) DO UPDATE SET
+         label = EXCLUDED.label,
+         smtp_host = EXCLUDED.smtp_host,
+         smtp_port = EXCLUDED.smtp_port,
+         smtp_user = EXCLUDED.smtp_user,
+         smtp_password = EXCLUDED.smtp_password,
+         use_tls = EXCLUDED.use_tls,
+         from_email = EXCLUDED.from_email,
+         from_display = EXCLUDED.from_display,
+         reply_to = EXCLUDED.reply_to,
+         postal_server_id = EXCLUDED.postal_server_id,
+         is_default = EXCLUDED.is_default,
+         updated_at = now(),
+         updated_by = EXCLUDED.updated_by
+       RETURNING id, alias, label, smtp_host, smtp_port, smtp_user, smtp_password,
+                 use_tls, from_email, from_display, reply_to, postal_server_id,
+                 is_default, updated_at, updated_by`,
+      [
+        args.alias,
+        args.label,
+        args.smtpHost,
+        args.smtpPort,
+        args.smtpUser ?? null,
+        args.smtpPassword ?? null,
+        !!args.useTls,
+        args.fromEmail,
+        args.fromDisplay ?? null,
+        args.replyTo ?? null,
+        args.postalServerId ?? null,
+        !!args.isDefault,
+        args.actor,
+      ],
+    );
+    return rowToSmtp(res.rows[0]);
+  });
+}
+
+export async function deleteSmtpConfig(id: string): Promise<void> {
+  await withEmailClient((c) =>
+    c.query(`DELETE FROM mp_smtp_configs WHERE id = $1 AND is_default = FALSE`, [id]),
+  );
+}
+
+interface SmtpRow {
+  id: string;
+  alias: string;
+  label: string;
+  smtp_host: string;
+  smtp_port: number;
+  smtp_user: string | null;
+  smtp_password: string | null;
+  use_tls: boolean;
+  from_email: string;
+  from_display: string | null;
+  reply_to: string | null;
+  postal_server_id: number | null;
+  is_default: boolean;
+  updated_at: Date;
+  updated_by: string | null;
+}
+
+function rowToSmtp(r: SmtpRow): SmtpConfig {
+  return {
+    id: r.id,
+    alias: r.alias,
+    label: r.label,
+    smtpHost: r.smtp_host,
+    smtpPort: r.smtp_port,
+    smtpUser: r.smtp_user,
+    smtpPassword: r.smtp_password,
+    useTls: r.use_tls,
+    fromEmail: r.from_email,
+    fromDisplay: r.from_display,
+    replyTo: r.reply_to,
+    postalServerId: r.postal_server_id,
+    isDefault: r.is_default,
+    updatedAt: r.updated_at.toISOString(),
+    updatedBy: r.updated_by,
+  };
+}
+
+// ── Email Templates ─────────────────────────────────────────────────────────
+
+export interface EmailTemplate {
+  actionKey: string;
+  enabled: boolean;
+  subject: string;
+  body: string;
+  layoutId: string | null;
+  smtpConfigId: string | null;
+  updatedAt: string;
+  updatedBy: string | null;
+}
+
+export async function getTemplate(actionKey: string): Promise<EmailTemplate | null> {
+  return withEmailClient(async (c) => {
+    const res = await c.query(
+      `SELECT action_key, enabled, subject, body, layout_id, smtp_config_id, updated_at, updated_by
+         FROM mp_email_templates WHERE action_key = $1`,
+      [actionKey],
+    );
+    return res.rows[0] ? rowToTemplate(res.rows[0]) : null;
+  });
+}
+
+export async function listTemplates(): Promise<EmailTemplate[]> {
+  return withEmailClient(async (c) => {
+    const res = await c.query(
+      `SELECT action_key, enabled, subject, body, layout_id, smtp_config_id, updated_at, updated_by
+         FROM mp_email_templates ORDER BY action_key`,
+    );
+    return res.rows.map(rowToTemplate);
+  });
+}
+
+export async function upsertTemplate(args: {
+  actionKey: string;
+  enabled?: boolean;
+  subject: string;
+  body: string;
+  layoutId?: string | null;
+  smtpConfigId?: string | null;
+  actor: string;
+}): Promise<EmailTemplate> {
+  return withEmailClient(async (c) => {
+    const res = await c.query(
+      `INSERT INTO mp_email_templates
+         (action_key, enabled, subject, body, layout_id, smtp_config_id, updated_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (action_key) DO UPDATE SET
+         enabled = EXCLUDED.enabled,
+         subject = EXCLUDED.subject,
+         body = EXCLUDED.body,
+         layout_id = EXCLUDED.layout_id,
+         smtp_config_id = EXCLUDED.smtp_config_id,
+         updated_at = now(),
+         updated_by = EXCLUDED.updated_by
+       RETURNING action_key, enabled, subject, body, layout_id, smtp_config_id, updated_at, updated_by`,
+      [
+        args.actionKey,
+        args.enabled !== false,
+        args.subject,
+        args.body,
+        args.layoutId ?? null,
+        args.smtpConfigId ?? null,
+        args.actor,
+      ],
+    );
+    return rowToTemplate(res.rows[0]);
+  });
+}
+
+export async function deleteTemplate(actionKey: string): Promise<void> {
+  await withEmailClient((c) =>
+    c.query(`DELETE FROM mp_email_templates WHERE action_key = $1`, [actionKey]),
+  );
+}
+
+interface TemplateRow {
+  action_key: string;
+  enabled: boolean;
+  subject: string;
+  body: string;
+  layout_id: string | null;
+  smtp_config_id: string | null;
+  updated_at: Date;
+  updated_by: string | null;
+}
+
+function rowToTemplate(r: TemplateRow): EmailTemplate {
+  return {
+    actionKey: r.action_key,
+    enabled: r.enabled,
+    subject: r.subject,
+    body: r.body,
+    layoutId: r.layout_id,
+    smtpConfigId: r.smtp_config_id,
+    updatedAt: r.updated_at.toISOString(),
+    updatedBy: r.updated_by,
+  };
 }

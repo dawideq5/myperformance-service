@@ -1,23 +1,25 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  AlertCircle,
-  CheckCircle2,
   ChevronRight,
+  Code2,
   ExternalLink,
   Eye,
-  FileText,
-  GitBranch,
   Info,
+  Layers,
   Loader2,
   Lock,
   Mail,
   Palette,
+  Power,
   Save,
+  Search,
   Send,
   Server,
+  Settings as SettingsIcon,
   Sparkles,
+  X,
 } from "lucide-react";
 
 import {
@@ -36,99 +38,7 @@ import {
 import { AppHeader } from "@/components/AppHeader";
 import { api, ApiRequestError } from "@/lib/api-client";
 
-type TabId =
-  | "start"
-  | "branding"
-  | "kc-templates"
-  | "postal"
-  | "catalog"
-  | "test-send";
-
-interface Branding {
-  brandName: string;
-  brandUrl: string | null;
-  brandLogoUrl: string | null;
-  primaryColor: string | null;
-  supportEmail: string | null;
-  legalName: string | null;
-  fromDisplay: string | null;
-  replyTo: string | null;
-  updatedAt: string;
-  updatedBy: string | null;
-}
-
-interface PropagationTarget {
-  appId: string;
-  appLabel: string;
-  envKeys: string[];
-  requiresRedeploy: boolean;
-}
-
-interface KcTemplateEntry {
-  key: string;
-  label: string;
-  value: string | null;
-  hasOverride: boolean;
-}
-
-interface PostalOrg {
-  id: number;
-  uuid: string;
-  name: string;
-  permalink: string;
-  serverCount: number;
-  createdAt: string;
-}
-
-interface PostalServer {
-  id: number;
-  uuid: string;
-  organizationId: number;
-  organizationName: string;
-  name: string;
-  mode: string;
-  postmasterAddress: string | null;
-  sendLimit: number | null;
-  suspended: boolean;
-  createdAt: string;
-}
-
-interface PostalCredential {
-  id: number;
-  type: string;
-  name: string;
-  key: string;
-  hold: boolean;
-  lastUsedAt: string | null;
-  createdAt: string;
-}
-
-interface PostalDomain {
-  id: number;
-  name: string;
-  serverId: number | null;
-  spfStatus: string | null;
-  dkimStatus: string | null;
-  mxStatus: string | null;
-  returnPathStatus: string | null;
-  verifiedAt: string | null;
-  outgoing: boolean;
-  incoming: boolean;
-}
-
-interface CatalogEntry {
-  app: string;
-  appLabel: string;
-  id: string;
-  name: string;
-  trigger: string;
-  variables: Array<{ key: string; description: string }>;
-  attachments: Array<{ type: string; name: string; description: string }>;
-  editable:
-    | { kind: "kc-localization"; subjectKey: string; bodyKey: string }
-    | { kind: "branding-only"; note: string }
-    | { kind: "source-fork"; sourceLink: string };
-}
+type TabId = "start" | "templates" | "layouts" | "smtp" | "branding" | "postal";
 
 export function EmailClient({
   userLabel,
@@ -141,10 +51,21 @@ export function EmailClient({
 
   const tabs: TabDefinition<TabId>[] = useMemo(
     () => [
+      { id: "start", label: "Start", icon: <Info className="w-5 h-5" /> },
       {
-        id: "start",
-        label: "Start",
-        icon: <Info className="w-5 h-5" />,
+        id: "templates",
+        label: "Szablony emaili",
+        icon: <Mail className="w-5 h-5" />,
+      },
+      {
+        id: "layouts",
+        label: "Wygląd / layout",
+        icon: <Layers className="w-5 h-5" />,
+      },
+      {
+        id: "smtp",
+        label: "Konfiguracje SMTP",
+        icon: <SettingsIcon className="w-5 h-5" />,
       },
       {
         id: "branding",
@@ -152,24 +73,9 @@ export function EmailClient({
         icon: <Palette className="w-5 h-5" />,
       },
       {
-        id: "kc-templates",
-        label: "Treść maili Keycloak",
-        icon: <Mail className="w-5 h-5" />,
-      },
-      {
         id: "postal",
-        label: "Serwery pocztowe (Postal)",
+        label: "Postal (infrastruktura)",
         icon: <Server className="w-5 h-5" />,
-      },
-      {
-        id: "catalog",
-        label: "Mapa wszystkich maili",
-        icon: <FileText className="w-5 h-5" />,
-      },
-      {
-        id: "test-send",
-        label: "Wyślij testowy",
-        icon: <Send className="w-5 h-5" />,
       },
     ],
     [],
@@ -178,7 +84,7 @@ export function EmailClient({
   const header = (
     <AppHeader
       backHref="/dashboard"
-      title="Email — centralny panel"
+      title="Email — centralne zarządzanie"
       userLabel={userLabel}
       userSubLabel={userEmail}
     />
@@ -200,20 +106,20 @@ export function EmailClient({
           <TabPanel tabId="start" active={tab === "start"}>
             <StartPanel onGoTo={setTab} />
           </TabPanel>
+          <TabPanel tabId="templates" active={tab === "templates"}>
+            <TemplatesPanel />
+          </TabPanel>
+          <TabPanel tabId="layouts" active={tab === "layouts"}>
+            <LayoutsPanel />
+          </TabPanel>
+          <TabPanel tabId="smtp" active={tab === "smtp"}>
+            <SmtpConfigsPanel />
+          </TabPanel>
           <TabPanel tabId="branding" active={tab === "branding"}>
             <BrandingPanel />
           </TabPanel>
-          <TabPanel tabId="kc-templates" active={tab === "kc-templates"}>
-            <KcTemplatesPanel />
-          </TabPanel>
           <TabPanel tabId="postal" active={tab === "postal"}>
             <PostalPanel />
-          </TabPanel>
-          <TabPanel tabId="catalog" active={tab === "catalog"}>
-            <CatalogPanel />
-          </TabPanel>
-          <TabPanel tabId="test-send" active={tab === "test-send"}>
-            <TestSendPanel />
           </TabPanel>
         </div>
       </div>
@@ -221,182 +127,1460 @@ export function EmailClient({
   );
 }
 
-// ── Start (onboarding) ──────────────────────────────────────────────────────
+// ── Start ───────────────────────────────────────────────────────────────────
 
 function StartPanel({ onGoTo }: { onGoTo: (t: TabId) => void }) {
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <Card padding="lg">
-        <CardHeader
-          icon={<Info className="w-6 h-6 text-[var(--accent)]" />}
-          title="Centrum email — co tu można zrobić"
-          description="Każda aplikacja w stacku (Keycloak, Documenso, Chatwoot, Moodle, Outline, Directus, Dashboard) wysyła własne maile. Tu masz zebrane wszystko w jednym miejscu — co się wysyła, jak to wygląda, do kogo, którą drogą."
-        />
+        <h2 className="text-lg font-semibold text-[var(--text-main)] mb-2">
+          Centralne zarządzanie emailem
+        </h2>
+        <p className="text-sm text-[var(--text-muted)]">
+          Wszystkie maile wysyłane przez stack — zebrane, edytowalne, z
+          podglądem na żywo. Każda akcja ma swój szablon, który możesz
+          dostosować lub wyłączyć.
+        </p>
       </Card>
 
-      <UseCaseTile
-        icon={<Palette className="w-6 h-6 text-fuchsia-400" />}
-        title="1. Zmiana wyglądu marki we wszystkich apkach"
-        description="Wpisujesz nazwę marki, URL strony, logo, kolor — naciskasz przycisk i te dane lecą do każdej apki. Apki używają ich w nagłówkach maili, na ekranie logowania, w nazwie nadawcy itp."
-        examples={[
-          'Nazwa "MyPerformance" → widoczna w mailach z Documenso jako nadawca',
-          "Logo URL → automatycznie pojawia się w mailach Chatwoot",
-          "Kolor #0d6efd → tło przycisków w mailach Keycloak",
-        ]}
-        cta="Otwórz Branding"
+      <NavTile
+        icon={<Mail className="w-5 h-5 text-emerald-400" />}
+        title="Szablony emaili"
+        description={'Lista wszystkich akcji w stacku. Każdy szablon: subject + treść + zmienne (wstaw przez „/"), live HTML preview, włącz/wyłącz, przypisz SMTP.'}
+        cta="Otwórz szablony"
+        onClick={() => onGoTo("templates")}
+      />
+      <NavTile
+        icon={<Layers className="w-5 h-5 text-fuchsia-400" />}
+        title="Wygląd / layout"
+        description="Globalny szkielet maila — header MyPerformance, biel/czerń, slot {{content}} dla treści. Możesz mieć kilka wersji (np. transactional vs newsletter)."
+        cta="Edytuj layout"
+        onClick={() => onGoTo("layouts")}
+      />
+      <NavTile
+        icon={<SettingsIcon className="w-5 h-5 text-amber-400" />}
+        title="Konfiguracje SMTP"
+        description='Aliasy: "transactional", "marketing" itp. Każdy szablon przypisujesz do aliasa — alias to host + login + nadawca. Tu zarządzasz wszystkimi.'
+        cta="Konfiguruj SMTP"
+        onClick={() => onGoTo("smtp")}
+      />
+      <NavTile
+        icon={<Palette className="w-5 h-5 text-sky-400" />}
+        title="Branding"
+        description="Globalne dane marki (nazwa, logo, kolor) propagowane do envów aplikacji."
+        cta="Edytuj branding"
         onClick={() => onGoTo("branding")}
       />
-
-      <UseCaseTile
-        icon={<Mail className="w-6 h-6 text-emerald-400" />}
-        title="2. Edycja TREŚCI maili Keycloak"
-        description={'Keycloak wysyła m.in. „Zweryfikuj email", „Reset hasła", „Wymagana akcja". Tu możesz zmienić temat i treść każdego z nich w języku polskim. Zmiany są natychmiastowe, bez restartu.'}
-        examples={[
-          'Temat „Verify email" → „Witaj w MyPerformance — potwierdź adres"',
-          "Treść resetu hasła → dodaj informację kontaktową support@",
-          "Reset do domyślnej treści Keycloak jednym kliknięciem",
-        ]}
-        cta="Otwórz edytor maili KC"
-        onClick={() => onGoTo("kc-templates")}
-      />
-
-      <UseCaseTile
-        icon={<Server className="w-6 h-6 text-amber-400" />}
-        title="3. Zarządzanie infrastrukturą Postal"
-        description="Postal to nasz własny serwer pocztowy (jak SendGrid). Tu tworzysz organizacje, serwery (osobne dla różnych apek), generujesz SMTP credentials, sprawdzasz status DKIM/SPF/MX domen."
-        examples={[
-          'Utwórz serwer "transactional" dla maili z Documenso',
-          "Wygeneruj klucz SMTP i podpięty pod apkę przez Coolify env",
-          "Sprawdź czy domena ma poprawne DKIM/SPF (zielony status = wysyłka działa)",
-        ]}
+      <NavTile
+        icon={<Server className="w-5 h-5 text-cyan-400" />}
+        title="Postal (infrastruktura)"
+        description="Niskopoziomowe zarządzanie naszym serwerem pocztowym Postal — organizacje, serwery, klucze, domeny."
         cta="Otwórz Postal"
         onClick={() => onGoTo("postal")}
       />
-
-      <UseCaseTile
-        icon={<FileText className="w-6 h-6 text-sky-400" />}
-        title="4. Lista wszystkich maili (do diagnostyki)"
-        description="Każdy mail wysyłany przez stack opisany: kiedy się wysyła, jakie zmienne są dostępne, jakie załączniki dochodzą, gdzie edytujemy treść. Read-only inwentaryzacja."
-        cta="Otwórz mapę maili"
-        onClick={() => onGoTo("catalog")}
-      />
-
-      <UseCaseTile
-        icon={<Send className="w-6 h-6 text-cyan-400" />}
-        title="5. Wysyłka testowa"
-        description="Wyślij testowy mail na dowolny adres przez nasz SMTP gateway (Postal). Dobre do sprawdzenia czy konfiguracja działa po zmianach DNS lub kluczy SMTP."
-        cta="Otwórz test send"
-        onClick={() => onGoTo("test-send")}
-      />
-
-      <Card padding="md">
-        <h3 className="text-sm font-semibold text-[var(--text-main)] flex items-center gap-2 mb-3">
-          <AlertCircle className="w-4 h-4 text-amber-400" /> Czego TU nie ma
-        </h3>
-        <ul className="text-xs text-[var(--text-muted)] space-y-1.5">
-          <li>
-            • Edycja treści maili Documenso/Outline/Chatwoot — ich szablony
-            siedzą w kodzie aplikacji (potrzebny fork) i nie da się ich edytować
-            bez modyfikacji kodu.
-          </li>
-          <li>
-            • Pełny edytor wizualny HTML — Keycloak akceptuje plain HTML
-            (textarea), nie ma drag-and-drop buildera.
-          </li>
-          <li>
-            • Email gateway przez dashboard — kiedyś planowane, ale wymaga
-            uruchomienia własnego SMTP daemon w dashboardzie. Obecnie apki
-            wysyłają bezpośrednio przez Postal SMTP.
-          </li>
-        </ul>
-      </Card>
     </div>
   );
 }
 
-function UseCaseTile({
+function NavTile({
   icon,
   title,
   description,
-  examples,
   cta,
   onClick,
 }: {
   icon: React.ReactNode;
   title: string;
   description: string;
-  examples?: string[];
   cta: string;
   onClick: () => void;
 }) {
   return (
     <Card padding="md">
-      <div className="flex items-start gap-3">
-        <div className="p-2 rounded-lg bg-[var(--bg-main)]">{icon}</div>
+      <button
+        type="button"
+        onClick={onClick}
+        className="w-full flex items-start gap-3 text-left"
+      >
+        <div className="p-2 rounded-lg bg-[var(--bg-main)] flex-shrink-0">
+          {icon}
+        </div>
         <div className="flex-1 min-w-0">
           <h3 className="text-sm font-semibold text-[var(--text-main)]">
             {title}
           </h3>
           <p className="text-xs text-[var(--text-muted)] mt-1">{description}</p>
-          {examples && (
-            <ul className="mt-2 space-y-0.5">
-              {examples.map((e, i) => (
-                <li key={i} className="text-[11px] text-[var(--text-muted)]">
-                  → {e}
-                </li>
-              ))}
-            </ul>
-          )}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="mt-3"
-            rightIcon={<ChevronRight className="w-4 h-4" />}
-            onClick={onClick}
+          <span className="mt-2 inline-flex items-center gap-1 text-xs text-[var(--accent)]">
+            {cta} <ChevronRight className="w-3.5 h-3.5" />
+          </span>
+        </div>
+      </button>
+    </Card>
+  );
+}
+
+// ── Templates ───────────────────────────────────────────────────────────────
+
+interface CatalogVariable {
+  key: string;
+  label: string;
+  example: string;
+  description: string;
+  group: string;
+}
+
+type Editability = "full" | "kc-localization" | "external-link" | "readonly";
+
+interface TemplateRow {
+  actionKey: string;
+  category: string;
+  app: string;
+  appLabel: string;
+  name: string;
+  description: string;
+  editability: Editability;
+  externalEditorUrl?: string;
+  externalEditorLabel?: string;
+  trigger: string;
+  variables: CatalogVariable[];
+  subject: string;
+  body: string;
+  enabled: boolean;
+  layoutId: string | null;
+  smtpConfigId: string | null;
+  hasOverride: boolean;
+  updatedAt: string | null;
+  updatedBy: string | null;
+}
+
+const CATEGORY_LABELS: Record<string, string> = {
+  auth: "Autoryzacja",
+  calendar: "Kalendarz",
+  documents: "Dokumenty",
+  support: "Obsługa klienta",
+  academy: "Akademia",
+  knowledge: "Knowledge",
+  system: "System",
+};
+
+function TemplatesPanel() {
+  const [templates, setTemplates] = useState<TemplateRow[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const r = await api.get<{ templates: TemplateRow[] }>(
+        "/api/admin/email/templates",
+      );
+      setTemplates(r.templates);
+    } catch (err) {
+      setError(err instanceof ApiRequestError ? err.message : "Load failed");
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const filtered = useMemo(() => {
+    if (!templates) return [];
+    return templates.filter((t) => {
+      if (categoryFilter && t.category !== categoryFilter) return false;
+      if (filter) {
+        const f = filter.toLowerCase();
+        return (
+          t.name.toLowerCase().includes(f) ||
+          t.appLabel.toLowerCase().includes(f) ||
+          t.actionKey.toLowerCase().includes(f)
+        );
+      }
+      return true;
+    });
+  }, [templates, filter, categoryFilter]);
+
+  const grouped = useMemo(() => {
+    const out: Record<string, TemplateRow[]> = {};
+    for (const t of filtered) {
+      (out[t.category] ??= []).push(t);
+    }
+    return out;
+  }, [filtered]);
+
+  if (selected && templates) {
+    const t = templates.find((x) => x.actionKey === selected);
+    if (t) {
+      return (
+        <TemplateEditor
+          template={t}
+          onClose={() => {
+            setSelected(null);
+            void load();
+          }}
+        />
+      );
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card padding="md">
+        <div className="flex gap-3 items-start">
+          <Info className="w-5 h-5 text-sky-400 flex-shrink-0 mt-0.5" />
+          <div className="text-xs text-[var(--text-muted)]">
+            Każdy mail wysyłany przez stack ma swój wpis. Kliknij dowolny żeby
+            edytować treść lub wyłączyć wysyłkę. Badges po prawej stronie:
+            <span className="ml-1">
+              <Badge tone="success">edytowalne</Badge> — pełna edycja w naszym
+              panelu,
+            </span>
+            <span className="ml-1">
+              <Badge tone="warning">KC localization</Badge> — edytuj subject +
+              treść; render robi Keycloak,
+            </span>
+            <span className="ml-1">
+              <Badge tone="neutral">w aplikacji</Badge> — edycja w dedykowanym
+              UI aplikacji,
+            </span>
+            <span className="ml-1">
+              <Badge tone="danger">brak edycji</Badge> — hardcoded w kodzie.
+            </span>
+          </div>
+        </div>
+      </Card>
+
+      {error && <Alert tone="error">{error}</Alert>}
+
+      <Card padding="md">
+        <div className="flex flex-wrap gap-2 items-center">
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
+            <input
+              type="text"
+              placeholder="Szukaj akcji…"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              className="w-full pl-9 pr-3 py-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-sm"
+            />
+          </div>
+          <select
+            className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-2 text-sm"
+            value={categoryFilter ?? ""}
+            onChange={(e) => setCategoryFilter(e.target.value || null)}
           >
-            {cta}
-          </Button>
+            <option value="">Wszystkie kategorie</option>
+            {Object.entries(CATEGORY_LABELS).map(([k, v]) => (
+              <option key={k} value={k}>
+                {v}
+              </option>
+            ))}
+          </select>
+        </div>
+      </Card>
+
+      {!templates && (
+        <div className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
+          <Loader2 className="w-4 h-4 animate-spin" /> Ładowanie szablonów…
+        </div>
+      )}
+
+      {Object.entries(grouped).map(([cat, list]) => (
+        <Card key={cat} padding="md">
+          <h3 className="text-sm font-semibold text-[var(--text-main)] mb-3">
+            {CATEGORY_LABELS[cat] ?? cat}{" "}
+            <span className="text-[var(--text-muted)] font-normal">
+              ({list.length})
+            </span>
+          </h3>
+          <div className="space-y-1.5">
+            {list.map((t) => (
+              <TemplateListItem
+                key={t.actionKey}
+                template={t}
+                onClick={() => setSelected(t.actionKey)}
+              />
+            ))}
+          </div>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+function TemplateListItem({
+  template,
+  onClick,
+}: {
+  template: TemplateRow;
+  onClick: () => void;
+}) {
+  const editabilityBadge = () => {
+    switch (template.editability) {
+      case "full":
+        return <Badge tone="success">edytowalne</Badge>;
+      case "kc-localization":
+        return <Badge tone="warning">KC localization</Badge>;
+      case "external-link":
+        return <Badge tone="neutral">w aplikacji</Badge>;
+      case "readonly":
+        return <Badge tone="danger">brak edycji</Badge>;
+    }
+  };
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full text-left flex items-center justify-between gap-2 px-3 py-2 rounded-lg border border-[var(--border-subtle)] hover:bg-[var(--bg-surface)] transition"
+    >
+      <div className="flex items-center gap-3 min-w-0">
+        {!template.enabled && (
+          <span title="Wyłączone — nie wysyła">
+            <Power className="w-4 h-4 text-red-400" />
+          </span>
+        )}
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-[var(--text-main)] truncate">
+            {template.name}
+          </div>
+          <div className="text-[11px] text-[var(--text-muted)] truncate">
+            {template.appLabel}
+            {template.hasOverride ? " · zmodyfikowany" : ""}
+          </div>
+        </div>
+      </div>
+      <div className="flex items-center gap-2 flex-shrink-0">
+        {editabilityBadge()}
+        <ChevronRight className="w-4 h-4 text-[var(--text-muted)]" />
+      </div>
+    </button>
+  );
+}
+
+// ── Template Editor ─────────────────────────────────────────────────────────
+
+interface SmtpConfigOpt {
+  id: string;
+  alias: string;
+  label: string;
+  isDefault: boolean;
+}
+
+interface LayoutOpt {
+  id: string;
+  slug: string;
+  name: string;
+  isDefault: boolean;
+}
+
+function TemplateEditor({
+  template,
+  onClose,
+}: {
+  template: TemplateRow;
+  onClose: () => void;
+}) {
+  const [subject, setSubject] = useState(template.subject);
+  const [body, setBody] = useState(template.body);
+  const [enabled, setEnabled] = useState(template.enabled);
+  const [layoutId, setLayoutId] = useState<string | null>(template.layoutId);
+  const [smtpConfigId, setSmtpConfigId] = useState<string | null>(
+    template.smtpConfigId,
+  );
+  const [layouts, setLayouts] = useState<LayoutOpt[]>([]);
+  const [smtpConfigs, setSmtpConfigs] = useState<SmtpConfigOpt[]>([]);
+  const [previewHtml, setPreviewHtml] = useState<string>("");
+  const [previewSubject, setPreviewSubject] = useState<string>("");
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [showTestSend, setShowTestSend] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+
+  const editable =
+    template.editability === "full" ||
+    template.editability === "kc-localization";
+
+  // Load options
+  useEffect(() => {
+    void api
+      .get<{ layouts: LayoutOpt[] }>("/api/admin/email/layouts")
+      .then((r) => setLayouts(r.layouts));
+    void api
+      .get<{ configs: SmtpConfigOpt[] }>("/api/admin/email/smtp-configs")
+      .then((r) => setSmtpConfigs(r.configs));
+  }, []);
+
+  // Live preview — debounce 600ms after edit
+  const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!editable) return;
+    if (previewTimer.current) clearTimeout(previewTimer.current);
+    previewTimer.current = setTimeout(async () => {
+      setPreviewLoading(true);
+      try {
+        const r = await api.post<
+          { subject: string; html: string; text: string },
+          { draftSubject: string; draftBody: string; layoutId: string | null }
+        >(
+          `/api/admin/email/templates/${encodeURIComponent(template.actionKey)}/preview`,
+          { draftSubject: subject, draftBody: body, layoutId },
+        );
+        setPreviewHtml(r.html);
+        setPreviewSubject(r.subject);
+      } catch (err) {
+        setError(
+          err instanceof ApiRequestError ? err.message : "Preview failed",
+        );
+      } finally {
+        setPreviewLoading(false);
+      }
+    }, 600);
+    return () => {
+      if (previewTimer.current) clearTimeout(previewTimer.current);
+    };
+  }, [subject, body, layoutId, template.actionKey, editable]);
+
+  async function save() {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await api.patch(
+        `/api/admin/email/templates/${encodeURIComponent(template.actionKey)}`,
+        { subject, body, enabled, layoutId, smtpConfigId },
+      );
+      setNotice("Zapisane. Następne maile użyją tej treści.");
+    } catch (err) {
+      setError(err instanceof ApiRequestError ? err.message : "Save failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resetToDefault() {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.delete(
+        `/api/admin/email/templates/${encodeURIComponent(template.actionKey)}`,
+      );
+      onClose();
+    } catch (err) {
+      setError(err instanceof ApiRequestError ? err.message : "Reset failed");
+    } finally {
+      setBusy(false);
+      setShowResetConfirm(false);
+    }
+  }
+
+  // ── Non-editable views ──────────────────────────────────────────────────
+  if (template.editability === "readonly") {
+    return (
+      <NonEditableView
+        template={template}
+        onClose={onClose}
+        message="Treść tego szablonu jest hardkodowana w kodzie aplikacji i nie może być edytowana z naszego dashboardu. Zmiana wymagałaby forka kodu źródłowego aplikacji."
+      />
+    );
+  }
+
+  if (template.editability === "external-link") {
+    return (
+      <NonEditableView
+        template={template}
+        onClose={onClose}
+        message="Edycja możliwa w dedykowanym interfejsie aplikacji."
+        externalUrl={template.externalEditorUrl}
+        externalLabel={template.externalEditorLabel}
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card padding="md">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              leftIcon={<X className="w-4 h-4" />}
+              onClick={onClose}
+            >
+              Wróć do listy
+            </Button>
+            <h2 className="text-lg font-semibold text-[var(--text-main)] mt-2">
+              {template.name}
+            </h2>
+            <p className="text-xs text-[var(--text-muted)] mt-1">
+              <strong>{template.appLabel}</strong> · {template.description}
+            </p>
+            <p className="text-[11px] text-[var(--text-muted)] mt-1">
+              Trigger: {template.trigger}
+            </p>
+          </div>
+          <div className="flex flex-col items-end gap-2">
+            <label className="flex items-center gap-2 text-xs cursor-pointer">
+              <input
+                type="checkbox"
+                checked={enabled}
+                onChange={(e) => setEnabled(e.target.checked)}
+                className="w-4 h-4"
+              />
+              <span
+                className={enabled ? "text-emerald-400" : "text-red-400"}
+              >
+                {enabled ? "Aktywny — wysyła" : "Wyłączony — nie wysyła"}
+              </span>
+            </label>
+          </div>
+        </div>
+      </Card>
+
+      {error && <Alert tone="error">{error}</Alert>}
+      {notice && <Alert tone="success">{notice}</Alert>}
+
+      <div className="grid lg:grid-cols-2 gap-4">
+        {/* LEFT: Editor */}
+        <div className="space-y-3">
+          <Card padding="md">
+            <label className="text-xs text-[var(--text-muted)] block mb-1">
+              Temat wiadomości
+            </label>
+            <Input
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              placeholder="Temat z możliwością wstawiania zmiennych"
+            />
+          </Card>
+
+          <Card padding="md">
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs text-[var(--text-muted)]">
+                Treść (markdown + zmienne — wpisz &bdquo;/&rdquo; aby wstawić)
+              </label>
+              <span className="text-[10px] text-[var(--text-muted)]">
+                Linki: [tekst](url) · pogrubienie: **tekst** · listy: • elem
+              </span>
+            </div>
+            <SlashTextarea
+              value={body}
+              onChange={setBody}
+              variables={template.variables}
+              rows={18}
+            />
+          </Card>
+
+          <Card padding="md">
+            <div className="grid md:grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-[var(--text-muted)] block mb-1">
+                  Layout (szkielet HTML)
+                </label>
+                <select
+                  className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-2 text-sm"
+                  value={layoutId ?? ""}
+                  onChange={(e) => setLayoutId(e.target.value || null)}
+                >
+                  <option value="">— domyślny —</option>
+                  {layouts.map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {l.name}
+                      {l.isDefault ? " (default)" : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-[var(--text-muted)] block mb-1">
+                  SMTP — przez którą skrzynkę wysyłać
+                </label>
+                <select
+                  className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-2 text-sm"
+                  value={smtpConfigId ?? ""}
+                  onChange={(e) => setSmtpConfigId(e.target.value || null)}
+                >
+                  <option value="">— domyślny (transactional) —</option>
+                  {smtpConfigs.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.label}
+                      {s.isDefault ? " (default)" : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </Card>
+
+          <div className="flex flex-wrap gap-2">
+            <Button
+              onClick={save}
+              loading={busy}
+              leftIcon={<Save className="w-4 h-4" />}
+            >
+              Zapisz
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => setShowTestSend(true)}
+              leftIcon={<Send className="w-4 h-4" />}
+            >
+              Wyślij testowo
+            </Button>
+            {template.hasOverride && (
+              <Button
+                variant="ghost"
+                onClick={() => setShowResetConfirm(true)}
+                disabled={busy}
+              >
+                Przywróć domyślne
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* RIGHT: Live preview */}
+        <div className="space-y-3">
+          <Card padding="md" className="h-fit">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-semibold flex items-center gap-2">
+                <Eye className="w-4 h-4 text-[var(--accent)]" />
+                Podgląd na żywo
+              </h3>
+              {previewLoading && (
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--text-muted)]" />
+              )}
+            </div>
+            <div className="text-[11px] text-[var(--text-muted)] mb-3">
+              <strong>Temat:</strong> {previewSubject || subject}
+            </div>
+            <div className="rounded-lg overflow-hidden border border-[var(--border-subtle)] bg-white">
+              <iframe
+                title="Email preview"
+                srcDoc={previewHtml}
+                className="w-full"
+                style={{ height: "640px", border: "none", background: "#fff" }}
+                sandbox=""
+              />
+            </div>
+          </Card>
+        </div>
+      </div>
+
+      {showResetConfirm && (
+        <ConfirmDialog
+          title="Przywróć domyślną treść?"
+          description="Twoja edycja zostanie usunięta. Następne maile użyją oryginalnej treści (z katalogu)."
+          onConfirm={resetToDefault}
+          onCancel={() => setShowResetConfirm(false)}
+          confirmLabel="Przywróć"
+          confirmVariant="danger"
+        />
+      )}
+
+      {showTestSend && (
+        <TestSendDialog
+          actionKey={template.actionKey}
+          draftSubject={subject}
+          draftBody={body}
+          layoutId={layoutId}
+          smtpConfigId={smtpConfigId}
+          onClose={() => setShowTestSend(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Slash command picker (textarea z wstawianiem zmiennych) ────────────────
+
+function SlashTextarea({
+  value,
+  onChange,
+  variables,
+  rows,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  variables: CatalogVariable[];
+  rows: number;
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerQuery, setPickerQuery] = useState("");
+  const [pickerStartIndex, setPickerStartIndex] = useState(-1);
+  const [highlightedIdx, setHighlightedIdx] = useState(0);
+
+  const filtered = useMemo(() => {
+    const q = pickerQuery.toLowerCase();
+    if (!q) return variables;
+    return variables.filter(
+      (v) =>
+        v.key.toLowerCase().includes(q) ||
+        v.label.toLowerCase().includes(q) ||
+        v.description.toLowerCase().includes(q),
+    );
+  }, [variables, pickerQuery]);
+
+  useEffect(() => {
+    setHighlightedIdx(0);
+  }, [pickerQuery]);
+
+  function handleChange(newValue: string) {
+    onChange(newValue);
+    const ta = ref.current;
+    if (!ta) return;
+    const cursor = ta.selectionStart;
+    // Detekcja "/" — szukamy ostatniego "/" przed kursorem (po nim tylko word chars)
+    let i = cursor - 1;
+    while (i >= 0) {
+      const ch = newValue[i];
+      if (ch === "/") {
+        const before = i === 0 ? "" : newValue[i - 1];
+        // Slash musi być na początku lub po spacji/nowej linii
+        if (i === 0 || /\s/.test(before)) {
+          setPickerOpen(true);
+          setPickerStartIndex(i);
+          setPickerQuery(newValue.slice(i + 1, cursor));
+          return;
+        }
+      }
+      if (/\s/.test(newValue[i])) break;
+      i--;
+    }
+    setPickerOpen(false);
+    setPickerStartIndex(-1);
+  }
+
+  function insertVariable(v: CatalogVariable) {
+    const ta = ref.current;
+    if (!ta || pickerStartIndex < 0) return;
+    const cursor = ta.selectionStart;
+    const before = value.slice(0, pickerStartIndex);
+    const after = value.slice(cursor);
+    const insertion = `{{${v.key}}}`;
+    const newValue = before + insertion + after;
+    onChange(newValue);
+    setPickerOpen(false);
+    setPickerStartIndex(-1);
+    setPickerQuery("");
+    setTimeout(() => {
+      const newPos = before.length + insertion.length;
+      ta.focus();
+      ta.setSelectionRange(newPos, newPos);
+    }, 0);
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (!pickerOpen) return;
+    if (e.key === "Escape") {
+      e.preventDefault();
+      setPickerOpen(false);
+      return;
+    }
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setHighlightedIdx((i) => Math.min(i + 1, filtered.length - 1));
+      return;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setHighlightedIdx((i) => Math.max(i - 1, 0));
+      return;
+    }
+    if (e.key === "Enter" || e.key === "Tab") {
+      if (filtered[highlightedIdx]) {
+        e.preventDefault();
+        insertVariable(filtered[highlightedIdx]);
+      }
+      return;
+    }
+  }
+
+  // Group filtered by group
+  const grouped = useMemo(() => {
+    const out: Record<string, CatalogVariable[]> = {};
+    for (const v of filtered) {
+      (out[v.group] ??= []).push(v);
+    }
+    return out;
+  }, [filtered]);
+
+  return (
+    <div className="relative">
+      <Textarea
+        ref={ref as React.Ref<HTMLTextAreaElement>}
+        value={value}
+        onChange={(e) => handleChange(e.target.value)}
+        onKeyDown={handleKeyDown}
+        rows={rows}
+        className="font-mono text-sm"
+      />
+      {pickerOpen && filtered.length > 0 && (
+        <div className="absolute z-10 left-0 right-0 mt-1 max-h-72 overflow-y-auto rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-xl">
+          <div className="px-3 py-2 text-[10px] uppercase text-[var(--text-muted)] border-b border-[var(--border-subtle)] flex items-center gap-2">
+            <Search className="w-3 h-3" />
+            Wstaw zmienną — wpisz aby filtrować, ↑↓ aby wybrać, Enter aby wstawić
+          </div>
+          {Object.entries(grouped).map(([group, items]) => (
+            <div key={group}>
+              <div className="px-3 py-1 text-[10px] uppercase text-[var(--text-muted)] bg-[var(--bg-main)]">
+                {group}
+              </div>
+              {items.map((v) => {
+                const idx = filtered.indexOf(v);
+                const highlighted = idx === highlightedIdx;
+                return (
+                  <button
+                    key={v.key}
+                    type="button"
+                    onMouseEnter={() => setHighlightedIdx(idx)}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      insertVariable(v);
+                    }}
+                    className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between gap-3 ${
+                      highlighted
+                        ? "bg-[var(--accent)]/10 text-[var(--accent)]"
+                        : "hover:bg-[var(--bg-main)]"
+                    }`}
+                  >
+                    <div className="min-w-0">
+                      <div className="font-medium truncate">{v.label}</div>
+                      <code className="text-[10px] text-[var(--text-muted)]">
+                        {`{{${v.key}}}`}
+                      </code>
+                    </div>
+                    <div className="text-[10px] text-[var(--text-muted)] flex-shrink-0">
+                      {v.example}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Non-editable view ───────────────────────────────────────────────────────
+
+function NonEditableView({
+  template,
+  onClose,
+  message,
+  externalUrl,
+  externalLabel,
+}: {
+  template: TemplateRow;
+  onClose: () => void;
+  message: string;
+  externalUrl?: string;
+  externalLabel?: string;
+}) {
+  return (
+    <Card padding="lg">
+      <Button
+        variant="ghost"
+        size="sm"
+        leftIcon={<X className="w-4 h-4" />}
+        onClick={onClose}
+      >
+        Wróć do listy
+      </Button>
+      <div className="mt-4 flex items-start gap-4">
+        <div className="p-3 rounded-lg bg-amber-500/10 flex-shrink-0">
+          <Lock className="w-6 h-6 text-amber-400" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <h2 className="text-lg font-semibold text-[var(--text-main)]">
+            {template.name}
+          </h2>
+          <p className="text-xs text-[var(--text-muted)] mt-1">
+            <strong>{template.appLabel}</strong> · {template.description}
+          </p>
+          <Alert tone="warning" className="mt-4">
+            {message}
+          </Alert>
+          {externalUrl && externalLabel && (
+            <a
+              href={externalUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-4 inline-flex items-center gap-2 text-sm text-[var(--accent)] hover:underline"
+            >
+              {externalLabel} <ExternalLink className="w-4 h-4" />
+            </a>
+          )}
+          <div className="mt-6 text-xs text-[var(--text-muted)]">
+            <strong>Kiedy się wysyła:</strong> {template.trigger}
+          </div>
         </div>
       </div>
     </Card>
   );
 }
 
-// ── Branding ────────────────────────────────────────────────────────────────
+// ── Test send dialog ────────────────────────────────────────────────────────
+
+function TestSendDialog({
+  actionKey,
+  draftSubject,
+  draftBody,
+  layoutId,
+  smtpConfigId,
+  onClose,
+}: {
+  actionKey: string;
+  draftSubject: string;
+  draftBody: string;
+  layoutId: string | null;
+  smtpConfigId: string | null;
+  onClose: () => void;
+}) {
+  const [to, setTo] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+
+  async function send() {
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await api.post<{ messageId: string }, {
+        to: string;
+        draftSubject: string;
+        draftBody: string;
+        layoutId: string | null;
+        smtpConfigId: string | null;
+      }>(
+        `/api/admin/email/templates/${encodeURIComponent(actionKey)}/send-test`,
+        { to, draftSubject, draftBody, layoutId, smtpConfigId },
+      );
+      setDone(`Wysłane (id: ${r.messageId}). Sprawdź skrzynkę ${to}.`);
+    } catch (err) {
+      setError(err instanceof ApiRequestError ? err.message : "Send failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+      <Card padding="lg" className="w-full max-w-md">
+        <h3 className="text-base font-semibold mb-2">Wyślij testowo</h3>
+        <p className="text-xs text-[var(--text-muted)] mb-4">
+          Wysyła aktualną treść (z niezapisanych zmian) na podany adres.
+          Zmienne wypełniane są przykładami z katalogu.
+        </p>
+        {error && <Alert tone="error" className="mb-3">{error}</Alert>}
+        {done && <Alert tone="success" className="mb-3">{done}</Alert>}
+        <Input
+          label="Adres odbiorcy"
+          type="email"
+          value={to}
+          onChange={(e) => setTo(e.target.value)}
+          placeholder="ty@example.com"
+        />
+        <div className="mt-4 flex justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>
+            Zamknij
+          </Button>
+          <Button
+            onClick={send}
+            loading={busy}
+            disabled={!to.trim()}
+            leftIcon={<Send className="w-4 h-4" />}
+          >
+            Wyślij
+          </Button>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+// ── Confirm dialog ──────────────────────────────────────────────────────────
+
+function ConfirmDialog({
+  title,
+  description,
+  onConfirm,
+  onCancel,
+  confirmLabel,
+  confirmVariant,
+}: {
+  title: string;
+  description: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+  confirmLabel: string;
+  confirmVariant?: "primary" | "danger";
+}) {
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+      <Card padding="lg" className="w-full max-w-md">
+        <h3 className="text-base font-semibold mb-2">{title}</h3>
+        <p className="text-sm text-[var(--text-muted)] mb-5">{description}</p>
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={onCancel}>
+            Anuluj
+          </Button>
+          <Button
+            onClick={onConfirm}
+            className={
+              confirmVariant === "danger"
+                ? "bg-red-500/90 hover:bg-red-500 border-red-600"
+                : ""
+            }
+          >
+            {confirmLabel}
+          </Button>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+// ── Layouts panel ───────────────────────────────────────────────────────────
+
+interface LayoutFull {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  html: string;
+  isDefault: boolean;
+  updatedAt: string;
+  updatedBy: string | null;
+}
+
+function LayoutsPanel() {
+  const [layouts, setLayouts] = useState<LayoutFull[]>([]);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const r = await api.get<{ layouts: LayoutFull[] }>(
+        "/api/admin/email/layouts",
+      );
+      setLayouts(r.layouts);
+      if (!selected && r.layouts[0]) setSelected(r.layouts[0].id);
+    } catch (err) {
+      setError(err instanceof ApiRequestError ? err.message : "Load failed");
+    }
+  }, [selected]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const current = layouts.find((l) => l.id === selected);
+
+  const [draftHtml, setDraftHtml] = useState("");
+  const [draftName, setDraftName] = useState("");
+  useEffect(() => {
+    if (current) {
+      setDraftHtml(current.html);
+      setDraftName(current.name);
+    }
+  }, [current]);
+
+  async function save() {
+    if (!current) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.post<{ layout: LayoutFull }, {
+        slug: string;
+        name: string;
+        html: string;
+        isDefault: boolean;
+        description: string | null;
+      }>("/api/admin/email/layouts", {
+        slug: current.slug,
+        name: draftName,
+        html: draftHtml,
+        isDefault: current.isDefault,
+        description: current.description,
+      });
+      setNotice("Layout zapisany.");
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiRequestError ? err.message : "Save failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card padding="md">
+        <div className="flex gap-3 items-start">
+          <Info className="w-5 h-5 text-sky-400 flex-shrink-0 mt-0.5" />
+          <div className="text-xs text-[var(--text-muted)]">
+            Layout to globalny szkielet HTML — header MyPerformance, slot{" "}
+            <code>{"{{content}}"}</code> dla treści, footer. Każdy szablon
+            renderowany jest wewnątrz wybranego layoutu. Możesz edytować HTML
+            bezpośrednio (TIP: testuj na małych zmianach — zły HTML łamie wszystkie
+            maile).
+          </div>
+        </div>
+      </Card>
+
+      {error && <Alert tone="error">{error}</Alert>}
+      {notice && <Alert tone="success">{notice}</Alert>}
+
+      <Card padding="md">
+        <div className="flex gap-2 flex-wrap">
+          {layouts.map((l) => (
+            <button
+              key={l.id}
+              type="button"
+              onClick={() => setSelected(l.id)}
+              className={`px-3 py-1.5 text-xs rounded-lg border ${
+                selected === l.id
+                  ? "border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--accent)]"
+                  : "border-[var(--border-subtle)]"
+              }`}
+            >
+              {l.name}
+              {l.isDefault && <span className="ml-1 opacity-60">★</span>}
+            </button>
+          ))}
+        </div>
+      </Card>
+
+      {current && (
+        <div className="grid lg:grid-cols-2 gap-4">
+          <Card padding="md">
+            <Input
+              label="Nazwa layoutu"
+              value={draftName}
+              onChange={(e) => setDraftName(e.target.value)}
+            />
+            <label className="text-xs text-[var(--text-muted)] block mt-3 mb-1">
+              HTML (z slotem <code>{"{{content}}"}</code> dla treści)
+            </label>
+            <Textarea
+              rows={28}
+              value={draftHtml}
+              onChange={(e) => setDraftHtml(e.target.value)}
+              className="font-mono text-xs"
+            />
+            <div className="mt-3 flex gap-2">
+              <Button
+                onClick={save}
+                loading={busy}
+                leftIcon={<Save className="w-4 h-4" />}
+              >
+                Zapisz
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  if (current) {
+                    setDraftHtml(current.html);
+                    setDraftName(current.name);
+                  }
+                }}
+              >
+                Cofnij
+              </Button>
+            </div>
+          </Card>
+          <Card padding="md">
+            <h3 className="text-sm font-semibold flex items-center gap-2 mb-2">
+              <Eye className="w-4 h-4 text-[var(--accent)]" />
+              Podgląd (z przykładową treścią)
+            </h3>
+            <div className="rounded-lg overflow-hidden border border-[var(--border-subtle)] bg-white">
+              <iframe
+                title="Layout preview"
+                srcDoc={draftHtml.replace(
+                  "{{content}}",
+                  '<p>Cześć Anna,</p><p>To jest przykładowa treść maila wyświetlana w layoutcie. <strong>Pogrubienie</strong>, <a href="#">link</a>, listy itd.</p>',
+                ).replace(/\{\{brand\.name\}\}/g, "MyPerformance")
+                  .replace(/\{\{brand\.url\}\}/g, "https://myperformance.pl")
+                  .replace(/\{\{brand\.supportEmail\}\}/g, "support@myperformance.pl")
+                  .replace(/\{\{subject\}\}/g, "Przykładowy temat")}
+                className="w-full"
+                style={{ height: "640px", border: "none" }}
+                sandbox=""
+              />
+            </div>
+          </Card>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── SMTP Configs panel ──────────────────────────────────────────────────────
+
+interface SmtpConfigFull {
+  id: string;
+  alias: string;
+  label: string;
+  smtpHost: string;
+  smtpPort: number;
+  smtpUser: string | null;
+  smtpPassword: string | null;
+  useTls: boolean;
+  fromEmail: string;
+  fromDisplay: string | null;
+  replyTo: string | null;
+  postalServerId: number | null;
+  isDefault: boolean;
+}
+
+function SmtpConfigsPanel() {
+  const [configs, setConfigs] = useState<SmtpConfigFull[]>([]);
+  const [editing, setEditing] = useState<Partial<SmtpConfigFull> | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const r = await api.get<{ configs: SmtpConfigFull[] }>(
+        "/api/admin/email/smtp-configs",
+      );
+      setConfigs(r.configs);
+    } catch (err) {
+      setError(err instanceof ApiRequestError ? err.message : "Load failed");
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function save() {
+    if (!editing) return;
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await api.post("/api/admin/email/smtp-configs", editing);
+      setNotice("Zapisane.");
+      setEditing(null);
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiRequestError ? err.message : "Save failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card padding="md">
+        <div className="flex gap-3 items-start">
+          <Info className="w-5 h-5 text-sky-400 flex-shrink-0 mt-0.5" />
+          <div className="text-xs text-[var(--text-muted)]">
+            Aliasy SMTP (np. <code>transactional</code>, <code>marketing</code>) to
+            nazwy logiczne. Każdy szablon przypisujesz do aliasa — dzięki temu
+            możesz zmienić skrzynkę nadawczą dla wszystkich maili tego typu w
+            jednym miejscu.
+          </div>
+        </div>
+      </Card>
+
+      {error && <Alert tone="error">{error}</Alert>}
+      {notice && <Alert tone="success">{notice}</Alert>}
+
+      <div className="grid gap-2">
+        {configs.map((c) => (
+          <Card key={c.id} padding="md">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-sm font-medium flex items-center gap-2">
+                  {c.label}
+                  {c.isDefault && <Badge tone="success">domyślny</Badge>}
+                </div>
+                <code className="text-[10px] text-[var(--text-muted)]">
+                  {c.alias} · {c.smtpHost}:{c.smtpPort} · {c.fromEmail}
+                </code>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setEditing(c)}
+              >
+                Edytuj
+              </Button>
+            </div>
+          </Card>
+        ))}
+      </div>
+
+      <Button
+        onClick={() =>
+          setEditing({
+            alias: "",
+            label: "",
+            smtpHost: "smtp-iut9wf1rz9ey54g7lbkje0je",
+            smtpPort: 25,
+            useTls: false,
+            fromEmail: "noreply@myperformance.pl",
+            fromDisplay: "MyPerformance",
+            isDefault: false,
+          })
+        }
+      >
+        + Dodaj nową konfigurację
+      </Button>
+
+      {editing && (
+        <Card padding="lg" className="border-[var(--accent)]">
+          <h3 className="text-sm font-semibold mb-3">
+            {editing.alias ? `Edycja: ${editing.alias}` : "Nowa konfiguracja"}
+          </h3>
+          <div className="grid md:grid-cols-2 gap-3">
+            <Input
+              label="Alias (slug, identyfikator)"
+              value={editing.alias ?? ""}
+              onChange={(e) =>
+                setEditing({ ...editing, alias: e.target.value })
+              }
+              placeholder="transactional"
+            />
+            <Input
+              label="Etykieta (ludzka nazwa)"
+              value={editing.label ?? ""}
+              onChange={(e) =>
+                setEditing({ ...editing, label: e.target.value })
+              }
+              placeholder="Transactional (Postal)"
+            />
+            <Input
+              label="SMTP host"
+              value={editing.smtpHost ?? ""}
+              onChange={(e) =>
+                setEditing({ ...editing, smtpHost: e.target.value })
+              }
+            />
+            <Input
+              label="SMTP port"
+              type="number"
+              value={String(editing.smtpPort ?? 25)}
+              onChange={(e) =>
+                setEditing({ ...editing, smtpPort: Number(e.target.value) })
+              }
+            />
+            <Input
+              label="SMTP user"
+              value={editing.smtpUser ?? ""}
+              onChange={(e) =>
+                setEditing({ ...editing, smtpUser: e.target.value })
+              }
+            />
+            <Input
+              label="SMTP password (zostaw puste żeby nie zmieniać)"
+              type="password"
+              value={editing.smtpPassword === "***" ? "" : editing.smtpPassword ?? ""}
+              onChange={(e) =>
+                setEditing({ ...editing, smtpPassword: e.target.value })
+              }
+              placeholder={editing.smtpPassword === "***" ? "(istniejące hasło)" : ""}
+            />
+            <Input
+              label="From email (adres nadawcy)"
+              value={editing.fromEmail ?? ""}
+              onChange={(e) =>
+                setEditing({ ...editing, fromEmail: e.target.value })
+              }
+            />
+            <Input
+              label="From display (nazwa nadawcy)"
+              value={editing.fromDisplay ?? ""}
+              onChange={(e) =>
+                setEditing({ ...editing, fromDisplay: e.target.value })
+              }
+            />
+            <Input
+              label="Reply-To (opcjonalny)"
+              value={editing.replyTo ?? ""}
+              onChange={(e) =>
+                setEditing({ ...editing, replyTo: e.target.value })
+              }
+            />
+            <label className="flex items-center gap-2 text-xs cursor-pointer mt-6">
+              <input
+                type="checkbox"
+                checked={editing.useTls ?? false}
+                onChange={(e) =>
+                  setEditing({ ...editing, useTls: e.target.checked })
+                }
+              />
+              Wymaga TLS (zazwyczaj port 465)
+            </label>
+            <label className="flex items-center gap-2 text-xs cursor-pointer">
+              <input
+                type="checkbox"
+                checked={editing.isDefault ?? false}
+                onChange={(e) =>
+                  setEditing({ ...editing, isDefault: e.target.checked })
+                }
+              />
+              Ustaw jako domyślny (używany dla szablonów bez przypisanego SMTP)
+            </label>
+          </div>
+          <div className="mt-4 flex gap-2">
+            <Button onClick={save} loading={busy} leftIcon={<Save className="w-4 h-4" />}>
+              Zapisz
+            </Button>
+            <Button variant="ghost" onClick={() => setEditing(null)}>
+              Anuluj
+            </Button>
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ── Branding (zachowane jak było, lekko uproszczone) ────────────────────────
+
+interface Branding {
+  brandName: string;
+  brandUrl: string | null;
+  brandLogoUrl: string | null;
+  primaryColor: string | null;
+  supportEmail: string | null;
+  legalName: string | null;
+  fromDisplay: string | null;
+  replyTo: string | null;
+  updatedAt: string;
+  updatedBy: string | null;
+}
 
 function BrandingPanel() {
   const [data, setData] = useState<Branding | null>(null);
-  const [targets, setTargets] = useState<PropagationTarget[]>([]);
   const [draft, setDraft] = useState<Partial<Branding>>({});
   const [busy, setBusy] = useState(false);
   const [propagating, setPropagating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [results, setResults] = useState<
-    Array<{
-      appId: string;
-      appLabel: string;
-      status: string;
-      envChanges: number;
-      redeployTriggered: boolean;
-      error?: string;
-    }> | null
-  >(null);
 
   const load = useCallback(async () => {
     setError(null);
     try {
-      const r = await api.get<{ branding: Branding; targets: PropagationTarget[] }>(
+      const r = await api.get<{ branding: Branding }>(
         "/api/admin/email/branding",
       );
       setData(r.branding);
-      setTargets(r.targets);
     } catch (err) {
-      setError(
-        err instanceof ApiRequestError
-          ? `Nie udało się załadować brandingu: ${err.message}`
-          : "Błąd ładowania",
-      );
+      setError(err instanceof ApiRequestError ? err.message : "Load failed");
     }
   }, []);
 
@@ -406,8 +1590,6 @@ function BrandingPanel() {
 
   async function save() {
     setBusy(true);
-    setError(null);
-    setNotice(null);
     try {
       const r = await api.put<{ branding: Branding }, Partial<Branding>>(
         "/api/admin/email/branding",
@@ -415,48 +1597,24 @@ function BrandingPanel() {
       );
       setData(r.branding);
       setDraft({});
-      setNotice(
-        "Zapisane do bazy. Aby zmiana doleciała do apek, kliknij przycisk propagacji niżej.",
-      );
+      setNotice('Branding zapisany. Kliknij „Propaguj" aby wysłać do apek.');
     } catch (err) {
-      setError(
-        err instanceof ApiRequestError ? err.message : "Zapis nie powiódł się",
-      );
+      setError(err instanceof ApiRequestError ? err.message : "Save failed");
     } finally {
       setBusy(false);
     }
   }
 
-  async function propagate(applyRedeploy: boolean) {
-    if (
-      applyRedeploy &&
-      !confirm(
-        "Propagacja z redeploy uruchomi rebuild Documenso + Dashboard (~5 min downtime na każdą). Kontynuować?",
-      )
-    ) {
-      return;
-    }
+  async function propagate() {
+    if (!confirm("Propagacja zaktualizuje envy w 6 aplikacjach. Apki Documenso + Dashboard wymagają redeployu (~5 min). Kontynuować?")) return;
     setPropagating(true);
     setError(null);
-    setNotice(null);
     try {
-      const r = await api.post<
-        { results: typeof results },
-        { applyRedeploy: boolean }
-      >("/api/admin/email/branding/propagate", { applyRedeploy });
-      setResults(r.results);
-      const failed = (r.results ?? []).filter((x) => x.status === "failed");
-      if (failed.length > 0) {
-        setError(
-          `${failed.length} z ${(r.results ?? []).length} apek zwróciło błąd — zobacz tabelę poniżej.`,
-        );
-      } else {
-        setNotice(
-          applyRedeploy
-            ? "Wysłane do wszystkich apek. Apki które wymagały rebuildu są w trakcie redeployu (~5 min)."
-            : "Envy ustawione. Apki runtime-only odebrały zmiany; apki buildtime (Documenso, Dashboard) wymagają redeployu osobno.",
-        );
-      }
+      await api.post(
+        "/api/admin/email/branding/propagate",
+        { applyRedeploy: true },
+      );
+      setNotice("Propagacja zakończona. Apki podchwycą zmiany w ciągu kilku minut.");
     } catch (err) {
       setError(err instanceof ApiRequestError ? err.message : "Propagate failed");
     } finally {
@@ -467,12 +1625,9 @@ function BrandingPanel() {
   if (!data) {
     return (
       <Card padding="lg">
-        {error ? (
-          <Alert tone="error">{error}</Alert>
-        ) : (
+        {error ? <Alert tone="error">{error}</Alert> : (
           <div className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
-            <Loader2 className="w-4 h-4 animate-spin" />
-            Ładowanie brandingu z bazy…
+            <Loader2 className="w-4 h-4 animate-spin" /> Ładowanie…
           </div>
         )}
       </Card>
@@ -484,218 +1639,90 @@ function BrandingPanel() {
 
   return (
     <div className="space-y-4">
-      <Card padding="md">
-        <div className="flex gap-3 items-start">
-          <Info className="w-5 h-5 text-sky-400 flex-shrink-0 mt-0.5" />
-          <div className="text-xs text-[var(--text-muted)]">
-            <strong className="text-[var(--text-main)]">Jak to działa:</strong>{" "}
-            zapisujesz dane → klikasz <em>Propaguj</em> → dashboard ustawia
-            odpowiednie envy w każdej apce w Coolify. Apki podchwytują nową
-            wartość przy następnym requesta (runtime) lub po redeploy
-            (buildtime — Documenso, Dashboard).
-          </div>
-        </div>
-      </Card>
+      {error && <Alert tone="error">{error}</Alert>}
+      {notice && <Alert tone="success">{notice}</Alert>}
 
       <Card padding="lg">
         <CardHeader
           icon={<Palette className="w-6 h-6 text-[var(--accent)]" />}
           title="Globalne dane marki"
-          description="Te zmienne lecą jako env do każdej apki. Apka renderuje je w mailach, ekranie logowania, headerze itp."
+          description="Te zmienne lecą jako env do każdej apki. Apka renderuje je w mailach i UI."
         />
-        {error && <Alert tone="error" className="mt-4">{error}</Alert>}
-        {notice && <Alert tone="success" className="mt-4">{notice}</Alert>}
         <div className="grid md:grid-cols-2 gap-4 mt-6">
-          <Input
-            label="Nazwa marki *"
-            value={merged.brandName ?? ""}
-            onChange={(e) => setDraft({ ...draft, brandName: e.target.value })}
-            placeholder="MyPerformance"
-          />
-          <Input
-            label="URL strony"
-            value={merged.brandUrl ?? ""}
-            onChange={(e) => setDraft({ ...draft, brandUrl: e.target.value })}
-            placeholder="https://myperformance.pl"
-          />
-          <Input
-            label="URL logo (PNG/SVG, hostowany publicznie)"
-            value={merged.brandLogoUrl ?? ""}
-            onChange={(e) => setDraft({ ...draft, brandLogoUrl: e.target.value })}
-            placeholder="https://myperformance.pl/logo.png"
-          />
-          <Input
-            label="Kolor główny (hex)"
-            value={merged.primaryColor ?? ""}
-            onChange={(e) => setDraft({ ...draft, primaryColor: e.target.value })}
-            placeholder="#0d6efd"
-          />
-          <Input
-            label="Email pomocy / supportu"
-            value={merged.supportEmail ?? ""}
-            onChange={(e) => setDraft({ ...draft, supportEmail: e.target.value })}
-            placeholder="support@myperformance.pl"
-          />
-          <Input
-            label="Pełna nazwa firmy (do stopek prawnych)"
-            value={merged.legalName ?? ""}
-            onChange={(e) => setDraft({ ...draft, legalName: e.target.value })}
-            placeholder="MyPerformance Sp. z o.o."
-          />
-          <Input
-            label="Wyświetlana nazwa nadawcy"
-            value={merged.fromDisplay ?? ""}
-            onChange={(e) => setDraft({ ...draft, fromDisplay: e.target.value })}
-            placeholder='MyPerformance (przy mailach: "MyPerformance <noreply@…>")'
-          />
-          <Input
-            label="Adres Reply-To"
-            value={merged.replyTo ?? ""}
-            onChange={(e) => setDraft({ ...draft, replyTo: e.target.value })}
-            placeholder="noreply@myperformance.pl"
-          />
+          <Input label="Nazwa marki *" value={merged.brandName ?? ""} onChange={(e) => setDraft({ ...draft, brandName: e.target.value })} />
+          <Input label="URL strony" value={merged.brandUrl ?? ""} onChange={(e) => setDraft({ ...draft, brandUrl: e.target.value })} />
+          <Input label="Logo URL" value={merged.brandLogoUrl ?? ""} onChange={(e) => setDraft({ ...draft, brandLogoUrl: e.target.value })} />
+          <Input label="Kolor (hex)" value={merged.primaryColor ?? ""} onChange={(e) => setDraft({ ...draft, primaryColor: e.target.value })} />
+          <Input label="Support email" value={merged.supportEmail ?? ""} onChange={(e) => setDraft({ ...draft, supportEmail: e.target.value })} />
+          <Input label="Pełna nazwa firmy" value={merged.legalName ?? ""} onChange={(e) => setDraft({ ...draft, legalName: e.target.value })} />
+          <Input label="From display" value={merged.fromDisplay ?? ""} onChange={(e) => setDraft({ ...draft, fromDisplay: e.target.value })} />
+          <Input label="Reply-To" value={merged.replyTo ?? ""} onChange={(e) => setDraft({ ...draft, replyTo: e.target.value })} />
         </div>
-        <div className="mt-6 flex flex-wrap gap-2">
-          <Button
-            onClick={save}
-            loading={busy}
-            disabled={!dirty}
-            leftIcon={<Save className="w-4 h-4" />}
-          >
-            {dirty ? "Zapisz zmiany" : "Brak niezapisanych zmian"}
+        <div className="mt-6 flex gap-2 flex-wrap">
+          <Button onClick={save} loading={busy} disabled={!dirty} leftIcon={<Save className="w-4 h-4" />}>
+            {dirty ? "Zapisz" : "Brak zmian"}
+          </Button>
+          <Button onClick={propagate} loading={propagating} leftIcon={<Sparkles className="w-4 h-4" />}>
+            Propaguj do aplikacji
           </Button>
         </div>
-        <p className="mt-3 text-xs text-[var(--text-muted)]">
-          Ostatnia zmiana: {new Date(data.updatedAt).toLocaleString("pl-PL")}
-          {data.updatedBy ? ` przez ${data.updatedBy}` : ""}.
-        </p>
       </Card>
-
-      <Card padding="lg">
-        <CardHeader
-          icon={<Sparkles className="w-6 h-6 text-amber-400" />}
-          title="Krok 2: Propaguj zmiany do apek"
-          description="Zapisany branding wyślij do Coolify env w każdej apce. Wybierz tryb:"
-        />
-        <div className="mt-4 grid md:grid-cols-2 gap-3">
-          <div className="p-4 border border-[var(--border-subtle)] rounded-lg">
-            <h4 className="text-sm font-semibold mb-1">Bez redeploy (szybko)</h4>
-            <p className="text-xs text-[var(--text-muted)] mb-3">
-              Tylko ustawia envy w Coolify. Apki <strong>runtime</strong>{" "}
-              (Chatwoot, Outline, Directus, Moodle, KC) — odbiorą natychmiast.
-              Apki <strong>buildtime</strong> (Documenso, Dashboard) — czekają
-              na osobny redeploy.
-            </p>
-            <Button
-              variant="secondary"
-              fullWidth
-              onClick={() => propagate(false)}
-              loading={propagating}
-            >
-              Tylko envy (~5 sek)
-            </Button>
-          </div>
-          <div className="p-4 border border-amber-500/40 bg-amber-500/5 rounded-lg">
-            <h4 className="text-sm font-semibold mb-1">Z redeploy (pełnie)</h4>
-            <p className="text-xs text-[var(--text-muted)] mb-3">
-              Po envach uruchamia rebuild Documenso + Dashboard. Po ~5 min na
-              apkę nowy branding pojawi się wszędzie. <strong>UWAGA:</strong>{" "}
-              Documenso i Dashboard będą niedostępne podczas rebuildu.
-            </p>
-            <Button
-              fullWidth
-              onClick={() => propagate(true)}
-              loading={propagating}
-            >
-              Envy + redeploy (~5–10 min)
-            </Button>
-          </div>
-        </div>
-      </Card>
-
-      <Card padding="md">
-        <h3 className="text-sm font-semibold text-[var(--text-main)] mb-3">
-          Apki które dostaną branding ({targets.length})
-        </h3>
-        <div className="grid md:grid-cols-2 gap-2">
-          {targets.map((t) => (
-            <div
-              key={t.appId}
-              className="text-xs px-3 py-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)]"
-            >
-              <div className="font-medium text-[var(--text-main)] flex items-center gap-2">
-                {t.appLabel}
-                {t.requiresRedeploy && (
-                  <Badge tone="warning">redeploy</Badge>
-                )}
-              </div>
-              <div className="text-[var(--text-muted)] mt-1 font-mono text-[10px]">
-                {t.envKeys.join(" · ")}
-              </div>
-            </div>
-          ))}
-        </div>
-      </Card>
-
-      {results && (
-        <Card padding="md">
-          <h3 className="text-sm font-semibold text-[var(--text-main)] mb-3">
-            Wynik ostatniej propagacji
-          </h3>
-          <ul className="space-y-1.5 text-xs">
-            {results.map((r) => (
-              <li
-                key={r.appId}
-                className="flex items-center gap-2 px-3 py-2 rounded border border-[var(--border-subtle)]"
-              >
-                {r.status === "ok" ? (
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                ) : r.status === "skipped" ? (
-                  <Info className="w-4 h-4 text-[var(--text-muted)]" />
-                ) : (
-                  <AlertCircle className="w-4 h-4 text-red-400" />
-                )}
-                <span className="font-medium">{r.appLabel}</span>
-                <span className="text-[var(--text-muted)]">
-                  · zmienione: {r.envChanges}
-                  {r.redeployTriggered ? " · redeploy uruchomiony" : ""}
-                  {r.error ? ` · ${r.error}` : ""}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </Card>
-      )}
     </div>
   );
 }
 
-// ── KC Templates ────────────────────────────────────────────────────────────
+// ── Postal panel (uproszczony) ──────────────────────────────────────────────
 
-function KcTemplatesPanel() {
-  const [entries, setEntries] = useState<KcTemplateEntry[]>([]);
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [busy, setBusy] = useState<string | null>(null);
+interface PostalOrg {
+  id: number;
+  name: string;
+  permalink: string;
+  serverCount: number;
+}
+interface PostalServer {
+  id: number;
+  organizationId: number;
+  organizationName: string;
+  name: string;
+  mode: string;
+  postmasterAddress: string | null;
+}
+interface PostalCred {
+  id: number;
+  type: string;
+  name: string;
+  key: string;
+}
+interface PostalDomainRow {
+  id: number;
+  name: string;
+  spfStatus: string | null;
+  dkimStatus: string | null;
+  mxStatus: string | null;
+}
+
+function PostalPanel() {
+  const [orgs, setOrgs] = useState<PostalOrg[]>([]);
+  const [servers, setServers] = useState<PostalServer[]>([]);
+  const [domains, setDomains] = useState<PostalDomainRow[]>([]);
+  const [configured, setConfigured] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [selServer, setSelServer] = useState<number | null>(null);
+  const [creds, setCreds] = useState<PostalCred[]>([]);
 
   const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
     try {
-      const r = await api.get<{ entries: KcTemplateEntry[] }>(
-        "/api/admin/email/kc-templates",
-      );
-      setEntries(r.entries);
+      const [o, s, d] = await Promise.all([
+        api.get<{ organizations: PostalOrg[]; configured: boolean }>("/api/admin/email/postal/organizations"),
+        api.get<{ servers: PostalServer[] }>("/api/admin/email/postal/servers"),
+        api.get<{ domains: PostalDomainRow[] }>("/api/admin/email/postal/domains"),
+      ]);
+      setConfigured(o.configured);
+      setOrgs(o.organizations);
+      setServers(s.servers);
+      setDomains(d.domains);
     } catch (err) {
-      setError(
-        err instanceof ApiRequestError
-          ? `Nie mogę pobrać listy: ${err.message}`
-          : "Load failed",
-      );
-    } finally {
-      setLoading(false);
+      setError(err instanceof ApiRequestError ? err.message : "Load failed");
     }
   }, []);
 
@@ -703,252 +1730,20 @@ function KcTemplatesPanel() {
     void load();
   }, [load]);
 
-  async function save(key: string) {
-    setBusy(key);
-    setError(null);
-    setNotice(null);
-    try {
-      await api.put<unknown, { value: string }>(
-        `/api/admin/email/kc-templates/${encodeURIComponent(key)}`,
-        { value: drafts[key] },
-      );
-      setNotice(`Zapisane „${key}". Keycloak używa nowej treści od następnego maila.`);
-      setDrafts((d) => {
-        const next = { ...d };
-        delete next[key];
-        return next;
-      });
-      await load();
-    } catch (err) {
-      setError(err instanceof ApiRequestError ? err.message : "Save failed");
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function reset(key: string) {
-    if (!confirm("Przywrócić domyślne tłumaczenie Keycloak?")) return;
-    setBusy(key);
-    try {
-      await api.delete(`/api/admin/email/kc-templates/${encodeURIComponent(key)}`);
-      await load();
-    } catch (err) {
-      setError(err instanceof ApiRequestError ? err.message : "Reset failed");
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  // Group by email type (verify-email, password-reset, ...) for cleaner UI.
-  const groups = useMemo(() => {
-    const map: Record<string, KcTemplateEntry[]> = {};
-    for (const e of entries) {
-      const prefix = e.key
-        .replace(/Subject$|Body$|BodyHtml$/, "")
-        .replace(/([A-Z])/g, "-$1")
-        .toLowerCase()
-        .replace(/^-/, "");
-      (map[prefix] ??= []).push(e);
-    }
-    return map;
-  }, [entries]);
-
-  return (
-    <div className="space-y-4">
-      <Card padding="md">
-        <div className="flex gap-3 items-start">
-          <Info className="w-5 h-5 text-sky-400 flex-shrink-0 mt-0.5" />
-          <div className="text-xs text-[var(--text-muted)]">
-            <strong className="text-[var(--text-main)]">Jak to działa:</strong>{" "}
-            Keycloak dla każdego typu maila ma 3 wersje:{" "}
-            <code className="text-[10px]">Subject</code> (temat),{" "}
-            <code className="text-[10px]">Body</code> (text/plain) i{" "}
-            <code className="text-[10px]">BodyHtml</code> (HTML). Edycja
-            zapisywana przez Admin API → realm localization (locale: pl).
-            Zmiana jest natychmiastowa — nie trzeba restartu KC.
-          </div>
-        </div>
-      </Card>
-
-      <Card padding="md">
-        <h3 className="text-sm font-semibold mb-2">Dostępne zmienne</h3>
-        <div className="text-xs text-[var(--text-muted)] grid md:grid-cols-2 gap-x-4 gap-y-1 font-mono">
-          <div>
-            <code>{"${user.firstName}"}</code> — imię użytkownika
-          </div>
-          <div>
-            <code>{"${user.email}"}</code> — adres email
-          </div>
-          <div>
-            <code>{"${link}"}</code> — link akcyjny (verify, reset itp.)
-          </div>
-          <div>
-            <code>{"${linkExpirationFormatter(linkExpiration)}"}</code> — czas
-            wygaśnięcia
-          </div>
-          <div>
-            <code>{"${realmName}"}</code> — nazwa realmu (po brandingu = nazwa
-            marki)
-          </div>
-          <div>
-            <code>{"${url.accountUrl}"}</code> — URL panelu konta
-          </div>
-        </div>
-      </Card>
-
-      {error && <Alert tone="error">{error}</Alert>}
-      {notice && <Alert tone="success">{notice}</Alert>}
-
-      {loading ? (
-        <Card padding="lg">
-          <div className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
-            <Loader2 className="w-4 h-4 animate-spin" />
-            Ładowanie…
-          </div>
-        </Card>
-      ) : (
-        Object.entries(groups).map(([groupKey, items]) => (
-          <Card key={groupKey} padding="lg">
-            <h3 className="text-base font-semibold capitalize mb-1">
-              {groupTitle(groupKey)}
-            </h3>
-            <p className="text-xs text-[var(--text-muted)] mb-4">
-              {groupDescription(groupKey)}
-            </p>
-            <div className="space-y-3">
-              {items.map((e) => {
-                const current = drafts[e.key] ?? e.value ?? "";
-                const dirty = drafts[e.key] !== undefined;
-                return (
-                  <div
-                    key={e.key}
-                    className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3"
-                  >
-                    <div className="flex items-center justify-between mb-2 gap-2">
-                      <div>
-                        <div className="text-sm font-medium text-[var(--text-main)]">
-                          {e.label}
-                        </div>
-                        <code className="text-[10px] text-[var(--text-muted)]">
-                          {e.key}
-                        </code>
-                      </div>
-                      {e.hasOverride ? (
-                        <Badge tone="success">edytowane</Badge>
-                      ) : (
-                        <Badge tone="neutral">domyślne</Badge>
-                      )}
-                    </div>
-                    <Textarea
-                      rows={e.key.includes("Body") ? 6 : 2}
-                      value={current}
-                      onChange={(ev) =>
-                        setDrafts({ ...drafts, [e.key]: ev.target.value })
-                      }
-                      placeholder="(używa domyślnego tłumaczenia Keycloak)"
-                    />
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <Button
-                        size="sm"
-                        onClick={() => save(e.key)}
-                        loading={busy === e.key}
-                        disabled={!dirty}
-                        leftIcon={<Save className="w-4 h-4" />}
-                      >
-                        Zapisz
-                      </Button>
-                      {e.hasOverride && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => reset(e.key)}
-                          loading={busy === e.key}
-                        >
-                          Przywróć domyślne
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </Card>
-        ))
-      )}
-    </div>
-  );
-}
-
-function groupTitle(key: string): string {
-  const t: Record<string, string> = {
-    "email-verification": "Weryfikacja adresu email",
-    "password-reset": "Reset hasła",
-    "execute-actions": "Wymagane akcje (np. zmiana hasła wymuszona przez admina)",
-    "email-update-confirmation": "Potwierdzenie zmiany emaila",
-    "identity-provider-link": "Powiązanie konta z dostawcą zewnętrznym (Google itp.)",
-    "login-disabled": "Powiadomienie o wyłączeniu konta",
-  };
-  return t[key] ?? key;
-}
-
-function groupDescription(key: string): string {
-  const d: Record<string, string> = {
-    "email-verification": "Wysyłany po rejestracji + przy zmianie emaila — wymaga kliknięcia w link weryfikacyjny.",
-    "password-reset": 'Po kliknięciu „Zapomniałem hasła" lub gdy admin wysłał reset.',
-    "execute-actions": 'Gdy admin wymusi akcję (np. „zmień hasło") przez Admin API.',
-    "email-update-confirmation": "Wysyłany na NOWY adres po zmianie emaila — link potwierdza posiadanie skrzynki.",
-    "identity-provider-link": "Gdy user loguje się przez Google/Microsoft a KC chce połączyć z istniejącym kontem.",
-    "login-disabled": "Gdy admin wyłączy konto, KC informuje user-a.",
-  };
-  return d[key] ?? "";
-}
-
-// ── Postal ──────────────────────────────────────────────────────────────────
-
-function PostalPanel() {
-  const [orgs, setOrgs] = useState<PostalOrg[]>([]);
-  const [servers, setServers] = useState<PostalServer[]>([]);
-  const [domains, setDomains] = useState<PostalDomain[]>([]);
-  const [configured, setConfigured] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [step, setStep] = useState<1 | 2 | 3>(1);
-
-  const reload = useCallback(async () => {
-    try {
-      const [o, s, d] = await Promise.all([
-        api.get<{ organizations: PostalOrg[]; configured: boolean }>(
-          "/api/admin/email/postal/organizations",
-        ),
-        api.get<{ servers: PostalServer[]; configured: boolean }>(
-          "/api/admin/email/postal/servers",
-        ),
-        api.get<{ domains: PostalDomain[]; configured: boolean }>(
-          "/api/admin/email/postal/domains",
-        ),
-      ]);
-      setConfigured(o.configured && s.configured);
-      setOrgs(o.organizations);
-      setServers(s.servers);
-      setDomains(d.domains);
-      // Auto-advance to next empty step.
-      if (o.organizations.length === 0) setStep(1);
-      else if (s.servers.length === 0) setStep(2);
-      else setStep(3);
-    } catch (err) {
-      setError(err instanceof ApiRequestError ? err.message : "Load failed");
-    }
-  }, []);
-
   useEffect(() => {
-    void reload();
-  }, [reload]);
+    if (selServer == null) {
+      setCreds([]);
+      return;
+    }
+    void api
+      .get<{ credentials: PostalCred[] }>(`/api/admin/email/postal/servers/${selServer}/credentials`)
+      .then((r) => setCreds(r.credentials));
+  }, [selServer]);
 
   if (!configured) {
     return (
       <Alert tone="warning">
-        <strong>POSTAL_DB_URL</strong> nie jest skonfigurowane w envie
-        dashboardu. Skontaktuj admina infrastruktury — wymagany dostęp do bazy
-        MariaDB Postala.
+        POSTAL_DB_URL nie jest skonfigurowane. Skontaktuj admina infrastruktury.
       </Alert>
     );
   }
@@ -959,736 +1754,97 @@ function PostalPanel() {
         <div className="flex gap-3 items-start">
           <Info className="w-5 h-5 text-sky-400 flex-shrink-0 mt-0.5" />
           <div className="text-xs text-[var(--text-muted)]">
-            <strong className="text-[var(--text-main)]">Hierarchia Postal:</strong>{" "}
-            <code>Organizacja</code> → <code>Serwer pocztowy</code> →{" "}
-            <code>Skrzynka SMTP/API</code>. Podstaw apkę pod nasz Postal podając
-            jej w envach <code>SMTP_HOST=smtp-iut9wf1rz9ey54g7lbkje0je</code>,{" "}
-            <code>SMTP_USER=&lt;nazwa skrzynki&gt;</code>,{" "}
-            <code>SMTP_PASSWORD=&lt;klucz&gt;</code>.
+            Niskopoziomowe zarządzanie Postalem. Większość użytkowników nie
+            potrzebuje tu zaglądać — zwykła konfiguracja SMTP jest w zakładce
+            <strong> &bdquo;Konfiguracje SMTP&rdquo;</strong>. Tutaj tworzysz nowe organizacje,
+            serwery, generujesz klucze SMTP/API.
           </div>
         </div>
       </Card>
 
       {error && <Alert tone="error">{error}</Alert>}
 
-      <PostalStep
-        n={1}
-        active={step === 1}
-        done={orgs.length > 0}
-        title="Organizacja"
-        description="Top-level grupowanie. Zwykle jedna na całą firmę. Bez niej nie zrobisz serwera."
-      >
-        <OrganizationsBlock orgs={orgs} onChange={reload} />
-      </PostalStep>
-
-      <PostalStep
-        n={2}
-        active={step === 2}
-        done={servers.length > 0}
-        title="Serwer pocztowy"
-        description="Każdy serwer ma własny limit, domeny, statystyki. Trzymaj osobno transactional (verify/reset) i marketing — żeby kłopoty marketingu nie psuły dostarczalności transactional."
-      >
-        <ServersBlock
-          orgs={orgs}
-          servers={servers}
-          onChange={reload}
-        />
-      </PostalStep>
-
-      <PostalStep
-        n={3}
-        active={step === 3}
-        done={false}
-        title="Skrzynki SMTP / API + domeny"
-        description="Skrzynka = login + klucz dla apki. Domena = poprawne DKIM/SPF żeby maile nie szły do spamu."
-      >
-        <CredentialsAndDomainsBlock servers={servers} domains={domains} />
-      </PostalStep>
-    </div>
-  );
-}
-
-function PostalStep({
-  n,
-  active,
-  done,
-  title,
-  description,
-  children,
-}: {
-  n: number;
-  active: boolean;
-  done: boolean;
-  title: string;
-  description: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <Card
-      padding="md"
-      className={
-        active
-          ? "border-[var(--accent)]"
-          : done
-            ? "border-emerald-500/30"
-            : ""
-      }
-    >
-      <div className="flex items-start gap-3 mb-3">
-        <div
-          className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0 ${
-            done
-              ? "bg-emerald-500/20 text-emerald-400"
-              : active
-                ? "bg-[var(--accent)] text-white"
-                : "bg-[var(--bg-main)] text-[var(--text-muted)]"
-          }`}
-        >
-          {done ? <CheckCircle2 className="w-4 h-4" /> : n}
-        </div>
-        <div className="flex-1 min-w-0">
-          <h3 className="text-sm font-semibold text-[var(--text-main)]">
-            Krok {n}: {title}
-          </h3>
-          <p className="text-xs text-[var(--text-muted)] mt-0.5">{description}</p>
-        </div>
-      </div>
-      <div>{children}</div>
-    </Card>
-  );
-}
-
-function OrganizationsBlock({
-  orgs,
-  onChange,
-}: {
-  orgs: PostalOrg[];
-  onChange: () => Promise<void>;
-}) {
-  const [name, setName] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function create() {
-    if (!name.trim()) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await api.post("/api/admin/email/postal/organizations", { name });
-      setName("");
-      await onChange();
-    } catch (err) {
-      setError(err instanceof ApiRequestError ? err.message : "Create failed");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div>
-      <div className="flex gap-2 mb-3">
-        <Input
-          placeholder='np. "MyPerformance" lub nazwa działu'
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
-        <Button onClick={create} loading={busy} disabled={!name.trim()}>
-          Utwórz
-        </Button>
-      </div>
-      {error && <Alert tone="error">{error}</Alert>}
-      <div className="grid gap-2 mt-2">
-        {orgs.map((o) => (
-          <div
-            key={o.id}
-            className="flex items-center justify-between text-xs border border-[var(--border-subtle)] rounded-lg px-3 py-2"
-          >
-            <div>
-              <div className="font-medium text-sm">{o.name}</div>
-              <code className="text-[10px] text-[var(--text-muted)]">
-                {o.permalink}
-              </code>
-            </div>
-            <Badge tone="neutral">{o.serverCount} serwer(y)</Badge>
-          </div>
-        ))}
-        {orgs.length === 0 && (
-          <p className="text-xs text-[var(--text-muted)] py-2">
-            Brak organizacji. Utwórz pierwszą żeby przejść dalej.
-          </p>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function ServersBlock({
-  orgs,
-  servers,
-  onChange,
-}: {
-  orgs: PostalOrg[];
-  servers: PostalServer[];
-  onChange: () => Promise<void>;
-}) {
-  const [name, setName] = useState("");
-  const [orgId, setOrgId] = useState<number | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function create() {
-    if (!name.trim() || !orgId) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await api.post("/api/admin/email/postal/servers", {
-        name,
-        organizationId: orgId,
-      });
-      setName("");
-      await onChange();
-    } catch (err) {
-      setError(err instanceof ApiRequestError ? err.message : "Create failed");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div>
-      {orgs.length === 0 ? (
-        <p className="text-xs text-[var(--text-muted)] py-2">
-          Najpierw utwórz organizację (krok 1).
-        </p>
-      ) : (
-        <div className="grid md:grid-cols-3 gap-2 mb-3">
-          <select
-            className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-2 text-sm"
-            value={orgId ?? ""}
-            onChange={(e) =>
-              setOrgId(e.target.value ? Number(e.target.value) : null)
-            }
-          >
-            <option value="">— wybierz organizację —</option>
-            {orgs.map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.name}
-              </option>
-            ))}
-          </select>
-          <Input
-            placeholder='np. "transactional" lub "marketing"'
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
-          <Button
-            onClick={create}
-            loading={busy}
-            disabled={!name.trim() || !orgId}
-          >
-            Utwórz serwer
-          </Button>
-        </div>
-      )}
-      {error && <Alert tone="error">{error}</Alert>}
-      <div className="space-y-2 mt-3">
-        {servers.map((s) => (
-          <div
-            key={s.id}
-            className="border border-[var(--border-subtle)] rounded-lg px-3 py-2 text-xs"
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-sm font-medium">{s.name}</div>
-                <div className="text-[var(--text-muted)]">
-                  {s.organizationName} · tryb: {s.mode}
+      <Card padding="md">
+        <h3 className="text-sm font-semibold mb-3">Domeny — status DNS</h3>
+        <div className="grid gap-2">
+          {domains.map((d) => {
+            const allOk = d.spfStatus === "OK" && d.dkimStatus === "OK";
+            return (
+              <div key={d.id} className="text-xs border border-[var(--border-subtle)] rounded-lg px-3 py-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-sm">{d.name}</span>
+                    {allOk && <Badge tone="success">OK</Badge>}
+                  </div>
+                  <div className="flex gap-1">
+                    <Badge tone={d.spfStatus === "OK" ? "success" : "warning"}>SPF: {d.spfStatus ?? "?"}</Badge>
+                    <Badge tone={d.dkimStatus === "OK" ? "success" : "warning"}>DKIM: {d.dkimStatus ?? "?"}</Badge>
+                    <Badge tone={d.mxStatus === "OK" ? "success" : "warning"}>MX: {d.mxStatus ?? "?"}</Badge>
+                  </div>
                 </div>
+                {!allOk && (
+                  <p className="mt-2 text-[11px] text-[var(--text-muted)]">
+                    Dodaj brakujące rekordy DNS w panelu domeny — szczegóły w Postal UI:{" "}
+                    <a href="https://postal.myperformance.pl" target="_blank" rel="noopener noreferrer" className="text-[var(--accent)] hover:underline">postal.myperformance.pl</a>
+                  </p>
+                )}
               </div>
-              {s.suspended && <Badge tone="danger">zawieszony</Badge>}
+            );
+          })}
+        </div>
+      </Card>
+
+      <Card padding="md">
+        <h3 className="text-sm font-semibold mb-3">Organizacje + serwery</h3>
+        <div className="space-y-1.5">
+          {orgs.map((o) => (
+            <div key={o.id} className="text-xs">
+              <div className="font-medium text-sm flex items-center gap-2">
+                <Code2 className="w-3.5 h-3.5" /> {o.name}
+                <Badge tone="neutral">{o.serverCount} serwer(y)</Badge>
+              </div>
+              <div className="ml-5 mt-1 space-y-1">
+                {servers.filter((s) => s.organizationId === o.id).map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => setSelServer(selServer === s.id ? null : s.id)}
+                    className={`w-full text-left px-3 py-1.5 rounded-lg border ${selServer === s.id ? "border-[var(--accent)] bg-[var(--accent)]/5" : "border-[var(--border-subtle)]"}`}
+                  >
+                    {s.name} <span className="text-[var(--text-muted)]">· {s.mode}</span>
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
-        ))}
-        {servers.length === 0 && (
-          <p className="text-xs text-[var(--text-muted)] py-2">
-            Brak serwerów. Utwórz pierwszy żeby przejść dalej.
-          </p>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function CredentialsAndDomainsBlock({
-  servers,
-  domains,
-}: {
-  servers: PostalServer[];
-  domains: PostalDomain[];
-}) {
-  const [selectedServer, setSelectedServer] = useState<number | null>(null);
-  const [credentials, setCredentials] = useState<PostalCredential[]>([]);
-  const [credName, setCredName] = useState("");
-  const [credType, setCredType] = useState<"SMTP" | "API">("SMTP");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (selectedServer === null) {
-      setCredentials([]);
-      return;
-    }
-    void api
-      .get<{ credentials: PostalCredential[] }>(
-        `/api/admin/email/postal/servers/${selectedServer}/credentials`,
-      )
-      .then((r) => setCredentials(r.credentials))
-      .catch((err) =>
-        setError(
-          err instanceof ApiRequestError ? err.message : "Credentials load fail",
-        ),
-      );
-  }, [selectedServer]);
-
-  async function createCred() {
-    if (!selectedServer || !credName.trim()) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await api.post(
-        `/api/admin/email/postal/servers/${selectedServer}/credentials`,
-        { name: credName, type: credType },
-      );
-      setCredName("");
-      const r = await api.get<{ credentials: PostalCredential[] }>(
-        `/api/admin/email/postal/servers/${selectedServer}/credentials`,
-      );
-      setCredentials(r.credentials);
-    } catch (err) {
-      setError(err instanceof ApiRequestError ? err.message : "Create failed");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  if (servers.length === 0) {
-    return (
-      <p className="text-xs text-[var(--text-muted)] py-2">
-        Najpierw utwórz serwer (krok 2).
-      </p>
-    );
-  }
-
-  return (
-    <div className="space-y-4">
-      <div>
-        <label className="text-xs text-[var(--text-muted)] mb-1 block">
-          Wybierz serwer dla którego zarządzasz skrzynkami
-        </label>
-        <select
-          className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-2 text-sm"
-          value={selectedServer ?? ""}
-          onChange={(e) =>
-            setSelectedServer(e.target.value ? Number(e.target.value) : null)
-          }
-        >
-          <option value="">— wybierz serwer —</option>
-          {servers.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.organizationName} → {s.name}
-            </option>
           ))}
-        </select>
-      </div>
+        </div>
+      </Card>
 
-      {selectedServer !== null && (
-        <div className="border border-[var(--border-subtle)] rounded-lg p-4">
-          <h4 className="text-sm font-semibold mb-2">Skrzynki SMTP / API</h4>
-          <p className="text-xs text-[var(--text-muted)] mb-3">
-            Każda skrzynka ma unikalny klucz. Podstawisz go pod apkę jako
-            <code className="ml-1">SMTP_PASSWORD</code> (lub
-            <code className="ml-1">API key</code>). Podaj nazwę żeby później
-            pamiętać która skrzynka jest dla której apki.
-          </p>
-          <div className="grid md:grid-cols-3 gap-2 mb-3">
-            <select
-              className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-2 text-sm"
-              value={credType}
-              onChange={(e) => setCredType(e.target.value as "SMTP" | "API")}
-            >
-              <option value="SMTP">SMTP (klasyczny mail)</option>
-              <option value="API">API (HTTP wysyłka)</option>
-            </select>
-            <Input
-              placeholder='np. "documenso-smtp" lub "moodle-api"'
-              value={credName}
-              onChange={(e) => setCredName(e.target.value)}
-            />
-            <Button
-              onClick={createCred}
-              loading={busy}
-              disabled={!credName.trim()}
-            >
-              Wygeneruj klucz
-            </Button>
-          </div>
-          {error && <Alert tone="error">{error}</Alert>}
-          <div className="space-y-1.5 mt-2">
-            {credentials.map((c) => (
-              <div
-                key={c.id}
-                className="flex items-center justify-between text-xs px-2 py-1.5 rounded bg-[var(--bg-main)]"
-              >
+      {selServer != null && (
+        <Card padding="md">
+          <h3 className="text-sm font-semibold mb-2">Skrzynki (klucze SMTP/API) na serwerze</h3>
+          <div className="space-y-1.5">
+            {creds.map((c) => (
+              <div key={c.id} className="flex items-center justify-between text-xs px-3 py-2 rounded bg-[var(--bg-main)]">
                 <div className="flex items-center gap-2">
                   <Badge tone="neutral">{c.type}</Badge>
                   <span className="font-mono">{c.name}</span>
                 </div>
                 <code
                   className="text-[10px] text-[var(--text-muted)] cursor-pointer hover:text-[var(--accent)]"
-                  title="Kliknij aby skopiować pełny klucz"
                   onClick={() => navigator.clipboard.writeText(c.key)}
+                  title="Kliknij aby skopiować pełny klucz"
                 >
                   {c.key.slice(0, 12)}…{c.key.slice(-4)} (klik = kopiuj)
                 </code>
               </div>
             ))}
-            {credentials.length === 0 && (
-              <p className="text-xs text-[var(--text-muted)]">
-                Brak skrzynek na tym serwerze.
-              </p>
+            {creds.length === 0 && (
+              <p className="text-[11px] text-[var(--text-muted)]">Brak skrzynek na tym serwerze.</p>
             )}
           </div>
-        </div>
-      )}
-
-      <div className="border border-[var(--border-subtle)] rounded-lg p-4">
-        <h4 className="text-sm font-semibold mb-2 flex items-center gap-2">
-          <GitBranch className="w-4 h-4" /> Domeny + status DNS
-        </h4>
-        <p className="text-xs text-[var(--text-muted)] mb-3">
-          Każda domena z której wysyłasz musi mieć poprawne DKIM/SPF/MX żeby
-          maile nie lądowały w spamie. Status pochodzi z ostatniego skanu
-          Postala. Czerwone = trzeba poprawić DNS.
-        </p>
-        <div className="grid gap-2">
-          {domains.map((d) => (
-            <div
-              key={d.id}
-              className="text-xs border border-[var(--border-subtle)] rounded-lg px-3 py-2"
-            >
-              <div className="flex items-center justify-between">
-                <span className="font-medium">{d.name}</span>
-                <div className="flex gap-1">
-                  <Badge tone={d.spfStatus === "OK" ? "success" : "warning"}>
-                    SPF: {d.spfStatus ?? "?"}
-                  </Badge>
-                  <Badge tone={d.dkimStatus === "OK" ? "success" : "warning"}>
-                    DKIM: {d.dkimStatus ?? "?"}
-                  </Badge>
-                  <Badge tone={d.mxStatus === "OK" ? "success" : "warning"}>
-                    MX: {d.mxStatus ?? "?"}
-                  </Badge>
-                </div>
-              </div>
-            </div>
-          ))}
-          {domains.length === 0 && (
-            <p className="text-xs text-[var(--text-muted)]">
-              Brak domen. Dodawanie domen wymaga DNS verification w Postal Web
-              UI (https://postal.myperformance.pl) — pojawią się tu po
-              dodaniu.
-            </p>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Catalog ─────────────────────────────────────────────────────────────────
-
-function CatalogPanel() {
-  const [entries, setEntries] = useState<CatalogEntry[]>([]);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    api
-      .get<{ entries: CatalogEntry[] }>("/api/admin/email/catalog")
-      .then((r) => setEntries(r.entries))
-      .catch((err) =>
-        setError(err instanceof ApiRequestError ? err.message : "Load failed"),
-      );
-  }, []);
-
-  if (error) return <Alert tone="error">{error}</Alert>;
-
-  const byApp = entries.reduce<Record<string, CatalogEntry[]>>((acc, e) => {
-    (acc[e.appLabel] ??= []).push(e);
-    return acc;
-  }, {});
-
-  return (
-    <div className="space-y-4">
-      <Card padding="md">
-        <div className="flex gap-3 items-start">
-          <Info className="w-5 h-5 text-sky-400 flex-shrink-0 mt-0.5" />
-          <div className="text-xs text-[var(--text-muted)]">
-            Read-only inwentaryzacja każdego maila wysyłanego przez stack.
-            Etykiety na końcu każdego wpisu mówią <strong>gdzie</strong> jest
-            edytowalna treść:
-            <span className="ml-1">
-              <Badge tone="success">edytuj tutaj</Badge> = w zakładce
-              &bdquo;Treść maili Keycloak&rdquo;,
-            </span>
-            <span className="ml-1">
-              <Badge tone="warning">tylko branding</Badge> = treść hardcoded,
-              ale brand-vars dochodzą,
-            </span>
-            <span className="ml-1">
-              <Badge tone="neutral">tylko fork</Badge> = zmiana wymaga forka
-              repo aplikacji.
-            </span>
-          </div>
-        </div>
-      </Card>
-
-      {Object.entries(byApp).map(([app, list]) => (
-        <Card key={app} padding="lg">
-          <h3 className="text-sm font-semibold text-[var(--text-main)] mb-3">
-            {app}{" "}
-            <span className="text-[var(--text-muted)] font-normal">
-              ({list.length} mail{list.length === 1 ? "" : "e"})
-            </span>
-          </h3>
-          <div className="space-y-2">
-            {list.map((e) => (
-              <CatalogRow key={`${e.app}:${e.id}`} entry={e} />
-            ))}
-          </div>
         </Card>
-      ))}
-    </div>
-  );
-}
-
-function CatalogRow({ entry }: { entry: CatalogEntry }) {
-  const [expanded, setExpanded] = useState(false);
-  return (
-    <div className="border border-[var(--border-subtle)] rounded-lg">
-      <button
-        type="button"
-        className="w-full text-left p-3 flex items-start justify-between gap-2"
-        onClick={() => setExpanded(!expanded)}
-      >
-        <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium">{entry.name}</div>
-          <div className="text-xs text-[var(--text-muted)] mt-0.5">
-            <strong>Trigger:</strong> {entry.trigger}
-          </div>
-        </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <EditableBadge editable={entry.editable} />
-          <ChevronRight
-            className={`w-4 h-4 text-[var(--text-muted)] transition-transform ${expanded ? "rotate-90" : ""}`}
-          />
-        </div>
-      </button>
-      {expanded && (
-        <div className="border-t border-[var(--border-subtle)] p-3 bg-[var(--bg-main)]/30 space-y-3">
-          {entry.variables.length > 0 && (
-            <div>
-              <div className="text-[11px] uppercase text-[var(--text-muted)] mb-1.5">
-                Zmienne dostępne w treści
-              </div>
-              <div className="grid md:grid-cols-2 gap-1.5">
-                {entry.variables.map((v) => (
-                  <div
-                    key={v.key}
-                    className="text-[11px] flex items-baseline gap-2"
-                  >
-                    <code className="px-1.5 py-0.5 rounded bg-[var(--bg-surface)] border border-[var(--border-subtle)]">
-                      {`{{${v.key}}}`}
-                    </code>
-                    <span className="text-[var(--text-muted)]">
-                      — {v.description}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-          {entry.attachments.length > 0 && (
-            <div>
-              <div className="text-[11px] uppercase text-[var(--text-muted)] mb-1.5">
-                Załączniki
-              </div>
-              {entry.attachments.map((a) => (
-                <div key={a.name} className="text-[11px] text-[var(--text-muted)]">
-                  <Badge tone="neutral" className="mr-1">
-                    {a.type}
-                  </Badge>
-                  <strong className="text-[var(--text-main)]">{a.name}</strong>{" "}
-                  — {a.description}
-                </div>
-              ))}
-            </div>
-          )}
-          {entry.editable.kind === "branding-only" && (
-            <div className="text-[11px] text-[var(--text-muted)] italic">
-              {entry.editable.note}
-            </div>
-          )}
-          {entry.editable.kind === "source-fork" && (
-            <a
-              href={entry.editable.sourceLink}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-[11px] inline-flex items-center gap-1 text-[var(--accent)] hover:underline"
-            >
-              Zobacz źródło szablonu w repo aplikacji{" "}
-              <ExternalLink className="w-3 h-3" />
-            </a>
-          )}
-        </div>
       )}
-    </div>
-  );
-}
-
-function EditableBadge({ editable }: { editable: CatalogEntry["editable"] }) {
-  if (editable.kind === "kc-localization") {
-    return <Badge tone="success">edytuj tutaj</Badge>;
-  }
-  if (editable.kind === "branding-only") {
-    return <Badge tone="warning">tylko branding</Badge>;
-  }
-  return <Badge tone="neutral">tylko fork</Badge>;
-}
-
-// ── Test send ───────────────────────────────────────────────────────────────
-
-function TestSendPanel() {
-  const [to, setTo] = useState("");
-  const [subject, setSubject] = useState("");
-  const [bodyText, setBodyText] = useState(
-    "Cześć {{recipient}},\n\nTo jest test z panelu admina dashboardu.\nMarka: {{brandName}}\nSupport: {{supportEmail}}\n\nPozdrawiamy,\n{{actor}}",
-  );
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<{ messageId: string; accepted: string[] } | null>(null);
-
-  async function send() {
-    setBusy(true);
-    setError(null);
-    setResult(null);
-    try {
-      const r = await api.post<
-        { messageId: string; accepted: string[] },
-        { to: string; subject?: string; body?: string }
-      >("/api/admin/email/test-send", {
-        to,
-        subject: subject || undefined,
-        body: bodyText,
-      });
-      setResult({ messageId: r.messageId, accepted: r.accepted });
-    } catch (err) {
-      setError(err instanceof ApiRequestError ? err.message : "Send failed");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="space-y-4">
-      <Card padding="md">
-        <div className="flex gap-3 items-start">
-          <Info className="w-5 h-5 text-sky-400 flex-shrink-0 mt-0.5" />
-          <div className="text-xs text-[var(--text-muted)]">
-            Wysyłka idzie przez ten sam SMTP gateway co cert-delivery — Postal
-            transactional. Jeśli mail nie dochodzi, sprawdź zakładkę &bdquo;Postal&rdquo; →
-            domeny → status DKIM/SPF (powinny być wszystkie zielone).
-          </div>
-        </div>
-      </Card>
-
-      <Card padding="lg">
-        <CardHeader
-          icon={<Send className="w-6 h-6 text-[var(--accent)]" />}
-          title="Wyślij testowy email"
-          description={
-            'Zmienne {{brandName}}, {{supportEmail}}, {{recipient}}, {{actor}} są podstawiane automatycznie z brandingu.'
-          }
-        />
-        {error && <Alert tone="error" className="mt-4">{error}</Alert>}
-        {result && (
-          <Alert tone="success" className="mt-4">
-            <strong>Wysłane.</strong> Message-ID:{" "}
-            <code className="text-[10px]">{result.messageId}</code>. Postal
-            zaakceptował: {result.accepted.join(", ")}.
-          </Alert>
-        )}
-        <div className="grid md:grid-cols-2 gap-4 mt-5">
-          <Input
-            label="Do (adres odbiorcy) *"
-            type="email"
-            required
-            placeholder="test@example.com"
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-          />
-          <Input
-            label="Temat (opcjonalny)"
-            value={subject}
-            onChange={(e) => setSubject(e.target.value)}
-            placeholder='Domyślny: "[Test] {brand} email gateway"'
-          />
-        </div>
-        <div className="mt-4">
-          <label className="text-xs text-[var(--text-muted)] mb-1 block">
-            Treść (text/plain). Użyj <code>{"{{brandName}}"}</code>,{" "}
-            <code>{"{{supportEmail}}"}</code>, <code>{"{{recipient}}"}</code>,{" "}
-            <code>{"{{actor}}"}</code> aby wstawiać dynamicznie.
-          </label>
-          <Textarea
-            rows={10}
-            value={bodyText}
-            onChange={(e) => setBodyText(e.target.value)}
-          />
-        </div>
-        <div className="mt-4 flex gap-2">
-          <Button
-            onClick={send}
-            loading={busy}
-            disabled={!to.trim()}
-            leftIcon={<Send className="w-4 h-4" />}
-          >
-            Wyślij
-          </Button>
-          <Button
-            variant="ghost"
-            leftIcon={<Eye className="w-4 h-4" />}
-            onClick={() =>
-              alert(
-                "Podgląd HTML znajduje się w surowej formie po wysłaniu. Pełen wizualny preview wymagałby renderowania HTML w iframe — w wersji MVP wysyłamy plain text + auto-generowany prosty HTML.",
-              )
-            }
-          >
-            Co dostanie odbiorca?
-          </Button>
-        </div>
-      </Card>
-
-      <Card padding="md">
-        <h3 className="text-sm font-semibold mb-2 flex items-center gap-2">
-          <Lock className="w-4 h-4 text-[var(--text-muted)]" /> Konfiguracja
-          gateway
-        </h3>
-        <p className="text-xs text-[var(--text-muted)]">
-          SMTP_HOST + SMTP_USER + SMTP_PASSWORD są w envach dashboardu (Coolify
-          → MyPerformance Dashboard). Aby zmienić skrzynkę przez którą wysyła
-          dashboard, idź do zakładki &bdquo;Postal&rdquo;, wygeneruj nowy klucz SMTP, i
-          podstaw go w Coolify env.
-        </p>
-      </Card>
     </div>
   );
 }
