@@ -1314,26 +1314,26 @@ function ServicesPanel({ certs }: { certs: IssuedCertificate[] }) {
                 }`}
               >
                 <div className="flex items-start justify-between gap-2 mb-3">
-                  <div>
-                    <div className="text-sm font-semibold text-[var(--text-main)]">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-semibold text-[var(--text-main)] truncate">
                       {p.label}
                     </div>
                     <a
                       href={`https://${p.domain}/`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-xs text-[var(--text-muted)] hover:text-[var(--accent)]"
+                      className="text-xs text-[var(--text-muted)] hover:text-[var(--accent)] truncate block"
                     >
                       {p.domain} ↗
                     </a>
                   </div>
                   {p.mtlsRequired ? (
-                    <Badge tone="success">
+                    <Badge tone="success" className="flex-shrink-0 whitespace-nowrap inline-flex items-center gap-1">
                       <Lock className="w-3 h-3" aria-hidden="true" />
                       mTLS wymagane
                     </Badge>
                   ) : (
-                    <Badge tone="warning">
+                    <Badge tone="warning" className="flex-shrink-0 whitespace-nowrap inline-flex items-center gap-1">
                       <Unlock className="w-3 h-3" aria-hidden="true" />
                       Otwarte
                     </Badge>

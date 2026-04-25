@@ -126,24 +126,39 @@ export async function GET(req: Request) {
     if (!coolifyToken) {
       return redirectWithMessage(origin, intent.returnTo, "err", "COOLIFY_API_TOKEN missing");
     }
-    const envRes = await fetch(`${apiBase.replace(/\/$/, "")}/applications/${uuid}/envs`, {
-      method: "PATCH",
-      headers: {
-        Authorization: `Bearer ${coolifyToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ key: "MTLS_REQUIRED", value: String(intent.params.mtlsRequired) }),
+    const envBody = JSON.stringify({
+      key: "MTLS_REQUIRED",
+      value: String(intent.params.mtlsRequired),
     });
+    const envHeaders = {
+      Authorization: `Bearer ${coolifyToken}`,
+      "Content-Type": "application/json",
+    };
+    // PATCH update istniejącego env. Gdy 404 — env jeszcze nie istnieje
+    // (pierwsze włączenie), tworzymy POSTem.
+    let envRes = await fetch(`${apiBase.replace(/\/$/, "")}/applications/${uuid}/envs`, {
+      method: "PATCH",
+      headers: envHeaders,
+      body: envBody,
+    });
+    if (envRes.status === 404) {
+      envRes = await fetch(`${apiBase.replace(/\/$/, "")}/applications/${uuid}/envs`, {
+        method: "POST",
+        headers: envHeaders,
+        body: envBody,
+      });
+    }
     if (!envRes.ok && envRes.status !== 201) {
+      const errBody = await envRes.text().catch(() => "");
       auditLog({
         ts: new Date().toISOString(),
         actor: actorEmail,
         action: "panel-mtls-toggle",
         subject: `${intent.params.role}=${intent.params.mtlsRequired}`,
         ok: false,
-        error: `Coolify env PATCH ${envRes.status}`,
+        error: `Coolify env ${envRes.status} ${errBody.slice(0, 100)}`,
       });
-      return redirectWithMessage(origin, intent.returnTo, "err", "Coolify env PATCH failed");
+      return redirectWithMessage(origin, intent.returnTo, "err", `Coolify env ${envRes.status}`);
     }
     const deployRes = await fetch(
       `${apiBase.replace(/\/$/, "")}/deploy?uuid=${uuid}&force=true`,
