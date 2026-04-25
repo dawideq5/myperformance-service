@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
-import { requireAdminPanel } from "@/lib/admin-auth";
+import { requireEmail } from "@/lib/admin-auth";
 import {
   KC_EMAIL_KEYS,
   ensureLocaleEnabled,
@@ -16,7 +16,7 @@ import {
 export async function GET(req: Request) {
   try {
     const session = await getServerSession(authOptions);
-    requireAdminPanel(session);
+    requireEmail(session);
     const url = new URL(req.url);
     const locale = url.searchParams.get("locale") || "pl";
     await ensureLocaleEnabled(locale);

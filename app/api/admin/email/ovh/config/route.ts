@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
-import { requireAdminPanel } from "@/lib/admin-auth";
+import { requireEmail } from "@/lib/admin-auth";
 import { getOvhConfig, updateOvhConfig } from "@/lib/email/db";
 import {
   ApiError,
@@ -13,7 +13,7 @@ import {
 export async function GET() {
   try {
     const session = await getServerSession(authOptions);
-    requireAdminPanel(session);
+    requireEmail(session);
     const config = await getOvhConfig();
     // Maskujemy sekrety dla bezpieczeństwa.
     return createSuccessResponse({
@@ -43,7 +43,7 @@ interface PutPayload {
 export async function PUT(req: Request) {
   try {
     const session = await getServerSession(authOptions);
-    requireAdminPanel(session);
+    requireEmail(session);
     const body = (await req.json().catch(() => null)) as PutPayload | null;
     if (!body) throw ApiError.badRequest("body required");
     // "***" oznacza "nie zmieniaj" — nie zapisujemy do DB.

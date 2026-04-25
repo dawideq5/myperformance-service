@@ -1,7 +1,7 @@
 import { getServerSession } from "next-auth/next";
 import { redirect } from "next/navigation";
 import { authOptions } from "@/app/auth";
-import { canAccessAdminPanel } from "@/lib/admin-auth";
+import { canAccessEmail } from "@/lib/admin-auth";
 import { EmailClient } from "./EmailClient";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +13,7 @@ export default async function AdminEmailPage() {
     redirect("/login");
   }
 
-  if (!canAccessAdminPanel(session)) {
+  if (!canAccessEmail(session)) {
     redirect("/forbidden");
   }
 

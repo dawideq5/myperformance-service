@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 import nodemailer from "nodemailer";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
-import { requireAdminPanel } from "@/lib/admin-auth";
+import { requireEmail } from "@/lib/admin-auth";
 import {
   ApiError,
   createSuccessResponse,
@@ -32,7 +32,7 @@ interface TestPayload {
 export async function POST(req: Request) {
   try {
     const session = await getServerSession(authOptions);
-    requireAdminPanel(session);
+    requireEmail(session);
     const body = (await req.json().catch(() => null)) as TestPayload | null;
     if (!body?.to || !body?.smtpHost || !body?.fromEmail) {
       throw ApiError.badRequest("to + smtpHost + fromEmail required");

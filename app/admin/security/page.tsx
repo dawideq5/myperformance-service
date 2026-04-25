@@ -1,7 +1,7 @@
 import { getServerSession } from "next-auth/next";
 import { redirect } from "next/navigation";
 import { authOptions } from "@/app/auth";
-import { canAccessAdminPanel } from "@/lib/admin-auth";
+import { canAccessSecurity } from "@/lib/admin-auth";
 import { SecurityClient } from "./SecurityClient";
 
 export const dynamic = "force-dynamic";
@@ -11,7 +11,7 @@ export default async function SecurityPage() {
   if (!session?.user || session.error === "RefreshTokenExpired") {
     redirect("/login");
   }
-  if (!canAccessAdminPanel(session)) {
+  if (!canAccessSecurity(session)) {
     redirect("/forbidden");
   }
   return (

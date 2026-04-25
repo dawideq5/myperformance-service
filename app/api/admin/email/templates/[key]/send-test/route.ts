@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 import nodemailer from "nodemailer";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
-import { requireAdminPanel } from "@/lib/admin-auth";
+import { requireEmail } from "@/lib/admin-auth";
 import {
   renderTemplate,
   exampleContextForAction,
@@ -34,7 +34,7 @@ interface SendTestPayload {
 export async function POST(req: Request, { params }: Ctx) {
   try {
     const session = await getServerSession(authOptions);
-    requireAdminPanel(session);
+    requireEmail(session);
     const { key } = await params;
     const action = actionByKey(key);
     if (!action) throw ApiError.notFound("Unknown action key");

@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
-import { requireAdminPanel } from "@/lib/admin-auth";
+import { requireEmail } from "@/lib/admin-auth";
 import {
   listSmtpConfigs,
   upsertSmtpConfig,
@@ -17,7 +17,7 @@ import {
 export async function GET() {
   try {
     const session = await getServerSession(authOptions);
-    requireAdminPanel(session);
+    requireEmail(session);
     const configs = await listSmtpConfigs();
     // Maskujemy hasło SMTP dla bezpieczeństwa.
     const masked = configs.map((c) => ({
@@ -48,7 +48,7 @@ interface PostPayload {
 export async function POST(req: Request) {
   try {
     const session = await getServerSession(authOptions);
-    requireAdminPanel(session);
+    requireEmail(session);
     const body = (await req.json().catch(() => null)) as PostPayload | null;
     if (!body?.alias || !body?.label || !body?.smtpHost || !body?.fromEmail) {
       throw ApiError.badRequest("alias + label + smtpHost + fromEmail required");
@@ -68,7 +68,7 @@ export async function POST(req: Request) {
 export async function DELETE(req: Request) {
   try {
     const session = await getServerSession(authOptions);
-    requireAdminPanel(session);
+    requireEmail(session);
     const url = new URL(req.url);
     const id = url.searchParams.get("id");
     if (!id) throw ApiError.badRequest("id required");

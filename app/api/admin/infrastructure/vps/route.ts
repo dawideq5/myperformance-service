@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
-import { requireAdminPanel } from "@/lib/admin-auth";
+import { requireInfrastructure } from "@/lib/admin-auth";
 import { getOvhConfig } from "@/lib/email/db";
 import {
   listVps,
@@ -20,7 +20,7 @@ import {
 export async function GET() {
   try {
     const session = await getServerSession(authOptions);
-    requireAdminPanel(session);
+    requireInfrastructure(session);
     const config = await getOvhConfig();
     if (!config.appKey || !config.appSecret || !config.consumerKey) {
       throw new ApiError(

@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 import nodemailer from "nodemailer";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
-import { requireAdminPanel } from "@/lib/admin-auth";
+import { requireEmail } from "@/lib/admin-auth";
 import { getOptionalEnv } from "@/lib/env";
 import { getBranding } from "@/lib/email/db";
 import {
@@ -29,7 +29,7 @@ interface Payload {
 export async function POST(req: Request) {
   try {
     const session = await getServerSession(authOptions);
-    requireAdminPanel(session);
+    requireEmail(session);
     const body = (await req.json().catch(() => null)) as Payload | null;
     if (!body?.to) throw ApiError.badRequest("to required");
 

@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
-import { requireAdminPanel } from "@/lib/admin-auth";
+import { requireEmail } from "@/lib/admin-auth";
 import {
   isConfigured,
   listServers,
@@ -18,7 +18,7 @@ import {
 export async function GET(req: Request) {
   try {
     const session = await getServerSession(authOptions);
-    requireAdminPanel(session);
+    requireEmail(session);
     if (!isConfigured()) {
       return createSuccessResponse({ servers: [], configured: false });
     }
@@ -41,7 +41,7 @@ interface PostPayload {
 export async function POST(req: Request) {
   try {
     const session = await getServerSession(authOptions);
-    requireAdminPanel(session);
+    requireEmail(session);
     if (!isConfigured()) {
       throw new ApiError("SERVICE_UNAVAILABLE", "POSTAL_DB_URL not configured", 503);
     }

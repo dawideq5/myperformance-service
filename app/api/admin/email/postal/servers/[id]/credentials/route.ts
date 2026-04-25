@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
-import { requireAdminPanel } from "@/lib/admin-auth";
+import { requireEmail } from "@/lib/admin-auth";
 import {
   listCredentials,
   createCredential,
@@ -22,7 +22,7 @@ interface Ctx {
 export async function GET(_req: Request, { params }: Ctx) {
   try {
     const session = await getServerSession(authOptions);
-    requireAdminPanel(session);
+    requireEmail(session);
     const { id } = await params;
     const credentials = await listCredentials(Number(id));
     return createSuccessResponse({ credentials });
@@ -39,7 +39,7 @@ interface PostPayload {
 export async function POST(req: Request, { params }: Ctx) {
   try {
     const session = await getServerSession(authOptions);
-    requireAdminPanel(session);
+    requireEmail(session);
     const { id } = await params;
     const body = (await req.json().catch(() => null)) as PostPayload | null;
     if (!body?.type || !body?.name) {
@@ -67,7 +67,7 @@ export async function POST(req: Request, { params }: Ctx) {
 export async function DELETE(req: Request, { params }: Ctx) {
   try {
     const session = await getServerSession(authOptions);
-    requireAdminPanel(session);
+    requireEmail(session);
     await params;
     const url = new URL(req.url);
     const credId = url.searchParams.get("credId");

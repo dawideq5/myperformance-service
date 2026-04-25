@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
-import { requireAdminPanel } from "@/lib/admin-auth";
+import { requireInfrastructure } from "@/lib/admin-auth";
 import { getOvhConfig } from "@/lib/email/db";
 import {
   listDnsRecords,
@@ -33,7 +33,7 @@ async function getCreds() {
 export async function GET(req: Request) {
   try {
     const session = await getServerSession(authOptions);
-    requireAdminPanel(session);
+    requireInfrastructure(session);
     const url = new URL(req.url);
     const zone = url.searchParams.get("zone");
     if (!zone) throw ApiError.badRequest("zone query required");
@@ -67,7 +67,7 @@ interface PostPayload {
 export async function POST(req: Request) {
   try {
     const session = await getServerSession(authOptions);
-    requireAdminPanel(session);
+    requireInfrastructure(session);
     const body = (await req.json().catch(() => null)) as PostPayload | null;
     if (!body?.zone || !body?.fieldType || body?.subDomain === undefined || !body?.target) {
       throw ApiError.badRequest("zone + fieldType + subDomain + target required");
@@ -89,7 +89,7 @@ export async function POST(req: Request) {
 export async function DELETE(req: Request) {
   try {
     const session = await getServerSession(authOptions);
-    requireAdminPanel(session);
+    requireInfrastructure(session);
     const url = new URL(req.url);
     const zone = url.searchParams.get("zone");
     const id = url.searchParams.get("id");

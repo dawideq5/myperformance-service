@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
-import { requireAdminPanel } from "@/lib/admin-auth";
+import { requireEmail } from "@/lib/admin-auth";
 import { updateServer, deleteServer } from "@/lib/email/postal";
 import { appendPostalAudit } from "@/lib/email/db";
 import {
@@ -24,7 +24,7 @@ interface PatchPayload {
 export async function PATCH(req: Request, { params }: Ctx) {
   try {
     const session = await getServerSession(authOptions);
-    requireAdminPanel(session);
+    requireEmail(session);
     const { id } = await params;
     const body = (await req.json().catch(() => null)) as PatchPayload | null;
     if (!body) throw ApiError.badRequest("body required");
@@ -46,7 +46,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
 export async function DELETE(_req: Request, { params }: Ctx) {
   try {
     const session = await getServerSession(authOptions);
-    requireAdminPanel(session);
+    requireEmail(session);
     const { id } = await params;
     await deleteServer(Number(id));
     await appendPostalAudit({

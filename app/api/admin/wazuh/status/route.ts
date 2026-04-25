@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
-import { requireAdminPanel } from "@/lib/admin-auth";
+import { requireSecurity } from "@/lib/admin-auth";
 import { withClient } from "@/lib/db";
 import { getOptionalEnv } from "@/lib/env";
 import { createSuccessResponse, handleApiError } from "@/lib/api-utils";
@@ -35,7 +35,7 @@ interface WazuhStatus {
 export async function GET() {
   try {
     const session = await getServerSession(authOptions);
-    requireAdminPanel(session);
+    requireSecurity(session);
 
     return await withClient(async (c) => {
       const ev24h = await c.query<{ severity: string; count: string }>(

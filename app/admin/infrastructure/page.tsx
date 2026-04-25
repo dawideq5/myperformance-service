@@ -1,7 +1,7 @@
 import { getServerSession } from "next-auth/next";
 import { redirect } from "next/navigation";
 import { authOptions } from "@/app/auth";
-import { canAccessAdminPanel } from "@/lib/admin-auth";
+import { canAccessInfrastructure } from "@/lib/admin-auth";
 import { InfrastructureClient } from "./InfrastructureClient";
 
 export const dynamic = "force-dynamic";
@@ -11,7 +11,7 @@ export default async function InfrastructurePage() {
   if (!session?.user || session.error === "RefreshTokenExpired") {
     redirect("/login");
   }
-  if (!canAccessAdminPanel(session)) {
+  if (!canAccessInfrastructure(session)) {
     redirect("/forbidden");
   }
   return (

@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
-import { requireAdminPanel } from "@/lib/admin-auth";
+import { requireEmail } from "@/lib/admin-auth";
 import {
   ensureDefaultLayout,
   listLayouts,
@@ -17,7 +17,7 @@ import {
 export async function GET() {
   try {
     const session = await getServerSession(authOptions);
-    requireAdminPanel(session);
+    requireEmail(session);
     await ensureDefaultLayout();
     const layouts = await listLayouts();
     return createSuccessResponse({ layouts });
@@ -37,7 +37,7 @@ interface PostPayload {
 export async function POST(req: Request) {
   try {
     const session = await getServerSession(authOptions);
-    requireAdminPanel(session);
+    requireEmail(session);
     const body = (await req.json().catch(() => null)) as PostPayload | null;
     if (!body?.slug || !body?.name || !body?.html) {
       throw ApiError.badRequest("slug + name + html required");

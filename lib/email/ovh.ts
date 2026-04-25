@@ -408,14 +408,18 @@ export async function createSnapshot(
   name: string,
   description: string,
 ): Promise<{ id: number }> {
+  // OVH VPS API: POST /vps/{serviceName}/createSnapshot (not /snapshot —
+  // tamto jest tylko GET/DELETE/PUT na istniejący snapshot).
   const res = await ovhRequest<{ id: number }>(
     creds,
     "POST",
-    `/vps/${encodeURIComponent(name)}/snapshot`,
+    `/vps/${encodeURIComponent(name)}/createSnapshot`,
     { description },
   );
-  if (!res.ok) throw new Error(`OVH createSnapshot ${res.status} ${res.error?.message ?? ""}`);
-  return res.data!;
+  if (!res.ok) {
+    throw new Error(`OVH createSnapshot ${res.status} ${res.error?.message ?? ""}`);
+  }
+  return res.data ?? { id: 0 };
 }
 
 export interface VpsIp {

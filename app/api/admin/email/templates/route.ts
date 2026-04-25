@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
-import { requireAdminPanel } from "@/lib/admin-auth";
+import { requireEmail } from "@/lib/admin-auth";
 import { listTemplates } from "@/lib/email/db";
 import { EMAIL_ACTIONS } from "@/lib/email/templates-catalog";
 import { createSuccessResponse, handleApiError } from "@/lib/api-utils";
@@ -10,7 +10,7 @@ import { createSuccessResponse, handleApiError } from "@/lib/api-utils";
 export async function GET() {
   try {
     const session = await getServerSession(authOptions);
-    requireAdminPanel(session);
+    requireEmail(session);
     const stored = await listTemplates();
     const storedMap = new Map(stored.map((t) => [t.actionKey, t]));
     // Merge: dla każdej akcji z katalogu, jeśli mamy override w DB → zwróć

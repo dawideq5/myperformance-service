@@ -55,6 +55,15 @@ export const ROLES = {
   KNOWLEDGE_VIEWER: "knowledge_viewer",
   KNOWLEDGE_EDITOR: "knowledge_editor",
   KNOWLEDGE_ADMIN: "knowledge_admin",
+
+  // Wazuh SIEM
+  WAZUH_READONLY: "wazuh_readonly",
+  WAZUH_ADMIN: "wazuh_admin",
+
+  // Dashboard admin sections — niezależne od Keycloak admin
+  INFRASTRUCTURE_ADMIN: "infrastructure_admin",
+  EMAIL_ADMIN: "email_admin",
+  SECURITY_ADMIN: "security_admin",
 } as const;
 
 export type AppRole = (typeof ROLES)[keyof typeof ROLES];
@@ -93,6 +102,13 @@ export const ROLE_CATALOG: RoleSpec[] = [
   { name: ROLES.KNOWLEDGE_VIEWER, description: "Outline: widz (tylko odczyt)", default: false },
   { name: ROLES.KNOWLEDGE_EDITOR, description: "Outline: edytor (tworzenie i edycja)", default: true },
   { name: ROLES.KNOWLEDGE_ADMIN, description: "Outline: administrator", default: false },
+
+  { name: ROLES.WAZUH_READONLY, description: "Wazuh SIEM: read-only", default: false },
+  { name: ROLES.WAZUH_ADMIN, description: "Wazuh SIEM: administrator", default: false },
+
+  { name: ROLES.INFRASTRUCTURE_ADMIN, description: "/admin/infrastructure — VPS, DNS, snapshoty, backupy, maintenance mode", default: false },
+  { name: ROLES.EMAIL_ADMIN, description: "/admin/email — branding, KC templates, Postal, catalog", default: false },
+  { name: ROLES.SECURITY_ADMIN, description: "/admin/security — events, blocks, Wazuh agregacja", default: false },
 ];
 
 /**
@@ -147,10 +163,40 @@ export function canAccessPanel(
   return hasRole(session, PANEL_ROLES[panel]);
 }
 
+/**
+ * "Dowolny panel admin" — true gdy user ma którąkolwiek z dedykowanych
+ * ról administracyjnych (lub jest superadmin). Używane przy renderowaniu
+ * łącznika do /admin w nawigacji.
+ */
 export function canAccessAdminPanel(
   session: Session | null | undefined,
 ): boolean {
-  return canAccessKeycloakAdmin(session);
+  return hasAnyRole(session, [
+    ROLES.KEYCLOAK_ADMIN,
+    ROLES.INFRASTRUCTURE_ADMIN,
+    ROLES.EMAIL_ADMIN,
+    ROLES.SECURITY_ADMIN,
+    ROLES.MANAGE_USERS,
+    ROLES.CERTIFICATES_ADMIN,
+  ]);
+}
+
+export function canAccessInfrastructure(
+  session: Session | null | undefined,
+): boolean {
+  return hasRole(session, ROLES.INFRASTRUCTURE_ADMIN);
+}
+
+export function canAccessEmail(
+  session: Session | null | undefined,
+): boolean {
+  return hasRole(session, ROLES.EMAIL_ADMIN);
+}
+
+export function canAccessSecurity(
+  session: Session | null | undefined,
+): boolean {
+  return hasRole(session, ROLES.SECURITY_ADMIN);
 }
 
 export function canAccessDirectus(
@@ -313,7 +359,34 @@ export function requireAdminPanel(
 ): asserts session is Session & { accessToken: string } {
   assertSession(session);
   if (!canAccessAdminPanel(session)) {
-    throw ApiError.forbidden("Missing role: keycloak_admin");
+    throw ApiError.forbidden("Missing admin role");
+  }
+}
+
+export function requireInfrastructure(
+  session: Session | null | undefined,
+): asserts session is Session & { accessToken: string } {
+  assertSession(session);
+  if (!canAccessInfrastructure(session)) {
+    throw ApiError.forbidden("Missing role: infrastructure_admin");
+  }
+}
+
+export function requireEmail(
+  session: Session | null | undefined,
+): asserts session is Session & { accessToken: string } {
+  assertSession(session);
+  if (!canAccessEmail(session)) {
+    throw ApiError.forbidden("Missing role: email_admin");
+  }
+}
+
+export function requireSecurity(
+  session: Session | null | undefined,
+): asserts session is Session & { accessToken: string } {
+  assertSession(session);
+  if (!canAccessSecurity(session)) {
+    throw ApiError.forbidden("Missing role: security_admin");
   }
 }
 

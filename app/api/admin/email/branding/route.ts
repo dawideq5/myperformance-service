@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
-import { requireAdminPanel } from "@/lib/admin-auth";
+import { requireEmail } from "@/lib/admin-auth";
 import { getBranding, updateBranding, type BrandingPatch } from "@/lib/email/db";
 import { listPropagationTargets } from "@/lib/email/branding";
 import {
@@ -14,7 +14,7 @@ import {
 export async function GET() {
   try {
     const session = await getServerSession(authOptions);
-    requireAdminPanel(session);
+    requireEmail(session);
     const branding = await getBranding();
     const targets = listPropagationTargets();
     return createSuccessResponse({ branding, targets });
@@ -26,7 +26,7 @@ export async function GET() {
 export async function PUT(req: Request) {
   try {
     const session = await getServerSession(authOptions);
-    requireAdminPanel(session);
+    requireEmail(session);
     const body = (await req.json().catch(() => null)) as BrandingPatch | null;
     if (!body || typeof body !== "object") {
       throw ApiError.badRequest("Invalid body");

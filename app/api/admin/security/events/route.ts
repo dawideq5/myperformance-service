@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
-import { requireAdminPanel } from "@/lib/admin-auth";
+import { requireSecurity } from "@/lib/admin-auth";
 import { listEvents, recordEvent, type Severity } from "@/lib/security/db";
 import {
   ApiError,
@@ -13,7 +13,7 @@ import {
 export async function GET(req: Request) {
   try {
     const session = await getServerSession(authOptions);
-    requireAdminPanel(session);
+    requireSecurity(session);
     const url = new URL(req.url);
     const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "100", 10), 500);
     const offset = parseInt(url.searchParams.get("offset") ?? "0", 10);
@@ -48,7 +48,7 @@ interface PostPayload {
 export async function POST(req: Request) {
   try {
     const session = await getServerSession(authOptions);
-    requireAdminPanel(session);
+    requireSecurity(session);
     const body = (await req.json().catch(() => null)) as PostPayload | null;
     if (!body?.severity || !body?.category || !body?.title || !body?.source) {
       throw ApiError.badRequest("severity + category + source + title required");

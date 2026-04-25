@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
-import { requireAdminPanel } from "@/lib/admin-auth";
+import { requireEmail } from "@/lib/admin-auth";
 import {
   getTemplate,
   upsertTemplate,
@@ -24,7 +24,7 @@ interface Ctx {
 export async function GET(_req: Request, { params }: Ctx) {
   try {
     const session = await getServerSession(authOptions);
-    requireAdminPanel(session);
+    requireEmail(session);
     const { key } = await params;
     const action = actionByKey(key);
     if (!action) throw ApiError.notFound("Unknown action key");
@@ -59,7 +59,7 @@ interface PatchPayload {
 export async function PATCH(req: Request, { params }: Ctx) {
   try {
     const session = await getServerSession(authOptions);
-    requireAdminPanel(session);
+    requireEmail(session);
     const { key } = await params;
     const action = actionByKey(key);
     if (!action) throw ApiError.notFound("Unknown action key");
@@ -90,7 +90,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
 export async function DELETE(_req: Request, { params }: Ctx) {
   try {
     const session = await getServerSession(authOptions);
-    requireAdminPanel(session);
+    requireEmail(session);
     const { key } = await params;
     await deleteTemplate(key);
     return createSuccessResponse({ ok: true });

@@ -341,6 +341,54 @@ export const AREAS: PermissionArea[] = [
     ],
   },
   {
+    id: "infrastructure",
+    label: "Infrastruktura OVH",
+    description: "VPS, DNS, snapshoty, backupy, maintenance mode (panel /admin/infrastructure).",
+    provider: "keycloak-only",
+    icon: "Server",
+    kcRoles: [
+      {
+        name: "infrastructure_admin",
+        label: "Administrator",
+        description:
+          "Pełny dostęp do panelu infrastruktury — OVH API, DNS records, snapshot/backup VPS, maintenance toggle.",
+        priority: 90,
+      },
+    ],
+  },
+  {
+    id: "email-admin",
+    label: "Email — centralne zarządzanie",
+    description: "Branding, szablony Keycloak, Postal admin, catalog (panel /admin/email).",
+    provider: "keycloak-only",
+    icon: "Mail",
+    kcRoles: [
+      {
+        name: "email_admin",
+        label: "Administrator",
+        description:
+          "Zarządzanie centralnym brandingiem, szablonami KC, Postal, mass-send.",
+        priority: 90,
+      },
+    ],
+  },
+  {
+    id: "security-admin",
+    label: "Bezpieczeństwo / SIEM",
+    description: "Panel /admin/security — agregacja zdarzeń, manualne blokady IP, integracja Wazuh.",
+    provider: "keycloak-only",
+    icon: "ShieldCheck",
+    kcRoles: [
+      {
+        name: "security_admin",
+        label: "Administrator",
+        description:
+          "Zarządzanie blokadami IP, przegląd security events, integracja Wazuh AR.",
+        priority: 90,
+      },
+    ],
+  },
+  {
     id: "core",
     label: "Dostęp do platformy",
     description: "Bazowa rola — auto-przypisywana każdemu zalogowanemu userowi.",

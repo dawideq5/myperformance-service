@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
-import { requireAdminPanel } from "@/lib/admin-auth";
+import { requireInfrastructure } from "@/lib/admin-auth";
 import { getOvhConfig } from "@/lib/email/db";
 import { createSnapshot } from "@/lib/email/ovh";
 import {
@@ -19,7 +19,7 @@ interface PostPayload {
 export async function POST(req: Request) {
   try {
     const session = await getServerSession(authOptions);
-    requireAdminPanel(session);
+    requireInfrastructure(session);
     const body = (await req.json().catch(() => null)) as PostPayload | null;
     if (!body?.vpsName) throw ApiError.badRequest("vpsName required");
 
