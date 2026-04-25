@@ -75,6 +75,9 @@ const ROLES = [
   { name: "knowledge_user",      description: "Baza wiedzy (Outline): czytanie i edycja artykułów",   default: true  },
   { name: "knowledge_admin",     description: "Baza wiedzy (Outline): administrator",                 default: false },
 
+  { name: "wazuh_admin",         description: "Wazuh SIEM: administrator (all_access)",                default: false },
+  { name: "wazuh_readonly",      description: "Wazuh SIEM: read-only access do dashboardu",            default: false },
+
   // panel realm-roles — used by both the mTLS panels and dashboard gating
   { name: "sprzedawca",          description: "Dostęp do panelu sprzedawcy",                           default: false },
   { name: "serwisant",           description: "Dostęp do panelu serwisanta",                           default: false },
@@ -192,6 +195,15 @@ const CLIENTS = [
     redirectUris: ["https://knowledge.myperformance.pl/auth/oidc.callback"],
     webOrigins: ["https://knowledge.myperformance.pl"],
     description: "Outline wiki — OIDC env OIDC_AUTH_URI/OIDC_TOKEN_URI/OIDC_USERINFO_URI; role sync przez dashboard providerem",
+  },
+  {
+    clientId: "wazuh", name: "Wazuh SIEM Dashboard",
+    publicClient: false, standardFlow: true,
+    rootUrl: "https://wazuh.myperformance.pl",
+    // Wazuh dashboard (OpenSearch Dashboards) OIDC callback
+    redirectUris: ["https://wazuh.myperformance.pl/auth/openid/login"],
+    webOrigins: ["https://wazuh.myperformance.pl"],
+    description: "Wazuh SIEM — OpenSearch Dashboards OIDC; mapowanie wazuh_admin → all_access przez roles_mapping.yml",
   },
 ];
 
