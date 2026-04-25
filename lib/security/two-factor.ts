@@ -1,25 +1,8 @@
 import { createHash, randomInt } from "crypto";
-import { Pool, type PoolClient } from "pg";
-import { getOptionalEnv } from "@/lib/env";
+import { withClient } from "@/lib/db";
 import { log } from "@/lib/logger";
 
 const logger = log.child({ module: "two-factor" });
-
-let pool: Pool | null = null;
-function getPool(): Pool {
-  const url = getOptionalEnv("DATABASE_URL").trim();
-  if (!url) throw new Error("DATABASE_URL not configured");
-  if (!pool) pool = new Pool({ connectionString: url, max: 3 });
-  return pool;
-}
-async function withClient<T>(fn: (c: PoolClient) => Promise<T>): Promise<T> {
-  const c = await getPool().connect();
-  try {
-    return await fn(c);
-  } finally {
-    c.release();
-  }
-}
 
 const CODE_LENGTH = 6;
 const TTL_MINUTES = 5;

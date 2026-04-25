@@ -1,6 +1,7 @@
-import { Pool, type PoolClient } from "pg";
+import { type PoolClient } from "pg";
 import { getOptionalEnv } from "@/lib/env";
 import { log } from "@/lib/logger";
+import { getPool } from "@/lib/db";
 
 /**
  * Schema for email / branding / postal admin features.
@@ -15,29 +16,11 @@ import { log } from "@/lib/logger";
 
 const logger = log.child({ module: "email-db" });
 
-let pool: Pool | null = null;
 let schemaReady: Promise<void> | null = null;
 
 function getDatabaseUrl(): string | null {
   const url = getOptionalEnv("DATABASE_URL").trim();
   return url.length > 0 ? url : null;
-}
-
-function getPool(): Pool {
-  const url = getDatabaseUrl();
-  if (!url) throw new Error("DATABASE_URL not configured");
-  if (!pool) {
-    pool = new Pool({
-      connectionString: url,
-      max: 3,
-      idleTimeoutMillis: 30_000,
-      connectionTimeoutMillis: 10_000,
-    });
-    pool.on("error", (err) => {
-      logger.error("pg pool error", { err: err.message });
-    });
-  }
-  return pool;
 }
 
 async function ensureSchema(client: PoolClient): Promise<void> {

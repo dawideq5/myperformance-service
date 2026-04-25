@@ -1,25 +1,4 @@
-import { Pool, type PoolClient } from "pg";
-import { getOptionalEnv } from "@/lib/env";
-
-let pool: Pool | null = null;
-
-function getPool(): Pool {
-  const url = getOptionalEnv("DATABASE_URL").trim();
-  if (!url) throw new Error("DATABASE_URL not configured");
-  if (!pool) {
-    pool = new Pool({ connectionString: url, max: 3, idleTimeoutMillis: 30_000 });
-  }
-  return pool;
-}
-
-async function withClient<T>(fn: (c: PoolClient) => Promise<T>): Promise<T> {
-  const c = await getPool().connect();
-  try {
-    return await fn(c);
-  } finally {
-    c.release();
-  }
-}
+import { withClient } from "@/lib/db";
 
 // ── Blocked IPs ─────────────────────────────────────────────────────────────
 

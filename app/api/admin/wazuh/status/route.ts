@@ -3,17 +3,9 @@ export const dynamic = "force-dynamic";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
 import { requireAdminPanel } from "@/lib/admin-auth";
-import { Pool } from "pg";
+import { withClient } from "@/lib/db";
 import { getOptionalEnv } from "@/lib/env";
 import { createSuccessResponse, handleApiError } from "@/lib/api-utils";
-
-let pool: Pool | null = null;
-function getPool(): Pool {
-  const url = getOptionalEnv("DATABASE_URL").trim();
-  if (!url) throw new Error("DATABASE_URL not configured");
-  if (!pool) pool = new Pool({ connectionString: url, max: 3 });
-  return pool;
-}
 
 interface WazuhStatus {
   deployed: boolean;
@@ -45,8 +37,7 @@ export async function GET() {
     const session = await getServerSession(authOptions);
     requireAdminPanel(session);
 
-    const c = await getPool().connect();
-    try {
+    return await withClient(async (c) => {
       const ev24h = await c.query<{ severity: string; count: string }>(
         `SELECT severity, COUNT(*)::text AS count
            FROM mp_security_events
@@ -129,9 +120,7 @@ export async function GET() {
         topSrcIps,
       };
       return createSuccessResponse(status);
-    } finally {
-      c.release();
-    }
+    });
   } catch (error) {
     return handleApiError(error);
   }
