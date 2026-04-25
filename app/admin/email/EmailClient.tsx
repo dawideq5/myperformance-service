@@ -2543,7 +2543,12 @@ function OvhPanel() {
   const [busy, setBusy] = useState(false);
   const [testResult, setTestResult] = useState<{
     ok: boolean;
-    account?: { nichandle?: string; email?: string; firstname?: string; name?: string };
+    status?: string;
+    rules?: Array<{ method: string; path: string }>;
+    credentialId?: number;
+    creation?: string;
+    expiration?: string | null;
+    lastUse?: string | null;
     error?: string;
     hint?: string;
   } | null>(null);
@@ -2752,20 +2757,53 @@ function OvhPanel() {
         </div>
 
         {testResult && (
-          <div className="mt-4">
+          <div className="mt-4 space-y-2">
             {testResult.ok ? (
               <Alert tone="success">
-                <strong>Połączenie OK.</strong> Konto:{" "}
-                <code>{testResult.account?.nichandle}</code> ({testResult.account?.firstname} {testResult.account?.name},{" "}
-                {testResult.account?.email}).
+                <div>
+                  <strong>Połączenie OK.</strong> Status:{" "}
+                  <code>{testResult.status}</code>
+                  {testResult.credentialId !== undefined && (
+                    <> · credential #{testResult.credentialId}</>
+                  )}
+                </div>
+                {testResult.creation && (
+                  <div className="text-[11px] mt-1 opacity-80">
+                    Utworzony:{" "}
+                    {new Date(testResult.creation).toLocaleString("pl-PL")}
+                    {testResult.lastUse && (
+                      <> · ostatnio użyty:{" "}
+                      {new Date(testResult.lastUse).toLocaleString("pl-PL")}</>
+                    )}
+                  </div>
+                )}
               </Alert>
             ) : (
               <Alert tone="error">
-                <div><strong>Test nieudany:</strong> {testResult.error}</div>
+                <div>
+                  <strong>Test nieudany:</strong> {testResult.error}
+                </div>
                 {testResult.hint && (
                   <div className="mt-2 text-xs">{testResult.hint}</div>
                 )}
               </Alert>
+            )}
+            {testResult.rules && testResult.rules.length > 0 && (
+              <Card padding="md" className="bg-[var(--bg-main)]">
+                <div className="text-[11px] uppercase text-[var(--text-muted)] mb-2">
+                  Uprawnienia tego Consumer Key
+                </div>
+                <div className="grid gap-1">
+                  {testResult.rules.map((r, i) => (
+                    <code
+                      key={i}
+                      className="text-[11px] text-[var(--text-main)]"
+                    >
+                      {r.method} {r.path}
+                    </code>
+                  ))}
+                </div>
+              </Card>
             )}
           </div>
         )}

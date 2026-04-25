@@ -113,51 +113,62 @@ export async function ovhRequest<T = unknown>(
 }
 
 /**
- * Sprawdza czy credentials działają (czy consumer key jest aktywny).
- * Wywołuje GET /me — zwraca podstawowe info o koncie.
+ * Sprawdza czy credentials działają. Używa /auth/currentCredential —
+ * zawsze dostępne dla zwalidowanego Consumer Key (nie wymaga osobnego
+ * uprawnienia w rules). Zwraca status + rules + creation date.
  */
 export async function verifyCredentials(
   creds: OvhCredentials,
 ): Promise<{
   ok: boolean;
-  account?: { nichandle?: string; email?: string; firstname?: string; name?: string };
+  status?: string;
+  rules?: Array<{ method: string; path: string }>;
+  applicationId?: number;
+  credentialId?: number;
+  creation?: string;
+  expiration?: string | null;
+  lastUse?: string | null;
   error?: string;
   hint?: string;
 }> {
   const res = await ovhRequest<{
-    nichandle: string;
-    email: string;
-    firstname: string;
-    name: string;
-  }>(creds, "GET", "/me");
+    status: string;
+    rules: Array<{ method: string; path: string }>;
+    applicationId: number;
+    credentialId: number;
+    creation: string;
+    expiration: string | null;
+    lastUse: string | null;
+  }>(creds, "GET", "/auth/currentCredential");
   if (res.ok && res.data) {
     return {
-      ok: true,
-      account: {
-        nichandle: res.data.nichandle,
-        email: res.data.email,
-        firstname: res.data.firstname,
-        name: res.data.name,
-      },
+      ok: res.data.status === "validated",
+      status: res.data.status,
+      rules: res.data.rules,
+      applicationId: res.data.applicationId,
+      credentialId: res.data.credentialId,
+      creation: res.data.creation,
+      expiration: res.data.expiration,
+      lastUse: res.data.lastUse,
+      hint:
+        res.data.status === "validated"
+          ? undefined
+          : `Status: ${res.data.status}. Klucz nie jest jeszcze zwalidowany — przejdź validation URL z OVH createToken.`,
     };
   }
-  // Przyjazne wskazówki
   let hint: string | undefined;
   if (res.status === 403) {
     if (res.error?.errorCode === "INVALID_CREDENTIAL") {
       hint =
-        'Consumer Key nie został zwalidowany. Po wygenerowaniu na createToken/ OVH wymaga że KLIKNIESZ w "validation URL" zwrócony w odpowiedzi (zwykle wysyłany na email lub wyświetlony w UI). Bez tego klucz nie ma dostępu.';
-    } else if (res.error?.errorCode === "NOT_GRANTED_CALL") {
-      hint =
-        "Consumer Key nie ma uprawnień do tego endpointu. Wygeneruj nowy token z odpowiednimi rights (GET /me, GET /domain, GET /email/domain itp).";
+        'Consumer Key nie zwalidowany. Po wygenerowaniu na createToken OVH zwraca "validationUrl" — kliknij i potwierdź uprawnienia.';
     } else {
       hint =
-        "403 Forbidden — sprawdź: 1) czy App Key, App Secret i Consumer Key są poprawne (brak literówek), 2) czy Consumer Key został zaakceptowany (validation URL).";
+        "403 — App Key, App Secret lub Consumer Key niepoprawny. Sprawdź pisownię (App Key to 16 hex chars, np. cyfra 3 nie cyrylica З).";
     }
   } else if (res.status === 401) {
-    hint = "Nieprawidłowy podpis — sprawdź App Secret i Consumer Key.";
+    hint = "Nieprawidłowy podpis — sprawdź App Secret.";
   } else if (res.status === 404) {
-    hint = "Endpoint nie istnieje — może wybrałeś zły OVH endpoint (eu/us/ca).";
+    hint = "Wybrany endpoint regionu (eu/us/ca) nie pasuje do konta OVH.";
   }
   return {
     ok: false,
