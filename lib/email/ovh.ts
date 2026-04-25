@@ -250,3 +250,189 @@ export async function listDomains(
   }
   return res.data ?? [];
 }
+
+// ── DNS zone management ─────────────────────────────────────────────────────
+
+export interface DnsRecord {
+  id: number;
+  fieldType: string;
+  subDomain: string;
+  target: string;
+  ttl: number;
+  zone: string;
+}
+
+export async function listDnsRecords(
+  creds: OvhCredentials,
+  zone: string,
+  filter?: { fieldType?: string; subDomain?: string },
+): Promise<number[]> {
+  const qs = new URLSearchParams();
+  if (filter?.fieldType) qs.set("fieldType", filter.fieldType);
+  if (filter?.subDomain) qs.set("subDomain", filter.subDomain);
+  const path = `/domain/zone/${encodeURIComponent(zone)}/record${qs.toString() ? `?${qs}` : ""}`;
+  const res = await ovhRequest<number[]>(creds, "GET", path);
+  if (!res.ok) throw new Error(`OVH listDnsRecords ${res.status}`);
+  return res.data ?? [];
+}
+
+export async function getDnsRecord(
+  creds: OvhCredentials,
+  zone: string,
+  id: number,
+): Promise<DnsRecord> {
+  const res = await ovhRequest<DnsRecord>(
+    creds,
+    "GET",
+    `/domain/zone/${encodeURIComponent(zone)}/record/${id}`,
+  );
+  if (!res.ok) throw new Error(`OVH getDnsRecord ${res.status}`);
+  return res.data!;
+}
+
+export async function createDnsRecord(
+  creds: OvhCredentials,
+  zone: string,
+  record: { fieldType: string; subDomain: string; target: string; ttl?: number },
+): Promise<DnsRecord> {
+  const res = await ovhRequest<DnsRecord>(
+    creds,
+    "POST",
+    `/domain/zone/${encodeURIComponent(zone)}/record`,
+    record,
+  );
+  if (!res.ok) throw new Error(`OVH createDnsRecord ${res.status} ${res.error?.message ?? ""}`);
+  return res.data!;
+}
+
+export async function deleteDnsRecord(
+  creds: OvhCredentials,
+  zone: string,
+  id: number,
+): Promise<void> {
+  const res = await ovhRequest(
+    creds,
+    "DELETE",
+    `/domain/zone/${encodeURIComponent(zone)}/record/${id}`,
+  );
+  if (!res.ok) throw new Error(`OVH deleteDnsRecord ${res.status}`);
+}
+
+export async function refreshDnsZone(
+  creds: OvhCredentials,
+  zone: string,
+): Promise<void> {
+  const res = await ovhRequest(
+    creds,
+    "POST",
+    `/domain/zone/${encodeURIComponent(zone)}/refresh`,
+    {},
+  );
+  if (!res.ok) throw new Error(`OVH refreshDnsZone ${res.status}`);
+}
+
+// ── VPS ─────────────────────────────────────────────────────────────────────
+
+export interface VpsInfo {
+  name: string;
+  displayName: string;
+  state: string;
+  zone: string;
+  netbootMode: string;
+  vcore: number;
+  memoryLimit: number;
+  offerType: string;
+  model: { name: string; disk: number; memory: number; vcore: number };
+  iam?: { state: string; urn: string };
+}
+
+export async function listVps(creds: OvhCredentials): Promise<string[]> {
+  const res = await ovhRequest<string[]>(creds, "GET", "/vps");
+  if (!res.ok) throw new Error(`OVH listVps ${res.status}`);
+  return res.data ?? [];
+}
+
+export async function getVpsInfo(
+  creds: OvhCredentials,
+  name: string,
+): Promise<VpsInfo> {
+  const res = await ovhRequest<VpsInfo>(creds, "GET", `/vps/${encodeURIComponent(name)}`);
+  if (!res.ok) throw new Error(`OVH getVpsInfo ${res.status}`);
+  return res.data!;
+}
+
+export interface VpsAutomatedBackup {
+  state: string;
+  schedule: string;
+  serviceResourceName: string;
+  rotation: number;
+}
+
+export async function getAutomatedBackup(
+  creds: OvhCredentials,
+  name: string,
+): Promise<VpsAutomatedBackup | null> {
+  const res = await ovhRequest<VpsAutomatedBackup>(
+    creds,
+    "GET",
+    `/vps/${encodeURIComponent(name)}/automatedBackup`,
+  );
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`OVH getAutomatedBackup ${res.status}`);
+  return res.data!;
+}
+
+export interface VpsSnapshot {
+  id: string;
+  description: string;
+  creationDate: string;
+  region: string;
+}
+
+export async function getSnapshot(
+  creds: OvhCredentials,
+  name: string,
+): Promise<VpsSnapshot | null> {
+  const res = await ovhRequest<VpsSnapshot>(
+    creds,
+    "GET",
+    `/vps/${encodeURIComponent(name)}/snapshot`,
+  );
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`OVH getSnapshot ${res.status}`);
+  return res.data!;
+}
+
+export async function createSnapshot(
+  creds: OvhCredentials,
+  name: string,
+  description: string,
+): Promise<{ id: number }> {
+  const res = await ovhRequest<{ id: number }>(
+    creds,
+    "POST",
+    `/vps/${encodeURIComponent(name)}/snapshot`,
+    { description },
+  );
+  if (!res.ok) throw new Error(`OVH createSnapshot ${res.status} ${res.error?.message ?? ""}`);
+  return res.data!;
+}
+
+export interface VpsIp {
+  ipAddress: string;
+  type: string;
+  reverse?: string;
+}
+
+export async function getVpsIps(
+  creds: OvhCredentials,
+  name: string,
+): Promise<string[]> {
+  const res = await ovhRequest<string[]>(
+    creds,
+    "GET",
+    `/vps/${encodeURIComponent(name)}/ips`,
+  );
+  if (!res.ok) return [];
+  return res.data ?? [];
+}

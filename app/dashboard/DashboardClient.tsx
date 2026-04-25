@@ -15,6 +15,7 @@ import {
   KeyRound,
   Library,
   Mail,
+  Server,
   MessageSquare,
   Plug,
   School,
@@ -317,6 +318,18 @@ function TileGrid() {
             description="Centralny panel: branding, szablony Keycloak, Postal (serwery/skrzynki/domeny), test send"
             onClick={() => {
               window.location.href = "/admin/email";
+            }}
+          />
+        )}
+
+        {showAdminUsers && (
+          <Tile
+            icon={<Server className="w-7 h-7 text-indigo-500" aria-hidden="true" />}
+            iconBg="bg-indigo-500/10"
+            title="Infrastruktura OVH"
+            description="VPS info, automated backup, snapshoty, DNS zone, domeny, IP, bandwidth — pełna integracja OVH Cloud"
+            onClick={() => {
+              window.location.href = "/admin/infrastructure";
             }}
           />
         )}

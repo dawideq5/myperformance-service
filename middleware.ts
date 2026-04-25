@@ -26,6 +26,39 @@ const logger = log.child({ module: "middleware" });
 
 const userinfoCache = new Map<string, { valid: boolean; expiresAt: number }>();
 
+// Cache maintenance status — middleware nie powinien zapytać DB na każdy
+// request. 30s TTL — admin dostaje "live" feedback przy włączaniu/wyłączaniu.
+let maintenanceCache: { active: boolean; checkedAt: number } | null = null;
+const MAINTENANCE_TTL_MS = 30_000;
+
+async function isMaintenanceMode(req: Request): Promise<boolean> {
+  const now = Date.now();
+  if (maintenanceCache && now - maintenanceCache.checkedAt < MAINTENANCE_TTL_MS) {
+    return maintenanceCache.active;
+  }
+  try {
+    const baseUrl = new URL(req.url);
+    baseUrl.pathname = "/api/maintenance/status";
+    baseUrl.search = "";
+    const res = await fetch(baseUrl.toString(), {
+      cache: "no-store",
+      signal: AbortSignal.timeout(2_000),
+    });
+    if (!res.ok) {
+      maintenanceCache = { active: false, checkedAt: now };
+      return false;
+    }
+    const data = (await res.json()) as { enabled?: boolean };
+    const active = !!data.enabled;
+    maintenanceCache = { active, checkedAt: now };
+    return active;
+  } catch {
+    // Fail-open: gdy endpoint down, nie blokujemy ruchu.
+    maintenanceCache = { active: false, checkedAt: now };
+    return false;
+  }
+}
+
 function tokenCacheKey(accessToken: string): string {
   return createHash("sha256").update(accessToken).digest("hex").slice(0, 16);
 }
@@ -197,9 +230,45 @@ export default withAuth(
     // Propagate X-Request-Id inbound to downstream handlers and back to client.
     (req.headers as Headers).set(REQUEST_ID_HEADER, requestId);
 
-    if (!isProtected) return passThrough();
-
     const isApi = pathname.startsWith("/api/");
+
+    // ── Maintenance mode ─────────────────────────────────────────────────
+    // Sprawdzamy DLA wszystkich ścieżek prócz: samego endpointu maintenance,
+    // strony /maintenance, public assets, ścieżek admin (admin musi móc
+    // dalej działać żeby wyłączyć tryb).
+    const skipMaintenanceCheck =
+      pathname === "/maintenance" ||
+      pathname.startsWith("/api/maintenance/") ||
+      pathname.startsWith("/api/admin/maintenance") ||
+      pathname.startsWith("/_next/") ||
+      pathname.startsWith("/favicon");
+    if (!skipMaintenanceCheck) {
+      const inMaintenance = await isMaintenanceMode(req);
+      if (inMaintenance) {
+        const isAdmin =
+          token?.accessToken &&
+          collectRoles(token.accessToken as string).some(
+            (r) => SUPERADMIN_ROLES.has(r) || r === "admin",
+          );
+        if (!isAdmin) {
+          if (isApi) {
+            return withRequestIdHeaders(
+              NextResponse.json(
+                { error: "Maintenance mode", retryAfter: 300 },
+                { status: 503, headers: { "Retry-After": "300" } },
+              ),
+              requestId,
+            );
+          }
+          return withRequestIdHeaders(
+            NextResponse.redirect(new URL("/maintenance", req.url)),
+            requestId,
+          );
+        }
+      }
+    }
+
+    if (!isProtected) return passThrough();
 
     if (!token || !token.accessToken) {
       if (isApi) {
