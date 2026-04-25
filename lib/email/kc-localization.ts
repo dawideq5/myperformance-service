@@ -3,7 +3,8 @@ import { log } from "@/lib/logger";
 
 const logger = log.child({ module: "kc-localization" });
 
-const REALM = process.env.KEYCLOAK_REALM || "MyPerformance";
+// Uwaga: keycloak.adminRequest() już dokleja "/admin/realms/{realm}" do path,
+// więc nie podajemy go w pierwszym argumencie — tylko sub-path resource'u.
 
 /**
  * Custom email texts in Keycloak via realm localization API.
@@ -52,7 +53,7 @@ export type KcEmailKey = (typeof KC_EMAIL_KEYS)[number]["key"];
 
 export async function ensureLocaleEnabled(locale: string): Promise<void> {
   const adminToken = await keycloak.getServiceAccountToken();
-  const cur = await keycloak.adminRequest(`/realms/${REALM}`, adminToken);
+  const cur = await keycloak.adminRequest("", adminToken);
   if (!cur.ok) throw new Error(`KC GET realm ${cur.status}`);
   const data = (await cur.json()) as {
     internationalizationEnabled?: boolean;
@@ -70,7 +71,7 @@ export async function ensureLocaleEnabled(locale: string): Promise<void> {
     supportedLocales: Array.from(supported),
     defaultLocale: data.defaultLocale ?? locale,
   };
-  const res = await keycloak.adminRequest(`/realms/${REALM}`, adminToken, {
+  const res = await keycloak.adminRequest("", adminToken, {
     method: "PUT",
     body: JSON.stringify(next),
   });
@@ -85,12 +86,11 @@ export async function listLocaleMessages(
 ): Promise<Record<string, string>> {
   const adminToken = await keycloak.getServiceAccountToken();
   const res = await keycloak.adminRequest(
-    `/realms/${REALM}/localization/${locale}`,
+    `/localization/${locale}`,
     adminToken,
   );
   if (res.status === 404) return {};
   if (!res.ok) throw new Error(`KC GET localization ${res.status}`);
-  // Body może być array `[{key,value}]` lub object `{key:value}`.
   const data = (await res.json()) as
     | Array<{ key: string; value: string }>
     | Record<string, string>;
@@ -108,15 +108,12 @@ export async function setLocaleMessage(
   value: string,
 ): Promise<void> {
   const adminToken = await keycloak.getServiceAccountToken();
-  // KC expects `text/plain` body for single-key localization endpoint.
   const res = await keycloak.adminRequest(
-    `/realms/${REALM}/localization/${locale}/${encodeURIComponent(key)}`,
+    `/localization/${locale}/${encodeURIComponent(key)}`,
     adminToken,
     {
       method: "PUT",
-      headers: {
-        "Content-Type": "text/plain",
-      },
+      headers: { "Content-Type": "text/plain" },
       body: value,
     },
   );
@@ -132,7 +129,7 @@ export async function deleteLocaleMessage(
 ): Promise<void> {
   const adminToken = await keycloak.getServiceAccountToken();
   const res = await keycloak.adminRequest(
-    `/realms/${REALM}/localization/${locale}/${encodeURIComponent(key)}`,
+    `/localization/${locale}/${encodeURIComponent(key)}`,
     adminToken,
     { method: "DELETE" },
   );

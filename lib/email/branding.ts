@@ -235,10 +235,10 @@ export async function propagateBranding(
   }
 
   // KC realm display name update (non-Coolify path).
+  // adminRequest("") = bare realm endpoint /admin/realms/{realm}
   try {
     const adminToken = await keycloak.getServiceAccountToken();
-    const realm = process.env.KEYCLOAK_REALM || "MyPerformance";
-    const cur = await keycloak.adminRequest(`/realms/${realm}`, adminToken);
+    const cur = await keycloak.adminRequest("", adminToken);
     if (cur.ok) {
       const data = await cur.json();
       const updated = {
@@ -246,7 +246,7 @@ export async function propagateBranding(
         displayName: branding.brandName,
         displayNameHtml: branding.brandName,
       };
-      const r = await keycloak.adminRequest(`/realms/${realm}`, adminToken, {
+      const r = await keycloak.adminRequest("", adminToken, {
         method: "PUT",
         body: JSON.stringify(updated),
       });
