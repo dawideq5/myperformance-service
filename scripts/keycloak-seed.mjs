@@ -76,12 +76,9 @@ const ROLES = [
   { name: "knowledge_admin",     description: "Baza wiedzy (Outline): administrator",                 default: false },
 
   { name: "wazuh_admin",         description: "Wazuh SIEM: administrator (all_access)",                default: false },
-  { name: "wazuh_readonly",      description: "Wazuh SIEM: read-only access do dashboardu",            default: false },
 
-  { name: "infrastructure_admin", description: "/admin/infrastructure — VPS/DNS/snapshoty/backupy",     default: false },
+  { name: "infrastructure_admin", description: "/admin/infrastructure — VPS/DNS/snapshoty/backupy/monitoring/Wazuh", default: false },
   { name: "email_admin",         description: "/admin/email — branding, KC templates, Postal, catalog", default: false },
-  { name: "security_admin",      description: "/admin/security — events, blocks, Wazuh agregacja",      default: false },
-  { name: "maintenance_bypass",  description: "Prace serwisowe: bypass — wejście podczas trybu konserwacji", default: false },
 
   // panel realm-roles — used by both the mTLS panels and dashboard gating
   { name: "sprzedawca",          description: "Dostęp do panelu sprzedawcy",                           default: false },

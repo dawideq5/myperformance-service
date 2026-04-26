@@ -2,16 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  AlertTriangle,
-  CheckCircle2,
+  Activity,
+  Ban,
   Database,
   Globe,
   HardDrive,
   Loader2,
-  Power,
   Server,
   Shield,
-  Wrench,
+  ShieldAlert,
+  TrendingUp,
 } from "lucide-react";
 import {
   Alert,
@@ -23,13 +23,25 @@ import {
   PageShell,
   TabPanel,
   Tabs,
-  Textarea,
   type TabDefinition,
 } from "@/components/ui";
 import { AppHeader } from "@/components/AppHeader";
 import { api, ApiRequestError } from "@/lib/api-client";
+import {
+  DashboardPanel as SecurityDashboardPanel,
+  EventsPanel as SecurityEventsPanel,
+  BlocksPanel as SecurityBlocksPanel,
+  AgentsPanel as WazuhPanel,
+  type TabId as SecurityTabId,
+} from "@/app/admin/security/SecurityClient";
 
-type TabId = "vps" | "dns" | "maintenance";
+type TabId =
+  | "vps"
+  | "dns"
+  | "resources"
+  | "security"
+  | "blocks"
+  | "wazuh";
 
 interface VpsItem {
   name: string;
@@ -66,13 +78,6 @@ interface DnsRecord {
   zone: string;
 }
 
-interface MaintenanceState {
-  enabled: boolean;
-  message: string | null;
-  startedAt: string | null;
-  expiresAt: string | null;
-  startedBy: string | null;
-}
 
 export function InfrastructureClient({
   userLabel,
@@ -87,18 +92,37 @@ export function InfrastructureClient({
       { id: "vps", label: "VPS + Backup", icon: <Server className="w-5 h-5" /> },
       { id: "dns", label: "DNS Zone", icon: <Globe className="w-5 h-5" /> },
       {
-        id: "maintenance",
-        label: "Tryb konserwacji",
-        icon: <Wrench className="w-5 h-5" />,
+        id: "resources",
+        label: "Zasoby (CPU/RAM/Disk)",
+        icon: <Activity className="w-5 h-5" />,
       },
+      {
+        id: "security",
+        label: "Bezpieczeństwo / Alerty",
+        icon: <ShieldAlert className="w-5 h-5" />,
+      },
+      {
+        id: "blocks",
+        label: "Zablokowane IP",
+        icon: <Ban className="w-5 h-5" />,
+      },
+      { id: "wazuh", label: "Wazuh SIEM", icon: <Shield className="w-5 h-5" /> },
     ],
     [],
   );
 
+  // Mapowanie naszego TabId → SecurityTabId dla DashboardPanel.onGoTo
+  const goToSecurityTab = (st: SecurityTabId) => {
+    if (st === "dashboard") setTab("security");
+    else if (st === "events") setTab("security");
+    else if (st === "blocks") setTab("blocks");
+    else if (st === "agents") setTab("wazuh");
+  };
+
   const header = (
     <AppHeader
       backHref="/dashboard"
-      title="Infrastruktura OVH"
+      title="Infrastruktura serwera"
       userLabel={userLabel}
       userSubLabel={userEmail}
     />
@@ -113,7 +137,7 @@ export function InfrastructureClient({
             activeTab={tab}
             onChange={setTab}
             orientation="vertical"
-            ariaLabel="Sekcje infrastruktury"
+            ariaLabel="Sekcje infrastruktury serwera"
           />
         </aside>
         <div className="lg:col-span-3 space-y-6">
@@ -123,8 +147,20 @@ export function InfrastructureClient({
           <TabPanel tabId="dns" active={tab === "dns"}>
             <DnsPanel />
           </TabPanel>
-          <TabPanel tabId="maintenance" active={tab === "maintenance"}>
-            <MaintenancePanel />
+          <TabPanel tabId="resources" active={tab === "resources"}>
+            <ResourcesPanel />
+          </TabPanel>
+          <TabPanel tabId="security" active={tab === "security"}>
+            <div className="space-y-6">
+              <SecurityDashboardPanel onGoTo={goToSecurityTab} />
+              <SecurityEventsPanel />
+            </div>
+          </TabPanel>
+          <TabPanel tabId="blocks" active={tab === "blocks"}>
+            <SecurityBlocksPanel />
+          </TabPanel>
+          <TabPanel tabId="wazuh" active={tab === "wazuh"}>
+            <WazuhPanel />
           </TabPanel>
         </div>
       </div>
@@ -524,172 +560,249 @@ function DnsPanel() {
   );
 }
 
-// ── Maintenance panel ───────────────────────────────────────────────────────
 
-function MaintenancePanel() {
-  const [state, setState] = useState<MaintenanceState | null>(null);
-  const [draftMessage, setDraftMessage] = useState("");
-  const [duration, setDuration] = useState(240);
-  const [busy, setBusy] = useState(false);
+// ── Resources panel — VPS metrics + Docker containers ──────────────────────
+
+interface VpsUsage {
+  cpu: number | null;
+  memory: { used: number; total: number } | null;
+  disk: { used: number; total: number } | null;
+  bandwidth: { in: number; out: number } | null;
+}
+
+interface ContainerStat {
+  name: string;
+  cpuPercent: number;
+  memUsage: number;
+  memLimit: number;
+  memPercent: number;
+  netRx: number;
+  netTx: number;
+  status: string;
+}
+
+interface ResourcesData {
+  vpsUsage: VpsUsage | null;
+  containers: ContainerStat[];
+  collectedAt: string;
+  errors: string[];
+}
+
+function ResourcesPanel() {
+  const [data, setData] = useState<ResourcesData | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
+    setError(null);
     try {
-      const r = await api.get<{ maintenance: MaintenanceState }>(
-        "/api/admin/maintenance",
+      const r = await api.get<ResourcesData>(
+        "/api/admin/infrastructure/resources",
       );
-      setState(r.maintenance);
+      setData(r);
     } catch (err) {
-      setError(err instanceof ApiRequestError ? err.message : "Load failed");
+      setError(err instanceof ApiRequestError ? err.message : "Fetch failed");
+    } finally {
+      setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     void load();
+    const id = setInterval(load, 15_000);
+    return () => clearInterval(id);
   }, [load]);
 
-  async function toggle(enabled: boolean) {
-    if (
-      enabled &&
-      !confirm(
-        'Włączyć tryb konserwacji?\n\nUżytkownicy nie-admin zostaną przekierowani na stronę „prace serwisowe". Ty (admin) nadal masz pełen dostęp.',
-      )
-    ) {
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    setNotice(null);
-    try {
-      const r = await api.put<{ maintenance: MaintenanceState }, {
-        enabled: boolean;
-        message?: string;
-        durationMinutes?: number;
-      }>("/api/admin/maintenance", {
-        enabled,
-        message: draftMessage || undefined,
-        durationMinutes: duration,
-      });
-      setState(r.maintenance);
-      setNotice(
-        enabled
-          ? "Tryb konserwacji włączony. Użytkownicy widzą stronę informacyjną."
-          : "Tryb konserwacji wyłączony. Platforma znowu dostępna.",
-      );
-    } catch (err) {
-      setError(err instanceof ApiRequestError ? err.message : "Toggle failed");
-    } finally {
-      setBusy(false);
-    }
+  if (error) return <Alert tone="error">{error}</Alert>;
+  if (loading || !data) {
+    return (
+      <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
+        <Loader2 className="w-4 h-4 animate-spin" /> Pobieram metryki…
+      </div>
+    );
   }
 
-  if (!state) return <Loader2 className="w-4 h-4 animate-spin" />;
+  const totalContainerCpu = data.containers.reduce(
+    (s, c) => s + c.cpuPercent,
+    0,
+  );
+  const totalContainerMem = data.containers.reduce(
+    (s, c) => s + c.memUsage,
+    0,
+  );
+  const sortedByCpu = [...data.containers].sort(
+    (a, b) => b.cpuPercent - a.cpuPercent,
+  );
+  const sortedByMem = [...data.containers].sort(
+    (a, b) => b.memUsage - a.memUsage,
+  );
 
   return (
     <div className="space-y-4">
       <Card padding="md">
         <CardHeader
-          icon={<Wrench className="w-6 h-6 text-[var(--accent)]" />}
-          title="Tryb konserwacji / prac"
-          description="Blokuje dostęp dla użytkowników (przekierowuje na stronę 'prace serwisowe'). Admin (Ty) nadal ma pełen dostęp do platformy żeby pracować w spokoju."
+          icon={<Activity className="w-6 h-6 text-[var(--accent)]" />}
+          title="Monitoring zasobów"
+          description={`Live metryki VPS + per-kontener (Docker stats). Aktualizacja co 15 s. Ostatnio: ${new Date(data.collectedAt).toLocaleTimeString("pl-PL")}.`}
         />
       </Card>
 
-      {error && <Alert tone="error">{error}</Alert>}
-      {notice && <Alert tone="success">{notice}</Alert>}
-
-      {state.enabled ? (
-        <Card padding="lg" className="border-amber-500/40 bg-amber-500/5">
-          <div className="flex items-start gap-3 mb-3">
-            <AlertTriangle className="w-6 h-6 text-amber-400 flex-shrink-0" />
-            <div>
-              <h3 className="text-base font-semibold text-amber-400">
-                Tryb konserwacji AKTYWNY
-              </h3>
-              <p className="text-xs text-[var(--text-muted)] mt-1">
-                Włączony{" "}
-                {state.startedAt
-                  ? new Date(state.startedAt).toLocaleString("pl-PL")
-                  : "?"}
-                {state.startedBy ? ` przez ${state.startedBy}` : ""}
-              </p>
-              {state.expiresAt && (
-                <p className="text-xs text-[var(--text-muted)]">
-                  Auto-wyłączenie:{" "}
-                  {new Date(state.expiresAt).toLocaleString("pl-PL")}
-                </p>
-              )}
-              {state.message && (
-                <div className="mt-3 p-3 rounded bg-[var(--bg-main)] text-xs">
-                  <strong>Komunikat dla user-ów:</strong> {state.message}
-                </div>
-              )}
-            </div>
-          </div>
-          <Button
-            onClick={() => toggle(false)}
-            loading={busy}
-            leftIcon={<Power className="w-4 h-4" />}
-            className="bg-emerald-600 hover:bg-emerald-700"
-          >
-            Wyłącz tryb konserwacji
-          </Button>
-        </Card>
-      ) : (
-        <Card padding="lg">
-          <div className="flex items-start gap-3 mb-4">
-            <CheckCircle2 className="w-6 h-6 text-emerald-400 flex-shrink-0" />
-            <div>
-              <h3 className="text-base font-semibold">Platforma aktywna</h3>
-              <p className="text-xs text-[var(--text-muted)]">
-                Wszyscy użytkownicy mają normalny dostęp.
-              </p>
-            </div>
-          </div>
-          <div className="space-y-3">
-            <div>
-              <label className="text-xs text-[var(--text-muted)] block mb-1">
-                Komunikat dla użytkowników (opcjonalny — pojawi się na stronie 503)
-              </label>
-              <Textarea
-                rows={3}
-                value={draftMessage}
-                onChange={(e) => setDraftMessage(e.target.value)}
-                placeholder='np. "Aktualizacja systemu kalendarzy — wracamy ok. 23:30"'
-              />
-            </div>
-            <div>
-              <label className="text-xs text-[var(--text-muted)] block mb-1">
-                Auto-wyłączenie po (minuty) — bezpiecznik
-              </label>
-              <select
-                className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-2 text-sm"
-                value={duration}
-                onChange={(e) => setDuration(Number(e.target.value))}
-              >
-                <option value={30}>30 minut</option>
-                <option value={60}>1 godzina</option>
-                <option value={120}>2 godziny</option>
-                <option value={240}>4 godziny (default)</option>
-                <option value={480}>8 godzin</option>
-                <option value={1440}>24 godziny</option>
-              </select>
-              <p className="mt-1 text-[10px] text-[var(--text-muted)]">
-                Po tym czasie tryb wyłączy się automatycznie (chroni przed
-                zostawieniem włączonym).
-              </p>
-            </div>
-            <Button
-              onClick={() => toggle(true)}
-              loading={busy}
-              leftIcon={<Wrench className="w-4 h-4" />}
-            >
-              Włącz tryb konserwacji
-            </Button>
-          </div>
-        </Card>
+      {data.errors.length > 0 && (
+        <Alert tone="warning" title="Część metryk niedostępna">
+          {data.errors.join(" · ")}
+        </Alert>
       )}
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <UsageGauge
+          label="CPU (suma kontenerów)"
+          value={totalContainerCpu}
+          max={data.vpsUsage ? 100 * (data.vpsUsage.cpu === null ? 1 : 1) : 100}
+          unit="%"
+          icon={<Activity className="w-4 h-4" />}
+        />
+        <UsageGauge
+          label="RAM (suma kontenerów)"
+          value={totalContainerMem / 1024 / 1024 / 1024}
+          max={
+            data.vpsUsage?.memory?.total
+              ? data.vpsUsage.memory.total / 1024
+              : 16
+          }
+          unit="GB"
+          icon={<Database className="w-4 h-4" />}
+        />
+        <UsageGauge
+          label="Disk (VPS)"
+          value={
+            data.vpsUsage?.disk
+              ? data.vpsUsage.disk.used
+              : 0
+          }
+          max={data.vpsUsage?.disk?.total ?? 100}
+          unit="GB"
+          icon={<HardDrive className="w-4 h-4" />}
+        />
+      </div>
+
+      <Card padding="md">
+        <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
+          <TrendingUp className="w-4 h-4" />
+          Top kontenery (CPU)
+        </h4>
+        <ContainerList items={sortedByCpu.slice(0, 10)} metric="cpu" />
+      </Card>
+
+      <Card padding="md">
+        <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
+          <Database className="w-4 h-4" />
+          Top kontenery (RAM)
+        </h4>
+        <ContainerList items={sortedByMem.slice(0, 10)} metric="mem" />
+      </Card>
+
+      <Card padding="md">
+        <h4 className="text-sm font-semibold mb-3">
+          Wszystkie kontenery ({data.containers.length})
+        </h4>
+        <ContainerList items={data.containers} metric="full" />
+      </Card>
     </div>
+  );
+}
+
+function UsageGauge({
+  label,
+  value,
+  max,
+  unit,
+  icon,
+}: {
+  label: string;
+  value: number;
+  max: number;
+  unit: string;
+  icon: React.ReactNode;
+}) {
+  const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
+  const tone =
+    pct >= 90 ? "danger" : pct >= 70 ? "warning" : "success";
+  const colorClass =
+    tone === "danger"
+      ? "bg-red-500"
+      : tone === "warning"
+        ? "bg-amber-500"
+        : "bg-emerald-500";
+  return (
+    <Card padding="md">
+      <div className="flex items-center gap-2 text-[var(--text-muted)] text-[11px] mb-2">
+        {icon}
+        <span className="uppercase tracking-wide">{label}</span>
+      </div>
+      <div className="text-2xl font-bold">
+        {value.toFixed(unit === "%" ? 1 : 2)}
+        <span className="text-sm font-normal text-[var(--text-muted)] ml-1">
+          {unit}
+        </span>
+      </div>
+      <div className="text-[10px] text-[var(--text-muted)] mt-0.5">
+        z {max.toFixed(unit === "%" ? 0 : 1)} {unit}
+      </div>
+      <div className="mt-2 h-1.5 rounded-full bg-[var(--bg-main)] overflow-hidden">
+        <div
+          className={`h-full ${colorClass} transition-all`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </Card>
+  );
+}
+
+function ContainerList({
+  items,
+  metric,
+}: {
+  items: ContainerStat[];
+  metric: "cpu" | "mem" | "full";
+}) {
+  if (items.length === 0)
+    return (
+      <p className="text-xs text-[var(--text-muted)]">
+        Brak danych z Docker stats.
+      </p>
+    );
+  return (
+    <ul className="space-y-1.5">
+      {items.map((c) => (
+        <li
+          key={c.name}
+          className="flex items-center justify-between text-xs gap-2"
+        >
+          <div className="min-w-0 flex-1">
+            <div className="font-mono truncate" title={c.name}>
+              {c.name.replace(/-[0-9a-f]{12,}/, "…")}
+            </div>
+            {metric === "full" && (
+              <div className="text-[10px] text-[var(--text-muted)]">
+                CPU {c.cpuPercent.toFixed(1)}% · RAM{" "}
+                {(c.memUsage / 1024 / 1024 / 1024).toFixed(2)} GB
+              </div>
+            )}
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {(metric === "cpu" || metric === "full") && (
+              <span className="font-mono text-[var(--text-muted)] tabular-nums">
+                {c.cpuPercent.toFixed(1)}%
+              </span>
+            )}
+            {(metric === "mem" || metric === "full") && (
+              <span className="font-mono text-[var(--text-muted)] tabular-nums">
+                {(c.memUsage / 1024 / 1024 / 1024).toFixed(2)} GB
+              </span>
+            )}
+          </div>
+        </li>
+      ))}
+    </ul>
   );
 }

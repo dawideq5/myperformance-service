@@ -29,7 +29,7 @@ import {
 import { AppHeader } from "@/components/AppHeader";
 import { api, ApiRequestError } from "@/lib/api-client";
 
-type TabId = "dashboard" | "events" | "blocks" | "agents";
+export type TabId = "dashboard" | "events" | "blocks" | "agents";
 
 type Severity = "info" | "low" | "medium" | "high" | "critical";
 
@@ -143,7 +143,7 @@ export function SecurityClient({
 
 // ── Dashboard ───────────────────────────────────────────────────────────────
 
-function DashboardPanel({ onGoTo }: { onGoTo: (t: TabId) => void }) {
+export function DashboardPanel({ onGoTo }: { onGoTo: (t: TabId) => void }) {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -323,7 +323,7 @@ function KpiCard({
 
 // ── Events ──────────────────────────────────────────────────────────────────
 
-function EventsPanel() {
+export function EventsPanel() {
   const [events, setEvents] = useState<SecurityEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -451,7 +451,7 @@ function EventsPanel() {
 
 // ── Blocks ──────────────────────────────────────────────────────────────────
 
-function BlocksPanel() {
+export function BlocksPanel() {
   const [blocks, setBlocks] = useState<BlockedIp[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -673,7 +673,7 @@ interface WazuhStatusData {
   topSrcIps: Array<{ ip: string; count: number; blocked: boolean }>;
 }
 
-function AgentsPanel() {
+export function AgentsPanel() {
   const [data, setData] = useState<WazuhStatusData | null>(null);
   const [error, setError] = useState<string | null>(null);
 

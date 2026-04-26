@@ -26,34 +26,6 @@ const logger = log.child({ module: "middleware" });
 
 const userinfoCache = new Map<string, { valid: boolean; expiresAt: number }>();
 
-// Cache maintenance status — middleware nie powinien zapytać DB na każdy
-// request. 30s TTL — admin dostaje "live" feedback przy włączaniu/wyłączaniu.
-// Wcześniej fetch'owaliśmy /api/maintenance/status, ale Self-fetch przez
-// Traefik (TLS handshake na własną domenę) potrafił timeout'ować w cold-
-// startach kontenera — middleware musiał fail-open i maintenance nie
-// działał. Teraz czytamy bezpośrednio z DB (runtime = nodejs).
-let maintenanceCache: { active: boolean; checkedAt: number } | null = null;
-const MAINTENANCE_TTL_MS = 30_000;
-
-async function isMaintenanceMode(): Promise<boolean> {
-  const now = Date.now();
-  if (maintenanceCache && now - maintenanceCache.checkedAt < MAINTENANCE_TTL_MS) {
-    return maintenanceCache.active;
-  }
-  try {
-    const { isMaintenanceActive } = await import("@/lib/email/db");
-    const active = await isMaintenanceActive();
-    maintenanceCache = { active, checkedAt: now };
-    return active;
-  } catch (err) {
-    // Fail-open: gdy DB down, nie blokujemy ruchu (wolimy false-negative).
-    logger.warn("maintenance check failed", {
-      err: err instanceof Error ? err.message : String(err),
-    });
-    maintenanceCache = { active: false, checkedAt: now };
-    return false;
-  }
-}
 
 function tokenCacheKey(accessToken: string): string {
   return createHash("sha256").update(accessToken).digest("hex").slice(0, 16);
@@ -228,56 +200,6 @@ export default withAuth(
 
     const isApi = pathname.startsWith("/api/");
 
-    // ── Maintenance mode ─────────────────────────────────────────────────
-    // Always-allow whitelist: maintenance page, status endpoint, admin
-    // toggle endpoint (admin musi móc wyłączyć tryb), /login + KC OAuth
-    // callback (każdy user musi móc się zalogować podczas maintenance —
-    // dopiero PO loginie sprawdzamy rolę), public assets.
-    //
-    // Dostęp podczas maintenance ma tylko: superadmin (realm-admin /
-    // manage-realm) ALBO user z explicit rolą `maintenance_bypass`.
-    const skipMaintenanceCheck =
-      pathname === "/maintenance" ||
-      pathname === "/login" ||
-      pathname === "/forbidden" ||
-      pathname === "/api/health" ||
-      pathname.startsWith("/api/auth/") ||
-      pathname.startsWith("/api/maintenance/") ||
-      pathname.startsWith("/api/admin/maintenance") ||
-      pathname.startsWith("/_next/") ||
-      pathname.startsWith("/favicon");
-    // Maintenance check: dotyczy WYŁĄCZNIE zalogowanych userów. Anonimowi
-    // przechodzą zwykłym flow auth (jeśli ścieżka jest protected → redirect
-    // do /login → KC OAuth → callback). Dopiero po loginie sprawdzamy rolę:
-    // gdy user nie ma `maintenance_bypass` (i nie jest superadmin) → /maintenance.
-    if (!skipMaintenanceCheck && token?.accessToken) {
-      const inMaintenance = await isMaintenanceMode();
-      if (inMaintenance) {
-        const userRoles = collectRoles(token.accessToken as string);
-        const canBypass = userRoles.some(
-          (r) =>
-            SUPERADMIN_ROLES.has(r) ||
-            r === "admin" ||
-            r === "maintenance_bypass",
-        );
-        if (!canBypass) {
-          if (isApi) {
-            return withRequestIdHeaders(
-              NextResponse.json(
-                { error: "Maintenance mode", retryAfter: 300 },
-                { status: 503, headers: { "Retry-After": "300" } },
-              ),
-              requestId,
-            );
-          }
-          return withRequestIdHeaders(
-            NextResponse.redirect(new URL("/maintenance", req.url)),
-            requestId,
-          );
-        }
-      }
-    }
-
     if (!isProtected) return passThrough();
 
     if (!token || !token.accessToken) {
@@ -425,11 +347,11 @@ export default withAuth(
 );
 
 export const config = {
-  // Match every path EXCEPT static assets and NextAuth's own routes —
-  // maintenance gate musi działać na całej powierzchni (włącznie z `/`,
-  // landingiem, dowolnym URL który user wpisze ręcznie). Pozostała
-  // logika auth-protected dalej operuje na isProtected w callbacku.
   matcher: [
-    "/((?!_next/static|_next/image|favicon\\.ico|api/auth/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|js|css|woff|woff2|ttf)$).*)",
+    "/dashboard/:path*",
+    "/account/:path*",
+    "/admin/:path*",
+    "/api/account/:path*",
+    "/api/admin/:path*",
   ],
 };

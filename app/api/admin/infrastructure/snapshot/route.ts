@@ -36,13 +36,29 @@ export async function POST(req: Request) {
     const description =
       body.description ??
       `Manual snapshot triggered by ${session.user?.email ?? "admin"} at ${new Date().toISOString()}`;
-    const result = await createSnapshot(creds, body.vpsName, description);
-    return createSuccessResponse({
-      ok: true,
-      snapshotId: result.id,
-      message:
-        "Snapshot zlecony — OVH wykona go w ciągu kilku minut. Pojawi się jako 'lastSnapshot' po odświeżeniu.",
-    });
+    try {
+      const result = await createSnapshot(creds, body.vpsName, description);
+      return createSuccessResponse({
+        ok: true,
+        snapshotId: result.id,
+        message:
+          "Snapshot zlecony — OVH wykona go w ciągu kilku minut. Pojawi się jako 'lastSnapshot' po odświeżeniu.",
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("403") || msg.includes("not been granted")) {
+        throw new ApiError(
+          "FORBIDDEN",
+          "Token OVH nie ma uprawnień do tworzenia snapshotów. Wygeneruj nowe poświadczenia w /admin/email → OVH z regułą POST /vps/*/createSnapshot.",
+          403,
+        );
+      }
+      throw new ApiError(
+        "SERVICE_UNAVAILABLE",
+        `OVH odrzucił operację snapshot: ${msg}`,
+        502,
+      );
+    }
   } catch (error) {
     return handleApiError(error);
   }

@@ -326,22 +326,10 @@ function TileGrid() {
           <Tile
             icon={<Server className="w-7 h-7 text-indigo-500" aria-hidden="true" />}
             iconBg="bg-indigo-500/10"
-            title="Infrastruktura OVH"
-            description="VPS info, automated backup, snapshoty, DNS zone, domeny, IP, bandwidth — pełna integracja OVH Cloud"
+            title="Infrastruktura serwera"
+            description="VPS, DNS, snapshoty, backupy, monitoring zasobów (CPU/RAM/Disk), alerty bezpieczeństwa, blokady IP, Wazuh SIEM"
             onClick={() => {
               window.location.href = "/admin/infrastructure";
-            }}
-          />
-        )}
-
-        {showAdminUsers && (
-          <Tile
-            icon={<Shield className="w-7 h-7 text-indigo-500" aria-hidden="true" />}
-            iconBg="bg-indigo-500/10"
-            title="Bezpieczeństwo / SIEM"
-            description="Alerty, zablokowane IP, agenci Wazuh, MITRE ATT&CK — centrum monitorowania bezpieczeństwa platformy"
-            onClick={() => {
-              window.location.href = "/admin/security";
             }}
           />
         )}

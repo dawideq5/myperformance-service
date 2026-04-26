@@ -68,7 +68,7 @@ ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 ENV NEXT_PUBLIC_APP_VERSION=${NEXT_PUBLIC_APP_VERSION}
 
-RUN apk add --no-cache curl tini openssl \
+RUN apk add --no-cache curl tini openssl docker-cli \
  && addgroup --system --gid 1001 nodejs \
  && adduser  --system --uid 1001 --ingroup nodejs nextjs \
  && mkdir -p /app/public \

@@ -57,16 +57,11 @@ export const ROLES = {
   KNOWLEDGE_ADMIN: "knowledge_admin",
 
   // Wazuh SIEM
-  WAZUH_READONLY: "wazuh_readonly",
   WAZUH_ADMIN: "wazuh_admin",
 
   // Dashboard admin sections — niezależne od Keycloak admin
   INFRASTRUCTURE_ADMIN: "infrastructure_admin",
   EMAIL_ADMIN: "email_admin",
-  SECURITY_ADMIN: "security_admin",
-
-  // Maintenance bypass — uprawnia wejście podczas prac serwisowych
-  MAINTENANCE_BYPASS: "maintenance_bypass",
 } as const;
 
 export type AppRole = (typeof ROLES)[keyof typeof ROLES];
@@ -106,29 +101,11 @@ export const ROLE_CATALOG: RoleSpec[] = [
   { name: ROLES.KNOWLEDGE_EDITOR, description: "Outline: edytor (tworzenie i edycja)", default: true },
   { name: ROLES.KNOWLEDGE_ADMIN, description: "Outline: administrator", default: false },
 
-  { name: ROLES.WAZUH_READONLY, description: "Wazuh SIEM: read-only", default: false },
   { name: ROLES.WAZUH_ADMIN, description: "Wazuh SIEM: administrator", default: false },
 
-  { name: ROLES.INFRASTRUCTURE_ADMIN, description: "/admin/infrastructure — VPS, DNS, snapshoty, backupy, maintenance mode", default: false },
+  { name: ROLES.INFRASTRUCTURE_ADMIN, description: "/admin/infrastructure — VPS, DNS, snapshoty, backupy, monitoring, Wazuh/SIEM", default: false },
   { name: ROLES.EMAIL_ADMIN, description: "/admin/email — branding, KC templates, Postal, catalog", default: false },
-  { name: ROLES.SECURITY_ADMIN, description: "/admin/security — events, blocks, Wazuh agregacja", default: false },
-  { name: ROLES.MAINTENANCE_BYPASS, description: "Prace serwisowe: bypass — pozwala wejść podczas trybu konserwacji", default: false },
 ];
-
-/**
- * Czy user może wejść do platformy mimo aktywnego trybu konserwacji.
- *
- * Zasada: superadmin (realm-admin) ZAWSZE może wejść (failsafe), oraz
- * dowolny user z explicit nadaną rolą `maintenance_bypass`. Każdy inny
- * trafia na /maintenance niezależnie od jakichkolwiek innych ról
- * (włącznie z `keycloak_admin` — admin IdP bez bypass nie wchodzi).
- */
-export function canBypassMaintenance(
-  session: Session | null | undefined,
-): boolean {
-  if (isSuperAdmin(session)) return true;
-  return hasAny(session, [ROLES.MAINTENANCE_BYPASS]);
-}
 
 /**
  * Keycloak realm-management roles that implicitly grant full admin.
@@ -273,11 +250,11 @@ export function canAccessEmail(
   return hasRole(session, ROLES.EMAIL_ADMIN);
 }
 
-export function canAccessSecurity(
-  session: Session | null | undefined,
-): boolean {
-  return hasRole(session, ROLES.SECURITY_ADMIN);
-}
+/**
+ * @deprecated security panel został zmergowany z infrastructure (2026-04-26).
+ * Funkcja zachowana dla backward-compat — używa infrastructure_admin.
+ */
+export const canAccessSecurity = canAccessInfrastructure;
 
 export function canAccessDirectus(
   session: Session | null | undefined,
@@ -461,13 +438,16 @@ export function requireEmail(
   }
 }
 
+/**
+ * @deprecated security panel został zmergowany z infrastructure — używa
+ * teraz `infrastructure_admin`. Eksport zachowany dla backward-compat
+ * istniejących handlerów (nie alias-const, bo TS asserts wymaga pełnej
+ * deklaracji funkcji).
+ */
 export function requireSecurity(
   session: Session | null | undefined,
 ): asserts session is Session & { accessToken: string } {
-  assertSession(session);
-  if (!canAccessSecurity(session)) {
-    throw ApiError.forbidden("Missing role: security_admin");
-  }
+  requireInfrastructure(session);
 }
 
 export function requireCertificates(

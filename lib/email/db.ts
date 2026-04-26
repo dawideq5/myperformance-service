@@ -120,17 +120,6 @@ async function ensureSchema(client: PoolClient): Promise<void> {
     );
     INSERT INTO mp_ovh_config (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 
-    -- Tryb konserwacji — singleton (id=1).
-    CREATE TABLE IF NOT EXISTS mp_maintenance (
-      id           SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
-      enabled      BOOLEAN NOT NULL DEFAULT FALSE,
-      message      TEXT,
-      started_at   TIMESTAMPTZ,
-      expires_at   TIMESTAMPTZ,
-      started_by   TEXT
-    );
-    INSERT INTO mp_maintenance (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
-
     -- Email-based 2FA codes (krótkotrwałe, jednorazowe).
     CREATE TABLE IF NOT EXISTS mp_2fa_codes (
       id          BIGSERIAL PRIMARY KEY,
@@ -928,86 +917,6 @@ export async function getOvhConfig(): Promise<OvhConfig> {
       updatedBy: r?.updated_by ?? null,
     };
   });
-}
-
-// ── Maintenance mode ────────────────────────────────────────────────────────
-
-export interface MaintenanceState {
-  enabled: boolean;
-  message: string | null;
-  startedAt: string | null;
-  expiresAt: string | null;
-  startedBy: string | null;
-}
-
-export async function getMaintenance(): Promise<MaintenanceState> {
-  return withEmailClient(async (c) => {
-    const res = await c.query(
-      `SELECT enabled, message, started_at, expires_at, started_by
-         FROM mp_maintenance WHERE id = 1`,
-    );
-    const r = res.rows[0];
-    return {
-      enabled: r?.enabled ?? false,
-      message: r?.message ?? null,
-      startedAt: r?.started_at?.toISOString() ?? null,
-      expiresAt: r?.expires_at?.toISOString() ?? null,
-      startedBy: r?.started_by ?? null,
-    };
-  });
-}
-
-export async function setMaintenance(
-  args: {
-    enabled: boolean;
-    message?: string | null;
-    durationMinutes?: number;
-  },
-  actor: string,
-): Promise<MaintenanceState> {
-  return withEmailClient(async (c) => {
-    if (args.enabled) {
-      const expires = args.durationMinutes
-        ? `now() + interval '${Number(args.durationMinutes)} minutes'`
-        : "now() + interval '4 hours'";
-      await c.query(
-        `UPDATE mp_maintenance SET
-           enabled = TRUE,
-           message = $1,
-           started_at = now(),
-           expires_at = ${expires},
-           started_by = $2
-         WHERE id = 1`,
-        [args.message ?? null, actor],
-      );
-    } else {
-      await c.query(
-        `UPDATE mp_maintenance SET
-           enabled = FALSE, started_at = NULL, expires_at = NULL, started_by = NULL
-         WHERE id = 1`,
-      );
-    }
-    return getMaintenance();
-  });
-}
-
-/**
- * Sprawdza tryb konserwacji uwzględniając auto-disable po expires_at.
- * Funkcja może być wywoływana z middleware (z cache) — zwraca aktualny stan.
- */
-export async function isMaintenanceActive(): Promise<boolean> {
-  const m = await getMaintenance();
-  if (!m.enabled) return false;
-  if (m.expiresAt && new Date(m.expiresAt).getTime() < Date.now()) {
-    // Auto-disable
-    await withEmailClient((c) =>
-      c.query(
-        `UPDATE mp_maintenance SET enabled=FALSE, started_at=NULL, expires_at=NULL, started_by=NULL WHERE id=1`,
-      ),
-    );
-    return false;
-  }
-  return true;
 }
 
 export async function updateOvhConfig(

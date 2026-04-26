@@ -10,47 +10,6 @@ const GATE_URL = process.env.CERT_GATE_URL ?? "";
 const GATE_SECRET = process.env.CERT_GATE_SECRET ?? "";
 const GATE_DEBUG = process.env.CERT_GATE_DEBUG === "1";
 
-const MAINTENANCE_STATUS_URL =
-  process.env.MAINTENANCE_STATUS_URL ??
-  "https://myperformance.pl/api/maintenance/status";
-const MAINTENANCE_REDIRECT_URL =
-  process.env.MAINTENANCE_REDIRECT_URL ?? "https://myperformance.pl/maintenance";
-const MAINTENANCE_TTL_MS = 30_000;
-let maintenanceCache: { active: boolean; checkedAt: number } | null = null;
-
-async function isMaintenanceMode(): Promise<boolean> {
-  const now = Date.now();
-  if (maintenanceCache && now - maintenanceCache.checkedAt < MAINTENANCE_TTL_MS) {
-    return maintenanceCache.active;
-  }
-  try {
-    const res = await fetch(MAINTENANCE_STATUS_URL, {
-      cache: "no-store",
-      signal: AbortSignal.timeout(2_000),
-    });
-    if (!res.ok) {
-      maintenanceCache = { active: false, checkedAt: now };
-      return false;
-    }
-    const data = (await res.json()) as { enabled?: boolean };
-    const active = !!data.enabled;
-    maintenanceCache = { active, checkedAt: now };
-    return active;
-  } catch {
-    // Fail-open: gdy central down nie chcemy zablokować całego panela.
-    maintenanceCache = { active: false, checkedAt: now };
-    return false;
-  }
-}
-
-function canBypassMaintenance(roles: string[]): boolean {
-  return (
-    roles.includes("admin") ||
-    roles.includes("realm-admin") ||
-    roles.includes("manage-realm") ||
-    roles.includes("maintenance_bypass")
-  );
-}
 
 async function verifyDeviceBinding(req: Request): Promise<{
   ok: boolean;
@@ -140,12 +99,6 @@ export default withAuth(
       return NextResponse.redirect(new URL("/login", req.url));
     }
     const roles = token.roles ?? [];
-    // Maintenance gate — central status; bypass dla maintenance_bypass/admin.
-    if (await isMaintenanceMode()) {
-      if (!canBypassMaintenance(roles)) {
-        return NextResponse.redirect(MAINTENANCE_REDIRECT_URL);
-      }
-    }
     if (!roles.includes(REQUIRED_ROLE) && !roles.includes("admin")) {
       return NextResponse.redirect(new URL("/forbidden", req.url));
     }

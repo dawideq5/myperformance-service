@@ -321,17 +321,11 @@ export const AREAS: PermissionArea[] = [
   {
     id: "wazuh",
     label: "Wazuh SIEM",
-    description: "Monitoring bezpieczeństwa, wykrywanie zagrożeń, FIM, alerty.",
+    description: "Dashboard Wazuh — agenty, reguły, polityki. Tylko administrator.",
     provider: "keycloak-only",
     icon: "ShieldAlert",
     nativeAdminUrl: "https://wazuh.myperformance.pl",
     kcRoles: [
-      {
-        name: "wazuh_readonly",
-        label: "Read-only",
-        description: "Podgląd dashboardu Wazuh i alertów (bez zmian konfiguracji).",
-        priority: 10,
-      },
       {
         name: "wazuh_admin",
         label: "Administrator",
@@ -342,8 +336,9 @@ export const AREAS: PermissionArea[] = [
   },
   {
     id: "infrastructure",
-    label: "Infrastruktura OVH",
-    description: "VPS, DNS, snapshoty, backupy, maintenance mode (panel /admin/infrastructure).",
+    label: "Infrastruktura serwera",
+    description:
+      "VPS, DNS, snapshoty, backupy, monitoring zasobów + bezpieczeństwo/SIEM (panel /admin/infrastructure).",
     provider: "keycloak-only",
     icon: "Server",
     kcRoles: [
@@ -351,7 +346,7 @@ export const AREAS: PermissionArea[] = [
         name: "infrastructure_admin",
         label: "Administrator",
         description:
-          "Pełny dostęp do panelu infrastruktury — OVH API, DNS records, snapshot/backup VPS, maintenance toggle.",
+          "Pełny dostęp: OVH API (VPS, DNS, snapshot, backup), monitoring zasobów (CPU/RAM/Disk per kontener), security events, blokady IP, integracja Wazuh.",
         priority: 90,
       },
     ],
@@ -369,38 +364,6 @@ export const AREAS: PermissionArea[] = [
         description:
           "Zarządzanie centralnym brandingiem, szablonami KC, Postal, mass-send.",
         priority: 90,
-      },
-    ],
-  },
-  {
-    id: "security-admin",
-    label: "Bezpieczeństwo / SIEM",
-    description: "Panel /admin/security — agregacja zdarzeń, manualne blokady IP, integracja Wazuh.",
-    provider: "keycloak-only",
-    icon: "ShieldCheck",
-    kcRoles: [
-      {
-        name: "security_admin",
-        label: "Administrator",
-        description:
-          "Zarządzanie blokadami IP, przegląd security events, integracja Wazuh AR.",
-        priority: 90,
-      },
-    ],
-  },
-  {
-    id: "maintenance",
-    label: "Prace serwisowe — bypass",
-    description: "Wejście na platformę podczas trybu konserwacji. Bez tej roli user widzi tylko stronę /maintenance.",
-    provider: "keycloak-only",
-    icon: "Wrench",
-    kcRoles: [
-      {
-        name: "maintenance_bypass",
-        label: "Bypass",
-        description:
-          "Pozwala zalogować się i pracować podczas prac serwisowych. Standardowo tylko superadmin i osoby zgrupowane przy maintenance mają tę rolę.",
-        priority: 50,
       },
     ],
   },
