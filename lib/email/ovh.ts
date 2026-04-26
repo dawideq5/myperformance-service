@@ -66,50 +66,84 @@ export async function ovhRequest<T = unknown>(
   path: string,
   body?: unknown,
 ): Promise<OvhResponse<T>> {
-  const url = `${baseUrl(creds.endpoint)}${path}`;
-  const bodyStr = body !== undefined ? JSON.stringify(body) : "";
-  const ts = await getServerTime(creds.endpoint);
-  const signature = sign({
-    secret: creds.appSecret,
-    consumer: creds.consumerKey,
-    method,
-    url,
-    body: bodyStr,
-    ts,
-  });
-  const headers: Record<string, string> = {
-    "X-Ovh-Application": creds.appKey,
-    "X-Ovh-Consumer": creds.consumerKey,
-    "X-Ovh-Timestamp": String(ts),
-    "X-Ovh-Signature": signature,
-  };
-  if (bodyStr) headers["Content-Type"] = "application/json";
+  // Retry tylko dla idempotentnych GET (5xx + network errors). 2 próby
+  // z 250 ms / 1 s backoff. POST/PUT/DELETE nie retryuje (ryzyko duplikatu).
+  const maxAttempts = method === "GET" ? 3 : 1;
+  let lastErr: OvhResponse<T> | null = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const url = `${baseUrl(creds.endpoint)}${path}`;
+      const bodyStr = body !== undefined ? JSON.stringify(body) : "";
+      const ts = await getServerTime(creds.endpoint);
+      const signature = sign({
+        secret: creds.appSecret,
+        consumer: creds.consumerKey,
+        method,
+        url,
+        body: bodyStr,
+        ts,
+      });
+      const headers: Record<string, string> = {
+        "X-Ovh-Application": creds.appKey,
+        "X-Ovh-Consumer": creds.consumerKey,
+        "X-Ovh-Timestamp": String(ts),
+        "X-Ovh-Signature": signature,
+      };
+      if (bodyStr) headers["Content-Type"] = "application/json";
 
-  const res = await fetch(url, {
-    method,
-    headers,
-    body: bodyStr || undefined,
-    cache: "no-store",
-  });
+      const res = await fetch(url, {
+        method,
+        headers,
+        body: bodyStr || undefined,
+        cache: "no-store",
+        signal: AbortSignal.timeout(15_000),
+      });
 
-  const text = await res.text();
-  let parsed: unknown;
-  try {
-    parsed = text ? JSON.parse(text) : undefined;
-  } catch {
-    parsed = text;
+      const text = await res.text();
+      let parsed: unknown;
+      try {
+        parsed = text ? JSON.parse(text) : undefined;
+      } catch {
+        parsed = text;
+      }
+
+      if (!res.ok) {
+        const err = (parsed && typeof parsed === "object" ? parsed : {}) as {
+          errorCode?: string;
+          message?: string;
+          class?: string;
+        };
+        logger.warn("OVH API error", {
+          method,
+          path,
+          status: res.status,
+          attempt,
+          error: err,
+        });
+        // 5xx + idempotent → retry
+        if (res.status >= 500 && attempt < maxAttempts) {
+          await new Promise((r) => setTimeout(r, attempt * 750));
+          lastErr = { ok: false, status: res.status, error: err };
+          continue;
+        }
+        return { ok: false, status: res.status, error: err };
+      }
+      return { ok: true, status: res.status, data: parsed as T };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn("OVH network error", { method, path, attempt, err: msg });
+      lastErr = {
+        ok: false,
+        status: 0,
+        error: { class: "NetworkError", message: msg },
+      };
+      if (attempt < maxAttempts) {
+        await new Promise((r) => setTimeout(r, attempt * 750));
+        continue;
+      }
+    }
   }
-
-  if (!res.ok) {
-    const err = (parsed && typeof parsed === "object" ? parsed : {}) as {
-      errorCode?: string;
-      message?: string;
-      class?: string;
-    };
-    logger.warn("OVH API error", { method, path, status: res.status, error: err });
-    return { ok: false, status: res.status, error: err };
-  }
-  return { ok: true, status: res.status, data: parsed as T };
+  return lastErr ?? { ok: false, status: 0, error: { message: "unknown" } };
 }
 
 /**

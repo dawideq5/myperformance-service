@@ -51,6 +51,7 @@ const cspDirectives = [
   "media-src 'self'",
   "base-uri 'self'",
   "object-src 'none'",
+  "report-uri /api/csp-report",
 ];
 if (!isDev) cspDirectives.push("upgrade-insecure-requests");
 

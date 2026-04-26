@@ -145,6 +145,43 @@ async function fetchJson<T>(path: string, timeoutMs = 6000): Promise<T> {
   return (await res.json()) as T;
 }
 
+// Storage cache — /system/df jest WOLNY (walk po wszystkich layerach +
+// liczy volumes). Refreshujemy w tle, request odpytujący dostaje to co
+// jest, fallback na poprzedni snapshot gdy timeout.
+let storageCache: {
+  data: SystemDfResponse | null;
+  fetchedAt: number;
+  inFlight: Promise<SystemDfResponse> | null;
+} = { data: null, fetchedAt: 0, inFlight: null };
+const STORAGE_TTL_MS = 5 * 60_000; // 5 min
+
+async function getStorageCached(): Promise<SystemDfResponse | null> {
+  const now = Date.now();
+  const fresh = storageCache.data && now - storageCache.fetchedAt < STORAGE_TTL_MS;
+  if (fresh) return storageCache.data;
+  if (storageCache.inFlight) {
+    // Don't block na trwającym fetchu — zwróć stale, refresh w tle
+    if (storageCache.data) return storageCache.data;
+    try {
+      return await storageCache.inFlight;
+    } catch {
+      return null;
+    }
+  }
+  storageCache.inFlight = (async () => {
+    const data = await fetchJson<SystemDfResponse>("/system/df", 30_000);
+    storageCache = { data, fetchedAt: Date.now(), inFlight: null };
+    return data;
+  })();
+  try {
+    return await storageCache.inFlight;
+  } catch (err) {
+    storageCache.inFlight = null;
+    if (storageCache.data) return storageCache.data; // serve stale on err
+    throw err;
+  }
+}
+
 async function collectInfo(): Promise<{
   info: MachineInfo;
   error: string | null;
@@ -321,7 +358,14 @@ async function collectStorage(): Promise<{
   error: string | null;
 }> {
   try {
-    const df = await fetchJson<SystemDfResponse>("/system/df");
+    const df = await getStorageCached();
+    if (!df) {
+      return {
+        filesystems: [],
+        dockerDf: null,
+        error: "Storage data not yet collected (próbuj za chwilę).",
+      };
+    }
     const imagesSize = df.Images.reduce((s, i) => s + i.Size, 0);
     const containersSize = df.Containers.reduce(
       (s, c) => s + (c.SizeRw ?? 0) + (c.SizeRootFs ?? 0),

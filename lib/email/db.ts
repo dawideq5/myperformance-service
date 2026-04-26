@@ -138,6 +138,23 @@ async function ensureSchema(client: PoolClient): Promise<void> {
     CREATE INDEX IF NOT EXISTS mp_2fa_codes_cleanup_idx
       ON mp_2fa_codes (expires_at) WHERE used_at IS NULL;
 
+    -- Cache geolocation per IP — populowane on-demand z zewnętrznego API
+    -- (ipapi.co, free 1000/day). TTL 30 dni przez cleanup.
+    CREATE TABLE IF NOT EXISTS mp_ip_geo (
+      ip          TEXT PRIMARY KEY,
+      country     TEXT,
+      country_code TEXT,
+      city        TEXT,
+      region      TEXT,
+      asn         TEXT,
+      org         TEXT,
+      lat         DOUBLE PRECISION,
+      lng         DOUBLE PRECISION,
+      looked_up_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      error       TEXT
+    );
+    CREATE INDEX IF NOT EXISTS mp_ip_geo_country_idx ON mp_ip_geo (country_code);
+
     -- Blocked IPs — Active Response (manual + auto Wazuh w przyszłości).
     -- Traefik dynamic file generowany na podstawie tej tabeli przez cron.
     CREATE TABLE IF NOT EXISTS mp_blocked_ips (

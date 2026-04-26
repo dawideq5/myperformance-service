@@ -30,10 +30,11 @@ import { api, ApiRequestError } from "@/lib/api-client";
 import {
   DashboardPanel as SecurityDashboardPanel,
   EventsPanel as SecurityEventsPanel,
-  BlocksPanel as SecurityBlocksPanel,
   AgentsPanel as WazuhPanel,
   type TabId as SecurityTabId,
 } from "@/app/admin/security/SecurityClient";
+import { IntelBlocksPanel } from "./IntelBlocksPanel";
+import { EventMapPanel } from "./EventMapPanel";
 
 type TabId =
   | "vps"
@@ -41,6 +42,7 @@ type TabId =
   | "resources"
   | "security"
   | "blocks"
+  | "map"
   | "wazuh";
 
 interface VpsItem {
@@ -103,8 +105,13 @@ export function InfrastructureClient({
       },
       {
         id: "blocks",
-        label: "Zablokowane IP",
+        label: "Threat Intel — IP",
         icon: <Ban className="w-5 h-5" />,
+      },
+      {
+        id: "map",
+        label: "Mapa & analityka",
+        icon: <Globe className="w-5 h-5" />,
       },
       { id: "wazuh", label: "Wazuh SIEM", icon: <Shield className="w-5 h-5" /> },
     ],
@@ -157,7 +164,10 @@ export function InfrastructureClient({
             </div>
           </TabPanel>
           <TabPanel tabId="blocks" active={tab === "blocks"}>
-            <SecurityBlocksPanel />
+            <IntelBlocksPanel />
+          </TabPanel>
+          <TabPanel tabId="map" active={tab === "map"}>
+            <EventMapPanel />
           </TabPanel>
           <TabPanel tabId="wazuh" active={tab === "wazuh"}>
             <WazuhPanel />
