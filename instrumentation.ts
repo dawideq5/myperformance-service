@@ -48,71 +48,60 @@ export async function register(): Promise<void> {
     );
   }
 
-  // KC localization initial seed — push wszystkich auth.* templates do
-  // KC realm localization żeby KC FreeMarker email templates używały
-  // naszych treści zamiast generycznych defaults ("Administrator właśnie
-  // zażądał aktualizacji konta..."). Bez tego seedu KC localization keys
-  // są puste dopóki admin ręcznie nie kliknie Zapisz na każdym auth.* template.
+  // KC localization initial seed — push wariantów KC-friendly (numbered
+  // args {0}, {1}, {2}) do realm localization. KC FreeMarker email
+  // templates resolwują ${msg("key", arg0, arg1)} z tego mapping.
+  // Mustache placeholders {{user.firstName}} z naszych szablonów NIE
+  // pasują do KC — dla KC trzymamy oddzielne wersje w lib/email/kc-templates.ts.
   try {
     const { ensureLocaleEnabled, setLocaleMessage } = await import(
       "@/lib/email/kc-localization"
     );
-    const { EMAIL_ACTIONS } = await import("@/lib/email/templates-catalog");
-    const { listTemplates } = await import("@/lib/email/db");
+    const { KC_LOCALIZATION_VARIANTS } = await import(
+      "@/lib/email/kc-templates"
+    );
 
-    const AUTH_KC_MAP: Record<
-      string,
-      (subject: string, body: string) => Record<string, string>
-    > = {
-      "auth.account-activation": (s, b) => ({
-        emailVerificationSubject: s,
-        emailVerificationBody: b,
-        emailVerificationBodyHtml: b,
-      }),
-      "auth.password-reset": (s, b) => ({
-        passwordResetSubject: s,
-        passwordResetBody: b,
-        passwordResetBodyHtml: b,
-      }),
-      "auth.email-update": (s, b) => ({
-        emailUpdateConfirmationSubject: s,
-        emailUpdateConfirmationBody: b,
-        emailUpdateConfirmationBodyHtml: b,
-      }),
-      "auth.required-actions": (s, b) => ({
-        executeActionsSubject: s,
-        executeActionsBody: b,
-        executeActionsBodyHtml: b,
-      }),
-      "auth.idp-link": (s, b) => ({
-        identityProviderLinkSubject: s,
-        identityProviderLinkBody: b,
-        identityProviderLinkBodyHtml: b,
-      }),
-      "auth.account-disabled": (s, b) => ({
-        loginDisabledSubject: s,
-        loginDisabledBody: b,
-      }),
+    const KC_KEYS: Record<string, [string, string, string]> = {
+      "auth.account-activation": [
+        "emailVerificationSubject",
+        "emailVerificationBody",
+        "emailVerificationBodyHtml",
+      ],
+      "auth.password-reset": [
+        "passwordResetSubject",
+        "passwordResetBody",
+        "passwordResetBodyHtml",
+      ],
+      "auth.email-update": [
+        "emailUpdateConfirmationSubject",
+        "emailUpdateConfirmationBody",
+        "emailUpdateConfirmationBodyHtml",
+      ],
+      "auth.required-actions": [
+        "executeActionsSubject",
+        "executeActionsBody",
+        "executeActionsBodyHtml",
+      ],
+      "auth.idp-link": [
+        "identityProviderLinkSubject",
+        "identityProviderLinkBody",
+        "identityProviderLinkBodyHtml",
+      ],
     };
 
     await ensureLocaleEnabled("pl").catch(() => undefined);
-    await ensureLocaleEnabled("en").catch(() => undefined);
-
-    const stored = await listTemplates();
-    const overrideMap = new Map(stored.map((t) => [t.actionKey, t]));
 
     let pushed = 0;
-    for (const action of EMAIL_ACTIONS) {
-      const mapper = AUTH_KC_MAP[action.key];
-      if (!mapper) continue;
-      const t = overrideMap.get(action.key);
-      const subject = t?.subject ?? action.defaultSubject;
-      const body = t?.body ?? action.defaultBody;
-      const kvs = mapper(subject, body);
-      for (const [k, v] of Object.entries(kvs)) {
-        await setLocaleMessage("pl", k, v).catch(() => undefined);
-        pushed++;
-      }
+    for (const [actionKey, variant] of Object.entries(KC_LOCALIZATION_VARIANTS)) {
+      const keys = KC_KEYS[actionKey];
+      if (!keys) continue;
+      const [kSubject, kBody, kBodyHtml] = keys;
+      await setLocaleMessage("pl", kSubject, variant.subject).catch(() => undefined);
+      await setLocaleMessage("pl", kBody, variant.body).catch(() => undefined);
+      await setLocaleMessage("pl", kBodyHtml, variant.bodyHtml).catch(
+        () => undefined,
+      );
+      pushed += 3;
     }
     // eslint-disable-next-line no-console
     console.log(
