@@ -67,21 +67,10 @@ interface DashboardStats {
   blockedIps: number;
 }
 
-const SEVERITY_TONE: Record<Severity, "neutral" | "warning" | "danger" | "success"> = {
-  info: "neutral",
-  low: "neutral",
-  medium: "warning",
-  high: "danger",
-  critical: "danger",
-};
-
-const SEVERITY_LABEL: Record<Severity, string> = {
-  info: "Info",
-  low: "Niski",
-  medium: "Średni",
-  high: "Wysoki",
-  critical: "Krytyczny",
-};
+import {
+  SEVERITY_BADGE_TONE as SEVERITY_TONE,
+  SEVERITY_LABEL,
+} from "@/lib/ui/severity";
 
 export function SecurityClient({
   userLabel,
@@ -913,11 +902,6 @@ function StatusPill({
   );
 }
 
-function severityTone(
-  s: string,
-): "danger" | "warning" | "info" | "neutral" {
-  if (s === "critical" || s === "high") return "danger";
-  if (s === "medium") return "warning";
-  if (s === "info") return "info";
-  return "neutral";
+function severityTone(s: string): "danger" | "warning" | "info" | "neutral" {
+  return SEVERITY_TONE[s as keyof typeof SEVERITY_TONE] ?? "neutral";
 }

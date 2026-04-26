@@ -12,7 +12,7 @@ import {
   Users,
   Zap,
 } from "lucide-react";
-import { Alert, Badge, Card, Input } from "@/components/ui";
+import { Alert, Badge, Card, EmptyState, Input, RelativeTime } from "@/components/ui";
 import { api, ApiRequestError } from "@/lib/api-client";
 
 interface DeviceOverviewRow {
@@ -245,14 +245,7 @@ export function DevicesPanel() {
                       {flag && (
                         <AlertTriangle className="w-3 h-3 text-amber-400" />
                       )}
-                      <span className="text-[10px]">
-                        {new Date(d.lastSeen).toLocaleString("pl-PL", {
-                          day: "2-digit",
-                          month: "2-digit",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </span>
+                      <RelativeTime date={d.lastSeen} className="text-[10px]" />
                     </div>
                   </div>
                 </li>
@@ -260,10 +253,16 @@ export function DevicesPanel() {
             })}
           </ul>
         ) : (
-          <p className="text-xs text-[var(--text-muted)]">
-            Brak danych — przy następnym requeście użytkownicy dostaną
-            cookie i pojawią się tutaj.
-          </p>
+          <EmptyState
+            icon={<Monitor className="w-7 h-7" />}
+            title="Brak urządzeń w tym oknie czasowym"
+            description="Cookie mp_did jest wystawiane przy każdej autentykacji. Po pierwszym ataku albo loginie z nowego browser'a urządzenie pojawi się tutaj."
+            hints={[
+              "Cookie żyje 1 rok i jest cross-subdomain (.myperformance.pl)",
+              "Sighting deduped na 5 min per (device, user, /api/admin/* etc)",
+              "Wzorzec 4+ kont na 1 device → flagowane jako shared/compromise",
+            ]}
+          />
         )}
       </Card>
 
@@ -324,14 +323,8 @@ export function DevicesPanel() {
                       <code className="text-[11px]">
                         {u.email ?? u.userId ?? "anon"}
                       </code>
-                      <span className="text-[10px] text-[var(--text-muted)]">
-                        {u.count}× ·{" "}
-                        {new Date(u.lastSeen).toLocaleString("pl-PL", {
-                          day: "2-digit",
-                          month: "2-digit",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
+                      <span className="text-[10px] text-[var(--text-muted)] flex items-center gap-1">
+                        {u.count}× · <RelativeTime date={u.lastSeen} />
                       </span>
                     </li>
                   ))}
@@ -349,14 +342,8 @@ export function DevicesPanel() {
                       className="flex items-center justify-between"
                     >
                       <code className="text-[11px] font-mono">{ip.ip}</code>
-                      <span className="text-[10px] text-[var(--text-muted)]">
-                        {ip.count}× ·{" "}
-                        {new Date(ip.lastSeen).toLocaleString("pl-PL", {
-                          day: "2-digit",
-                          month: "2-digit",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
+                      <span className="text-[10px] text-[var(--text-muted)] flex items-center gap-1">
+                        {ip.count}× · <RelativeTime date={ip.lastSeen} />
                       </span>
                     </li>
                   ))}
@@ -365,7 +352,7 @@ export function DevicesPanel() {
 
               <div className="text-[10px] text-[var(--text-muted)] flex items-center gap-1 pt-2 border-t border-[var(--border-subtle)]">
                 <Clock className="w-3 h-3" />
-                Ostatnio: {new Date(intel.lastSeen).toLocaleString("pl-PL")}
+                Ostatnio: <RelativeTime date={intel.lastSeen} />
               </div>
             </div>
           )}

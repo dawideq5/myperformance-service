@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Globe, Loader2, TrendingUp, Zap } from "lucide-react";
-import { Alert, Badge, Card, CardHeader } from "@/components/ui";
+import { Alert, Badge, Card, CardHeader, EmptyState } from "@/components/ui";
 import { api, ApiRequestError } from "@/lib/api-client";
+import { SEVERITY_HEX } from "@/lib/ui/severity";
 
 interface CountryAgg {
   countryCode: string;
@@ -47,13 +48,7 @@ interface MapData {
   correlations: Correlation[];
 }
 
-const SEVERITY_COLOR: Record<MarkerPoint["severity"], string> = {
-  critical: "#ef4444",
-  high: "#f97316",
-  medium: "#f59e0b",
-  low: "#3b82f6",
-  info: "#64748b",
-};
+const SEVERITY_COLOR = SEVERITY_HEX;
 
 export function EventMapPanel() {
   const [hours, setHours] = useState(168);
@@ -223,7 +218,14 @@ function Stat({
 
 function CountryList({ countries }: { countries: CountryAgg[] }) {
   if (countries.length === 0) {
-    return <p className="text-xs text-[var(--text-muted)]">Brak danych geo.</p>;
+    return (
+      <EmptyState
+        compact
+        icon={<Globe className="w-6 h-6" />}
+        title="Brak danych geograficznych"
+        description="Geo lookup zaktualizuje listę przy następnym ataku z publicznego IP. Lokalne IP (10.x, 192.168) są pomijane."
+      />
+    );
   }
   const max = Math.max(...countries.map((c) => c.events));
   return (

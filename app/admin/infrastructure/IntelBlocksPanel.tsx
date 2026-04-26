@@ -13,8 +13,24 @@ import {
   TrendingUp,
   Users,
 } from "lucide-react";
-import { Alert, Badge, Button, Card, Input, InfoTooltip, useConfirm } from "@/components/ui";
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Input,
+  InfoTooltip,
+  RelativeTime,
+  useConfirm,
+} from "@/components/ui";
 import { api, ApiRequestError } from "@/lib/api-client";
+import {
+  RISK_BAND_BADGE_TONE,
+  RISK_BAND_BORDER,
+  RISK_BAND_LABEL,
+  SEVERITY_HEX,
+} from "@/lib/ui/severity";
 
 interface IpIntel {
   ip: string;
@@ -49,20 +65,6 @@ interface IpIntel {
     org: string | null;
   } | null;
 }
-
-const BAND_COLORS: Record<IpIntel["riskBand"], { bg: string; text: string; tone: "neutral" | "warning" | "danger" | "success" }> = {
-  low: { bg: "bg-emerald-500/10", text: "text-emerald-400", tone: "success" },
-  medium: { bg: "bg-amber-500/10", text: "text-amber-400", tone: "warning" },
-  high: { bg: "bg-orange-500/10", text: "text-orange-400", tone: "warning" },
-  critical: { bg: "bg-red-500/10", text: "text-red-400", tone: "danger" },
-};
-
-const BAND_LABEL: Record<IpIntel["riskBand"], string> = {
-  low: "Niskie",
-  medium: "Średnie",
-  high: "Wysokie",
-  critical: "Krytyczne",
-};
 
 type Status = "all" | "blocked" | "active";
 
@@ -228,9 +230,28 @@ export function IntelBlocksPanel() {
         </div>
       ) : !data || data.length === 0 ? (
         <Card padding="md">
-          <p className="text-xs text-[var(--text-muted)]">
-            Brak wyników dla tego filtra.
-          </p>
+          <EmptyState
+            icon={<Ban className="w-7 h-7" />}
+            title={search ? "Brak wyników wyszukiwania" : "Żadne IP nie pojawiło się jeszcze"}
+            description={
+              search
+                ? `Nie znaleziono IP, użytkownika ani powodu blokady pasującego do "${search}".`
+                : "Threat intel agreguje IP z mp_blocked_ips i mp_security_events. Pojawia się tu kiedy ktoś próbuje się zalogować, atakuje brute force albo Wazuh wykryje threat."
+            }
+            hints={
+              search
+                ? [
+                    "Sprawdź pisownię",
+                    "Zmień filtr statusu na „Wszystkie\u201D",
+                    "Przeszukuj fragmentem (np. 192.168 albo @gmail.com)",
+                  ]
+                : [
+                    "Wazuh agent monitoruje SSH/HTTP — atak SSH brute force odpali AR webhook po 5+ próbach",
+                    "Możesz manualnie zablokować IP z Map & analityka albo z eventu na liście Bezpieczeństwo",
+                    "Geo lookup wzbogaci dane o kraj/miasto/ASN przy pierwszym wyświetleniu",
+                  ]
+            }
+          />
         </Card>
       ) : (
         <div className="space-y-3">
@@ -291,7 +312,7 @@ function IntelCard({
   onUnblock: () => void;
   onBlock: () => void;
 }) {
-  const band = BAND_COLORS[intel.riskBand];
+  const bandTone = RISK_BAND_BADGE_TONE[intel.riskBand];
   const [expanded, setExpanded] = useState(false);
   const topCats = Object.entries(intel.events.byCategory)
     .sort((a, b) => b[1] - a[1])
@@ -304,23 +325,15 @@ function IntelCard({
   return (
     <Card
       padding="md"
-      className={`border-l-4 ${
-        intel.riskBand === "critical"
-          ? "border-l-red-500"
-          : intel.riskBand === "high"
-            ? "border-l-orange-500"
-            : intel.riskBand === "medium"
-              ? "border-l-amber-500"
-              : "border-l-emerald-500"
-      }`}
+      className={`border-l-4 ${RISK_BAND_BORDER[intel.riskBand]}`}
     >
       <div className="flex items-start justify-between gap-3 mb-2">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <code className="text-sm font-semibold font-mono">{intel.ip}</code>
             <span className="inline-flex items-center gap-1">
-              <Badge tone={band.tone}>
-                Risk {intel.riskScore} · {BAND_LABEL[intel.riskBand]}
+              <Badge tone={bandTone}>
+                Risk {intel.riskScore} · {RISK_BAND_LABEL[intel.riskBand]}
               </Badge>
               <InfoTooltip
                 content={
@@ -431,13 +444,7 @@ function IntelCard({
               const n = intel.events.bySeverity[s] ?? 0;
               if (n === 0) return null;
               const w = (n / sevTotal) * 100;
-              const color = {
-                critical: "#ef4444",
-                high: "#f97316",
-                medium: "#f59e0b",
-                low: "#3b82f6",
-                info: "#64748b",
-              }[s];
+              const color = SEVERITY_HEX[s];
               return (
                 <div
                   key={s}
@@ -463,7 +470,7 @@ function IntelCard({
       {intel.riskReasons.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-1.5">
           {intel.riskReasons.map((r, i) => (
-            <Badge key={i} tone={band.tone}>
+            <Badge key={i} tone={bandTone}>
               {r}
             </Badge>
           ))}
