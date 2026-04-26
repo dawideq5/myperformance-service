@@ -212,26 +212,7 @@ const DASHBOARD_TILES: AppKafelek[] = [
   { selector: '[data-tour-tile="keycloak"]', area: "keycloak", label: "Keycloak (konsola IdP)", description: "Natywna admin konsola — realms, klienci, IdP, polityki." },
 ];
 
-import { AREAS } from "@/lib/permissions/areas";
-
-function userHasAreaClient(roles: string[], areaId: string): boolean {
-  if (roles.includes("realm-admin") || roles.includes("manage-realm")) {
-    return true;
-  }
-  const area = AREAS.find((a) => a.id === areaId);
-  if (!area) return false;
-  const userRoleSet = new Set(roles);
-  for (const r of area.kcRoles) {
-    if (userRoleSet.has(r.name)) return true;
-  }
-  if (area.dynamicRoles) {
-    const prefix = `${area.id.replace(/-/g, "_")}_`;
-    for (const r of roles) {
-      if (r.startsWith(prefix)) return true;
-    }
-  }
-  return false;
-}
+import { userHasAreaClient } from "@/lib/permissions/access-client";
 
 /**
  * Buduje pełny tour po systemie dynamicznie z user roles. Każdy krok

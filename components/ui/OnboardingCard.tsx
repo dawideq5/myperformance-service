@@ -5,7 +5,7 @@ import { useSession } from "next-auth/react";
 import { Lightbulb, X } from "lucide-react";
 import { Card } from "./Card";
 import { usePreferences } from "@/hooks/usePreferences";
-import { AREAS } from "@/lib/permissions/areas";
+import { userHasAreaClient } from "@/lib/permissions/access-client";
 
 interface Props {
   /** Klucz w sessionStorage — kart jest schowana tylko do następnego F5. */
@@ -21,29 +21,6 @@ interface Props {
   requiresArea?: string;
   /** Min priority (10/50/90) wymagana dla area. Domyślnie 1 (jakakolwiek rola). */
   requiresMinPriority?: number;
-}
-
-function userHasArea(
-  roles: string[],
-  areaId: string,
-  minPriority: number,
-): boolean {
-  if (roles.includes("realm-admin") || roles.includes("manage-realm")) {
-    return true;
-  }
-  const area = AREAS.find((a) => a.id === areaId);
-  if (!area) return false;
-  const userRoleSet = new Set(roles);
-  for (const r of area.kcRoles) {
-    if (r.priority >= minPriority && userRoleSet.has(r.name)) return true;
-  }
-  if (area.dynamicRoles) {
-    const prefix = `${area.id.replace(/-/g, "_")}_`;
-    for (const r of roles) {
-      if (r.startsWith(prefix)) return true;
-    }
-  }
-  return false;
 }
 
 /**
@@ -79,7 +56,7 @@ export function OnboardingCard({
 
   if (requiresArea) {
     const roles = (session?.user?.roles as string[] | undefined) ?? [];
-    if (!userHasArea(roles, requiresArea, requiresMinPriority)) return null;
+    if (!userHasAreaClient(roles, requiresArea, requiresMinPriority)) return null;
   }
 
   function dismiss() {
