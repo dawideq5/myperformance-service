@@ -1,13 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  AlertTriangle,
-  Globe,
-  Loader2,
-  TrendingUp,
-  Zap,
-} from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Globe, Loader2, TrendingUp, Zap } from "lucide-react";
 import { Alert, Badge, Card, CardHeader } from "@/components/ui";
 import { api, ApiRequestError } from "@/lib/api-client";
 
@@ -400,7 +394,6 @@ function Timeline({ buckets }: { buckets: TimelineBucket[] }) {
         {sampled.map((b) => {
           const h = max > 0 ? (b.total / max) * 100 : 0;
           const segs: Array<{ sev: string; pct: number; color: string }> = [];
-          let acc = 0;
           for (const sev of ["critical", "high", "medium", "low", "info"]) {
             const n = b.bySeverity[sev] ?? 0;
             if (n > 0 && b.total > 0) {
@@ -409,7 +402,6 @@ function Timeline({ buckets }: { buckets: TimelineBucket[] }) {
                 pct: (n / b.total) * 100,
                 color: SEVERITY_COLOR[sev as keyof typeof SEVERITY_COLOR],
               });
-              acc += n;
             }
           }
           return (

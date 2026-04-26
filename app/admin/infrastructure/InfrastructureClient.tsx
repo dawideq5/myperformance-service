@@ -19,7 +19,6 @@ import {
   Button,
   Card,
   CardHeader,
-  Input,
   PageShell,
   TabPanel,
   Tabs,
@@ -426,8 +425,7 @@ function VpsPanel() {
                 )}
               </div>
               <p className="mt-2 text-[10px] text-[var(--text-muted)]">
-                OVH limit: 1 aktywny snapshot per VPS. „Nadpisz" usuwa stary
-                i tworzy nowy.
+                OVH limit: 1 aktywny snapshot per VPS. {"\u201E"}Nadpisz{"\u201D"} usuwa stary i tworzy nowy.
               </p>
             </Card>
           </div>
