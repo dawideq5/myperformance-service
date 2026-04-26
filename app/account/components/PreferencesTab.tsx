@@ -162,9 +162,9 @@ export function PreferencesTab() {
 
         <div className="mt-3 flex items-center justify-between gap-3 p-3 rounded-xl border border-[var(--border-subtle)]">
           <div>
-            <div className="text-sm font-medium">Pełny przewodnik po systemie</div>
+            <div className="text-sm font-medium">Przewodnik po systemie</div>
             <div className="text-xs text-[var(--text-muted)]">
-              {"Obejdziemy wszystkie aplikacje i panele do których masz dostęp — od dashboardu po konto, integracje, theme i powiadomienia."}
+              {"Krótki tour po wszystkich aplikacjach do których masz dostęp — z opisem co znajdziesz w środku każdego panelu."}
             </div>
           </div>
           <Button
@@ -173,25 +173,6 @@ export function PreferencesTab() {
             leftIcon={<Compass className="w-4 h-4" />}
             onClick={async () => {
               window.location.href = "/dashboard?intro=full-system";
-            }}
-          >
-            Uruchom
-          </Button>
-        </div>
-        <div className="mt-3 flex items-center justify-between gap-3 p-3 rounded-xl border border-[var(--border-subtle)]">
-          <div>
-            <div className="text-sm font-medium">Przewodnik po koncie</div>
-            <div className="text-xs text-[var(--text-muted)]">
-              {"Tylko ustawienia konta: profil, bezpieczeństwo, sesje, integracje, preferencje."}
-            </div>
-          </div>
-          <Button
-            variant="secondary"
-            size="sm"
-            leftIcon={<Compass className="w-4 h-4" />}
-            onClick={async () => {
-              const { runTour } = await import("@/lib/onboarding/runner");
-              await runTour("account");
             }}
           >
             Uruchom

@@ -14,7 +14,6 @@ export { OnboardingCard } from "./OnboardingCard";
 export { Breadcrumbs } from "./Breadcrumbs";
 export type { Crumb } from "./Breadcrumbs";
 export { ThemeToggle } from "./ThemeToggle";
-export { ThemeTransition } from "./ThemeTransition";
 export { Alert } from "./Alert";
 export { Spinner } from "./Spinner";
 export { Skeleton } from "./Skeleton";

@@ -40,6 +40,8 @@ import {
   canAccessDocumensoAsAdmin,
   canAccessDocumensoAsHandler,
   canAccessDocumensoAsUser,
+  canAccessEmail,
+  canAccessInfrastructure,
   canAccessKadromierz,
   canAccessKeycloakAdmin,
   canAccessKnowledgeBase,
@@ -130,7 +132,9 @@ function TileGrid() {
   const showChatwoot = showChatwootAgent || showChatwootAdmin;
   const showPostal = canAccessPostal(session);
   const showKeycloak = canAccessKeycloakAdmin(session);
-  const showAdminUsers = canAccessAdminPanel(session);
+  const showUsersAdmin = canAccessAdminPanel(session);
+  const showEmailAdmin = canAccessEmail(session);
+  const showInfrastructureAdmin = canAccessInfrastructure(session);
   const showCerts = canManageCertificates(session);
   const showSprzedawca = canAccessPanel(session, "sprzedawca");
   const showSerwisant = canAccessPanel(session, "serwisant");
@@ -140,7 +144,8 @@ function TileGrid() {
     showCalendar || showKadromierz || showDirectus ||
     showDocumenso || showMoodle || showKnowledge ||
     showChatwoot || showPostal || showKeycloak ||
-    showAdminUsers || showCerts ||
+    showUsersAdmin || showEmailAdmin || showInfrastructureAdmin ||
+    showCerts ||
     showSprzedawca || showSerwisant || showKierowca;
 
   return (
@@ -346,7 +351,7 @@ function TileGrid() {
           />
         )}
 
-        {showAdminUsers && (
+        {showUsersAdmin && (
           <Tile
             icon={<Users className="w-7 h-7 text-indigo-500" aria-hidden="true" />}
             iconBg="bg-indigo-500/10"
@@ -359,7 +364,7 @@ function TileGrid() {
           />
         )}
 
-        {showAdminUsers && (
+        {showEmailAdmin && (
           <Tile
             icon={<Mail className="w-7 h-7 text-indigo-500" aria-hidden="true" />}
             iconBg="bg-indigo-500/10"
@@ -372,7 +377,7 @@ function TileGrid() {
           />
         )}
 
-        {showAdminUsers && (
+        {showInfrastructureAdmin && (
           <Tile
             icon={<Server className="w-7 h-7 text-indigo-500" aria-hidden="true" />}
             iconBg="bg-indigo-500/10"

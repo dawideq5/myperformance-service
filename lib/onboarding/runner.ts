@@ -2,7 +2,7 @@
 
 import { createRoot, type Root } from "react-dom/client";
 import { Tour } from "@/components/ui/Tour";
-import { TOURS, buildFullSystemTour, type TourDefinition } from "./tour";
+import { buildFullSystemTour } from "./tour";
 import { createElement } from "react";
 
 let activeRoot: Root | null = null;
@@ -31,27 +31,21 @@ function teardown() {
 }
 
 /**
- * Uruchamia branded tour (komponent Tour z components/ui/Tour.tsx).
- * Tworzy detached container w body, mountuje React root, czeka na
- * onClose i resolve-uje promise. Po sukcesie patch prefs / Moodle.
+ * Uruchamia jedyny zorganizowany przewodnik po systemie. Kroki budowane
+ * dynamicznie z dostępnych userowi paneli — opisuje co znajdziesz wewnątrz.
+ *
+ * Akceptuje stary `tourId` argument dla kompatybilności call-site'ów —
+ * niezależnie od wartości buduje full-system tour.
  */
 export async function runTour(
-  tourId: string,
+  _tourId?: string,
   opts: { persist?: boolean } = {},
 ): Promise<{ completed: boolean }> {
-  let tour: TourDefinition | undefined;
-  if (tourId === "full-system") {
-    const roles = await fetchUserRoles();
-    tour = buildFullSystemTour(roles);
-  } else {
-    tour = TOURS[tourId];
-  }
-  if (!tour) return { completed: false };
-
+  const roles = await fetchUserRoles();
+  const tour = buildFullSystemTour(roles);
   const persist = opts.persist ?? true;
-  void enrolInOnboarding();
 
-  // Cleanup poprzedniego tour, jeśli ktoś wyzwolił dwa razy
+  void enrolInOnboarding();
   teardown();
 
   return new Promise((resolve) => {
@@ -61,23 +55,17 @@ export async function runTour(
     activeRoot = createRoot(activeContainer);
 
     const handleClose = (completed: boolean) => {
-      if (completed && persist) void markCompleted(tourId);
+      if (completed && persist) void markCompleted("full-system");
       teardown();
       resolve({ completed });
     };
 
     activeRoot.render(
       createElement(Tour, {
-        steps: tour!.steps.map((s) => ({
-          element: s.element,
-          title: s.title,
-          body: s.body,
-          more: s.more,
-          allowInteraction: s.allowInteraction,
-        })),
+        steps: tour.steps,
         open: true,
         onClose: handleClose,
-        label: tour!.label,
+        label: tour.label,
       }),
     );
   });
