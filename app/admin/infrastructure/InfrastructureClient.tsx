@@ -574,6 +574,7 @@ interface MachineInfo {
 
 interface ContainerStat {
   name: string;
+  app: string;
   image: string;
   status: string;
   cpuPercent: number;
@@ -584,11 +585,23 @@ interface ContainerStat {
   netTx: number;
   blockRead: number;
   blockWrite: number;
+  diskRw: number;
+  diskRootFs: number;
+}
+
+interface DockerStorage {
+  layers: number;
+  imagesCount: number;
+  imagesSize: number;
+  containersSize: number;
+  volumesSize: number;
+  buildCacheSize: number;
 }
 
 interface ResourcesData {
   machine: MachineInfo;
   containers: ContainerStat[];
+  storage: DockerStorage | null;
   collectedAt: string;
   errors: string[];
 }
@@ -711,6 +724,38 @@ function ResourcesPanel() {
         </Card>
       </div>
 
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Card padding="md">
+          <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
+            <Database className="w-4 h-4" />
+            RAM per aplikacja
+          </h4>
+          <MemoryDonut containers={data.containers} />
+        </Card>
+
+        <Card padding="md">
+          <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
+            <TrendingUp className="w-4 h-4" />
+            CPU per aplikacja
+          </h4>
+          <AppCpuList containers={data.containers} />
+        </Card>
+      </div>
+
+      <Card padding="md">
+        <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
+          <HardDrive className="w-4 h-4" />
+          Pamięć dyskowa (ROM) — Docker overlay
+        </h4>
+        {data.storage ? (
+          <StorageBreakdown storage={data.storage} />
+        ) : (
+          <p className="text-xs text-[var(--text-muted)]">
+            Brak danych z /system/df.
+          </p>
+        )}
+      </Card>
+
       <Card padding="md">
         <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
           <TrendingUp className="w-4 h-4" />
@@ -733,6 +778,238 @@ function ResourcesPanel() {
         </h4>
         <ContainerList items={data.containers} metric="full" />
       </Card>
+    </div>
+  );
+}
+
+// ── Aggregation helpers ────────────────────────────────────────────────────
+
+interface AppAggregate {
+  app: string;
+  cpu: number;
+  mem: number;
+  containers: number;
+}
+
+function aggregateByApp(containers: ContainerStat[]): AppAggregate[] {
+  const map = new Map<string, AppAggregate>();
+  for (const c of containers) {
+    const cur = map.get(c.app) ?? {
+      app: c.app,
+      cpu: 0,
+      mem: 0,
+      containers: 0,
+    };
+    cur.cpu += c.cpuPercent;
+    cur.mem += c.memUsage;
+    cur.containers += 1;
+    map.set(c.app, cur);
+  }
+  return Array.from(map.values()).sort((a, b) => b.mem - a.mem);
+}
+
+const PALETTE = [
+  "#6366f1", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6",
+  "#06b6d4", "#ec4899", "#14b8a6", "#f97316", "#84cc16",
+  "#3b82f6", "#a855f7", "#64748b", "#eab308", "#22c55e",
+];
+
+function MemoryDonut({ containers }: { containers: ContainerStat[] }) {
+  const apps = aggregateByApp(containers);
+  const total = apps.reduce((s, a) => s + a.mem, 0);
+  if (total === 0) {
+    return (
+      <p className="text-xs text-[var(--text-muted)]">Brak danych RAM.</p>
+    );
+  }
+  const radius = 72;
+  const stroke = 22;
+  const circ = 2 * Math.PI * radius;
+  let cum = 0;
+  const slices = apps.map((a, idx) => {
+    const frac = a.mem / total;
+    const dasharray = `${frac * circ} ${circ}`;
+    const dashoffset = -cum * circ;
+    cum += frac;
+    return { ...a, frac, dasharray, dashoffset, color: PALETTE[idx % PALETTE.length] };
+  });
+  return (
+    <div className="flex items-center gap-4 flex-wrap">
+      <div className="relative" style={{ width: 180, height: 180 }}>
+        <svg
+          width={180}
+          height={180}
+          viewBox="0 0 180 180"
+          className="-rotate-90"
+        >
+          <circle
+            cx={90}
+            cy={90}
+            r={radius}
+            fill="none"
+            stroke="var(--bg-main)"
+            strokeWidth={stroke}
+          />
+          {slices.map((s) => (
+            <circle
+              key={s.app}
+              cx={90}
+              cy={90}
+              r={radius}
+              fill="none"
+              stroke={s.color}
+              strokeWidth={stroke}
+              strokeDasharray={s.dasharray}
+              strokeDashoffset={s.dashoffset}
+            />
+          ))}
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none">
+          <div className="text-base font-bold tabular-nums">
+            {fmtBytes(total)}
+          </div>
+          <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide">
+            RAM razem
+          </div>
+        </div>
+      </div>
+      <ul className="flex-1 space-y-1 min-w-[200px]">
+        {slices.map((s) => (
+          <li
+            key={s.app}
+            className="flex items-center justify-between gap-2 text-xs"
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <span
+                className="w-3 h-3 rounded-sm flex-shrink-0"
+                style={{ background: s.color }}
+              />
+              <span className="truncate" title={s.app}>
+                {s.app}
+              </span>
+              <span className="text-[10px] text-[var(--text-muted)]">
+                ({s.containers})
+              </span>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <span className="font-mono tabular-nums">
+                {fmtBytes(s.mem)}
+              </span>
+              <Badge tone="neutral">
+                {(s.frac * 100).toFixed(1)}%
+              </Badge>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function AppCpuList({ containers }: { containers: ContainerStat[] }) {
+  const apps = aggregateByApp(containers).sort((a, b) => b.cpu - a.cpu);
+  if (apps.length === 0) {
+    return <p className="text-xs text-[var(--text-muted)]">Brak danych.</p>;
+  }
+  const max = Math.max(...apps.map((a) => a.cpu));
+  return (
+    <ul className="space-y-2">
+      {apps.map((a, i) => {
+        const pct = max > 0 ? (a.cpu / max) * 100 : 0;
+        return (
+          <li key={a.app} className="text-xs">
+            <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center gap-2 min-w-0">
+                <span
+                  className="w-3 h-3 rounded-sm flex-shrink-0"
+                  style={{ background: PALETTE[i % PALETTE.length] }}
+                />
+                <span className="truncate">{a.app}</span>
+              </div>
+              <span className="font-mono tabular-nums">
+                {a.cpu.toFixed(1)}%
+              </span>
+            </div>
+            <div className="h-1.5 rounded-full bg-[var(--bg-main)] overflow-hidden">
+              <div
+                className="h-full transition-all"
+                style={{
+                  width: `${pct}%`,
+                  background: PALETTE[i % PALETTE.length],
+                }}
+              />
+            </div>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function StorageBreakdown({ storage }: { storage: DockerStorage }) {
+  const items = [
+    { label: "Layers (overlay)", value: storage.layers, color: "#6366f1" },
+    {
+      label: `Images (${storage.imagesCount})`,
+      value: storage.imagesSize,
+      color: "#10b981",
+    },
+    {
+      label: "Containers (RW)",
+      value: storage.containersSize,
+      color: "#f59e0b",
+    },
+    { label: "Volumes (named)", value: storage.volumesSize, color: "#8b5cf6" },
+    {
+      label: "Build cache",
+      value: storage.buildCacheSize,
+      color: "#06b6d4",
+    },
+  ];
+  const total = items.reduce((s, i) => s + i.value, 0);
+  return (
+    <div className="space-y-3">
+      <div className="flex items-baseline justify-between">
+        <span className="text-xs text-[var(--text-muted)]">
+          Razem dysk Docker
+        </span>
+        <span className="text-lg font-bold tabular-nums">
+          {fmtBytes(total)}
+        </span>
+      </div>
+      <div className="h-3 rounded-full overflow-hidden flex bg-[var(--bg-main)]">
+        {items.map((i) =>
+          i.value > 0 ? (
+            <div
+              key={i.label}
+              style={{
+                width: `${(i.value / total) * 100}%`,
+                background: i.color,
+              }}
+              title={`${i.label}: ${fmtBytes(i.value)}`}
+            />
+          ) : null,
+        )}
+      </div>
+      <ul className="grid sm:grid-cols-2 gap-1.5">
+        {items.map((i) => (
+          <li
+            key={i.label}
+            className="flex items-center justify-between text-xs"
+          >
+            <div className="flex items-center gap-2">
+              <span
+                className="w-3 h-3 rounded-sm"
+                style={{ background: i.color }}
+              />
+              <span>{i.label}</span>
+            </div>
+            <span className="font-mono tabular-nums text-[var(--text-muted)]">
+              {fmtBytes(i.value)}
+            </span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -805,13 +1082,17 @@ function ContainerList({
           className="flex items-center justify-between text-xs gap-2"
         >
           <div className="min-w-0 flex-1">
-            <div className="font-mono truncate" title={c.name}>
-              {c.name.replace(/-[0-9a-f]{12,}/, "…")}
+            <div className="flex items-center gap-2">
+              <Badge tone="accent">{c.app}</Badge>
+              <span className="font-mono truncate text-[11px]" title={c.name}>
+                {c.name.replace(/-[0-9a-f]{12,}/, "…")}
+              </span>
             </div>
             {metric === "full" && (
-              <div className="text-[10px] text-[var(--text-muted)]">
+              <div className="text-[10px] text-[var(--text-muted)] mt-0.5">
                 CPU {c.cpuPercent.toFixed(1)}% · RAM {fmtBytes(c.memUsage)}
                 {" · "}↓{fmtBytes(c.netRx)} ↑{fmtBytes(c.netTx)}
+                {c.diskRw > 0 && ` · disk ${fmtBytes(c.diskRw)}`}
               </div>
             )}
           </div>

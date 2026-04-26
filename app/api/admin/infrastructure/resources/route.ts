@@ -18,10 +18,31 @@ interface ContainerListItem {
   Image: string;
   State: string;
   Status: string;
+  Labels?: Record<string, string>;
+  SizeRw?: number;
+  SizeRootFs?: number;
+}
+
+interface SystemDfResponse {
+  LayersSize: number;
+  Images: Array<{ Size: number; SharedSize: number }>;
+  Containers: Array<{ SizeRw: number; SizeRootFs: number }>;
+  Volumes: Array<{ UsageData?: { Size: number } }>;
+  BuildCache?: Array<{ Size: number }>;
+}
+
+interface FilesystemRow {
+  device: string;
+  mountpoint: string;
+  fstype: string;
+  totalBytes: number;
+  usedBytes: number;
+  availBytes: number;
 }
 
 interface ContainerStat {
   name: string;
+  app: string;
   image: string;
   status: string;
   cpuPercent: number;
@@ -32,6 +53,8 @@ interface ContainerStat {
   netTx: number;
   blockRead: number;
   blockWrite: number;
+  diskRw: number;
+  diskRootFs: number;
 }
 
 interface DockerStatsResponse {
@@ -154,13 +177,95 @@ async function collectInfo(): Promise<{
   }
 }
 
+/**
+ * Heurystyka: wyciągamy "app name" z labelek Coolify lub z nazwy kontenera.
+ * Coolify dodaje `coolify.applicationId` lub `coolify.serviceId` do labelek
+ * uruchamianych aplikacji. Container name pattern: `<service>-<uuid>` albo
+ * `<uuid>-<timestamp>`. Próbujemy uzyskać czytelną nazwę aplikacji.
+ */
+function deriveAppName(c: ContainerListItem): string {
+  const labels = c.Labels ?? {};
+  // Wazuh containers labelują się hostname'em
+  if (labels["com.docker.compose.project"]?.length) {
+    const proj = labels["com.docker.compose.project"];
+    if (proj.includes("wazuh")) return "Wazuh SIEM";
+    return `compose:${proj}`;
+  }
+  // Coolify managed-service uses managed=service id
+  const serviceName = labels["coolify.serviceId"] || labels["coolify.applicationId"];
+  if (serviceName) return `coolify:${serviceName.slice(0, 12)}`;
+
+  const name = (c.Names[0] ?? "").replace(/^\//, "");
+  // Pattern: keycloak-<24chars>, postgres-<24chars> → wyciągamy prefix
+  const friendly = name.match(
+    /^(keycloak|postgres|postgresql|redis|mariadb|directus|outline|moodle|chatwoot|chatwoot-rails|chatwoot-sidekiq|smtp|web|worker|documenso|database|coolify|coolify-db|coolify-redis|coolify-realtime|coolify-proxy|docker-socket-proxy)/i,
+  );
+  if (friendly) {
+    const norm = friendly[1]!.toLowerCase();
+    const map: Record<string, string> = {
+      keycloak: "Keycloak",
+      postgres: "PostgreSQL",
+      postgresql: "PostgreSQL",
+      redis: "Redis",
+      mariadb: "MariaDB",
+      directus: "Directus CMS",
+      outline: "Outline",
+      moodle: "Moodle",
+      chatwoot: "Chatwoot",
+      "chatwoot-rails": "Chatwoot",
+      "chatwoot-sidekiq": "Chatwoot",
+      smtp: "Postal",
+      web: "Postal",
+      worker: "Postal",
+      documenso: "Documenso",
+      database: "Documenso",
+      coolify: "Coolify",
+      "coolify-db": "Coolify",
+      "coolify-redis": "Coolify",
+      "coolify-realtime": "Coolify",
+      "coolify-proxy": "Traefik (Coolify)",
+      "docker-socket-proxy": "Docker proxy",
+    };
+    return map[norm] ?? norm;
+  }
+  // Wazuh containers: wazuh.manager-<uuid>, wazuh.indexer-<uuid>, wazuh.dashboard-<uuid>
+  if (name.startsWith("wazuh.")) return "Wazuh SIEM";
+  // Coolify app pattern: <24-char-uuid>-<timestamp> → application UUID
+  const uuidMatch = name.match(/^([a-z0-9]{24})-/);
+  if (uuidMatch) {
+    const u = uuidMatch[1]!;
+    const map: Record<string, string> = {
+      cft13k98wnuqm4u8p6freksn: "Dashboard (Next.js)",
+      pu8b37hw19akg5gx1445j3f2: "Directus CMS",
+      hg0i1ii7tg5btyok3o2gqnf0: "Keycloak",
+      gpzcsydkhww03dxunov3r8vf: "Docuseal",
+      zdlueek1sg2dgdbi7nk5xrh5: "Chatwoot",
+      q4ir8kyx1af5ibh926bxno9f: "Plunk",
+      dvx7b9t8ng9ymsbdsnenrr01: "step-ca",
+      j25t315yl6ei2yrqsu8678hl: "Panel sprzedawca",
+      h2azkj3hconcktdleledntcj: "Panel serwisant",
+      wx710sd7tvmu9f7qsbu907u3: "Panel kierowca",
+      uq1p6xoih3gbthxoklumzyxv: "Panel dokumenty",
+      o4roacrk9qxh08gwv37iphd1: "Outline",
+      iut9wf1rz9ey54g7lbkje0je: "Postal",
+      upzcjtn9rcswer2vg2vey5d3: "Moodle",
+      c9dxxjvb3rskueiuguudbqgb: "Documenso",
+      l2ga2hk4o66obbw9uoe60wgc: "Wazuh SIEM",
+    };
+    return map[u] ?? `Inne (${u.slice(0, 8)}…)`;
+  }
+  return "Inne";
+}
+
 async function collectContainers(): Promise<{
   containers: ContainerStat[];
   error: string | null;
 }> {
   try {
-    const list = await fetchJson<ContainerListItem[]>("/containers/json");
-    // równoległe stats — limit 30 jednocześnie żeby nie zaprzeć dockera.
+    // size=true daje SizeRw/SizeRootFs per container (kosztowne ale przydatne)
+    const list = await fetchJson<ContainerListItem[]>(
+      "/containers/json?size=true",
+    );
     const stats = await Promise.allSettled(
       list.map(async (c) => {
         const s = await fetchJson<DockerStatsResponse>(
@@ -172,6 +277,7 @@ async function collectContainers(): Promise<{
         const block = sumBlockIO(s);
         return {
           name: (c.Names[0] ?? c.Id).replace(/^\//, ""),
+          app: deriveAppName(c),
           image: c.Image,
           status: c.Status,
           cpuPercent: calcCpuPercent(s),
@@ -182,6 +288,8 @@ async function collectContainers(): Promise<{
           netTx: net.tx,
           blockRead: block.read,
           blockWrite: block.write,
+          diskRw: c.SizeRw ?? 0,
+          diskRootFs: c.SizeRootFs ?? 0,
         } satisfies ContainerStat;
       }),
     );
@@ -200,22 +308,73 @@ async function collectContainers(): Promise<{
   }
 }
 
+async function collectStorage(): Promise<{
+  filesystems: FilesystemRow[];
+  dockerDf: {
+    layers: number;
+    imagesCount: number;
+    imagesSize: number;
+    containersSize: number;
+    volumesSize: number;
+    buildCacheSize: number;
+  } | null;
+  error: string | null;
+}> {
+  try {
+    const df = await fetchJson<SystemDfResponse>("/system/df");
+    const imagesSize = df.Images.reduce((s, i) => s + i.Size, 0);
+    const containersSize = df.Containers.reduce(
+      (s, c) => s + (c.SizeRw ?? 0) + (c.SizeRootFs ?? 0),
+      0,
+    );
+    const volumesSize = df.Volumes.reduce(
+      (s, v) => s + (v.UsageData?.Size ?? 0),
+      0,
+    );
+    const buildCacheSize = (df.BuildCache ?? []).reduce(
+      (s, b) => s + b.Size,
+      0,
+    );
+    return {
+      filesystems: [],
+      dockerDf: {
+        layers: df.LayersSize,
+        imagesCount: df.Images.length,
+        imagesSize,
+        containersSize,
+        volumesSize,
+        buildCacheSize,
+      },
+      error: null,
+    };
+  } catch (err) {
+    return {
+      filesystems: [],
+      dockerDf: null,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
 export async function GET() {
   try {
     const session = await getServerSession(authOptions);
     requireInfrastructure(session);
 
     const errors: string[] = [];
-    const [info, containers] = await Promise.all([
+    const [info, containers, storage] = await Promise.all([
       collectInfo(),
       collectContainers(),
+      collectStorage(),
     ]);
     if (info.error) errors.push(`Info: ${info.error}`);
     if (containers.error) errors.push(containers.error);
+    if (storage.error) errors.push(`Storage: ${storage.error}`);
 
     return createSuccessResponse({
       machine: info.info,
       containers: containers.containers,
+      storage: storage.dockerDf,
       collectedAt: new Date().toISOString(),
       errors,
     });
