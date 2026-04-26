@@ -246,12 +246,14 @@ export default withAuth(
       pathname.startsWith("/api/admin/maintenance") ||
       pathname.startsWith("/_next/") ||
       pathname.startsWith("/favicon");
-    if (!skipMaintenanceCheck) {
+    // Maintenance check: dotyczy WYŁĄCZNIE zalogowanych userów. Anonimowi
+    // przechodzą zwykłym flow auth (jeśli ścieżka jest protected → redirect
+    // do /login → KC OAuth → callback). Dopiero po loginie sprawdzamy rolę:
+    // gdy user nie ma `maintenance_bypass` (i nie jest superadmin) → /maintenance.
+    if (!skipMaintenanceCheck && token?.accessToken) {
       const inMaintenance = await isMaintenanceMode();
       if (inMaintenance) {
-        const userRoles = token?.accessToken
-          ? collectRoles(token.accessToken as string)
-          : [];
+        const userRoles = collectRoles(token.accessToken as string);
         const canBypass = userRoles.some(
           (r) =>
             SUPERADMIN_ROLES.has(r) ||

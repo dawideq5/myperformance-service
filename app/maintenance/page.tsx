@@ -1,11 +1,15 @@
-import { getBranding } from "@/lib/email/db";
+import { getBranding, getMaintenance } from "@/lib/email/db";
 import { MaintenanceCanvas } from "./MaintenanceCanvas";
 
 export const dynamic = "force-dynamic";
 
 export default async function MaintenancePage() {
-  const b = await getBranding().catch(() => null);
+  const [b, m] = await Promise.all([
+    getBranding().catch(() => null),
+    getMaintenance().catch(() => null),
+  ]);
   const brandName = b?.brandName ?? "MyPerformance";
+  const message = m?.message?.trim() || null;
 
   return (
     <html lang="pl">
@@ -33,6 +37,7 @@ export default async function MaintenancePage() {
             position:relative;z-index:1;
             text-align:center;
             padding:0 24px;
+            max-width:540px;
             animation:fadeIn 700ms cubic-bezier(0.2,0.8,0.2,1);
           }
           @keyframes fadeIn{
@@ -40,30 +45,43 @@ export default async function MaintenancePage() {
             to{opacity:1;transform:translateY(0)}
           }
           h1{
-            font-size:clamp(32px,5vw,48px);font-weight:600;
-            letter-spacing:-0.02em;line-height:1.1;
+            font-size:clamp(28px,4.5vw,44px);font-weight:600;
+            letter-spacing:-0.02em;line-height:1.15;
             color:rgba(255,255,255,0.95);
           }
-          .login-link{
+          p.message{
+            margin-top:20px;
+            font-size:15px;line-height:1.6;
+            color:rgba(255,255,255,0.6);
+            max-width:420px;
+            margin-left:auto;margin-right:auto;
+          }
+          .actions{
             position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
             z-index:2;
+            display:flex;gap:18px;align-items:center;
+          }
+          .actions a{
             font-size:12px;letter-spacing:0.12em;text-transform:uppercase;
             color:rgba(255,255,255,0.32);
             text-decoration:none;
             transition:color 200ms ease;
             padding:8px 14px;
           }
-          .login-link:hover{color:rgba(255,255,255,0.7)}
+          .actions a:hover{color:rgba(255,255,255,0.7)}
         `}</style>
       </head>
       <body>
         <MaintenanceCanvas />
         <main className="panel">
-          <h1>Wracamy po przerwie</h1>
+          <h1>Wracamy po krótkiej przerwie</h1>
+          {message && <p className="message">{message}</p>}
         </main>
-        <a href="/login" className="login-link" rel="nofollow">
-          Zaloguj się →
-        </a>
+        <div className="actions">
+          <a href="/api/auth/signout?callbackUrl=%2Flogin" rel="nofollow">
+            Wyloguj
+          </a>
+        </div>
       </body>
     </html>
   );
