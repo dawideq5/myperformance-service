@@ -306,9 +306,150 @@ export async function register(): Promise<void> {
         smtpsPushed++;
       }
 
+      // Certyfikaty mTLS mirror
+      const { listCertificates } = await import("@/lib/persistence");
+      const certs = await listCertificates().catch(() => []);
+      let certsPushed = 0;
+      for (const c of certs) {
+        await upsertItem("mp_certificates_cms", c.id, {
+          id: c.id,
+          subject: c.subject,
+          email: c.email,
+          roles: c.roles ?? [],
+          serial_number: c.serialNumber,
+          not_after: c.notAfter,
+          issued_at: c.issuedAt,
+          revoked_at: c.revokedAt ?? null,
+          revoked_reason: c.revokedReason ?? null,
+          synced_at: new Date().toISOString(),
+        }).catch(() => undefined);
+        certsPushed++;
+      }
+
+      // Blokady IP mirror
+      const { withClient } = await import("@/lib/db");
+      let blocksPushed = 0;
+      try {
+        await withClient(async (cli) => {
+          const r = await cli.query<{
+            ip: string;
+            reason: string;
+            blocked_at: Date;
+            expires_at: Date | null;
+            blocked_by: string;
+            source: string;
+            attempts: number;
+            country: string | null;
+          }>(
+            `SELECT ip, reason, blocked_at, expires_at, blocked_by, source,
+                    attempts, country FROM mp_blocked_ips
+              WHERE expires_at IS NULL OR expires_at > now()
+              ORDER BY blocked_at DESC LIMIT 200`,
+          );
+          for (const row of r.rows) {
+            await upsertItem("mp_blocked_ips_cms", row.ip, {
+              ip: row.ip,
+              reason: row.reason,
+              blocked_at: row.blocked_at.toISOString(),
+              expires_at: row.expires_at ? row.expires_at.toISOString() : null,
+              blocked_by: row.blocked_by,
+              source: row.source,
+              attempts: row.attempts,
+              country: row.country,
+              synced_at: new Date().toISOString(),
+            }).catch(() => undefined);
+            blocksPushed++;
+          }
+        });
+      } catch {
+        // mp_blocked_ips może nie istnieć — fresh DB
+      }
+
+      // OVH config (bez secrets)
+      try {
+        const { getOvhConfig } = await import("@/lib/email/db");
+        const ovh = await getOvhConfig();
+        await upsertItem("mp_ovh_config_cms", "default", {
+          id: "default",
+          endpoint: ovh.endpoint ?? "",
+          app_key_preview: ovh.appKey ? `${ovh.appKey.slice(0, 8)}…` : "",
+          consumer_key_preview: ovh.consumerKey
+            ? `${ovh.consumerKey.slice(0, 8)}…`
+            : "",
+          configured: !!(ovh.appKey && ovh.appSecret && ovh.consumerKey),
+          synced_at: new Date().toISOString(),
+        }).catch(() => undefined);
+      } catch {
+        // OVH config może być pusty
+      }
+
+      // Panele certyfikatowe (hardcoded — domeny niezmienne)
+      const PANELS = [
+        {
+          slug: "sprzedawca",
+          label: "Panel Sprzedawcy",
+          domain: "panelsprzedawcy.myperformance.pl",
+          description: "Oferty, zamówienia, klienci. Wymaga certyfikatu mTLS.",
+          requiredRole: "sprzedawca",
+          icon: "Briefcase",
+          sort: 1,
+        },
+        {
+          slug: "serwisant",
+          label: "Panel Serwisanta",
+          domain: "panelserwisanta.myperformance.pl",
+          description: "Zgłoszenia serwisowe i naprawy.",
+          requiredRole: "serwisant",
+          icon: "Wrench",
+          sort: 2,
+        },
+        {
+          slug: "kierowca",
+          label: "Panel Kierowcy",
+          domain: "panelkierowcy.myperformance.pl",
+          description: "Trasy, dostawy, pojazdy.",
+          requiredRole: "kierowca",
+          icon: "Truck",
+          sort: 3,
+        },
+        {
+          slug: "dokumenty",
+          label: "Panel Dokumenty",
+          domain: "dokumenty.myperformance.pl",
+          description: "Wewnętrzny obieg dokumentów.",
+          requiredRole: "dokumenty",
+          icon: "FileText",
+          sort: 4,
+        },
+      ];
+      // Sprawdź jakie panels już ma admin edited — preserve label/description
+      const existingPanels = await listItems<{
+        slug: string;
+        label?: string;
+        description?: string;
+      }>("mp_panels_cms", { limit: 50 }).catch(() => []);
+      const existingPanelMap = new Map(existingPanels.map((p) => [p.slug, p]));
+      let panelsPushed = 0;
+      for (const p of PANELS) {
+        const existing = existingPanelMap.get(p.slug);
+        await upsertItem("mp_panels_cms", p.slug, {
+          slug: p.slug,
+          label: existing?.label ?? p.label,
+          domain: p.domain,
+          description: existing?.description ?? p.description,
+          required_role: p.requiredRole,
+          mtls_required: true,
+          icon: p.icon,
+          sort: p.sort,
+          enabled: true,
+          synced_at: new Date().toISOString(),
+        }).catch(() => undefined);
+        panelsPushed++;
+      }
+
       // eslint-disable-next-line no-console
       console.log(
-        `[instrumentation] Directus initial push: branding + ${tpls.length} templates + ${appsPushed} apps + ${areasPushed} areas + ${notifPushed} notif events + ${layoutsPushed} layouts + ${smtpsPushed} smtps`,
+        `[instrumentation] Directus initial push: branding + ${tpls.length} templates + ${appsPushed} apps + ${areasPushed} areas + ${notifPushed} notif + ${layoutsPushed} layouts + ${smtpsPushed} smtps + ${certsPushed} certs + ${blocksPushed} blocks + 1 ovh + ${panelsPushed} panels`,
       );
     }
   } catch (err) {

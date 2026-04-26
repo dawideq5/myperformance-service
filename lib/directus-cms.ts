@@ -436,6 +436,106 @@ export const COLLECTION_SPECS: CollectionSpec[] = [
     ],
   },
 
+  // === Klienckie certyfikaty mTLS — read-only mirror z issued_certificates ===
+  {
+    collection: "mp_certificates_cms",
+    meta: {
+      icon: "verified_user",
+      note: "Certyfikaty klienckie mTLS. Mirror z lokalnej DB. Wystawienie/revoke w /admin/certificates (operacje w step-ca).",
+    },
+    fields: [
+      {
+        field: "id",
+        type: "string",
+        schema: { is_primary_key: true },
+        meta: { hidden: true, readonly: true },
+      },
+      { field: "subject", type: "string", meta: { interface: "input", readonly: true, note: "Common Name" } },
+      { field: "email", type: "string", meta: { interface: "input", readonly: true } },
+      { field: "roles", type: "csv", meta: { interface: "tags", readonly: true, note: "panele które cert otwiera" } },
+      { field: "serial_number", type: "string", meta: { interface: "input", readonly: true } },
+      { field: "not_after", type: "timestamp", meta: { interface: "datetime", readonly: true } },
+      { field: "issued_at", type: "timestamp", meta: { interface: "datetime", readonly: true } },
+      { field: "revoked_at", type: "timestamp", meta: { interface: "datetime", readonly: true } },
+      { field: "revoked_reason", type: "string", meta: { interface: "input", readonly: true } },
+      { field: "synced_at", type: "timestamp", meta: { interface: "datetime", readonly: true } },
+    ],
+  },
+
+  // === Blokady IP — read-only mirror mp_blocked_ips ===
+  {
+    collection: "mp_blocked_ips_cms",
+    meta: {
+      icon: "block",
+      note: "Zablokowane IP (Wazuh AR + ręczne). Mirror. Akcje block/unblock w /admin/infrastructure?tab=blocks.",
+    },
+    fields: [
+      {
+        field: "ip",
+        type: "string",
+        schema: { is_primary_key: true },
+        meta: { interface: "input", readonly: true },
+      },
+      { field: "reason", type: "text", meta: { interface: "input-multiline", readonly: true } },
+      { field: "blocked_at", type: "timestamp", meta: { interface: "datetime", readonly: true } },
+      { field: "expires_at", type: "timestamp", meta: { interface: "datetime", readonly: true } },
+      { field: "blocked_by", type: "string", meta: { interface: "input", readonly: true } },
+      { field: "source", type: "string", meta: { interface: "input", readonly: true } },
+      { field: "attempts", type: "integer", meta: { interface: "input", readonly: true } },
+      { field: "country", type: "string", meta: { interface: "input", readonly: true } },
+      { field: "synced_at", type: "timestamp", meta: { interface: "datetime", readonly: true } },
+    ],
+  },
+
+  // === OVH config — bez secrets ===
+  {
+    collection: "mp_ovh_config_cms",
+    meta: {
+      icon: "cloud",
+      note: "OVH API config metadata (endpoint + appKey prefix). BEZ secrets — appSecret/consumerKey w env. Edytuj w /admin/email > OVH.",
+      singleton: true,
+    },
+    fields: [
+      {
+        field: "id",
+        type: "string",
+        schema: { is_primary_key: true },
+        meta: { hidden: true, readonly: true },
+      },
+      { field: "endpoint", type: "string", meta: { interface: "input", readonly: true, note: "ovh-eu / ovh-us / ovh-ca" } },
+      { field: "app_key_preview", type: "string", meta: { interface: "input", readonly: true, note: "First 8 chars (audit)" } },
+      { field: "consumer_key_preview", type: "string", meta: { interface: "input", readonly: true, note: "First 8 chars (audit)" } },
+      { field: "configured", type: "boolean", meta: { interface: "boolean", readonly: true } },
+      { field: "synced_at", type: "timestamp", meta: { interface: "datetime", readonly: true } },
+    ],
+  },
+
+  // === Panele certyfikatowe (sprzedawca/serwisant/kierowca/dokumenty) ===
+  {
+    collection: "mp_panels_cms",
+    meta: {
+      icon: "view_list",
+      note: "Panele zewnętrzne wymagające mTLS. Edytuj domenę / role / opis tutaj — zmiany propagują do dashboardu.",
+    },
+    fields: [
+      {
+        field: "slug",
+        type: "string",
+        schema: { is_primary_key: true },
+        meta: { interface: "input", readonly: true, note: "sprzedawca / serwisant / kierowca / dokumenty" },
+      },
+      { field: "label", type: "string", meta: { interface: "input", required: true } },
+      { field: "domain", type: "string", meta: { interface: "input", required: true } },
+      { field: "description", type: "text", meta: { interface: "input-multiline" } },
+      { field: "required_role", type: "string", meta: { interface: "input", note: "KC realm role" } },
+      { field: "mtls_required", type: "boolean", meta: { interface: "boolean" }, schema: { default_value: true } },
+      { field: "icon", type: "string", meta: { interface: "input", note: "lucide icon name" } },
+      { field: "sort", type: "integer", meta: { interface: "input" }, schema: { default_value: 0 } },
+      { field: "enabled", type: "boolean", meta: { interface: "boolean" }, schema: { default_value: true } },
+      { field: "synced_at", type: "timestamp", meta: { interface: "datetime", readonly: true } },
+    ],
+  },
+
   // === System announcements — widoczne na dashboardzie wszystkim userom ===
   {
     collection: "mp_announcements",
