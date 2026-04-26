@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import "./globals.css";
-import "intro.js/introjs.css";
 import { Providers } from "./providers";
 
 export const metadata: Metadata = {

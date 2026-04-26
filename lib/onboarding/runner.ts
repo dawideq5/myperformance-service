@@ -1,8 +1,12 @@
 "use client";
 
-import introJs from "intro.js";
-import "intro.js/introjs.css";
-import { TOURS, type TourDefinition, buildFullSystemTour } from "./tour";
+import { createRoot, type Root } from "react-dom/client";
+import { Tour } from "@/components/ui/Tour";
+import { TOURS, buildFullSystemTour, type TourDefinition } from "./tour";
+import { createElement } from "react";
+
+let activeRoot: Root | null = null;
+let activeContainer: HTMLDivElement | null = null;
 
 async function fetchUserRoles(): Promise<string[]> {
   try {
@@ -15,17 +19,21 @@ async function fetchUserRoles(): Promise<string[]> {
   }
 }
 
+function teardown() {
+  if (activeRoot) {
+    activeRoot.unmount();
+    activeRoot = null;
+  }
+  if (activeContainer && activeContainer.parentElement) {
+    activeContainer.parentElement.removeChild(activeContainer);
+  }
+  activeContainer = null;
+}
+
 /**
- * Uruchamia trasę intro.js dla danego panelu. Zwraca Promise który
- * resolve-uje się po zakończeniu lub przerwaniu trasy. Po sukcesie
- * patchuje `prefs.introCompletedSteps` przez API żeby kolejne wejście
- * nie odpalało automatycznie.
- *
- * Specjalny tourId `"full-system"` buduje trasę dynamicznie z user roles —
- * pokazuje WYŁĄCZNIE kafelki/sekcje do których user ma dostęp.
- *
- * @param tourId klucz z TOURS lub "full-system"
- * @param opts.persist domyślnie true — zapisz w prefs że ukończono
+ * Uruchamia branded tour (komponent Tour z components/ui/Tour.tsx).
+ * Tworzy detached container w body, mountuje React root, czeka na
+ * onClose i resolve-uje promise. Po sukcesie patch prefs / Moodle.
  */
 export async function runTour(
   tourId: string,
@@ -41,45 +49,41 @@ export async function runTour(
   if (!tour) return { completed: false };
 
   const persist = opts.persist ?? true;
-  const intro = introJs.tour();
-  intro.setOptions({
-    steps: tour.steps.map((s) => ({
-      element: s.element,
-      title: s.title,
-      intro: s.intro,
-      position: s.position,
-    })),
-    nextLabel: "Dalej",
-    prevLabel: "Wstecz",
-    doneLabel: "Zakończ",
-    skipLabel: "Pomiń",
-    showStepNumbers: true,
-    showProgress: true,
-    exitOnOverlayClick: false,
-    keyboardNavigation: true,
-    overlayOpacity: 0.6,
-  });
-
-  // Auto-enrol w Moodle przed startem trasy (best-effort, fire-and-forget).
   void enrolInOnboarding();
 
+  // Cleanup poprzedniego tour, jeśli ktoś wyzwolił dwa razy
+  teardown();
+
   return new Promise((resolve) => {
-    let completed = false;
-    intro.oncomplete(() => {
-      completed = true;
-    });
-    intro.onexit(() => {
+    activeContainer = document.createElement("div");
+    activeContainer.setAttribute("data-mp-tour-root", "");
+    document.body.appendChild(activeContainer);
+    activeRoot = createRoot(activeContainer);
+
+    const handleClose = (completed: boolean) => {
       if (completed && persist) void markCompleted(tourId);
+      teardown();
       resolve({ completed });
-    });
-    intro.start();
+    };
+
+    activeRoot.render(
+      createElement(Tour, {
+        steps: tour!.steps.map((s) => ({
+          element: s.element,
+          title: s.title,
+          body: s.body,
+          more: s.more,
+          allowInteraction: s.allowInteraction,
+        })),
+        open: true,
+        onClose: handleClose,
+        label: tour!.label,
+      }),
+    );
   });
 }
 
 async function markCompleted(tourId: string): Promise<void> {
-  // Idzie przez /api/account/onboarding bo ten endpoint jednocześnie
-  // patchuje prefs.introCompletedSteps i — jeśli Moodle skonfigurowany —
-  // oznacza odpowiadający kurs jako ukończony (best-effort).
   try {
     await fetch("/api/account/onboarding", {
       method: "POST",
@@ -92,11 +96,6 @@ async function markCompleted(tourId: string): Promise<void> {
   }
 }
 
-/**
- * Self-enrol w Moodle "Onboarding MyPerformance". Wywoływane gdy user
- * pierwszy raz odpala intro.js trasę — dzięki temu progres pokazuje się
- * też w Akademii (Moodle) bez ręcznej akcji.
- */
 export async function enrolInOnboarding(): Promise<void> {
   try {
     await fetch("/api/account/onboarding", {
@@ -110,10 +109,6 @@ export async function enrolInOnboarding(): Promise<void> {
   }
 }
 
-/**
- * Sprawdza czy user już ukończył tour. Używane w panelach żeby
- * NIE auto-startować trasy która już się odbyła.
- */
 export async function hasCompletedTour(tourId: string): Promise<boolean> {
   try {
     const res = await fetch("/api/account/preferences", {

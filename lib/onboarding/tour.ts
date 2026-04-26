@@ -1,176 +1,102 @@
 /**
- * Konfiguracja kroków intro.js per panel.
- *
- * Klucz = stabilny identyfikator panelu (ścieżka aplikacji), wartość =
- * lista kroków. Każdy krok celuje w element przez `[data-tour="<id>"]`,
- * więc tour nie psuje się przy refaktorze klas Tailwind.
- *
- * Użycie:
- *
- *   import { runTour } from "@/lib/onboarding/runner";
- *   runTour("dashboard");
- *
- * Postępy są zapisywane w `prefs.introCompletedSteps` (PATCH
- * /api/account/preferences) — kolejne odpalenie tej samej trasy nie
- * pokazuje już ukończonych kroków, chyba że user resetuje z Preferencji.
+ * Definicje tras przewodnika (branded Tour, components/ui/Tour.tsx).
+ * Body i more są template literals (backticki) zeby polskie cudzysłowy
+ * nie kolidowały z parserem TS.
  */
 
-export type TourPosition =
-  | "floating"
-  | "top"
-  | "bottom"
-  | "left"
-  | "right"
-  | "top-right-aligned"
-  | "top-left-aligned"
-  | "top-middle-aligned"
-  | "bottom-right-aligned"
-  | "bottom-left-aligned"
-  | "bottom-middle-aligned";
+import { userHasAreaClient } from "@/lib/permissions/access-client";
 
 export interface TourStep {
-  /** `[data-tour="<element>"]` na stronie. */
   element?: string;
-  /** Tytuł kroku — Polish UI. */
   title: string;
-  /** Treść (HTML allowed, ale trzymaj prostą). */
-  intro: string;
-  /** intro.js v8 position. */
-  position?: TourPosition;
+  body: string;
+  more?: string;
+  allowInteraction?: boolean;
 }
 
 export interface TourDefinition {
   id: string;
   label: string;
-  /** Area required — pokazuj kursor tylko jeśli user ma dostęp. */
   requiresArea?: string;
   steps: TourStep[];
 }
 
 export const TOURS: Record<string, TourDefinition> = {
-  dashboard: {
-    id: "dashboard",
-    label: "Pulpit",
-    steps: [
-      {
-        title: "Witaj w MyPerformance",
-        intro:
-          "To jest Twój pulpit — centralne miejsce do nawigacji po aplikacjach: Chatwoot, Documenso, Moodle, Outline, Directus, Postal i panelach administracyjnych.",
-      },
-      {
-        element: '[data-tour="tile-grid"]',
-        title: "Kafelki aplikacji",
-        intro:
-          "Każdy kafelek prowadzi do natywnej apki z auto-loginem przez SSO. Widzisz tylko te, do których masz uprawnienia.",
-        position: "bottom",
-      },
-      {
-        element: '[data-tour="cmdk-button"]',
-        title: "Szybkie wyszukiwanie",
-        intro:
-          "Wciśnij Cmd+K (lub Ctrl+K) żeby otworzyć paletę poleceń — przeszukasz aplikacje, użytkowników i ustawienia z klawiatury.",
-        position: "bottom",
-      },
-      {
-        element: '[data-tour="account-link"]',
-        title: "Zarządzanie kontem",
-        intro:
-          "Tu zmienisz dane profilowe, hasło, włączysz 2FA, podłączysz Google Calendar oraz skonfigurujesz powiadomienia i wskazówki.",
-        position: "left",
-      },
-    ],
-  },
-
   account: {
     id: "account",
     label: "Konto",
     steps: [
       {
-        title: "Twoje konto",
-        intro:
-          "Tutaj zarządzasz wszystkim, co dotyczy Ciebie: profilem, bezpieczeństwem, sesjami, integracjami i powiadomieniami.",
+        title: `Witaj w sekcji Konto`,
+        body: `Tu zarządzasz wszystkim co jest „o Tobie”. Pokażę Ci 4 najważniejsze zakładki — w każdej możesz w trakcie tour kliknąć i sprawdzić, jak działa.`,
       },
       {
         element: '[data-tour="tab-security"]',
-        title: "Bezpieczeństwo",
-        intro:
-          "2FA (TOTP), klucze WebAuthn, zmiana hasła. Włącz 2FA — chroni przed brute-force nawet po wycieku hasła.",
-        position: "right",
+        title: `Włącz 2FA — kliknij zakładkę`,
+        body: `Klik = przeskoczysz do sekcji bezpieczeństwo. Tam włączysz aplikację uwierzytelniającą (TOTP) lub klucz sprzętowy (WebAuthn). Po kliknięciu wróć do tour i naciśnij „Dalej”.`,
+        more: `WebAuthn (Touch ID, Windows Hello, klucz YubiKey) jest odporny na phishing. TOTP (Google Authenticator) działa offline. Możesz mieć obie naraz.`,
       },
       {
         element: '[data-tour="tab-sessions"]',
-        title: "Aktywne sesje",
-        intro:
-          "Lista urządzeń zalogowanych na Twoje konto. Możesz wylogować pojedynczą sesję lub wszystkie (poza obecną).",
-        position: "right",
+        title: `Sprawdź swoje aktywne sesje`,
+        body: `Każde urządzenie z którego się logowałeś ma tu wpis. Kliknij — zobaczysz listę i przyciski „Wyloguj”. Jeśli widzisz nieznane urządzenie, wyloguj sesję i zmień hasło.`,
       },
       {
         element: '[data-tour="tab-preferences"]',
-        title: "Preferencje",
-        intro:
-          "Włącz/wyłącz wskazówki w panelach, dopasuj powiadomienia (in-app + email) per zdarzenie. Krytyczne alerty bezpieczeństwa zostają zawsze.",
-        position: "right",
+        title: `Skonfiguruj powiadomienia`,
+        body: `Ostatnia zakładka, w której jesteś teraz. Tu włączasz wskazówki w panelach (te kolorowe karty) oraz wybierasz dla każdego zdarzenia czy chcesz powiadomienie w pulpicie, email, czy oba.`,
+        more: `Krytyczne alerty bezpieczeństwa (zmiana hasła, nieudane logowanie z nowego IP, brute-force) wysyłają email niezależnie od ustawień.`,
       },
     ],
   },
 
   "admin-infrastructure": {
     id: "admin-infrastructure",
-    label: "Infrastruktura serwera",
+    label: "Infrastruktura",
     requiresArea: "infrastructure",
     steps: [
       {
-        title: "Infrastruktura",
-        intro:
-          "Centralny widok stanu serwera: metryki VPS, DNS, Docker stats, snapshoty, blokady IP, mapa zdarzeń i timeline.",
+        title: `Zaczynamy w Infrastrukturze`,
+        body: `8 zakładek pokrywa wszystko co dotyczy serwera fizycznego i bezpieczeństwa. Pokażę najważniejsze — możesz w trakcie tour klikać taby i sprawdzać.`,
       },
       {
         element: '[data-tour="tab-vps"]',
-        title: "VPS",
-        intro:
-          "Snapshoty OVH (z podglądem ostatnich i 1-click restore), metryki CPU/RAM, status sieci.",
-        position: "bottom",
+        title: `Backup VPS w 2 klikach`,
+        body: `Tab VPS — przycisk „Wykonaj snapshot” wyzwala migawkę całego systemu (OVH, ~3-5 min). Dobry zwyczaj: snapshot przed dużymi zmianami.`,
+        more: `OVH trzyma maks 1 aktywny snapshot per VPS. Następny nadpisze poprzedni — jest opcja „Wymuś nadpisanie”.`,
       },
       {
         element: '[data-tour="tab-blocks"]',
-        title: "Blokady IP",
-        intro:
-          "IP zablokowane przez Wazuh AR + ręczne. Filtry: kraj, risk score, urządzenie. Bulk-unblock i podgląd korelacji z userem.",
-        position: "bottom",
+        title: `Threat Intel — blokady IP`,
+        body: `Klik = lista wszystkich zablokowanych IP (Wazuh AR + ręczne). Filtry po kraju, risk score, urządzeniu. Bulk-unblock na dole tabeli.`,
+        more: `Risk score liczony na podstawie: liczba zdarzeń, geo (lista wysokiego ryzyka), powiązania z udanymi logowaniami innych userów.`,
       },
       {
         element: '[data-tour="tab-map"]',
-        title: "Mapa zdarzeń",
-        intro:
-          "Geolokalizacja zdarzeń bezpieczeństwa na mapie świata. Klik = filter timeline po regionie.",
-        position: "bottom",
+        title: `Mapa świata + timeline`,
+        body: `Każde zdarzenie ma geolokację. Mapa pokaże skupiska ataków. Klik na region = filtr timeline tylko po nim.`,
       },
     ],
   },
 
   "admin-email": {
     id: "admin-email",
-    label: "Email panel",
+    label: "Email",
     requiresArea: "email-admin",
     steps: [
       {
-        title: "Centrum email",
-        intro:
-          "Zarządzanie szablonami KC + Postal + brandingiem + katalogiem maili. Wszystko w jednym miejscu.",
-      },
-      {
-        element: '[data-tour="tab-branding"]',
-        title: "Branding",
-        intro:
-          "Logo, accent color, footer — propaguje się do KC + Postal + szablonów aplikacyjnych.",
-        position: "bottom",
+        title: `Centrum email — wszystko w jednym miejscu`,
+        body: `Szablony Keycloak, branding wszystkich apek, konfiguracje SMTP, panel Postal. Pokażę 2 najważniejsze taby.`,
       },
       {
         element: '[data-tour="tab-templates"]',
-        title: "Szablony KC",
-        intro:
-          "Edycja Liquid templates używanych przez Keycloak — login, password reset, verify email.",
-        position: "bottom",
+        title: `Edycja szablonu z podglądem`,
+        body: `Klik = lista szablonów (login, password reset, verify email, brute-force alert). Każdy ma edytor + podgląd na żywo + przycisk „Test send” do siebie.`,
+      },
+      {
+        element: '[data-tour="tab-branding"]',
+        title: `Branding propaguje się stack-wide`,
+        body: `Zmiana logo / accent color / footera w tym tabie automatycznie idzie do Keycloaka, Postal, szablonów aplikacyjnych.`,
       },
     ],
   },
@@ -181,45 +107,113 @@ export function getTour(id: string): TourDefinition | null {
 }
 
 interface AppKafelek {
-  /** data-tour selektor */
   selector: string;
   area?: string;
-  label: string;
-  description: string;
+  title: string;
+  body: string;
+  more?: string;
 }
 
-/**
- * Wszystkie kafelki które MOGĄ pojawić się na dashboardzie. Tour generator
- * filtruje po `area` i `userHasArea(roles, area)` — krok pokazuje się tylko
- * gdy element rzeczywiście jest na stronie.
- */
 const DASHBOARD_TILES: AppKafelek[] = [
-  { selector: '[data-tour-tile="calendar"]', area: "core", label: "Kalendarz", description: "Twoje wydarzenia + Google Calendar + Kadromierz + Akademia w jednym widoku." },
-  { selector: '[data-tour-tile="kadromierz"]', area: "kadromierz", label: "Kadromierz", description: "Grafik pracy i ewidencja czasu." },
-  { selector: '[data-tour-tile="panel-sprzedawca"]', area: "panel-sprzedawca", label: "Panel Sprzedawcy", description: "Oferty, zamówienia, klienci. Wymaga certyfikatu mTLS." },
-  { selector: '[data-tour-tile="panel-serwisant"]', area: "panel-serwisant", label: "Panel Serwisanta", description: "Zgłoszenia serwisowe i naprawy." },
-  { selector: '[data-tour-tile="panel-kierowca"]', area: "panel-kierowca", label: "Panel Kierowcy", description: "Trasy, dostawy, pojazdy." },
-  { selector: '[data-tour-tile="certs"]', area: "certificates", label: "Certyfikaty klienckie", description: "Wystawianie + revoke certyfikatów PKCS12 dla paneli." },
-  { selector: '[data-tour-tile="directus"]', area: "directus", label: "Directus CMS", description: "Zarządzanie treścią, kolekcje danych, API headless." },
-  { selector: '[data-tour-tile="documenso"]', area: "documenso", label: "Documenso", description: "Podpisy elektroniczne dokumentów, organizacje, szablony." },
-  { selector: '[data-tour-tile="chatwoot"]', area: "chatwoot", label: "Chatwoot", description: "Live-chat klienta — email, social, web." },
-  { selector: '[data-tour-tile="postal"]', area: "postal", label: "Postal", description: "Serwer pocztowy: organizacje, domeny, DKIM, kolejka." },
-  { selector: '[data-tour-tile="moodle"]', area: "moodle", label: "Akademia (Moodle)", description: "Kursy, szkolenia, oceny, certyfikaty ukończenia." },
-  { selector: '[data-tour-tile="knowledge"]', area: "knowledge", label: "Baza wiedzy (Outline)", description: "Procedury, how-to, wewnętrzna wiki." },
-  { selector: '[data-tour-tile="users"]', area: "keycloak", label: "Użytkownicy", description: "Zarządzanie kontami + role per aplikacja (KC = SoT)." },
-  { selector: '[data-tour-tile="email"]', area: "email-admin", label: "Email i branding", description: "Centralny panel: szablony, branding, Postal, test send." },
-  { selector: '[data-tour-tile="infrastructure"]', area: "infrastructure", label: "Infrastruktura serwera", description: "VPS, DNS, snapshoty, backupy, zasoby, IP blocks, Wazuh SIEM." },
-  { selector: '[data-tour-tile="keycloak"]', area: "keycloak", label: "Keycloak (konsola IdP)", description: "Natywna admin konsola — realms, klienci, IdP, polityki." },
+  {
+    selector: '[data-tour-tile="calendar"]',
+    area: "core",
+    title: `Otwórz Kalendarz`,
+    body: `Klik na kafelek pokaże Ci timeline z 4 źródeł na raz: Twoje wydarzenia + Google + Kadromierz (grafik) + Akademia (terminy kursów). Wszystko w jednym widoku.`,
+  },
+  {
+    selector: '[data-tour-tile="kadromierz"]',
+    area: "kadromierz",
+    title: `Kadromierz — grafik pracy`,
+    body: `Tutaj widzisz swój planowany czas pracy. Jeśli kafelek pokazuje „Skonfiguruj” — kliknij i podaj klucz API od HR.`,
+  },
+  {
+    selector: '[data-tour-tile="panel-sprzedawca"]',
+    area: "panel-sprzedawca",
+    title: `Panel Sprzedawcy`,
+    body: `Otwiera się pod osobną domeną z wymaganym certyfikatem mTLS. Jeśli go jeszcze nie masz — w Certyfikatach klienckich możesz poprosić.`,
+    more: `Cert = paczka .p12 którą importujesz raz do przeglądarki. Po imporcie panel widoczny jest tylko z tego urządzenia.`,
+  },
+  {
+    selector: '[data-tour-tile="panel-serwisant"]',
+    area: "panel-serwisant",
+    title: `Panel Serwisanta`,
+    body: `Zgłoszenia serwisowe i naprawy. Wymaga certyfikatu mTLS (jak wszystkie panele zewnętrzne).`,
+  },
+  {
+    selector: '[data-tour-tile="panel-kierowca"]',
+    area: "panel-kierowca",
+    title: `Panel Kierowcy`,
+    body: `Trasy, dostawy, pojazdy. Mobile-first, działa na telefonie po imporcie certyfikatu.`,
+  },
+  {
+    selector: '[data-tour-tile="certs"]',
+    area: "certificates",
+    title: `Certyfikaty klienckie`,
+    body: `Wystawisz tu certyfikaty mTLS dla siebie i innych. Każdy wystawiony cert = jedno upoważnienie do panelu (sprzedawca / serwisant / kierowca). Możesz je revoke w każdej chwili.`,
+  },
+  {
+    selector: '[data-tour-tile="directus"]',
+    area: "directus",
+    title: `Directus — headless CMS`,
+    body: `Treść strony, kolekcje danych, API. Klik = przeniesienie z auto-loginem (SSO).`,
+  },
+  {
+    selector: '[data-tour-tile="documenso"]',
+    area: "documenso",
+    title: `Documenso — podpisy elektroniczne`,
+    body: `Wyślij dokument do podpisu lub podpisz coś co dostałeś. Kliknij kafelek, zaloguje Cię od razu (SSO).`,
+  },
+  {
+    selector: '[data-tour-tile="chatwoot"]',
+    area: "chatwoot",
+    title: `Chatwoot — live chat z klientem`,
+    body: `Inbox z wszystkich kanałów (web, email, social). Jeśli zostaniesz przypisany do rozmowy — dostaniesz powiadomienie w pulpicie.`,
+  },
+  {
+    selector: '[data-tour-tile="postal"]',
+    area: "postal",
+    title: `Postal (admin)`,
+    body: `Niskopoziomowe zarządzanie serwerem mail: organizacje, domeny, DKIM/SPF, kolejka. Dla większości spraw lepiej iść w „Email i branding”.`,
+  },
+  {
+    selector: '[data-tour-tile="moodle"]',
+    area: "moodle",
+    title: `Akademia (Moodle)`,
+    body: `Twoje kursy, oceny, terminy. Kliknij — automatyczne logowanie. Jeśli nigdy się nie zalogowałeś, konto utworzy się przy pierwszym wejściu.`,
+  },
+  {
+    selector: '[data-tour-tile="knowledge"]',
+    area: "knowledge",
+    title: `Baza wiedzy (Outline)`,
+    body: `Wewnętrzna wiki — procedury, how-to, runbooks. Możesz edytować jeśli masz rolę Editor. Dobre pierwsze miejsce gdy coś nie wiesz „jak się robi w MyPerformance”.`,
+  },
+  {
+    selector: '[data-tour-tile="users"]',
+    area: "keycloak",
+    title: `Użytkownicy — IAM`,
+    body: `Tu zapraszasz nowych ludzi, dajesz im role per aplikacja, zarządzasz grupami. Keycloak jest source of truth — usunięcie tu propaguje się do wszystkich apek.`,
+  },
+  {
+    selector: '[data-tour-tile="email"]',
+    area: "email-admin",
+    title: `Email i branding`,
+    body: `Wszystkie maile wysyłane przez stack — szablony, branding, SMTP, Postal infrastruktura. Sub-tour „Centrum email” pokaże szczegóły.`,
+  },
+  {
+    selector: '[data-tour-tile="infrastructure"]',
+    area: "infrastructure",
+    title: `Infrastruktura serwera`,
+    body: `VPS, snapshoty, monitoring zasobów, IP blocks, mapa zdarzeń, Wazuh SIEM. Sub-tour pokaże 4 najważniejsze widoki.`,
+  },
+  {
+    selector: '[data-tour-tile="keycloak"]',
+    area: "keycloak",
+    title: `Keycloak (natywna konsola)`,
+    body: `Pełen dostęp do realmów, klientów OIDC, federacji, polityk. Otwiera natywną apkę KC.`,
+  },
 ];
 
-import { userHasAreaClient } from "@/lib/permissions/access-client";
-
-/**
- * Buduje pełny tour po systemie dynamicznie z user roles. Każdy krok
- * odpowiada jednemu kafelkowi do którego user MA dostęp + uniwersalne
- * elementy (cmdk, dzwonek, theme, account). Element musi istnieć w DOM
- * — intro.js sam pomija krok jeśli selector nie zwraca elementu.
- */
 export function buildFullSystemTour(roles: string[]): TourDefinition {
   const accessibleTiles = DASHBOARD_TILES.filter(
     (t) => !t.area || userHasAreaClient(roles, t.area),
@@ -227,54 +221,44 @@ export function buildFullSystemTour(roles: string[]): TourDefinition {
 
   const steps: TourStep[] = [
     {
-      title: "Witaj w MyPerformance",
-      intro:
-        "Pokażę Ci najpierw cały system w pigułce — tylko te aplikacje i panele, do których masz dostęp. Zobaczysz każdy kafelek, dowiesz się co robi i jak się z niego korzysta.",
+      title: `Pełny przewodnik po MyPerformance`,
+      body: `Pokażę Ci tylko aplikacje, do których masz dostęp. Każdy krok zawiera podpowiedź — możesz w trakcie kliknąć kafelek żeby sprawdzić, co tam jest, i wrócić do tour przyciskiem „Dalej”.`,
     },
     ...accessibleTiles.map<TourStep>((t) => ({
       element: t.selector,
-      title: t.label,
-      intro: t.description,
-      position: "bottom" as TourPosition,
+      title: t.title,
+      body: t.body,
+      more: t.more,
     })),
     {
       element: '[data-tour="cmdk-button"]',
-      title: "Szybkie wyszukiwanie (Cmd+K)",
-      intro:
-        "Wpisz fragment nazwy panelu, użytkownika lub IP — przeskoczysz tam jednym Enterem. Z klawiatury obsłużysz cały system bez myszki.",
-      position: "bottom",
+      title: `Cmd+K — przeskocz dokąd chcesz`,
+      body: `Najszybszy sposób nawigacji. Wpisz fragment nazwy panelu (np. „infra”, „blocks”, „2fa”) albo email użytkownika — Enter przeskakuje. Wyszukiwarka pokazuje TYLKO opcje do których masz dostęp.`,
     },
     {
       element: '[data-tour="bell"]',
-      title: "Powiadomienia",
-      intro:
-        "Tu trafiają zdarzenia z całego systemu — snapshoty, blokady IP, podpisy dokumentów, nowe role. Filtry per kategoria w Preferencjach.",
-      position: "bottom",
+      title: `Powiadomienia w pulpicie`,
+      body: `Tu wpadają zdarzenia z całego systemu. Klik = rozwinie listę. Czerwony badge = liczba nieprzeczytanych. Powiadomienia per-event konfigurujesz w Preferencjach.`,
     },
     {
       element: '[data-tour="theme-toggle"]',
-      title: "Tryb jasny / ciemny",
-      intro:
-        "Klik = animacja przejścia (księżyc ↔ słońce). Wybór zapamiętuje się per urządzenie — możesz mieć ciemny w pracy i jasny w domu.",
-      position: "bottom",
+      title: `Tryb jasny / ciemny`,
+      body: `Klik = animacja kosmiczna pod kafelkami (kamera okrąża Ziemię w stronę słońca albo księżyca). Wybór zapamiętuje się PER URZĄDZENIE — możesz mieć ciemny w pracy i jasny w domu.`,
     },
     {
       element: '[data-tour="account-link"]',
-      title: "Konto",
-      intro:
-        "Profil, hasło, 2FA, sesje, integracje, logi aktywności i Preferencje (kontrola powiadomień + uruchomienie tego przewodnika ponownie).",
-      position: "left",
+      title: `Twoje konto`,
+      body: `Profil, hasło, 2FA, sesje, integracje. Tu też uruchomisz ten przewodnik ponownie albo per panel.`,
     },
     {
-      title: "Gotowe",
-      intro:
-        "Kliknij dowolny kafelek żeby wejść w panel — w środku zobaczysz krótki opis, a w niektórych panelach uruchomisz osobny przewodnik z poziomu nagłówka.",
+      title: `Gotowe — eksploruj system`,
+      body: `Każdy panel ma własny mini-przewodnik dostępny w jego nagłówku. Kliknij dowolny kafelek żeby zacząć. Powodzenia!`,
     },
   ];
 
   return {
     id: "full-system",
-    label: "Pełny przewodnik po MyPerformance",
+    label: "Pełny przewodnik",
     steps,
   };
 }
