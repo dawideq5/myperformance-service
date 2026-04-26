@@ -28,8 +28,12 @@ const documensoOrigin = originOf(
   process.env.NEXT_PUBLIC_DOCUMENSO_URL,
   process.env.DOCUMENSO_URL,
 );
+const wazuhOrigin = originOf(
+  process.env.NEXT_PUBLIC_WAZUH_URL,
+  "https://wazuh.myperformance.pl",
+);
 
-const externalOrigins = [keycloakOrigin, documensoOrigin].filter(Boolean);
+const externalOrigins = [keycloakOrigin, documensoOrigin, wazuhOrigin].filter(Boolean);
 const externalSrc = externalOrigins.length ? ` ${externalOrigins.join(" ")}` : "";
 
 const scriptSrc = isDev

@@ -1,7 +1,7 @@
 import { getServerSession } from "next-auth/next";
 import { redirect } from "next/navigation";
 import { authOptions } from "@/app/auth";
-import { canAccessAdminPanel } from "@/lib/admin-auth";
+import { canAccessKeycloakAdmin } from "@/lib/admin-auth";
 import { UsersClient } from "./UsersClient";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +13,7 @@ export default async function AdminUsersPage() {
     redirect("/login");
   }
 
-  if (!canAccessAdminPanel(session)) {
+  if (!canAccessKeycloakAdmin(session)) {
     redirect("/forbidden");
   }
 

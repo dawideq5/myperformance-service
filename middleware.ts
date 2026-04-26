@@ -6,6 +6,7 @@ import { trimSlash } from "@/lib/utils";
 import { MIDDLEWARE_USERINFO_CACHE_TTL_MS } from "@/lib/constants";
 import { log } from "@/lib/logger";
 import { getArea, listAreaKcRoleNames } from "@/lib/permissions/areas";
+import { SUPERADMIN_ROLES_SET } from "@/lib/permissions/superadmin";
 
 const REQUEST_ID_HEADER = "x-request-id";
 
@@ -113,8 +114,6 @@ function collectRoles(accessToken: string): string[] {
   return all;
 }
 
-const SUPERADMIN_ROLES = new Set(["realm-admin", "manage-realm", "admin"]);
-
 /**
  * Defense-in-depth route guards enforced at the edge. Role lists są generowane
  * z `lib/permissions/areas` — dodanie nowej roli do area automatycznie
@@ -139,11 +138,28 @@ interface RoleGuard {
 }
 
 const ROLE_GUARDS: RoleGuard[] = [
+  // KC IAM — users + groups + bulk + realm-roles (zarządzanie kontem KC)
   { path: "/admin/users", anyOf: areaRoles("keycloak") },
-  { path: "/admin/certificates", anyOf: areaRoles("certificates") },
+  { path: "/admin/groups", anyOf: areaRoles("keycloak") },
   { path: "/api/admin/users", anyOf: areaRoles("keycloak") },
+  { path: "/api/admin/groups", anyOf: areaRoles("keycloak") },
+  { path: "/api/admin/bulk", anyOf: areaRoles("keycloak") },
+  { path: "/api/admin/realm-roles", anyOf: areaRoles("keycloak") },
+  { path: "/api/admin/iam", anyOf: areaRoles("keycloak") },
+  // Certyfikaty mTLS
+  { path: "/admin/certificates", anyOf: areaRoles("certificates") },
   { path: "/api/admin/certificates", anyOf: areaRoles("certificates") },
+  // Infrastruktura serwera
+  { path: "/admin/infrastructure", anyOf: areaRoles("infrastructure") },
+  { path: "/api/admin/infrastructure", anyOf: areaRoles("infrastructure") },
+  { path: "/api/admin/security", anyOf: areaRoles("infrastructure") },
+  { path: "/api/admin/wazuh", anyOf: areaRoles("wazuh") },
+  // Email panel
+  { path: "/admin/email", anyOf: areaRoles("email-admin") },
+  { path: "/api/admin/email", anyOf: areaRoles("email-admin") },
+  // Step-CA + Keycloak konsola
   { path: "/dashboard/step-ca", anyOf: areaRoles("stepca") },
+  { path: "/admin/keycloak", anyOf: areaRoles("keycloak") },
   // Moodle — dowolna rola z obszaru (seed + dynamic jak moodle_editingteacher,
   // moodle_teacher z `core_role_get_roles`) daje dostęp do integration API.
   { path: "/api/integrations/moodle", anyOf: [], anyPrefix: ["moodle_"] },
@@ -154,7 +170,7 @@ function findMatchingGuard(pathname: string) {
 }
 
 function hasAny(roles: string[], wanted: string[], anyPrefix?: string[]): boolean {
-  if (roles.some((r) => SUPERADMIN_ROLES.has(r))) return true;
+  if (roles.some((r) => SUPERADMIN_ROLES_SET.has(r))) return true;
   if (wanted.some((r) => roles.includes(r))) return true;
   if (anyPrefix && anyPrefix.length > 0) {
     return roles.some((r) => anyPrefix.some((p) => r.startsWith(p)));

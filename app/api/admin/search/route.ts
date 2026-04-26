@@ -6,6 +6,8 @@ import { keycloak } from "@/lib/keycloak";
 import { canAccessAdminPanel, hasArea } from "@/lib/admin-auth";
 import { withClient } from "@/lib/db";
 import { ApiError, createSuccessResponse, handleApiError } from "@/lib/api-utils";
+import { getClientIp, rateLimit } from "@/lib/rate-limit";
+import { NextResponse } from "next/server";
 import type { Session } from "next-auth";
 
 interface SearchHit {
@@ -294,6 +296,24 @@ export async function GET(req: Request) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user) throw ApiError.unauthorized();
+
+    // Rate-limit: chroni przed scrape całej listy userów / IP przez palette.
+    // 30 req/min/IP = wystarczy dla normal use, blokuje crawler.
+    const ip = getClientIp(req);
+    const userKey = session.user.id ?? session.user.email ?? "anon";
+    const rl = rateLimit(`search:${userKey}:${ip}`, {
+      capacity: 30,
+      refillPerSec: 0.5,
+    });
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: { code: "RATE_LIMITED", message: "Zbyt wiele wyszukań. Spróbuj za chwilę." } },
+        {
+          status: 429,
+          headers: { "Retry-After": String(Math.ceil(rl.retryAfterMs / 1000)) },
+        },
+      );
+    }
 
     const url = new URL(req.url);
     const q = (url.searchParams.get("q") ?? "").trim();

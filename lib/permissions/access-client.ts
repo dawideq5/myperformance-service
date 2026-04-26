@@ -1,13 +1,7 @@
 "use client";
 
 import { AREAS } from "./areas";
-
-/**
- * Lista realm roles które dają superadmin = full access. Sync ze server-side
- * `SUPERADMIN_ROLES` w `lib/admin-auth.ts`. Każda zmiana po jednej stronie
- * wymaga ręcznej synchronizacji.
- */
-const SUPERADMIN_ROLES = ["realm-admin", "manage-realm", "admin"];
+import { SUPERADMIN_ROLES } from "./superadmin";
 
 /**
  * Sprawdza czy user ma dostęp do area na podstawie listy realm roles

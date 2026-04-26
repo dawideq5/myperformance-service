@@ -132,7 +132,7 @@ function TileGrid() {
   const showChatwoot = showChatwootAgent || showChatwootAdmin;
   const showPostal = canAccessPostal(session);
   const showKeycloak = canAccessKeycloakAdmin(session);
-  const showUsersAdmin = canAccessAdminPanel(session);
+  const showUsersAdmin = canAccessKeycloakAdmin(session);
   const showEmailAdmin = canAccessEmail(session);
   const showInfrastructureAdmin = canAccessInfrastructure(session);
   const showCerts = canManageCertificates(session);

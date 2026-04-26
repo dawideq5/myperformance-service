@@ -97,8 +97,8 @@ export const ROLE_CATALOG: RoleSpec[] = [
   { name: ROLES.MOODLE_STUDENT, description: "Moodle: student (dostęp do kursów)", default: false },
   { name: ROLES.MOODLE_MANAGER, description: "Moodle: menedżer instancji", default: false },
 
-  { name: ROLES.KNOWLEDGE_VIEWER, description: "Outline: widz (tylko odczyt)", default: false },
-  { name: ROLES.KNOWLEDGE_EDITOR, description: "Outline: edytor (tworzenie i edycja)", default: true },
+  { name: ROLES.KNOWLEDGE_VIEWER, description: "Outline: widz (tylko odczyt)", default: true },
+  { name: ROLES.KNOWLEDGE_EDITOR, description: "Outline: edytor (tworzenie i edycja)", default: false },
   { name: ROLES.KNOWLEDGE_ADMIN, description: "Outline: administrator", default: false },
 
   { name: ROLES.WAZUH_ADMIN, description: "Wazuh SIEM: administrator", default: false },
@@ -110,7 +110,7 @@ export const ROLE_CATALOG: RoleSpec[] = [
 /**
  * Keycloak realm-management roles that implicitly grant full admin.
  */
-const SUPERADMIN_ROLES = ["realm-admin", "manage-realm", "admin"];
+import { SUPERADMIN_ROLES } from "@/lib/permissions/superadmin";
 
 /**
  * Per-panel external apps — each panel is a standalone Next.js app behind
@@ -135,7 +135,7 @@ function hasAny(session: Session | null | undefined, roles: string[]): boolean {
 }
 
 export function isSuperAdmin(session: Session | null | undefined): boolean {
-  return hasAny(session, SUPERADMIN_ROLES);
+  return hasAny(session, [...SUPERADMIN_ROLES]);
 }
 
 export function hasRole(

@@ -25,6 +25,61 @@ export async function register(): Promise<void> {
     );
   }
 
+  // Initial seed mp_email_templates — bez tego tabela jest pusta i admin
+  // edytujący w /admin/email widzi defaulty z catalog ale po zapisie nic
+  // nie persystuje się dla kolejnych userów. Idempotent: ON CONFLICT DO NOTHING.
+  try {
+    const { withClient } = await import("@/lib/db");
+    const { EMAIL_ACTIONS } = await import("@/lib/email/templates-catalog");
+    let seeded = 0;
+    await withClient(async (c) => {
+      for (const action of EMAIL_ACTIONS) {
+        // Skip "external-link" / "readonly" — te nie mają sensownego defaultBody
+        if (action.editability === "external-link" || action.editability === "readonly") {
+          continue;
+        }
+        const r = await c.query(
+          `INSERT INTO mp_email_templates
+             (action_key, enabled, subject, body, layout_id, smtp_config_id, updated_by)
+           VALUES ($1, true, $2, $3, NULL, NULL, 'system:seed')
+           ON CONFLICT (action_key) DO NOTHING`,
+          [action.key, action.defaultSubject, action.defaultBody],
+        );
+        if (r.rowCount && r.rowCount > 0) seeded++;
+      }
+    });
+    // eslint-disable-next-line no-console
+    console.log(`[instrumentation] mp_email_templates seed: ${seeded} new templates`);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      "[instrumentation] mp_email_templates seed failed:",
+      err instanceof Error ? err.message : err,
+    );
+  }
+
+  // MFA enforcement dla admin role (Zero Trust). Co 6h sprawdza userów
+  // z superadmin roles i jeśli ktoś nie ma TOTP/WebAuthn — dodaje
+  // CONFIGURE_TOTP required-action. User przy następnym loginie skonfiguruje.
+  try {
+    const { enforceMfaForAdmins } = await import("@/lib/security/mfa-enforcer");
+    const interval = 6 * 60 * 60 * 1000;
+    setInterval(() => {
+      void enforceMfaForAdmins().catch(() => undefined);
+    }, interval).unref?.();
+    setTimeout(() => {
+      void enforceMfaForAdmins().catch(() => undefined);
+    }, 30_000).unref?.();
+    // eslint-disable-next-line no-console
+    console.log("[instrumentation] mfa-enforcer scheduled (every 6h)");
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      "[instrumentation] mfa-enforcer init failed:",
+      err instanceof Error ? err.message : err,
+    );
+  }
+
   // Background timer pollujący KC events co 30s. Phasetwo webhook delivery
   // jest niesprawne w naszym setupie (storeWebhookEvents=true ale send
   // worker nie startuje), więc czytamy KC Admin API bezpośrednio.
