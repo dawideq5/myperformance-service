@@ -13,7 +13,7 @@ import {
   TrendingUp,
   Users,
 } from "lucide-react";
-import { Alert, Badge, Button, Card, Input } from "@/components/ui";
+import { Alert, Badge, Button, Card, Input, InfoTooltip, useConfirm } from "@/components/ui";
 import { api, ApiRequestError } from "@/lib/api-client";
 
 interface IpIntel {
@@ -74,6 +74,7 @@ export function IntelBlocksPanel() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const { confirm, ConfirmDialogElement } = useConfirm();
 
   useEffect(() => {
     const id = setTimeout(() => setDebounced(search), 250);
@@ -103,8 +104,21 @@ export function IntelBlocksPanel() {
     void load();
   }, [load]);
 
-  async function unblock(ip: string) {
-    if (!confirm(`Odblokować ${ip}?`)) return;
+  async function unblock(ip: string, intel: IpIntel) {
+    const ok = await confirm({
+      title: `Odblokować ${ip}?`,
+      tone: "warning",
+      description: `Po odblokowaniu IP będzie mógł znów nawiązać połączenia z platformą.`,
+      consequences: [
+        <>iptables chain <code>MYPERFORMANCE_BLOCK</code> usunie regułę DROP w ciągu 1 minuty (cron sync)</>,
+        <>jeśli IP będzie kontynuował ataki, Wazuh AR webhook może go zablokować ponownie</>,
+        intel.events.total > 0
+          ? `historia ${intel.events.total} zdarzeń nie zostanie usunięta — pozostanie w mp_security_events`
+          : null,
+      ].filter(Boolean) as React.ReactNode[],
+      confirmLabel: "Odblokuj",
+    });
+    if (!ok) return;
     setBusy(ip);
     try {
       await api.delete<{ ok: true }>(
@@ -118,13 +132,28 @@ export function IntelBlocksPanel() {
     }
   }
 
-  async function blockNow(ip: string, reason: string, durationMinutes?: number) {
+  async function blockNow(ip: string, intel: IpIntel) {
+    const ok = await confirm({
+      title: `Zablokować ${ip}?`,
+      tone: "danger",
+      description: `IP zostanie zablokowany na 24 godziny — wszystkie pakiety od/do będą odrzucane na poziomie iptables (kernel).`,
+      consequences: [
+        `dodanie do mp_blocked_ips (source=manual, blocked_by=${"twój email"})`,
+        `cron co 1 min synchronizuje z iptables chain MYPERFORMANCE_BLOCK`,
+        `po 24h auto-wygaśnięcie; możesz odblokować wcześniej`,
+        intel.events.distinctUsers.length > 0
+          ? `IP atakował już ${intel.events.distinctUsers.length} kont — risk score ${intel.riskScore}`
+          : null,
+      ].filter(Boolean) as React.ReactNode[],
+      confirmLabel: "Zablokuj 24h",
+    });
+    if (!ok) return;
     setBusy(ip);
     try {
       await api.post("/api/admin/security/blocks", {
         ip,
-        reason,
-        durationMinutes,
+        reason: `Ręczna blokada (risk ${intel.riskScore})`,
+        durationMinutes: 1440,
       });
       await load();
     } catch (err) {
@@ -210,12 +239,13 @@ export function IntelBlocksPanel() {
               key={d.ip}
               intel={d}
               busy={busy === d.ip}
-              onUnblock={() => unblock(d.ip)}
-              onBlock={(reason, dur) => blockNow(d.ip, reason, dur)}
+              onUnblock={() => unblock(d.ip, d)}
+              onBlock={() => blockNow(d.ip, d)}
             />
           ))}
         </div>
       )}
+      {ConfirmDialogElement}
     </div>
   );
 }
@@ -259,7 +289,7 @@ function IntelCard({
   intel: IpIntel;
   busy: boolean;
   onUnblock: () => void;
-  onBlock: (reason: string, durationMinutes?: number) => void;
+  onBlock: () => void;
 }) {
   const band = BAND_COLORS[intel.riskBand];
   const [expanded, setExpanded] = useState(false);
@@ -288,9 +318,22 @@ function IntelCard({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <code className="text-sm font-semibold font-mono">{intel.ip}</code>
-            <Badge tone={band.tone}>
-              Risk {intel.riskScore} · {BAND_LABEL[intel.riskBand]}
-            </Badge>
+            <span className="inline-flex items-center gap-1">
+              <Badge tone={band.tone}>
+                Risk {intel.riskScore} · {BAND_LABEL[intel.riskBand]}
+              </Badge>
+              <InfoTooltip
+                content={
+                  <div className="space-y-1.5">
+                    <div className="font-semibold">Risk Score (0-100)</div>
+                    <div>Sumuje severity zdarzeń × waga (cap 50), liczbę atakowanych kont, czas trwania ataku, godziny aktywności i geolokalizację.</div>
+                    <div className="text-[10px] text-[var(--text-muted)] pt-1 border-t border-[var(--border-subtle)]">
+                      Bandy: &lt;20 niskie · 20-50 średnie · 50-80 wysokie · 80+ krytyczne
+                    </div>
+                  </div>
+                }
+              />
+            </span>
             {intel.blocked && <Badge tone="danger">ZABLOKOWANE</Badge>}
             {intel.geo?.countryCode && (
               <span className="inline-flex items-center gap-1 text-xs text-[var(--text-muted)]">
@@ -322,7 +365,7 @@ function IntelCard({
               size="sm"
               variant="primary"
               loading={busy}
-              onClick={() => onBlock(`Ręczna blokada (risk ${intel.riskScore})`, 1440)}
+              onClick={onBlock}
               leftIcon={<Ban className="w-3.5 h-3.5" />}
             >
               Zablokuj 24h

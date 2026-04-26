@@ -19,9 +19,11 @@ import {
   Button,
   Card,
   CardHeader,
+  InfoTooltip,
   PageShell,
   TabPanel,
   Tabs,
+  useConfirm,
   type TabDefinition,
 } from "@/components/ui";
 import { AppHeader } from "@/components/AppHeader";
@@ -195,6 +197,7 @@ function VpsPanel() {
   const [error, setError] = useState<string | null>(null);
   const [snapshotting, setSnapshotting] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const { confirm, ConfirmDialogElement } = useConfirm();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -216,10 +219,25 @@ function VpsPanel() {
   }, [load]);
 
   async function takeSnapshot(name: string, force = false) {
-    const prompt = force
-      ? `Nadpisać istniejący snapshot VPS ${name}? Stary zostanie usunięty, nowy stworzony.`
-      : `Utworzyć snapshot VPS ${name}?\n\nProces zajmuje kilka minut. VPS pozostaje dostępny.`;
-    if (!confirm(prompt)) return;
+    const ok = await confirm({
+      title: force
+        ? `Nadpisać snapshot VPS ${name}?`
+        : `Utworzyć snapshot VPS ${name}?`,
+      tone: force ? "warning" : "info",
+      description: force
+        ? `Stary snapshot zostanie permanentnie usunięty, a nowy utworzony w jego miejsce.`
+        : `OVH wykona migawkę dysku VPS — kopia stanu na ten moment, możliwa do przywrócenia z OVH Manager.`,
+      consequences: [
+        `Proces zajmuje 3-5 minut`,
+        `VPS pozostaje w pełni dostępny podczas snapshotu`,
+        `OVH limit: 1 aktywny snapshot per VPS`,
+        force
+          ? `poprzedni snapshot zostanie usunięty BEZ MOŻLIWOŚCI ODZYSKANIA`
+          : `nowy snapshot pojawi się w polu „lastSnapshot" po odświeżeniu`,
+      ],
+      confirmLabel: force ? "Nadpisz snapshot" : "Utwórz snapshot",
+    });
+    if (!ok) return;
     setSnapshotting(name);
     setNotice(null);
     setError(null);
@@ -232,14 +250,17 @@ function VpsPanel() {
       setTimeout(load, 5000);
     } catch (err) {
       if (err instanceof ApiRequestError && err.status === 409) {
-        // Snapshot already exists — zaproponuj force
-        if (
-          confirm(
-            `${err.message}\n\nKliknij OK aby nadpisać (usunąć stary i utworzyć nowy).`,
-          )
-        ) {
-          return takeSnapshot(name, true);
-        }
+        const proceed = await confirm({
+          title: "Snapshot już istnieje",
+          tone: "warning",
+          description: err.message,
+          consequences: [
+            "Stary snapshot zostanie usunięty przed utworzeniem nowego",
+            "Operacja jest nieodwracalna",
+          ],
+          confirmLabel: "Nadpisz",
+        });
+        if (proceed) return takeSnapshot(name, true);
       } else {
         setError(
           err instanceof ApiRequestError ? err.message : "Snapshot failed",
@@ -251,7 +272,18 @@ function VpsPanel() {
   }
 
   async function removeSnapshot(name: string) {
-    if (!confirm(`Usunąć snapshot VPS ${name}?`)) return;
+    const ok = await confirm({
+      title: `Usunąć snapshot VPS ${name}?`,
+      tone: "danger",
+      description: "Snapshot zostanie permanentnie usunięty z OVH.",
+      consequences: [
+        "Operacja nieodwracalna — nie ma kosza",
+        "Po usunięciu nie będzie można przywrócić VPS do tego stanu",
+        "Możesz utworzyć nowy snapshot kiedy zechcesz",
+      ],
+      confirmLabel: "Usuń snapshot",
+    });
+    if (!ok) return;
     setSnapshotting(name);
     setError(null);
     setNotice(null);
@@ -470,6 +502,7 @@ function VpsPanel() {
           ręczny = punkt-w-czasie przed zmianą.
         </div>
       </Card>
+      {ConfirmDialogElement}
     </div>
   );
 }
@@ -494,6 +527,7 @@ function DnsPanel() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
+  const { confirm, ConfirmDialogElement } = useConfirm();
 
   const load = useCallback(async (z: string) => {
     setLoading(true);
@@ -528,7 +562,26 @@ function DnsPanel() {
   }, [records, filter]);
 
   async function deleteRecord(id: number) {
-    if (!confirm("Usunąć ten rekord DNS?")) return;
+    const rec = records.find((r) => r.id === id);
+    const ok = await confirm({
+      title: "Usunąć rekord DNS?",
+      tone: "danger",
+      description: rec
+        ? `${rec.fieldType} ${rec.subDomain || "@"} → ${rec.target}`
+        : "Rekord zostanie usunięty.",
+      consequences: [
+        "Zmiana propaguje się w DNS w 1-15 min (zależnie od TTL)",
+        rec?.fieldType === "MX"
+          ? "Usunięcie MX może przerwać dostarczanie maili z tego subdomenu"
+          : null,
+        rec?.fieldType === "CNAME" || rec?.fieldType === "A"
+          ? "Aplikacja pod tym subdomenem przestanie odpowiadać"
+          : null,
+        "OVH wykona refresh strefy automatycznie",
+      ].filter(Boolean) as React.ReactNode[],
+      confirmLabel: "Usuń rekord",
+    });
+    if (!ok) return;
     try {
       await api.delete(
         `/api/admin/infrastructure/dns?zone=${encodeURIComponent(zone)}&id=${id}`,
@@ -622,6 +675,7 @@ function DnsPanel() {
           </table>
         </div>
       </Card>
+      {ConfirmDialogElement}
     </div>
   );
 }
@@ -753,6 +807,15 @@ function ResourcesPanel() {
           max={(data.machine.ncpu ?? 1) * 100}
           unit="%"
           icon={<Activity className="w-4 h-4" />}
+          info={
+            <div className="space-y-1.5">
+              <div className="font-semibold">CPU usage (suma kontenerów)</div>
+              <div>Suma CPU% wszystkich kontenerów Docker (delta cpu_usage / system_cpu_usage × online_cpus). 100% = pełne użycie 1 vCPU.</div>
+              <div className="text-[10px] text-[var(--text-muted)] pt-1 border-t border-[var(--border-subtle)]">
+                Max = vCPU hosta × 100%. Powyżej 70% = warning, 90% = danger.
+              </div>
+            </div>
+          }
         />
         <UsageGauge
           label="RAM"
@@ -760,6 +823,15 @@ function ResourcesPanel() {
           max={(data.machine.memTotal ?? 16 * GB) / GB}
           unit="GB"
           icon={<Database className="w-4 h-4" />}
+          info={
+            <div className="space-y-1.5">
+              <div className="font-semibold">RAM (suma kontenerów)</div>
+              <div>Suma working set memory bez page cache (memory.usage − memory.stats.cache).</div>
+              <div className="text-[10px] text-[var(--text-muted)] pt-1 border-t border-[var(--border-subtle)]">
+                Max = RAM hosta. Linux trzyma cache aż go potrzebuje — to nie jest {"\u201E"}realne{"\u201D"} użycie.
+              </div>
+            </div>
+          }
         />
         <Card padding="md">
           <div className="flex items-center gap-2 text-[var(--text-muted)] text-[11px] mb-2">
@@ -1086,12 +1158,14 @@ function UsageGauge({
   max,
   unit,
   icon,
+  info,
 }: {
   label: string;
   value: number;
   max: number;
   unit: string;
   icon: React.ReactNode;
+  info?: React.ReactNode;
 }) {
   const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
   const tone =
@@ -1107,6 +1181,7 @@ function UsageGauge({
       <div className="flex items-center gap-2 text-[var(--text-muted)] text-[11px] mb-2">
         {icon}
         <span className="uppercase tracking-wide">{label}</span>
+        {info && <InfoTooltip content={info} />}
       </div>
       <div className="text-2xl font-bold">
         {value.toFixed(unit === "%" ? 1 : 2)}
