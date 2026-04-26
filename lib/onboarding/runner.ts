@@ -2,7 +2,18 @@
 
 import introJs from "intro.js";
 import "intro.js/introjs.css";
-import { TOURS, type TourDefinition } from "./tour";
+import { TOURS, type TourDefinition, buildFullSystemTour } from "./tour";
+
+async function fetchUserRoles(): Promise<string[]> {
+  try {
+    const res = await fetch("/api/auth/session", { credentials: "include" });
+    if (!res.ok) return [];
+    const json = await res.json();
+    return Array.isArray(json?.user?.roles) ? json.user.roles : [];
+  } catch {
+    return [];
+  }
+}
 
 /**
  * Uruchamia trasę intro.js dla danego panelu. Zwraca Promise który
@@ -10,14 +21,23 @@ import { TOURS, type TourDefinition } from "./tour";
  * patchuje `prefs.introCompletedSteps` przez API żeby kolejne wejście
  * nie odpalało automatycznie.
  *
- * @param tourId klucz z TOURS
+ * Specjalny tourId `"full-system"` buduje trasę dynamicznie z user roles —
+ * pokazuje WYŁĄCZNIE kafelki/sekcje do których user ma dostęp.
+ *
+ * @param tourId klucz z TOURS lub "full-system"
  * @param opts.persist domyślnie true — zapisz w prefs że ukończono
  */
 export async function runTour(
   tourId: string,
   opts: { persist?: boolean } = {},
 ): Promise<{ completed: boolean }> {
-  const tour: TourDefinition | undefined = TOURS[tourId];
+  let tour: TourDefinition | undefined;
+  if (tourId === "full-system") {
+    const roles = await fetchUserRoles();
+    tour = buildFullSystemTour(roles);
+  } else {
+    tour = TOURS[tourId];
+  }
   if (!tour) return { completed: false };
 
   const persist = opts.persist ?? true;

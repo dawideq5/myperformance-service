@@ -173,6 +173,16 @@ async function ensureSchema(client: PoolClient): Promise<void> {
       updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
     );
 
+    -- Theme preference per device (identyfikacja po HMAC-signed mp_did
+    -- cookie). Pozwala każdemu urządzeniu mieć własny tryb (jasny/ciemny)
+    -- niezależnie od user-konta. Read przed paint w app/layout.tsx.
+    CREATE TABLE IF NOT EXISTS mp_device_theme (
+      device_id   TEXT PRIMARY KEY,
+      theme       TEXT NOT NULL CHECK (theme IN ('light', 'dark')),
+      ip          TEXT,
+      updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
     -- In-app inbox per user. Konsumowane przez badge w UI + auto-toast
     -- po wczytaniu strony. Read = read_at IS NOT NULL. Retencja 30 dni
     -- (cron czyszczący w lib/security/jobs).

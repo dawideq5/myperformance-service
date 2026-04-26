@@ -95,19 +95,21 @@ export function OnboardingCard({
       className="border-[var(--accent)]/30 bg-[var(--accent)]/5 animate-slide-up"
     >
       <div className="flex items-start gap-3">
-        <div className="w-9 h-9 rounded-lg bg-[var(--accent)]/15 flex items-center justify-center flex-shrink-0">
+        <div className="w-10 h-10 rounded-lg bg-[var(--accent)]/20 flex items-center justify-center flex-shrink-0">
           {icon ?? <Lightbulb className="w-5 h-5 text-[var(--accent)]" />}
         </div>
         <div className="flex-1 min-w-0">
-          <div className="font-semibold text-sm mb-1">{title}</div>
-          <div className="text-xs text-[var(--text-muted)] leading-relaxed">
+          <div className="font-semibold text-base mb-1.5 text-[var(--text-main)]">
+            {title}
+          </div>
+          <div className="text-sm text-[var(--text-main)]/85 leading-relaxed">
             {children}
           </div>
         </div>
         <button
           type="button"
           onClick={dismiss}
-          className="p-1 -m-1 text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors"
+          className="p-1.5 -m-1 text-[var(--text-main)]/60 hover:text-[var(--text-main)] hover:bg-[var(--bg-surface)] rounded-md transition-colors"
           aria-label="Zamknij wskazówkę"
           title="Schowaj do następnego odświeżenia (F5)"
         >

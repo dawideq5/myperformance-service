@@ -295,6 +295,42 @@ export async function POST(request: NextRequest) {
       srcIp: event.ipAddress,
       targetUser: event.details?.username ?? event.details?.email,
     }).catch(() => undefined);
+
+    // Notify usera że ktoś próbował się zalogować na jego konto.
+    // shouldNotify wyciąga prefs i decyduje czy pchnąć inApp/email.
+    const targetEmail = event.details?.username ?? event.details?.email;
+    if (targetEmail) {
+      void import("@/lib/notify").then(async ({ notifyUser, getUserIdByEmail }) => {
+        const uid = await getUserIdByEmail(targetEmail);
+        if (uid) {
+          await notifyUser(uid, "security.login.failed", {
+            title: "Nieudana próba logowania",
+            body: `Z IP ${event.ipAddress} próbowano zalogować się na Twoje konto. Jeśli to nie Ty — zmień hasło i włącz 2FA.`,
+            severity: "warning",
+            payload: { ip: event.ipAddress },
+          });
+        }
+      }).catch(() => undefined);
+    }
+  }
+
+  // 2FA code sent — KC może emitować jako CUSTOM_REQUIRED_ACTION lub w
+  // details.email_action_token_attempted. Bezpiecznie wpinamy się w nazwę
+  // którą Keycloak realny wysyła dla email-OTP w naszym setupie.
+  if (
+    (normalizedType === "SEND_RESET_PASSWORD" ||
+      normalizedType === "EXECUTE_ACTIONS" ||
+      event.details?.token_id === "email-otp") &&
+    event.userId
+  ) {
+    void import("@/lib/notify").then(async ({ notifyUser }) => {
+      await notifyUser(event.userId!, "security.2fa.code_sent", {
+        title: "Wysłano kod 2FA",
+        body: `Wysłaliśmy kod weryfikacyjny na Twój email (z IP ${event.ipAddress ?? "?"}). Wpisz go w formularzu, żeby dokończyć logowanie.`,
+        severity: "info",
+        payload: { ip: event.ipAddress },
+      });
+    }).catch(() => undefined);
   }
 
   // ── Cascading delete ────────────────────────────────────────────────────

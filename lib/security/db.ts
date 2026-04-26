@@ -142,6 +142,28 @@ export async function recordEvent(args: {
       ],
     ),
   );
+
+  // Powiadom adminów dla high/critical zdarzeń. Best-effort — failure kanału
+  // notify nie blokuje samego rekordu. Robione przez dynamic import żeby
+  // uniknąć circular boot (notify używa getUserPreferences → withClient).
+  if (args.severity === "high" || args.severity === "critical") {
+    void import("@/lib/notify")
+      .then(async ({ getAdminUserIds, notifyUsers }) => {
+        const ids = await getAdminUserIds();
+        await notifyUsers(ids, "admin.security.event.high", {
+          title: `Security: ${args.title}`,
+          body: args.description ?? `${args.category} (severity: ${args.severity})`,
+          severity: args.severity === "critical" ? "error" : "warning",
+          payload: {
+            severity: args.severity,
+            category: args.category,
+            srcIp: args.srcIp,
+            targetUser: args.targetUser,
+          },
+        });
+      })
+      .catch(() => undefined);
+  }
 }
 
 export async function listEvents(args: {

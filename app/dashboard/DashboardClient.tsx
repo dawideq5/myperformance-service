@@ -75,6 +75,24 @@ function DashboardBody({ userLabel, email }: DashboardClientProps) {
     if (session?.error === "RefreshTokenExpired") void softLogout();
   }, [session?.error, softLogout]);
 
+  // Auto-start full-system tour gdy z Preferencji przyszedł query param.
+  // Ładujemy runner dynamicznie żeby intro.js nie ciągnął bundle ahead-of-time.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("intro") === "full-system") {
+      // Wyczyść param zanim user zrobi reload, żeby tour nie startował loop.
+      const url = new URL(window.location.href);
+      url.searchParams.delete("intro");
+      window.history.replaceState({}, "", url.toString());
+      const t = window.setTimeout(async () => {
+        const { runTour } = await import("@/lib/onboarding/runner");
+        await runTour("full-system");
+      }, 400);
+      return () => window.clearTimeout(t);
+    }
+  }, []);
+
   return (
     <PageShell
       maxWidth="xl"
@@ -152,6 +170,7 @@ function TileGrid() {
             icon={<Calendar className="w-7 h-7 text-blue-500" aria-hidden="true" />}
             iconBg="bg-blue-500/10"
             title="Kalendarz"
+            tourId="calendar"
             description={
               googleConnected
                 ? "Twoje wydarzenia, Google Calendar, Kadromierz"
@@ -168,6 +187,7 @@ function TileGrid() {
             icon={<Clock className="w-7 h-7 text-orange-500" aria-hidden="true" />}
             iconBg="bg-orange-500/10"
             title="Kadromierz"
+            tourId="kadromierz"
             description="Grafik pracy i ewidencja czasu"
             disabled={accountLoading}
             footer={
@@ -193,6 +213,7 @@ function TileGrid() {
             icon={<Briefcase className="w-7 h-7 text-sky-500" aria-hidden="true" />}
             iconBg="bg-sky-500/10"
             title="Panel Sprzedawcy"
+            tourId="panel-sprzedawca"
             description="Oferty, zamówienia, klienci"
             href="https://panelsprzedawcy.myperformance.pl"
           />
@@ -202,6 +223,7 @@ function TileGrid() {
             icon={<Wrench className="w-7 h-7 text-rose-500" aria-hidden="true" />}
             iconBg="bg-rose-500/10"
             title="Panel Serwisanta"
+            tourId="panel-serwisant"
             description="Zgłoszenia serwisowe i naprawy"
             href="https://panelserwisanta.myperformance.pl"
           />
@@ -211,6 +233,7 @@ function TileGrid() {
             icon={<Truck className="w-7 h-7 text-lime-500" aria-hidden="true" />}
             iconBg="bg-lime-500/10"
             title="Panel Kierowcy"
+            tourId="panel-kierowca"
             description="Trasy, dostawy, pojazdy"
             href="https://panelkierowcy.myperformance.pl"
           />
@@ -223,6 +246,7 @@ function TileGrid() {
             }
             iconBg="bg-amber-500/10"
             title="Certyfikaty klienckie"
+            tourId="certs"
             description="Zarządzanie certyfikatami dostępu do paneli"
             onClick={() => {
               window.location.href = "/admin/certificates";
@@ -237,6 +261,7 @@ function TileGrid() {
             }
             iconBg="bg-emerald-500/10"
             title="Directus"
+            tourId="directus"
             description="Zarządzanie treścią i danymi aplikacji (SSO)"
             href="/api/directus/launch"
           />
@@ -247,6 +272,7 @@ function TileGrid() {
             icon={<FileSignature className="w-7 h-7 text-purple-500" aria-hidden="true" />}
             iconBg="bg-purple-500/10"
             title="Dokumenty"
+            tourId="documenso"
             description={
               showDocumensoAdmin
                 ? "Pełna konsola Documenso — szablony, webhooki, użytkownicy"
@@ -263,6 +289,7 @@ function TileGrid() {
             icon={<MessageSquare className="w-7 h-7 text-sky-500" aria-hidden="true" />}
             iconBg="bg-sky-500/10"
             title="Chatwoot"
+            tourId="chatwoot"
             description={
               showChatwootAdmin
                 ? "Konfiguracja platformy, użytkownicy, webhooki"
@@ -277,6 +304,7 @@ function TileGrid() {
             icon={<Mail className="w-7 h-7 text-pink-500" aria-hidden="true" />}
             iconBg="bg-pink-500/10"
             title="Postal"
+            tourId="postal"
             description="Serwer pocztowy — transakcyjne i newslettery"
             href="https://postal.myperformance.pl"
           />
@@ -295,6 +323,7 @@ function TileGrid() {
             }
             iconBg="bg-amber-500/10"
             title="MyPerformance — Akademia"
+            tourId="moodle"
             description={
               showMoodleAdmin
                 ? "Konsola administracyjna — konfiguracja, użytkownicy, pluginy"
@@ -311,6 +340,7 @@ function TileGrid() {
             icon={<BookMarked className="w-7 h-7 text-teal-400" aria-hidden="true" />}
             iconBg="bg-teal-500/10"
             title="Baza wiedzy"
+            tourId="knowledge"
             description="Procedury, zasady, how-to — wewnętrzna wiki zespołu (Outline)"
             href="/api/outline/launch"
           />
@@ -321,6 +351,7 @@ function TileGrid() {
             icon={<Users className="w-7 h-7 text-indigo-500" aria-hidden="true" />}
             iconBg="bg-indigo-500/10"
             title="Użytkownicy"
+            tourId="users"
             description="Zarządzanie użytkownikami i precyzyjne przypisywanie ról per panel (Keycloak SoT)"
             onClick={() => {
               window.location.href = "/admin/users";
@@ -333,6 +364,7 @@ function TileGrid() {
             icon={<Mail className="w-7 h-7 text-indigo-500" aria-hidden="true" />}
             iconBg="bg-indigo-500/10"
             title="Email i branding"
+            tourId="email"
             description="Centralny panel: branding, szablony Keycloak, Postal (serwery/skrzynki/domeny), test send"
             onClick={() => {
               window.location.href = "/admin/email";
@@ -345,6 +377,7 @@ function TileGrid() {
             icon={<Server className="w-7 h-7 text-indigo-500" aria-hidden="true" />}
             iconBg="bg-indigo-500/10"
             title="Infrastruktura serwera"
+            tourId="infrastructure"
             description="VPS, DNS, snapshoty, backupy, monitoring zasobów (CPU/RAM/Disk), alerty bezpieczeństwa, blokady IP, Wazuh SIEM"
             onClick={() => {
               window.location.href = "/admin/infrastructure";
@@ -358,6 +391,7 @@ function TileGrid() {
             icon={<KeyRound className="w-7 h-7 text-indigo-500" aria-hidden="true" />}
             iconBg="bg-indigo-500/10"
             title="Keycloak (konsola IdP)"
+            tourId="keycloak"
             description="Natywna konsola administracyjna Keycloak — realms, klienci, IdP, polityki"
             href="/admin/keycloak"
           />
@@ -384,6 +418,7 @@ function ExternalTile({
   href,
   disabled,
   sameTab,
+  tourId,
 }: {
   icon: React.ReactNode;
   iconBg: string;
@@ -392,6 +427,7 @@ function ExternalTile({
   href?: string;
   disabled?: boolean;
   sameTab?: boolean;
+  tourId?: string;
 }) {
   const handleClick = () => {
     if (disabled || !href) return;
@@ -408,6 +444,7 @@ function ExternalTile({
       title={title}
       description={description}
       disabled={disabled}
+      tourId={tourId}
       footer={
         !disabled && href ? (
           <span className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--accent)]">
@@ -433,6 +470,7 @@ function Tile({
   disabled,
   footer,
   onClick,
+  tourId,
 }: {
   icon: React.ReactNode;
   iconBg: string;
@@ -441,9 +479,11 @@ function Tile({
   disabled?: boolean;
   footer?: React.ReactNode;
   onClick: () => void;
+  tourId?: string;
 }) {
   return (
     <div
+      data-tour-tile={tourId}
       className={cn(
         "group relative rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-5 transition-all",
         disabled

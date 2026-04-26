@@ -71,6 +71,30 @@ export async function checkBruteForce(args: {
       });
     });
 
+    // Powiadom atakowanego usera + wszystkich adminów przez central notify
+    // — w pulpicie + email (zgodnie z prefs każdego z osobna).
+    void import("@/lib/notify").then(async ({ notifyUser, notifyUsers, getAdminUserIds, getUserIdByEmail }) => {
+      const adminIds = await getAdminUserIds();
+      await notifyUsers(adminIds, "security.brute_force.detected", {
+        title: `Brute force z IP ${args.srcIp}`,
+        body: `${count} nieudanych prób logowania w ${WINDOW_MINUTES} min${args.targetUser ? ` na konto ${args.targetUser}` : ""}. IP zablokowany na ${BLOCK_DURATION_MINUTES} min.`,
+        severity: "error",
+        payload: { ip: args.srcIp, count, targetUser: args.targetUser },
+      });
+      if (args.targetUser) {
+        const uid = await getUserIdByEmail(args.targetUser);
+        if (uid) {
+          await notifyUser(uid, "security.brute_force.detected", {
+            title: "Wykryto brute-force na Twoim koncie",
+            body: `${count} prób logowania z IP ${args.srcIp}. Zablokowaliśmy go na ${BLOCK_DURATION_MINUTES} min — Twoje konto bezpieczne, ale rozważ zmianę hasła i włączenie 2FA.`,
+            severity: "error",
+            forceEmail: true,
+            payload: { ip: args.srcIp, count },
+          });
+        }
+      }
+    }).catch(() => undefined);
+
     logger.warn("brute force detected, IP blocked", {
       ip: args.srcIp,
       count,

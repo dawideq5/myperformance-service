@@ -108,7 +108,7 @@ export function NotificationBell() {
 
       {open && (
         <div
-          className="absolute right-0 mt-2 w-96 max-h-[70vh] overflow-y-auto rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)] shadow-2xl z-50 animate-fade-in"
+          className="fixed right-4 top-16 sm:absolute sm:right-0 sm:top-auto sm:mt-2 w-[calc(100vw-2rem)] sm:w-96 max-h-[70vh] overflow-y-auto rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)] shadow-2xl z-[100] animate-fade-in"
           role="dialog"
           aria-label="Lista powiadomień"
         >

@@ -80,8 +80,12 @@ export function AppHeader({
             <Search className="w-3.5 h-3.5" />
             <kbd className="font-mono text-[10px]">⌘K</kbd>
           </button>
-          <ThemeToggle className="hidden sm:inline-flex" />
-          <NotificationBell />
+          <span data-tour="theme-toggle" className="hidden sm:inline-flex">
+            <ThemeToggle />
+          </span>
+          <span data-tour="bell">
+            <NotificationBell />
+          </span>
           {(userLabel || userSubLabel) && (
             <div className="hidden sm:flex items-center gap-3 pr-4 border-r border-[var(--border-subtle)]">
               <div className="w-9 h-9 rounded-full bg-[var(--accent)]/10 flex items-center justify-center flex-shrink-0">

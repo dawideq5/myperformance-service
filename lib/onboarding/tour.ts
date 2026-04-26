@@ -179,3 +179,121 @@ export const TOURS: Record<string, TourDefinition> = {
 export function getTour(id: string): TourDefinition | null {
   return TOURS[id] ?? null;
 }
+
+interface AppKafelek {
+  /** data-tour selektor */
+  selector: string;
+  area?: string;
+  label: string;
+  description: string;
+}
+
+/**
+ * Wszystkie kafelki które MOGĄ pojawić się na dashboardzie. Tour generator
+ * filtruje po `area` i `userHasArea(roles, area)` — krok pokazuje się tylko
+ * gdy element rzeczywiście jest na stronie.
+ */
+const DASHBOARD_TILES: AppKafelek[] = [
+  { selector: '[data-tour-tile="calendar"]', area: "core", label: "Kalendarz", description: "Twoje wydarzenia + Google Calendar + Kadromierz + Akademia w jednym widoku." },
+  { selector: '[data-tour-tile="kadromierz"]', area: "kadromierz", label: "Kadromierz", description: "Grafik pracy i ewidencja czasu." },
+  { selector: '[data-tour-tile="panel-sprzedawca"]', area: "panel-sprzedawca", label: "Panel Sprzedawcy", description: "Oferty, zamówienia, klienci. Wymaga certyfikatu mTLS." },
+  { selector: '[data-tour-tile="panel-serwisant"]', area: "panel-serwisant", label: "Panel Serwisanta", description: "Zgłoszenia serwisowe i naprawy." },
+  { selector: '[data-tour-tile="panel-kierowca"]', area: "panel-kierowca", label: "Panel Kierowcy", description: "Trasy, dostawy, pojazdy." },
+  { selector: '[data-tour-tile="certs"]', area: "certificates", label: "Certyfikaty klienckie", description: "Wystawianie + revoke certyfikatów PKCS12 dla paneli." },
+  { selector: '[data-tour-tile="directus"]', area: "directus", label: "Directus CMS", description: "Zarządzanie treścią, kolekcje danych, API headless." },
+  { selector: '[data-tour-tile="documenso"]', area: "documenso", label: "Documenso", description: "Podpisy elektroniczne dokumentów, organizacje, szablony." },
+  { selector: '[data-tour-tile="chatwoot"]', area: "chatwoot", label: "Chatwoot", description: "Live-chat klienta — email, social, web." },
+  { selector: '[data-tour-tile="postal"]', area: "postal", label: "Postal", description: "Serwer pocztowy: organizacje, domeny, DKIM, kolejka." },
+  { selector: '[data-tour-tile="moodle"]', area: "moodle", label: "Akademia (Moodle)", description: "Kursy, szkolenia, oceny, certyfikaty ukończenia." },
+  { selector: '[data-tour-tile="knowledge"]', area: "knowledge", label: "Baza wiedzy (Outline)", description: "Procedury, how-to, wewnętrzna wiki." },
+  { selector: '[data-tour-tile="users"]', area: "keycloak", label: "Użytkownicy", description: "Zarządzanie kontami + role per aplikacja (KC = SoT)." },
+  { selector: '[data-tour-tile="email"]', area: "email-admin", label: "Email i branding", description: "Centralny panel: szablony, branding, Postal, test send." },
+  { selector: '[data-tour-tile="infrastructure"]', area: "infrastructure", label: "Infrastruktura serwera", description: "VPS, DNS, snapshoty, backupy, zasoby, IP blocks, Wazuh SIEM." },
+  { selector: '[data-tour-tile="keycloak"]', area: "keycloak", label: "Keycloak (konsola IdP)", description: "Natywna admin konsola — realms, klienci, IdP, polityki." },
+];
+
+import { AREAS } from "@/lib/permissions/areas";
+
+function userHasAreaClient(roles: string[], areaId: string): boolean {
+  if (roles.includes("realm-admin") || roles.includes("manage-realm")) {
+    return true;
+  }
+  const area = AREAS.find((a) => a.id === areaId);
+  if (!area) return false;
+  const userRoleSet = new Set(roles);
+  for (const r of area.kcRoles) {
+    if (userRoleSet.has(r.name)) return true;
+  }
+  if (area.dynamicRoles) {
+    const prefix = `${area.id.replace(/-/g, "_")}_`;
+    for (const r of roles) {
+      if (r.startsWith(prefix)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Buduje pełny tour po systemie dynamicznie z user roles. Każdy krok
+ * odpowiada jednemu kafelkowi do którego user MA dostęp + uniwersalne
+ * elementy (cmdk, dzwonek, theme, account). Element musi istnieć w DOM
+ * — intro.js sam pomija krok jeśli selector nie zwraca elementu.
+ */
+export function buildFullSystemTour(roles: string[]): TourDefinition {
+  const accessibleTiles = DASHBOARD_TILES.filter(
+    (t) => !t.area || userHasAreaClient(roles, t.area),
+  );
+
+  const steps: TourStep[] = [
+    {
+      title: "Witaj w MyPerformance",
+      intro:
+        "Pokażę Ci najpierw cały system w pigułce — tylko te aplikacje i panele, do których masz dostęp. Zobaczysz każdy kafelek, dowiesz się co robi i jak się z niego korzysta.",
+    },
+    ...accessibleTiles.map<TourStep>((t) => ({
+      element: t.selector,
+      title: t.label,
+      intro: t.description,
+      position: "bottom" as TourPosition,
+    })),
+    {
+      element: '[data-tour="cmdk-button"]',
+      title: "Szybkie wyszukiwanie (Cmd+K)",
+      intro:
+        "Wpisz fragment nazwy panelu, użytkownika lub IP — przeskoczysz tam jednym Enterem. Z klawiatury obsłużysz cały system bez myszki.",
+      position: "bottom",
+    },
+    {
+      element: '[data-tour="bell"]',
+      title: "Powiadomienia",
+      intro:
+        "Tu trafiają zdarzenia z całego systemu — snapshoty, blokady IP, podpisy dokumentów, nowe role. Filtry per kategoria w Preferencjach.",
+      position: "bottom",
+    },
+    {
+      element: '[data-tour="theme-toggle"]',
+      title: "Tryb jasny / ciemny",
+      intro:
+        "Klik = animacja przejścia (księżyc ↔ słońce). Wybór zapamiętuje się per urządzenie — możesz mieć ciemny w pracy i jasny w domu.",
+      position: "bottom",
+    },
+    {
+      element: '[data-tour="account-link"]',
+      title: "Konto",
+      intro:
+        "Profil, hasło, 2FA, sesje, integracje, logi aktywności i Preferencje (kontrola powiadomień + uruchomienie tego przewodnika ponownie).",
+      position: "left",
+    },
+    {
+      title: "Gotowe",
+      intro:
+        "Kliknij dowolny kafelek żeby wejść w panel — w środku zobaczysz krótki opis, a w niektórych panelach uruchomisz osobny przewodnik z poziomu nagłówka.",
+    },
+  ];
+
+  return {
+    id: "full-system",
+    label: "Pełny przewodnik po MyPerformance",
+    steps,
+  };
+}
