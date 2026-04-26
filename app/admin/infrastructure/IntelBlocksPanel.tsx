@@ -6,7 +6,6 @@ import {
   Ban,
   Clock,
   Globe,
-  Loader2,
   Search,
   Server,
   ShieldCheck,
@@ -21,8 +20,10 @@ import {
   EmptyState,
   Input,
   InfoTooltip,
-  RelativeTime,
+  OnboardingCard,
+  Skeleton,
   useConfirm,
+  useToast,
 } from "@/components/ui";
 import { api, ApiRequestError } from "@/lib/api-client";
 import {
@@ -77,6 +78,7 @@ export function IntelBlocksPanel() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const { confirm, ConfirmDialogElement } = useConfirm();
+  const toast = useToast();
 
   useEffect(() => {
     const id = setTimeout(() => setDebounced(search), 250);
@@ -126,9 +128,12 @@ export function IntelBlocksPanel() {
       await api.delete<{ ok: true }>(
         `/api/admin/security/blocks?ip=${encodeURIComponent(ip)}`,
       );
+      toast.success("IP odblokowane", `${ip} może znów się łączyć (cron sync ≤1min)`);
       await load();
     } catch (err) {
-      setError(err instanceof ApiRequestError ? err.message : "Unblock failed");
+      const msg = err instanceof ApiRequestError ? err.message : "Unblock failed";
+      toast.error("Nie udało się odblokować", msg);
+      setError(msg);
     } finally {
       setBusy(null);
     }
@@ -157,9 +162,12 @@ export function IntelBlocksPanel() {
         reason: `Ręczna blokada (risk ${intel.riskScore})`,
         durationMinutes: 1440,
       });
+      toast.success("IP zablokowane", `${ip} odrzucany przez iptables na 24h`);
       await load();
     } catch (err) {
-      setError(err instanceof ApiRequestError ? err.message : "Block failed");
+      const msg = err instanceof ApiRequestError ? err.message : "Block failed";
+      toast.error("Nie udało się zablokować", msg);
+      setError(msg);
     } finally {
       setBusy(null);
     }
@@ -189,6 +197,18 @@ export function IntelBlocksPanel() {
           </div>
         </div>
       </Card>
+
+      <OnboardingCard
+        storageKey="intel-blocks"
+        title="Jak działa threat intel"
+      >
+        Każdy IP w systemie ma <strong>risk score 0-100</strong> wyliczany z
+        zdarzeń bezpieczeństwa, geolokacji i wzorców ataku. Czerwona ramka
+        po lewej oznacza krytyczny risk. Klik <em>Pokaż szczegóły</em>{" "}
+        rozwija atakowane konta, kategorie zdarzeń i urządzenia (cookie mp_did)
+        widziane z tego IP. Akcje block/unblock są nieodwracalne, ale dialog
+        wyjaśni co się dokładnie stanie.
+      </OnboardingCard>
 
       {error && <Alert tone="error">{error}</Alert>}
 
@@ -225,8 +245,30 @@ export function IntelBlocksPanel() {
       </Card>
 
       {loading ? (
-        <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
-          <Loader2 className="w-4 h-4 animate-spin" /> Ładuję intel…
+        <div className="space-y-3" aria-busy="true" aria-label="Ładowanie intel">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Card padding="md" key={i} className="border-l-4 border-l-[var(--border-subtle)]">
+              <div className="flex items-start justify-between gap-3 mb-3">
+                <div className="flex-1 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-5 w-24" />
+                  </div>
+                  <Skeleton className="h-3 w-48" />
+                </div>
+                <Skeleton className="h-8 w-24" />
+              </div>
+              <div className="grid grid-cols-4 gap-3 my-3">
+                {Array.from({ length: 4 }).map((_, j) => (
+                  <div key={j} className="space-y-1.5">
+                    <Skeleton className="h-2 w-16" />
+                    <Skeleton className="h-5 w-12" />
+                  </div>
+                ))}
+              </div>
+              <Skeleton className="h-2 w-full" />
+            </Card>
+          ))}
         </div>
       ) : !data || data.length === 0 ? (
         <Card padding="md">

@@ -2,6 +2,8 @@
 
 import { SessionProvider, useSession, signOut } from "next-auth/react";
 import { useEffect } from "react";
+import { ToastProvider } from "@/components/ui/Toast";
+import { CommandPalette } from "@/components/CommandPalette";
 
 function SessionGuard({ children }: { children: React.ReactNode }) {
   const { data: session, status } = useSession();
@@ -25,7 +27,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
       refetchInterval={5 * 60}
       refetchOnWindowFocus={true}
     >
-      <SessionGuard>{children}</SessionGuard>
+      <ToastProvider>
+        <SessionGuard>{children}</SessionGuard>
+        <CommandPalette />
+      </ToastProvider>
     </SessionProvider>
   );
 }
