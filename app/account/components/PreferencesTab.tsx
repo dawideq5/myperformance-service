@@ -161,8 +161,7 @@ export function PreferencesTab() {
           <div>
             <div className="text-sm font-medium">Pokazuj wskazówki</div>
             <div className="text-xs text-[var(--text-muted)]">
-              Wyłącz, jeśli już dobrze znasz interfejs. Wskazówki nie mają
-              przycisku „X" — jedyna kontrola tutaj.
+              {"Wyłącz, jeśli już dobrze znasz interfejs. Wskazówki nie mają przycisku \u201EX\u201D — jedyna kontrola tutaj."}
             </div>
           </div>
           <input
