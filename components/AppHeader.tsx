@@ -4,6 +4,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { ArrowLeft, LogOut, Search, Settings, User as UserIcon } from "lucide-react";
 import { Button, PageHeader, ThemeToggle } from "@/components/ui";
+import { NotificationBell } from "@/components/NotificationBell";
 import { useAuthRedirect } from "@/hooks/useAuthRedirect";
 
 export interface AppHeaderProps {
@@ -62,6 +63,7 @@ export function AppHeader({
           {rightExtras}
           <button
             type="button"
+            data-tour="cmdk-button"
             className="hidden sm:inline-flex items-center gap-2 text-xs text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-surface)] px-2.5 py-1.5 rounded-lg border border-[var(--border-subtle)] transition"
             aria-label="Wyszukaj globalnie"
             title="Cmd+K (lub Ctrl+K) — szybkie wyszukiwanie"
@@ -79,6 +81,7 @@ export function AppHeader({
             <kbd className="font-mono text-[10px]">⌘K</kbd>
           </button>
           <ThemeToggle className="hidden sm:inline-flex" />
+          <NotificationBell />
           {(userLabel || userSubLabel) && (
             <div className="hidden sm:flex items-center gap-3 pr-4 border-r border-[var(--border-subtle)]">
               <div className="w-9 h-9 rounded-full bg-[var(--accent)]/10 flex items-center justify-center flex-shrink-0">
@@ -100,6 +103,7 @@ export function AppHeader({
             <Link
               href="/account"
               aria-label="Zarządzaj kontem"
+              data-tour="account-link"
               className="p-2.5 rounded-xl text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-card)] transition-colors"
             >
               <Settings className="w-5 h-5" aria-hidden="true" />

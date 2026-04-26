@@ -19,6 +19,7 @@ import {
   Card,
   CardHeader,
   Input,
+  OnboardingCard,
 } from "@/components/ui";
 import { PhoneInput } from "@/components/PhoneInput";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
@@ -154,6 +155,16 @@ export function ProfileTab() {
 
   return (
     <div className="space-y-6">
+      <OnboardingCard
+        storageKey="account-profile"
+        title="Profil = SoT dla wszystkich aplikacji"
+      >
+        Zmiana danych tutaj propaguje się do Chatwoot, Documenso, Outline,
+        Moodle, Directus i Postal w ciągu kilku sekund (kolejka z retry).
+        Email zmiany powoduje rozłączenie Google (musisz połączyć ponownie),
+        bo Keycloak traktuje email jako klucz federowanej tożsamości.
+      </OnboardingCard>
+
       <Card padding="md">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-lg font-semibold text-[var(--text-main)]">

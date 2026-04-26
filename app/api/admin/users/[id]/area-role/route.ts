@@ -13,6 +13,7 @@ import {
   assignUserAreaRole,
   getUserAreaAssignments,
 } from "@/lib/permissions/sync";
+import { notifyUser } from "@/lib/notify";
 
 /**
  * GET /api/admin/users/[id]/area-role
@@ -69,6 +70,23 @@ export async function POST(req: Request, { params }: Ctx) {
       areaId,
       roleName,
     });
+
+    const area = getArea(areaId);
+    if (roleName) {
+      void notifyUser(id, "account.role.assigned", {
+        title: `Przypisano rolę w ${area?.label ?? areaId}`,
+        body: `Otrzymałeś rolę "${roleName}" w obszarze ${area?.label ?? areaId}. Możesz teraz korzystać z funkcji tej aplikacji.`,
+        severity: "info",
+        payload: { areaId, roleName },
+      });
+    } else {
+      void notifyUser(id, "account.role.revoked", {
+        title: `Cofnięto rolę w ${area?.label ?? areaId}`,
+        body: `Twoja rola w obszarze ${area?.label ?? areaId} została cofnięta.`,
+        severity: "warning",
+        payload: { areaId },
+      });
+    }
 
     return createSuccessResponse({ result });
   } catch (err) {

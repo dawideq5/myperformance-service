@@ -9,6 +9,8 @@ export interface TabDefinition<T extends string> {
   icon?: ReactNode;
   badge?: ReactNode;
   hidden?: boolean;
+  /** Dowolne atrybuty data-* (np. dla intro.js trasy: `{"data-tour": "..."}`). */
+  dataAttributes?: Record<`data-${string}`, string>;
 }
 
 interface TabsProps<T extends string> {
@@ -42,7 +44,7 @@ export function Tabs<T extends string>({
         className,
       )}
     >
-      {visibleTabs.map(({ id, label, icon, badge }) => {
+      {visibleTabs.map(({ id, label, icon, badge, dataAttributes }) => {
         const active = id === activeTab;
         return (
           <button
@@ -54,6 +56,7 @@ export function Tabs<T extends string>({
             id={`tab-${id}`}
             tabIndex={active ? 0 : -1}
             onClick={() => onChange(id)}
+            {...(dataAttributes ?? {})}
             className={cn(
               "inline-flex items-center gap-3 text-sm font-medium rounded-xl transition-colors whitespace-nowrap",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/50",

@@ -10,6 +10,7 @@ import {
   ArrowLeft,
   History,
   Plug,
+  Settings,
   Shield,
   User as UserIcon,
 } from "lucide-react";
@@ -30,6 +31,7 @@ import { SecurityTab } from "@/app/account/components/SecurityTab";
 import { SessionsTab } from "@/app/account/components/SessionsTab";
 import { IntegrationsTab } from "@/app/account/components/IntegrationsTab";
 import { ActivityTab } from "@/app/account/components/ActivityTab";
+import { PreferencesTab } from "@/app/account/components/PreferencesTab";
 
 import { useAccount } from "./AccountProvider";
 import type { AccountTabId } from "./types";
@@ -40,6 +42,7 @@ const TAB_IDS: readonly AccountTabId[] = [
   "sessions",
   "integrations",
   "activity",
+  "preferences",
 ];
 
 function isValidTab(value: string | null): value is AccountTabId {
@@ -177,6 +180,7 @@ export function AccountShell() {
       id: "security",
       label: "Bezpieczeństwo",
       icon: <Shield className="w-5 h-5" />,
+      dataAttributes: { "data-tour": "tab-security" },
     },
     {
       id: "sessions",
@@ -186,6 +190,7 @@ export function AccountShell() {
         sessions.length > 0 ? (
           <Badge tone="neutral">{sessions.length}</Badge>
         ) : undefined,
+      dataAttributes: { "data-tour": "tab-sessions" },
     },
     {
       id: "integrations",
@@ -202,6 +207,12 @@ export function AccountShell() {
       id: "activity",
       label: "Logi aktywności",
       icon: <Activity className="w-5 h-5" />,
+    },
+    {
+      id: "preferences",
+      label: "Preferencje",
+      icon: <Settings className="w-5 h-5" />,
+      dataAttributes: { "data-tour": "tab-preferences" },
     },
   ];
 
@@ -239,6 +250,10 @@ export function AccountShell() {
 
           <TabPanel tabId="activity" active={safeActiveTab === "activity"}>
             <ActivityTab />
+          </TabPanel>
+
+          <TabPanel tabId="preferences" active={safeActiveTab === "preferences"}>
+            <PreferencesTab />
           </TabPanel>
         </div>
       </div>

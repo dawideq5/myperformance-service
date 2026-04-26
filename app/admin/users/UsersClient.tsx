@@ -24,6 +24,7 @@ import {
   Dialog,
   FieldWrapper,
   Input,
+  OnboardingCard,
   PageShell,
 } from "@/components/ui";
 import { AppHeader } from "@/components/AppHeader";
@@ -379,6 +380,18 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
         />
       }
     >
+      <OnboardingCard
+        storageKey="admin-users"
+        title="Zarządzanie userami i grupami"
+        requiresArea="keycloak"
+        requiresMinPriority={90}
+      >
+        Keycloak jest single-source-of-truth dla kont. Tutaj zapraszasz nowych,
+        nadajesz role per aplikacja, zarządzasz członkostwem w grupach (które
+        cascadeują role kompozytowo). Usunięcie usera tutaj propaguje się do
+        Chatwoot/Documenso/Outline/Moodle/Directus.
+      </OnboardingCard>
+
       <nav className="mb-4 flex border-b border-[var(--border-subtle)] gap-1">
         <button
           type="button"

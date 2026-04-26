@@ -27,6 +27,7 @@ import {
   Button,
   Card,
   CardHeader,
+  OnboardingCard,
   Skeleton,
 } from "@/components/ui";
 import { ApiRequestError, api } from "@/lib/api-client";
@@ -357,6 +358,14 @@ export function ActivityTab() {
 
   return (
     <div className="space-y-6">
+      <OnboardingCard
+        storageKey="account-activity"
+        title="Audit-trail Twojego konta"
+      >
+        Każde logowanie, zmiana hasła, dodanie 2FA, połączenie integracji,
+        sesja SSO — wszystko trafia tu na 7 dni. Filtry per dzień + per typ.
+        Anomalia? Wciśnij „Wyloguj wszystko" w sekcji Sesje i zmień hasło.
+      </OnboardingCard>
       <Card padding="md">
         <CardHeader
           icon={<Shield className="w-6 h-6 text-[var(--accent)]" aria-hidden="true" />}

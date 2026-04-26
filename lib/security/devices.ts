@@ -106,6 +106,7 @@ export async function recordSighting(s: SightingInput): Promise<void> {
   if (last && now - last < DEDUPE_TTL_MS) return;
   dedupe.set(key, now);
 
+  let isNewForUser = false;
   try {
     await withClient(async (c) => {
       // Upsert device
@@ -117,6 +118,16 @@ export async function recordSighting(s: SightingInput): Promise<void> {
            user_agent = COALESCE(EXCLUDED.user_agent, mp_devices.user_agent)`,
         [s.deviceId, s.userAgent ?? null],
       );
+      // Sprawdź czy to pierwsza para (deviceId, userId) — wykrycie nowego
+      // urządzenia dla danego usera (notify security.login.new_device).
+      if (s.userId) {
+        const prev = await c.query<{ n: string }>(
+          `SELECT COUNT(*)::text AS n FROM mp_device_sightings
+            WHERE device_id = $1 AND user_id = $2`,
+          [s.deviceId, s.userId],
+        );
+        isNewForUser = Number(prev.rows[0]?.n ?? "0") === 0;
+      }
       // Append sighting
       await c.query(
         `INSERT INTO mp_device_sightings
@@ -137,6 +148,24 @@ export async function recordSighting(s: SightingInput): Promise<void> {
     logger.warn("recordSighting failed", {
       err: err instanceof Error ? err.message : String(err),
     });
+  }
+
+  if (isNewForUser && s.userId) {
+    // dynamic import — `lib/notify` używa `lib/keycloak` które łączy się
+    // z KC tylko gdy faktycznie potrzebne; unikamy circular boot przy starcie.
+    void import("@/lib/notify").then(({ notifyUser }) =>
+      notifyUser(s.userId!, "security.login.new_device", {
+        title: "Nowe urządzenie loguje się na Twoje konto",
+        body: `Wykryto pierwsze logowanie z nowego urządzenia (IP: ${s.ip ?? "?"}, UA: ${(s.userAgent ?? "?").slice(0, 80)}). Jeśli to nie Ty — zmień hasło i wyloguj wszystkie sesje.`,
+        severity: "warning",
+        payload: {
+          deviceId: s.deviceId,
+          ip: s.ip,
+          userAgent: s.userAgent,
+        },
+        forceEmail: true,
+      }),
+    );
   }
 }
 

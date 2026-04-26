@@ -29,6 +29,7 @@ import {
   CardHeader,
   Dialog,
   Input,
+  OnboardingCard,
   PasswordInput,
 } from "@/components/ui";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
@@ -168,6 +169,17 @@ export function SecurityTab() {
 
   return (
     <div className="space-y-6">
+      <OnboardingCard
+        storageKey="account-security"
+        title="Defense-in-depth: hasło + 2FA + WebAuthn"
+      >
+        Włącz przynajmniej jedną metodę 2FA — chroni Cię nawet po wycieku
+        hasła. WebAuthn (klucz sprzętowy / Touch ID / Windows Hello) jest
+        odporny na phishing. TOTP (Google Authenticator) działa offline.
+        Krytyczne zmiany (hasło, dodanie urządzenia) wysyłają email niezależnie
+        od preferencji.
+      </OnboardingCard>
+
       {/* TOTP */}
       <Card padding="md">
         <CardHeader

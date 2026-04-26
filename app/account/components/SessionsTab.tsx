@@ -3,7 +3,7 @@
 import { useCallback } from "react";
 import { Clock, Globe, LogOut } from "lucide-react";
 
-import { Badge, Button, Card } from "@/components/ui";
+import { Badge, Button, Card, OnboardingCard } from "@/components/ui";
 import { useAuthRedirect } from "@/hooks/useAuthRedirect";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 
@@ -169,6 +169,15 @@ export function SessionsTab() {
 
   return (
     <div className="space-y-6">
+      <OnboardingCard
+        storageKey="account-sessions"
+        title="Aktywne sesje SSO"
+      >
+        Każda sesja = aktywne logowanie do Keycloak (i wszystkie aplikacje, do
+        których SSO Cię już wpuściło). Wyloguj sesję jeśli nie poznajesz
+        urządzenia/IP. Bieżąca sesja oznaczona jest „Ta sesja"; jej wylogowanie
+        kończy też pracę w dashboardzie.
+      </OnboardingCard>
       <Card padding="md">
         <h2 className="text-lg font-semibold text-[var(--text-main)] mb-6">
           Aktywne sesje

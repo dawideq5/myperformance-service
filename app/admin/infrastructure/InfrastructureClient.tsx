@@ -98,7 +98,12 @@ export function InfrastructureClient({
   const [tab, setTab] = useState<TabId>("vps");
   const tabs: TabDefinition<TabId>[] = useMemo(
     () => [
-      { id: "vps", label: "VPS + Backup", icon: <Server className="w-5 h-5" /> },
+      {
+        id: "vps",
+        label: "VPS + Backup",
+        icon: <Server className="w-5 h-5" />,
+        dataAttributes: { "data-tour": "tab-vps" },
+      },
       { id: "dns", label: "DNS Zone", icon: <Globe className="w-5 h-5" /> },
       {
         id: "resources",
@@ -114,11 +119,13 @@ export function InfrastructureClient({
         id: "blocks",
         label: "Threat Intel — IP",
         icon: <Ban className="w-5 h-5" />,
+        dataAttributes: { "data-tour": "tab-blocks" },
       },
       {
         id: "map",
         label: "Mapa & analityka",
         icon: <Globe className="w-5 h-5" />,
+        dataAttributes: { "data-tour": "tab-map" },
       },
       {
         id: "devices",

@@ -17,6 +17,7 @@ import {
   Card,
   CardHeader,
   Input,
+  OnboardingCard,
   PageShell,
 } from "@/components/ui";
 import { AppHeader } from "@/components/AppHeader";
@@ -100,6 +101,18 @@ export function DocumentsHandlerClient({
         />
       }
     >
+      <OnboardingCard
+        storageKey="docs-handler"
+        title="Obieg dokumentów organizacji"
+        requiresArea="documenso"
+        requiresMinPriority={50}
+      >
+        Widok zawiera wszystkie dokumenty Twojej organizacji — niezależnie czy
+        wysłałeś je Ty, czy ktoś z zespołu. Klik w dokument otwiera Documenso z
+        auto-loginem (SSO). Powiadomienia o podpisach trafiają do dzwonka i
+        emaila zgodnie z Preferencjami.
+      </OnboardingCard>
+
       <section className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <p className="text-sm text-[var(--text-muted)] max-w-2xl">
           Widok wszystkich dokumentów w obiegu całej organizacji. Możesz

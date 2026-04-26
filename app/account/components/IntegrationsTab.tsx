@@ -19,6 +19,7 @@ import {
   Card,
   CardHeader,
   Input,
+  OnboardingCard,
 } from "@/components/ui";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { ApiRequestError } from "@/lib/api-client";
@@ -186,6 +187,15 @@ function IntegrationTile({
 export function IntegrationsTab() {
   return (
     <div className="space-y-6">
+      <OnboardingCard
+        storageKey="account-integrations"
+        title="Połącz konta zewnętrzne"
+      >
+        Google daje synchronizację kalendarza i kontaktów. Kadromierz przynosi
+        Twoje grafiki pracy. Moodle (Akademia) integruje się automatycznie po
+        pierwszym logowaniu — tu sprawdzisz status. Każde połączenie używa
+        OAuth — możesz odłączyć w dowolnym momencie.
+      </OnboardingCard>
       <GoogleCard />
       <KadromierzCard />
       <MoodleCard />

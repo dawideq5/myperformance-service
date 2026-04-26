@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 
 import { AppHeader } from "@/components/AppHeader";
-import { Card, PageShell } from "@/components/ui";
+import { Card, OnboardingCard, PageShell } from "@/components/ui";
 import { AccountProvider, useAccount } from "@/app/account/AccountProvider";
 import { KadromierzWorkWidget } from "./components/KadromierzWorkWidget";
 import { useAuthRedirect } from "@/hooks/useAuthRedirect";
@@ -127,8 +127,26 @@ function TileGrid() {
 
   return (
     <div className="space-y-4">
+      <OnboardingCard
+        storageKey="dashboard-welcome"
+        title="Witaj w MyPerformance"
+      >
+        Tutaj zobaczysz tylko aplikacje, do których masz dostęp. Klikaj kafelki
+        żeby uruchomić apkę z auto-loginem przez SSO. Wciśnij{" "}
+        <kbd className="px-1 py-0.5 text-[10px] rounded bg-[var(--bg-surface)] border border-[var(--border-subtle)]">
+          ⌘K
+        </kbd>{" "}
+        żeby otworzyć paletę poleceń, lub odwiedź{" "}
+        <Link href="/account?tab=preferences" className="underline">
+          Preferencje
+        </Link>{" "}
+        i uruchom interaktywny przewodnik.
+      </OnboardingCard>
       {showKadromierz && kadromierzConnected && <KadromierzWorkWidget />}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div
+        data-tour="tile-grid"
+        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
+      >
         {showCalendar && (
           <Tile
             icon={<Calendar className="w-7 h-7 text-blue-500" aria-hidden="true" />}

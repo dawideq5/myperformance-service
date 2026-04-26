@@ -15,6 +15,7 @@ import {
   Badge,
   Button,
   Card,
+  OnboardingCard,
 } from "@/components/ui";
 import { PageShell } from "@/components/ui";
 import { AccountProvider, useAccount } from "@/app/account/AccountProvider";
@@ -76,6 +77,16 @@ function CalendarPageBody({ userLabel, userEmail }: CalendarPageClientProps) {
             : "Dodawaj własne wydarzenia albo podłącz integracje (Google, Kadromierz, Akademia), by wszystko wyświetlać w jednym miejscu."}
         </p>
       </section>
+
+      <OnboardingCard
+        storageKey="calendar"
+        title="Wszystkie kalendarze w jednym widoku"
+      >
+        Łączymy Google Calendar, Kadromierz (grafiki pracy) i Moodle (terminy
+        kursów) w jeden timeline. Wydarzenia z dashboardu lecą fan-out do
+        Google + Moodle automatycznie. Read-only z innych źródeł, edytuj tam
+        gdzie powstają.
+      </OnboardingCard>
 
       <section className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <IntegrationCard

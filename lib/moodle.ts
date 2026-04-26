@@ -385,3 +385,105 @@ export async function deleteUserEvent(id: number): Promise<void> {
     [id],
   );
 }
+
+// ---------------------------------------------------------------------------
+// Onboarding course — programmatic create / lookup / enrol
+// ---------------------------------------------------------------------------
+
+const ONBOARDING_SHORTNAME = "mp_onboarding";
+
+/**
+ * Znajdź kurs onboardingowy po shortname (`mp_onboarding`). Null jeśli
+ * nigdy nie utworzony.
+ */
+export async function findOnboardingCourse(): Promise<MoodleCourseBrief | null> {
+  try {
+    const data = await moodleCall<{ courses: MoodleCourseBrief[] }>(
+      "core_course_get_courses_by_field",
+      { field: "shortname", value: ONBOARDING_SHORTNAME },
+    );
+    return data.courses?.[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Tworzy kurs onboardingowy w Moodle jeśli nie istnieje, w category=1
+ * (Miscellaneous). Zwraca id kursu.
+ */
+export async function ensureOnboardingCourse(): Promise<number> {
+  const existing = await findOnboardingCourse();
+  if (existing) return existing.id;
+  const data = await moodleCall<Array<{ id: number }>>(
+    "core_course_create_courses",
+    {
+      "courses[0][fullname]": "Onboarding MyPerformance",
+      "courses[0][shortname]": ONBOARDING_SHORTNAME,
+      "courses[0][categoryid]": 1,
+      "courses[0][summary]":
+        "Krótki kurs wprowadzający — pulpit, integracje, bezpieczeństwo, powiadomienia. Po ukończeniu intro.js tour automatycznie odznaczamy moduły jako ukończone.",
+      "courses[0][summaryformat]": 1,
+      "courses[0][format]": "topics",
+      "courses[0][visible]": 1,
+      "courses[0][numsections]": 4,
+    },
+  );
+  if (!Array.isArray(data) || data.length === 0) {
+    throw new Error("Moodle: course creation returned empty response");
+  }
+  return data[0].id;
+}
+
+/**
+ * Self-enroluj usera (po email) jako student w onboarding course.
+ * Idempotent — Moodle zwraca błąd jeśli już zapisany, ignorujemy.
+ */
+export async function enrolUserInOnboarding(email: string): Promise<{
+  courseId: number;
+  enrolled: boolean;
+}> {
+  const courseId = await ensureOnboardingCourse();
+  const moodleUser = await getUserByEmail(email);
+  if (!moodleUser) {
+    return { courseId, enrolled: false };
+  }
+  try {
+    await moodleCall("enrol_manual_enrol_users", {
+      "enrolments[0][roleid]": 5, // student role (default Moodle)
+      "enrolments[0][userid]": moodleUser.id,
+      "enrolments[0][courseid]": courseId,
+    });
+    return { courseId, enrolled: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("already enrolled") || msg.includes("wsenrolusers")) {
+      return { courseId, enrolled: true };
+    }
+    throw err;
+  }
+}
+
+/**
+ * Mark Moodle course completed dla usera. Wywoływane po zakończeniu
+ * intro.js trasy — robi self-completion przez `core_completion_mark_course_self_completed`.
+ *
+ * Kurs musi mieć enabled `completion` settings — nasz onboarding course
+ * po `ensureOnboardingCourse()` przyjmuje default settings i wymaga ręcznej
+ * konfiguracji w Moodle UI (lub przez `core_course_update_courses` z enablecompletion=1).
+ * Funkcja best-effort: failure nie blokuje user-flow.
+ */
+export async function markOnboardingCompleted(email: string): Promise<boolean> {
+  const moodleUser = await getUserByEmail(email);
+  if (!moodleUser) return false;
+  const course = await findOnboardingCourse();
+  if (!course) return false;
+  try {
+    await moodleCall("core_completion_mark_course_self_completed", {
+      courseid: course.id,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}

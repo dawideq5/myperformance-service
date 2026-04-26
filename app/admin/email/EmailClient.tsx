@@ -30,6 +30,7 @@ import {
   Card,
   CardHeader,
   Input,
+  OnboardingCard,
   PageShell,
   TabPanel,
   Tabs,
@@ -57,6 +58,7 @@ export function EmailClient({
         id: "templates",
         label: "Szablony emaili",
         icon: <Mail className="w-5 h-5" />,
+        dataAttributes: { "data-tour": "tab-templates" },
       },
       {
         id: "layouts",
@@ -72,6 +74,7 @@ export function EmailClient({
         id: "branding",
         label: "Branding",
         icon: <Palette className="w-5 h-5" />,
+        dataAttributes: { "data-tour": "tab-branding" },
       },
       {
         id: "postal",
@@ -93,6 +96,17 @@ export function EmailClient({
 
   return (
     <PageShell maxWidth="xl" header={header}>
+      <OnboardingCard
+        storageKey="admin-email"
+        title="Wszystkie maile w jednym miejscu"
+        requiresArea="email-admin"
+        requiresMinPriority={90}
+      >
+        Edytujesz tu szablony Keycloak (login/reset/verify), branding
+        propagujący się do wszystkich apek, konfiguracje SMTP i serwer Postal
+        (domeny, skrzynki, DKIM/SPF). Każdy szablon ma podgląd na żywo + test
+        send.
+      </OnboardingCard>
       <div className="grid lg:grid-cols-4 gap-6">
         <aside className="lg:col-span-1">
           <Tabs
@@ -179,7 +193,80 @@ function StartPanel({ onGoTo }: { onGoTo: (t: TabId) => void }) {
         cta="Otwórz Postal"
         onClick={() => onGoTo("postal")}
       />
+      <DirectusSyncCard />
     </div>
+  );
+}
+
+function DirectusSyncCard() {
+  const [syncing, setSyncing] = useState(false);
+  const [result, setResult] = useState<{
+    ok: boolean;
+    message: string;
+  } | null>(null);
+
+  async function runSync() {
+    setSyncing(true);
+    setResult(null);
+    try {
+      const res = await fetch("/api/admin/directus-sync", { method: "POST" });
+      const json = await res.json();
+      if (!res.ok) {
+        setResult({
+          ok: false,
+          message:
+            json.error?.message ?? `Błąd ${res.status}`,
+        });
+      } else {
+        setResult({
+          ok: json.data.ok,
+          message: `Zsynchronizowano: ${json.data.itemsSynced} rekordów do ${json.data.collectionsCreated} kolekcji.${json.data.errors?.length ? ` Błędy: ${json.data.errors.join("; ")}` : ""}`,
+        });
+      }
+    } catch (err) {
+      setResult({
+        ok: false,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  return (
+    <Card padding="md">
+      <div className="flex items-start gap-4">
+        <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center flex-shrink-0">
+          <Layers className="w-5 h-5 text-emerald-400" />
+        </div>
+        <div className="flex-1">
+          <h3 className="text-base font-semibold text-[var(--text-main)]">
+            Synchronizacja z Directus CMS
+          </h3>
+          <p className="text-xs text-[var(--text-muted)] mt-1 leading-relaxed">
+            Push read-only mirror brandingu i szablonów do Directusa — content team widzi
+            aktualne wartości w UI Directusa, ale dashboard pozostaje canonical source-of-truth.
+            Powtórny sync nadpisuje to co w Directusie.
+          </p>
+          {result && (
+            <Alert
+              tone={result.ok ? "success" : "error"}
+              className="mt-3"
+            >
+              {result.message}
+            </Alert>
+          )}
+        </div>
+        <Button
+          onClick={runSync}
+          loading={syncing}
+          variant="secondary"
+          size="sm"
+        >
+          Synchronizuj
+        </Button>
+      </div>
+    </Card>
   );
 }
 

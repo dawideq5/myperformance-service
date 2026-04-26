@@ -24,6 +24,7 @@ import {
   CardHeader,
   Checkbox,
   Input,
+  OnboardingCard,
   PageShell,
   TabPanel,
   Tabs,
@@ -251,6 +252,17 @@ export function CertificatesClient({
           serwisanta oraz kierowcy.
         </p>
       </section>
+      <OnboardingCard
+        storageKey="admin-certs"
+        title="Certyfikaty klienckie (PKCS12)"
+        requiresArea="certificates"
+        requiresMinPriority={90}
+      >
+        Wystawienie generuje paczkę PKCS12 z step-ca, mailuje ją userowi i
+        zapisuje audit-trail. Traefik mTLS (RequireAndVerifyClientCert) wpuszcza
+        tylko certy z naszej CA. Revoke = natychmiastowy block (CRL fetch co 5
+        min).
+      </OnboardingCard>
       <div className="grid lg:grid-cols-4 gap-6">
         <aside className="lg:col-span-1">
           <Tabs

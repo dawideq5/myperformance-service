@@ -164,6 +164,34 @@ async function ensureSchema(client: PoolClient): Promise<void> {
     CREATE INDEX IF NOT EXISTS mp_device_sightings_ip_idx ON mp_device_sightings (ip, seen_at DESC);
     CREATE INDEX IF NOT EXISTS mp_device_sightings_seen_idx ON mp_device_sightings (seen_at DESC);
 
+    -- Per-user preferences — singleton-per-user JSON. Klucze:
+    -- hints_enabled (bool), notif_in_app (jsonb event types), notif_email (jsonb)
+    -- intro_completed_steps (jsonb array stepIds), moodle_course_id (number).
+    CREATE TABLE IF NOT EXISTS mp_user_preferences (
+      user_id     TEXT PRIMARY KEY,
+      prefs       JSONB NOT NULL DEFAULT '{}',
+      updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
+    -- In-app inbox per user. Konsumowane przez badge w UI + auto-toast
+    -- po wczytaniu strony. Read = read_at IS NOT NULL. Retencja 30 dni
+    -- (cron czyszczący w lib/security/jobs).
+    CREATE TABLE IF NOT EXISTS mp_inbox (
+      id          BIGSERIAL PRIMARY KEY,
+      user_id     TEXT NOT NULL,
+      event_key   TEXT NOT NULL,
+      title       TEXT NOT NULL,
+      body        TEXT NOT NULL,
+      severity    TEXT NOT NULL DEFAULT 'info',
+      payload     JSONB,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+      read_at     TIMESTAMPTZ
+    );
+    CREATE INDEX IF NOT EXISTS mp_inbox_user_unread_idx
+      ON mp_inbox (user_id, created_at DESC) WHERE read_at IS NULL;
+    CREATE INDEX IF NOT EXISTS mp_inbox_cleanup_idx
+      ON mp_inbox (created_at);
+
     -- Cache geolocation per IP — populowane on-demand z zewnętrznego API
     -- (ipapi.co, free 1000/day). TTL 30 dni przez cleanup.
     CREATE TABLE IF NOT EXISTS mp_ip_geo (

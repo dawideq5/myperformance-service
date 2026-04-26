@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { createHmac, timingSafeEqual } from "crypto";
 import { log } from "@/lib/logger";
 import { blockIp, unblockIp, recordEvent } from "@/lib/security/db";
+import { getAdminUserIds, notifyUsers } from "@/lib/notify";
 
 const logger = log.child({ module: "wazuh-active-response" });
 
@@ -102,6 +103,18 @@ export async function POST(req: Request) {
         details: payload.details,
       });
       logger.info("Wazuh AR: IP blocked", { ip: payload.ip, rule: payload.ruleId });
+      void getAdminUserIds().then((ids) =>
+        notifyUsers(ids, "admin.ip.auto_blocked", {
+          title: `Auto-zablokowano IP ${payload.ip}`,
+          body: `Wazuh rule ${payload.ruleId ?? "?"}: ${payload.ruleDescription ?? "active response"}. Czas blokady: ${payload.durationMinutes ?? 60} min.`,
+          severity: sev === "critical" || sev === "high" ? "warning" : "info",
+          payload: {
+            ip: payload.ip,
+            ruleId: payload.ruleId,
+            alertLevel: payload.alertLevel,
+          },
+        }),
+      );
       return NextResponse.json({ ok: true, action: "blocked", ip: payload.ip });
     }
 

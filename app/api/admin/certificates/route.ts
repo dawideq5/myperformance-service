@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
 import { auditLog, issueClientCertificate, listCertificates, recordCertificate } from "@/lib/step-ca";
 import { sendCertificateByEmail } from "@/lib/cert-delivery";
+import { getUserIdByEmail, notifyUser } from "@/lib/notify";
 import { getClientIp, rateLimit } from "@/lib/rate-limit";
 import { canManageCertificates } from "@/lib/admin-auth";
 
@@ -95,6 +96,16 @@ export async function POST(req: Request) {
       });
       emailSent = true;
       auditLog({ ts: new Date().toISOString(), actor, action: "email-cert", subject: `${email}`, ok: true });
+      void getUserIdByEmail(email).then((uid) => {
+        if (uid) {
+          void notifyUser(uid, "account.cert.issued", {
+            title: "Wystawiono certyfikat klienta",
+            body: `Twój certyfikat (${commonName}, role: ${roles.join(", ")}) został wystawiony i wysłany na ${email}. Ważny do ${meta.notAfter}.`,
+            severity: "success",
+            payload: { commonName, roles, notAfter: meta.notAfter },
+          });
+        }
+      });
     } catch (err) {
       emailError = err instanceof Error ? err.message : "email send failed";
       auditLog({ ts: new Date().toISOString(), actor, action: "email-cert", subject: `${email}`, ok: false, error: emailError });

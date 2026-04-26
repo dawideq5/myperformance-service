@@ -11,6 +11,7 @@ import {
   Dialog,
   FieldWrapper,
   Input,
+  OnboardingCard,
   PageShell,
 } from "@/components/ui";
 import { AppHeader } from "@/components/AppHeader";
@@ -114,6 +115,18 @@ export function GroupsClient({ userLabel, userEmail, embedded }: GroupsClientPro
 
   return (
     <Wrapper>
+      <OnboardingCard
+        storageKey="admin-groups"
+        title="Grupy = persony / zespoły"
+        requiresArea="keycloak"
+        requiresMinPriority={90}
+      >
+        Grupa to zestaw realm roles przyznawanych łącznie. Member-of-group
+        dziedziczy wszystkie role grupy + swoje własne. Praktyka: jedna grupa
+        per persona ("Sprzedawca", "Pełen admin"), a userzy są w 1-2 grupach
+        zamiast 10 osobnych ról.
+      </OnboardingCard>
+
       <section className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <p className="text-sm text-[var(--text-muted)] max-w-2xl">
           Tworzenie grup-person (np. Administrator, Sprzedawca, Serwisant).

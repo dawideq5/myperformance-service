@@ -9,6 +9,7 @@ import {
   validateRequestBody,
 } from "@/lib/api-utils";
 import { getClientIp, rateLimit } from "@/lib/rate-limit";
+import { notifyUser } from "@/lib/notify";
 
 interface PasswordChangeRequest extends Record<string, unknown> {
   currentPassword: string;
@@ -118,6 +119,14 @@ export async function POST(request: Request) {
         process.env.NODE_ENV === "development" ? errorText : undefined
       );
     }
+
+    void notifyUser(userId, "security.password.changed", {
+      title: "Zmieniono hasło na Twoim koncie",
+      body: `Hasło zostało zmienione ${new Date().toLocaleString("pl-PL")}. Jeśli to nie Ty — natychmiast skontaktuj się z administratorem i włącz 2FA.`,
+      severity: "warning",
+      payload: { ip: getClientIp(request) },
+      forceEmail: true,
+    });
 
     return createSuccessResponse({ success: true });
   } catch (error) {

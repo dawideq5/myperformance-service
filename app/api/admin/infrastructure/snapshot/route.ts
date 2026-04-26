@@ -10,6 +10,7 @@ import {
   createSuccessResponse,
   handleApiError,
 } from "@/lib/api-utils";
+import { getAdminUserIds, notifyUsers } from "@/lib/notify";
 
 interface PostPayload {
   vpsName: string;
@@ -53,6 +54,14 @@ export async function POST(req: Request) {
 
     try {
       const result = await createSnapshot(creds, body.vpsName, description);
+      void getAdminUserIds().then((ids) =>
+        notifyUsers(ids, "admin.snapshot.created", {
+          title: "Utworzono snapshot VPS",
+          body: `VPS ${body.vpsName} — snapshot zlecony przez ${session.user?.email ?? "admin"}.`,
+          severity: "success",
+          payload: { vpsName: body.vpsName, snapshotId: result.id },
+        }),
+      );
       return createSuccessResponse({
         ok: true,
         snapshotId: result.id,
@@ -61,6 +70,14 @@ export async function POST(req: Request) {
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      void getAdminUserIds().then((ids) =>
+        notifyUsers(ids, "admin.snapshot.failed", {
+          title: "Snapshot VPS nie powiódł się",
+          body: `VPS ${body.vpsName} — błąd: ${msg.slice(0, 200)}`,
+          severity: "error",
+          payload: { vpsName: body.vpsName, error: msg },
+        }),
+      );
       // Snapshot already exists → wskaż UI że można force=true
       if (msg.includes("Snapshot already exists")) {
         throw new ApiError(

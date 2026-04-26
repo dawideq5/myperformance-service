@@ -1,38 +1,90 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
+import { useSession } from "next-auth/react";
 import { Lightbulb, X } from "lucide-react";
 import { Card } from "./Card";
+import { usePreferences } from "@/hooks/usePreferences";
+import { AREAS } from "@/lib/permissions/areas";
 
 interface Props {
-  /** Unikalny klucz w localStorage żeby raz dismissed nie pokazywał się więcej. */
+  /** Klucz w sessionStorage — kart jest schowana tylko do następnego F5. */
   storageKey: string;
   title: string;
   children: ReactNode;
   icon?: ReactNode;
+  /**
+   * Jeśli ustawione — kart pokazuje się tylko userom z dostępem do tego
+   * area (sprawdzane po `session.user.roles` vs AREAS rejestru).
+   * Superadmin (`realm-management:realm-admin` lub `manage-realm`) widzi zawsze.
+   */
+  requiresArea?: string;
+  /** Min priority (10/50/90) wymagana dla area. Domyślnie 1 (jakakolwiek rola). */
+  requiresMinPriority?: number;
+}
+
+function userHasArea(
+  roles: string[],
+  areaId: string,
+  minPriority: number,
+): boolean {
+  if (roles.includes("realm-admin") || roles.includes("manage-realm")) {
+    return true;
+  }
+  const area = AREAS.find((a) => a.id === areaId);
+  if (!area) return false;
+  const userRoleSet = new Set(roles);
+  for (const r of area.kcRoles) {
+    if (r.priority >= minPriority && userRoleSet.has(r.name)) return true;
+  }
+  if (area.dynamicRoles) {
+    const prefix = `${area.id.replace(/-/g, "_")}_`;
+    for (const r of roles) {
+      if (r.startsWith(prefix)) return true;
+    }
+  }
+  return false;
 }
 
 /**
- * Pierwsza-wizyta explainer card — pokazuje się dopóki user nie zamknie.
- * Stan zapisany w localStorage (`mp_onboarding_<storageKey>`).
+ * Onboarding/explainer card. Zamknięcie = sessionStorage (do następnego
+ * odświeżenia). User wyłączający wskazówki w ustawieniach (`hintsEnabled=false`)
+ * nie widzi ich w ogóle. Filtrowanie po area — pokazujemy tylko jeśli user
+ * ma jakąkolwiek rolę w danym obszarze.
  */
-export function OnboardingCard({ storageKey, title, children, icon }: Props) {
+export function OnboardingCard({
+  storageKey,
+  title,
+  children,
+  icon,
+  requiresArea,
+  requiresMinPriority = 1,
+}: Props) {
+  const { data: session } = useSession();
+  const { prefs, loading } = usePreferences();
   const [dismissed, setDismissed] = useState<boolean | null>(null);
   const fullKey = `mp_onboarding_${storageKey}`;
 
   useEffect(() => {
     try {
-      setDismissed(localStorage.getItem(fullKey) === "1");
+      setDismissed(sessionStorage.getItem(fullKey) === "1");
     } catch {
       setDismissed(false);
     }
   }, [fullKey]);
 
   if (dismissed === null || dismissed) return null;
+  if (loading) return null;
+  if (prefs && prefs.hintsEnabled === false) return null;
+
+  if (requiresArea) {
+    const roles = (session?.user?.roles as string[] | undefined) ?? [];
+    if (!userHasArea(roles, requiresArea, requiresMinPriority)) return null;
+  }
 
   function dismiss() {
     try {
-      localStorage.setItem(fullKey, "1");
+      sessionStorage.setItem(fullKey, "1");
     } catch {}
     setDismissed(true);
   }
@@ -40,7 +92,7 @@ export function OnboardingCard({ storageKey, title, children, icon }: Props) {
   return (
     <Card
       padding="md"
-      className="border-[var(--accent)]/30 bg-[var(--accent)]/5"
+      className="border-[var(--accent)]/30 bg-[var(--accent)]/5 animate-slide-up"
     >
       <div className="flex items-start gap-3">
         <div className="w-9 h-9 rounded-lg bg-[var(--accent)]/15 flex items-center justify-center flex-shrink-0">
@@ -55,9 +107,9 @@ export function OnboardingCard({ storageKey, title, children, icon }: Props) {
         <button
           type="button"
           onClick={dismiss}
-          className="p-1 -m-1 text-[var(--text-muted)] hover:text-[var(--text-main)]"
+          className="p-1 -m-1 text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors"
           aria-label="Zamknij wskazówkę"
-          title="Nie pokazuj więcej"
+          title="Schowaj do następnego odświeżenia (F5)"
         >
           <X className="w-4 h-4" />
         </button>
