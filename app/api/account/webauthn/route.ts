@@ -53,13 +53,22 @@ export async function GET() {
     const credentials = await fetchAccountCredentials(
       session.accessToken ?? "",
     );
-    const webauthn = credentials.find((c) => c?.type === "webauthn");
-    const keys = (webauthn?.userCredentialMetadatas || []).map((m) => ({
-      id: m.credential?.id,
-      credentialId: m.credential?.id,
-      label: m.credential?.userLabel || "Klucz bezpieczeństwa",
-      createdDate: m.credential?.createdDate,
-    }));
+    // KC zapisuje passkey/security keys w 2 osobnych types:
+    //   webauthn               — security key jako 2FA (po hasle)
+    //   webauthn-passwordless  — passkey jako primary auth (pierwszy factor)
+    // Pokazujemy oba zestawy razem z labelem typu.
+    const buckets = credentials.filter(
+      (c) => c?.type === "webauthn" || c?.type === "webauthn-passwordless",
+    );
+    const keys = buckets.flatMap((bucket) =>
+      (bucket.userCredentialMetadatas || []).map((m) => ({
+        id: m.credential?.id,
+        credentialId: m.credential?.id,
+        label: m.credential?.userLabel || "Klucz bezpieczeństwa",
+        createdDate: m.credential?.createdDate,
+        kind: bucket.type === "webauthn-passwordless" ? "passkey" : "security-key",
+      })),
+    );
 
     return createSuccessResponse({ keys, hasWebAuthn: keys.length > 0 });
   } catch (error) {
@@ -184,7 +193,9 @@ export async function POST(request: Request) {
         const existing = ((userData.credentials || []) as Array<{
           type?: string;
           credentialData?: string;
-        }>).filter((c) => c.type === "webauthn");
+        }>).filter(
+          (c) => c.type === "webauthn" || c.type === "webauthn-passwordless",
+        );
 
         if (existing.length >= MAX_WEBAUTHN_KEYS) {
           throw ApiError.conflict(
