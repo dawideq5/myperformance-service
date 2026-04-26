@@ -5,130 +5,157 @@ import { withClient } from "@/lib/db";
  * powiadomienie do usera. Każdy klucz dostaje 2 niezależne kanały:
  * `inApp` (toast/badge w UI) i `email` (SMTP przez Postal).
  *
- * Default polityka: critical security / login alerts ZAWSZE on (email
- * też), reszta domyślnie tylko inApp.
+ * `requiresArea` filtruje którzy userzy mogą zobaczyć/skonfigurować event:
+ *   - null = każdy zalogowany user (osobiste eventy: security, własne konto)
+ *   - "infrastructure" = tylko infra adminzy (snapshoty, backupy, security events)
+ *   - "documenso" / "moodle" / "chatwoot" = tylko userzy mający dostęp do tej apki
+ * Filtrowanie jest na poziomie:
+ *   - PreferencesTab UI (matrix nie pokazuje eventów do których brak dostępu)
+ *   - notifyUser dispatcher (gate przy sendzie — nie warto pchać do mp_inbox
+ *     userowi który i tak nie zobaczy ze względu na uprawnienia)
  */
 export const NOTIF_EVENTS = {
-  // Bezpieczeństwo
+  // Bezpieczeństwo — każdy zalogowany user (dotyczy własnego konta)
   "security.login.new_device": {
     label: "Nowe urządzenie loguje się na konto",
     category: "security",
     defaultInApp: true,
     defaultEmail: true,
+    requiresArea: null,
   },
   "security.login.failed": {
     label: "Nieudana próba logowania na Twoje konto",
     category: "security",
     defaultInApp: true,
     defaultEmail: false,
+    requiresArea: null,
   },
   "security.2fa.code_sent": {
     label: "Wysłano kod 2FA",
     category: "security",
     defaultInApp: true,
     defaultEmail: false,
+    requiresArea: null,
   },
   "security.brute_force.detected": {
     label: "Wykryto brute force na Twoim koncie",
     category: "security",
     defaultInApp: true,
     defaultEmail: true,
+    requiresArea: null,
   },
   "security.password.changed": {
     label: "Zmieniono hasło",
     category: "security",
     defaultInApp: true,
     defaultEmail: true,
+    requiresArea: null,
   },
 
-  // Konto
+  // Konto — własne. Każdy user. Cert events tylko dla userów mających cert
+  // (sprzedawca/serwisant/kierowca area), ale zostawmy null żeby user zawsze
+  // zobaczył ważne info.
   "account.role.assigned": {
     label: "Przypisano nową rolę",
     category: "account",
     defaultInApp: true,
     defaultEmail: false,
+    requiresArea: null,
   },
   "account.role.revoked": {
     label: "Cofnięto rolę",
     category: "account",
     defaultInApp: true,
     defaultEmail: false,
+    requiresArea: null,
   },
   "account.cert.issued": {
     label: "Wystawiono certyfikat klienta",
     category: "account",
     defaultInApp: true,
     defaultEmail: true,
+    requiresArea: null,
   },
   "account.cert.expiring": {
     label: "Certyfikat wygasa za <14 dni",
     category: "account",
     defaultInApp: true,
     defaultEmail: true,
+    requiresArea: null,
   },
 
-  // Aplikacje
+  // Aplikacje — tylko userzy z dostępem do danej apki
   "documents.signature.requested": {
     label: "Prośba o podpis dokumentu",
     category: "apps",
     defaultInApp: true,
     defaultEmail: true,
+    requiresArea: "documenso",
   },
   "documents.signature.completed": {
     label: "Dokument podpisany",
     category: "apps",
     defaultInApp: true,
     defaultEmail: false,
+    requiresArea: "documenso",
   },
   "moodle.course.assigned": {
     label: "Przypisano do kursu Moodle",
     category: "apps",
     defaultInApp: true,
     defaultEmail: false,
+    requiresArea: "moodle",
   },
   "chatwoot.conversation.assigned": {
     label: "Przypisano do rozmowy Chatwoot",
     category: "apps",
     defaultInApp: true,
     defaultEmail: false,
+    requiresArea: "chatwoot",
   },
 
-  // Admin (tylko dla admin roles)
+  // Admin — TYLKO infra/security adminzy widzą te zdarzenia
   "admin.snapshot.created": {
     label: "Utworzono snapshot VPS",
     category: "admin",
     defaultInApp: true,
     defaultEmail: false,
+    requiresArea: "infrastructure",
   },
   "admin.snapshot.failed": {
     label: "Snapshot VPS nie powiódł się",
     category: "admin",
     defaultInApp: true,
     defaultEmail: true,
+    requiresArea: "infrastructure",
   },
   "admin.backup.completed": {
     label: "Backup nocny wykonany",
     category: "admin",
     defaultInApp: false,
     defaultEmail: true,
+    requiresArea: "infrastructure",
   },
   "admin.backup.failed": {
     label: "Backup nie powiódł się",
     category: "admin",
     defaultInApp: true,
     defaultEmail: true,
+    requiresArea: "infrastructure",
   },
   "admin.security.event.high": {
     label: "Wykryto zdarzenie bezpieczeństwa (high/critical)",
     category: "admin",
     defaultInApp: true,
     defaultEmail: true,
+    requiresArea: "infrastructure",
   },
   "admin.ip.auto_blocked": {
     label: "Auto-zablokowano IP (Wazuh AR)",
     category: "admin",
     defaultInApp: true,
     defaultEmail: false,
+    requiresArea: "infrastructure",
   },
 } as const;
 

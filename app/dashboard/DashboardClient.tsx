@@ -77,23 +77,6 @@ function DashboardBody({ userLabel, email }: DashboardClientProps) {
     if (session?.error === "RefreshTokenExpired") void softLogout();
   }, [session?.error, softLogout]);
 
-  // Auto-start full-system tour gdy z Preferencji przyszedł query param.
-  // Ładujemy runner dynamicznie żeby intro.js nie ciągnął bundle ahead-of-time.
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("intro") === "full-system") {
-      // Wyczyść param zanim user zrobi reload, żeby tour nie startował loop.
-      const url = new URL(window.location.href);
-      url.searchParams.delete("intro");
-      window.history.replaceState({}, "", url.toString());
-      const t = window.setTimeout(async () => {
-        const { runTour } = await import("@/lib/onboarding/runner");
-        await runTour("full-system");
-      }, 400);
-      return () => window.clearTimeout(t);
-    }
-  }, []);
 
   return (
     <PageShell

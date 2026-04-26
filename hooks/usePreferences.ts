@@ -8,6 +8,7 @@ interface CatalogEntry {
   category: string;
   defaultInApp: boolean;
   defaultEmail: boolean;
+  requiresArea?: string | null;
 }
 
 export interface PreferencesPayload {

@@ -726,10 +726,13 @@ function WebAuthnEnrollDialog({
           : "webauthn-register";
       // Preserve tab state on return; ?webauthn_done=1 triggers refetch.
       const callbackUrl = "/account?tab=security&webauthn_done=1";
+      // prompt=login wymusza re-authenticate w KC nawet jeśli user ma
+      // aktywną sesję, w przeciwnym razie KC może zignorować kc_action
+      // i wrócić bez wykonania flow rejestracji.
       void signIn(
         "keycloak",
         { callbackUrl, redirect: true },
-        { kc_action: kcAction },
+        { kc_action: kcAction, prompt: "login" },
       );
     } catch (err) {
       setStarting(false);

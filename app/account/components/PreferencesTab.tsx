@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Bell, Compass, Lightbulb, Mail, Save, ShieldAlert } from "lucide-react";
+import { useSession } from "next-auth/react";
+import { Bell, Lightbulb, Mail, Save, ShieldAlert } from "lucide-react";
 
 import {
   Alert,
@@ -13,6 +14,7 @@ import {
 } from "@/components/ui";
 import { usePreferences } from "@/hooks/usePreferences";
 import type { NotifEventKey } from "@/lib/preferences";
+import { userHasAreaClient } from "@/lib/permissions/access-client";
 
 const CATEGORY_ORDER = ["security", "account", "apps", "admin"] as const;
 const CATEGORY_LABELS: Record<string, { title: string; desc: string }> = {
@@ -38,6 +40,11 @@ type Channel = "inApp" | "email";
 
 export function PreferencesTab() {
   const { prefs, catalog, loading, error, update } = usePreferences();
+  const { data: session } = useSession();
+  const userRoles = useMemo(
+    () => (session?.user?.roles as string[] | undefined) ?? [],
+    [session?.user?.roles],
+  );
   const toast = useToast();
   const [draftHints, setDraftHints] = useState<boolean | null>(null);
   const [draftInApp, setDraftInApp] = useState<Record<string, boolean>>({});
@@ -63,11 +70,16 @@ export function PreferencesTab() {
     if (!catalog) return null;
     const map: Record<string, Array<[NotifEventKey, (typeof catalog)[NotifEventKey]]>> = {};
     for (const [k, def] of Object.entries(catalog)) {
+      // Filter po requiresArea — user widzi tylko events do których ma dostęp.
+      // requiresArea = null → każdy zalogowany. requiresArea = "infrastructure"
+      // → tylko admini infra. requiresArea = "documenso" → tylko docu users.
+      const ra = (def as { requiresArea?: string | null }).requiresArea;
+      if (ra && !userHasAreaClient(userRoles, ra)) continue;
       const cat = def.category;
       (map[cat] ??= []).push([k as NotifEventKey, def]);
     }
     return map;
-  }, [catalog]);
+  }, [catalog, userRoles]);
 
   const dirty = useMemo(() => {
     if (!prefs || !catalog) return false;
@@ -142,14 +154,15 @@ export function PreferencesTab() {
       <Card>
         <CardHeader
           icon={<Lightbulb className="w-5 h-5 text-[var(--accent)]" />}
-          title="Wskazówki i przewodnik"
-          description="Karty wyjaśniające + intro.js tour po kluczowych panelach. Zamknięcie X chowa do następnego F5."
+          title="Wskazówki w panelach"
+          description="Krótkie objaśnienia funkcji nad każdym panelem. Włącz/wyłącz tym przełącznikiem."
         />
         <label className="flex items-center justify-between gap-3 mt-4 p-3 rounded-xl border border-[var(--border-subtle)] cursor-pointer">
           <div>
             <div className="text-sm font-medium">Pokazuj wskazówki</div>
             <div className="text-xs text-[var(--text-muted)]">
-              Wyłącz, jeśli już dobrze znasz interfejs.
+              Wyłącz, jeśli już dobrze znasz interfejs. Wskazówki nie mają
+              przycisku „X" — jedyna kontrola tutaj.
             </div>
           </div>
           <input
@@ -159,25 +172,6 @@ export function PreferencesTab() {
             className="w-5 h-5 rounded border-[var(--border-subtle)] text-[var(--accent)] focus:ring-2 focus:ring-[var(--accent)]/50"
           />
         </label>
-
-        <div className="mt-3 flex items-center justify-between gap-3 p-3 rounded-xl border border-[var(--border-subtle)]">
-          <div>
-            <div className="text-sm font-medium">Przewodnik po systemie</div>
-            <div className="text-xs text-[var(--text-muted)]">
-              {"Krótki tour po wszystkich aplikacjach do których masz dostęp — z opisem co znajdziesz w środku każdego panelu."}
-            </div>
-          </div>
-          <Button
-            variant="primary"
-            size="sm"
-            leftIcon={<Compass className="w-4 h-4" />}
-            onClick={async () => {
-              window.location.href = "/dashboard?intro=full-system";
-            }}
-          >
-            Uruchom
-          </Button>
-        </div>
       </Card>
 
       <Card>
@@ -188,37 +182,24 @@ export function PreferencesTab() {
         />
 
         <div className="flex flex-wrap items-center gap-2 mt-4 mb-2 text-xs text-[var(--text-muted)]">
-          <span>Zaznacz wszystko:</span>
+          <span>Wyczyść wszystko:</span>
           <button
             type="button"
-            onClick={() => toggleAll("inApp", true)}
-            className="px-2 py-1 rounded-md hover:bg-[var(--bg-surface)]"
+            onClick={() => toggleAll("inApp", false)}
+            className="px-2 py-1 rounded-md hover:bg-[var(--bg-surface)] flex items-center gap-1"
           >
-            <Bell className="w-3 h-3 inline mr-1" />
+            <Bell className="w-3 h-3" />
             in-app
           </button>
           <button
             type="button"
-            onClick={() => toggleAll("inApp", false)}
-            className="px-2 py-1 rounded-md hover:bg-[var(--bg-surface)]"
+            onClick={() => toggleAll("email", false)}
+            className="px-2 py-1 rounded-md hover:bg-[var(--bg-surface)] flex items-center gap-1"
           >
-            ✕ in-app
-          </button>
-          <button
-            type="button"
-            onClick={() => toggleAll("email", true)}
-            className="px-2 py-1 rounded-md hover:bg-[var(--bg-surface)]"
-          >
-            <Mail className="w-3 h-3 inline mr-1" />
+            <Mail className="w-3 h-3" />
             email
           </button>
-          <button
-            type="button"
-            onClick={() => toggleAll("email", false)}
-            className="px-2 py-1 rounded-md hover:bg-[var(--bg-surface)]"
-          >
-            ✕ email
-          </button>
+          <span className="ml-auto">Powrót do ustawień domyślnych: zaznacz <span className="text-[var(--text-main)]">*</span> przy wybranych eventach.</span>
         </div>
 
         <div className="mt-2 divide-y divide-[var(--border-subtle)]">

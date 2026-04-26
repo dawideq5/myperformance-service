@@ -170,17 +170,20 @@ export async function register(): Promise<void> {
     );
   }
 
-  // Initial Directus push — przy starcie pushujemy aktualny branding +
-  // szablony żeby content team natychmiast widział je w Directus UI bez
-  // czekania aż admin coś zmieni.
+  // Initial Directus push — branding + szablony + app catalog z tagami
+  // (tagi NIE są nadpisywane jeśli admin już je edytował w Directusie).
   try {
-    const { isConfigured, ensureCollection, upsertItem, COLLECTION_SPECS } =
+    const { isConfigured, ensureCollection, upsertItem, listItems, COLLECTION_SPECS } =
       await import("@/lib/directus-cms");
     if (await isConfigured()) {
       const { getBranding, listTemplates } = await import("@/lib/email/db");
+      const { APP_CATALOG } = await import("@/lib/app-catalog");
+
       for (const spec of COLLECTION_SPECS) {
         await ensureCollection(spec).catch(() => undefined);
       }
+
+      // Branding (singleton)
       const b = await getBranding();
       await upsertItem("mp_branding_cms", "default", {
         id: "default",
@@ -189,6 +192,8 @@ export async function register(): Promise<void> {
         footer_html: b.legalName,
         synced_at: new Date().toISOString(),
       }).catch(() => undefined);
+
+      // Email templates
       const tpls = await listTemplates();
       for (const t of tpls) {
         await upsertItem("mp_email_templates_cms", t.actionKey, {
@@ -199,9 +204,33 @@ export async function register(): Promise<void> {
           synced_at: new Date().toISOString(),
         }).catch(() => undefined);
       }
+
+      // App catalog — preserve admin-edited tags
+      const existingApps = await listItems<{ id: string; tags?: string }>(
+        "mp_app_catalog",
+        { limit: 200 },
+      ).catch(() => [] as Array<{ id: string; tags?: string }>);
+      const existingTags = new Map(existingApps.map((r) => [r.id, r.tags]));
+      let appsPushed = 0;
+      for (const entry of APP_CATALOG) {
+        const preservedTags = existingTags.get(entry.id);
+        const initialTags = preservedTags ?? (entry.defaultTags?.join(",") ?? "");
+        await upsertItem("mp_app_catalog", entry.id, {
+          id: entry.id,
+          title: entry.title,
+          subtitle: entry.subtitle,
+          href: entry.href,
+          requires_area: entry.requiresArea ?? "",
+          requires_min_priority: entry.requiresMinPriority ?? 0,
+          tags: initialTags,
+          synced_at: new Date().toISOString(),
+        }).catch(() => undefined);
+        appsPushed++;
+      }
+
       // eslint-disable-next-line no-console
       console.log(
-        `[instrumentation] Directus initial push: branding + ${tpls.length} templates`,
+        `[instrumentation] Directus initial push: branding + ${tpls.length} templates + ${appsPushed} app catalog entries`,
       );
     }
   } catch (err) {

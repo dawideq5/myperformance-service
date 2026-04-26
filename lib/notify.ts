@@ -102,9 +102,38 @@ export async function notifyUser(
   event: NotifEventKey,
   ctx: NotifyContext,
 ): Promise<void> {
-  if (!NOTIF_EVENTS[event]) {
+  const def = NOTIF_EVENTS[event];
+  if (!def) {
     log.warn("notify.unknown_event", { event });
     return;
+  }
+
+  // Sprawdź czy user ma uprawnienia do tego eventu (requiresArea). Bez tego
+  // user dostaje powiadomienia o akcjach których nie powinien widzieć
+  // (np. zwykły user dostawał info o "snapshot VPS failed"). Filter też w
+  // PreferencesTab UI — ale ten gate jest server-side last line of defense.
+  const ra = (def as { requiresArea?: string | null }).requiresArea;
+  if (ra) {
+    try {
+      const { keycloak } = await import("@/lib/keycloak");
+      const adminToken = await keycloak.getServiceAccountToken();
+      const res = await keycloak.adminRequest(
+        `/users/${userId}/role-mappings/realm/composite`,
+        adminToken,
+      );
+      if (res.ok) {
+        const roles = (await res.json()) as Array<{ name?: string }>;
+        const roleNames = roles.map((r) => r.name).filter((n): n is string => !!n);
+        const { userHasAreaClient } = await import("@/lib/permissions/access-client");
+        if (!userHasAreaClient(roleNames, ra)) {
+          // User nie ma area access → pomijamy notify całkowicie
+          return;
+        }
+      }
+    } catch (err) {
+      // KC unavailable → pomijamy gate (lepiej notyfikować niż gubić alert)
+      log.warn("notify.area_check_failed", { userId, event, err: String(err) });
+    }
   }
 
   let prefs;

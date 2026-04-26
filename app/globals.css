@@ -3,6 +3,7 @@
 @tailwind utilities;
 
 :root,
+html,
 html.dark {
   --bg-main: #0a0a0f;
   --bg-card: #12121a;
@@ -12,26 +13,8 @@ html.dark {
   --text-main: #f1f1f4;
   --text-muted: #6b6b7b;
   --accent: #6366f1;
+  color-scheme: dark;
 }
-
-html.light {
-  --bg-main: #f7f7fa;
-  --bg-card: #ffffff;
-  --bg-header: #ffffff;
-  --bg-surface: #f0f0f5;
-  --border-subtle: #e5e5ea;
-  --text-main: #1a1a1f;
-  --text-muted: #6b6b7b;
-  --accent: #6366f1;
-}
-
-html.light body {
-  background-color: var(--bg-main);
-}
-
-/* Bezpieczne wstrzyknięcie theme przed paint — usuwa FOUC. */
-html { color-scheme: dark; }
-html.light { color-scheme: light; }
 
 /* Print-friendly views — raporty admin powinny ładnie się drukować
    bez sidebarów, toastów i interakcji. */
@@ -93,7 +76,10 @@ body {
   .animate-tab-in   { animation: tab-in 0.2s ease-out; }
 }
 
-/* ── Rainbow glow wokół Cmd+K palette ──────────────────────────────── */
+/* ── Rainbow glow wokół Cmd+K palette ──────────────────────────────────
+   Ramka jest NIERUCHOMA. Kolor "pływa" zgodnie z ruchem wskazówek zegara
+   przez hue-rotate filter — gradient pozostaje na swoim miejscu, tylko
+   barwy się przesuwają. Bez transform: rotate. */
 .mp-cmdk-glow { position: relative; isolation: isolate; }
 .mp-cmdk-glow::before {
   content: "";
@@ -105,10 +91,10 @@ body {
     #6366f1, #8b5cf6, #ec4899, #f43f5e,
     #f59e0b, #10b981, #06b6d4, #6366f1
   );
-  filter: blur(20px);
+  filter: blur(20px) hue-rotate(0deg);
   opacity: 0.6;
   z-index: -2;
-  animation: mp-cmdk-spin 8s linear infinite;
+  animation: mp-cmdk-hue 10s linear infinite;
 }
 .mp-cmdk-glow::after {
   content: "";
@@ -116,18 +102,28 @@ body {
   inset: -2px;
   border-radius: 18px;
   background: conic-gradient(
-    from 180deg at 50% 50%,
+    from 0deg at 50% 50%,
     #6366f1, #8b5cf6, #ec4899, #f43f5e,
     #f59e0b, #10b981, #06b6d4, #6366f1
   );
   z-index: -1;
   opacity: 0.85;
-  animation: mp-cmdk-spin 12s linear infinite reverse;
+  animation: mp-cmdk-hue 10s linear infinite;
 }
 
-@keyframes mp-cmdk-spin {
-  to { transform: rotate(360deg); }
+@keyframes mp-cmdk-hue {
+  from { filter: blur(0) hue-rotate(0deg); }
+  to   { filter: blur(0) hue-rotate(360deg); }
 }
+
+/* Halo (::before) — blur + hue-rotate, ale @keyframes mp-cmdk-hue zeruje
+   blur. Rozdzielmy keyframes dla halo żeby utrzymać blur 20px. */
+@keyframes mp-cmdk-hue-halo {
+  from { filter: blur(20px) hue-rotate(0deg); }
+  to   { filter: blur(20px) hue-rotate(360deg); }
+}
+
+.mp-cmdk-glow::before { animation-name: mp-cmdk-hue-halo; }
 
 @media (prefers-reduced-motion: reduce) {
   .mp-cmdk-glow::before,

@@ -8,7 +8,43 @@ import { withClient } from "@/lib/db";
 import { ApiError, createSuccessResponse, handleApiError } from "@/lib/api-utils";
 import { getClientIp, rateLimit } from "@/lib/rate-limit";
 import { NextResponse } from "next/server";
+import { APP_CATALOG } from "@/lib/app-catalog";
+import { listItems, isConfigured as directusConfigured } from "@/lib/directus-cms";
 import type { Session } from "next-auth";
+
+interface DirectusAppRow {
+  id: string;
+  tags?: string | string[] | null;
+}
+
+let tagsCache: { ts: number; map: Map<string, string[]> } | null = null;
+const TAGS_CACHE_TTL_MS = 60_000;
+
+async function getTagsFromDirectus(): Promise<Map<string, string[]>> {
+  if (tagsCache && Date.now() - tagsCache.ts < TAGS_CACHE_TTL_MS) {
+    return tagsCache.map;
+  }
+  const map = new Map<string, string[]>();
+  try {
+    if (!(await directusConfigured())) return map;
+    const rows = await listItems<DirectusAppRow>("mp_app_catalog", { limit: 100 });
+    for (const r of rows) {
+      const raw = r.tags;
+      if (!raw) continue;
+      const arr = Array.isArray(raw)
+        ? raw
+        : String(raw)
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean);
+      if (arr.length > 0) map.set(r.id, arr);
+    }
+  } catch {
+    // Directus down → wracamy do hardcoded keywords
+  }
+  tagsCache = { ts: Date.now(), map };
+  return map;
+}
 
 interface SearchHit {
   type: "user" | "ip" | "device" | "tile";
@@ -34,258 +70,14 @@ interface TileSpec {
  * Pełny katalog kafelków + sub-views (deep links). Każdy ma `requiresArea`,
  * dzięki czemu palette pokazuje TYLKO funkcje do których user ma dostęp.
  */
-const TILES: TileSpec[] = [
-  // === Główne panele admin ===
-  {
-    title: "Infrastruktura serwera",
-    subtitle: "VPS, DNS, Zasoby, Bezpieczeństwo, Wazuh",
-    href: "/admin/infrastructure",
-    keywords: "vps dns snapshot resources cpu ram security wazuh siem",
-    requiresArea: "infrastructure",
-    requiresMinPriority: 90,
-  },
-  {
-    title: "Email — centralne zarządzanie",
-    subtitle: "Branding, KC templates, Postal, OVH",
-    href: "/admin/email",
-    keywords: "email branding template postal ovh smtp mail",
-    requiresArea: "email-admin",
-    requiresMinPriority: 90,
-  },
-  {
-    title: "Użytkownicy",
-    subtitle: "Lista, role, uprawnienia",
-    href: "/admin/users",
-    keywords: "users uzytkownicy konta role uprawnienia permissions kc keycloak",
-    requiresArea: "keycloak",
-    requiresMinPriority: 90,
-  },
-  {
-    title: "Grupy",
-    subtitle: "Persony — zestawy ról",
-    href: "/admin/users?tab=groups",
-    keywords: "grupy groups personas roles",
-    requiresArea: "keycloak",
-    requiresMinPriority: 90,
-  },
-  {
-    title: "Certyfikaty klienckie",
-    subtitle: "step-ca, mTLS, PKCS12",
-    href: "/admin/certificates",
-    keywords: "certyfikaty mtls step-ca pki client cert pkcs12",
-    requiresArea: "certificates",
-    requiresMinPriority: 90,
-  },
-
-  // === Sub-views w infrastructure ===
-  {
-    title: "VPS + Backup",
-    subtitle: "Snapshoty, OVH, restore",
-    href: "/admin/infrastructure?tab=vps",
-    keywords: "vps backup snapshot ovh restore image",
-    requiresArea: "infrastructure",
-    requiresMinPriority: 90,
-  },
-  {
-    title: "DNS Zone",
-    subtitle: "Domeny, rekordy DNS",
-    href: "/admin/infrastructure?tab=dns",
-    keywords: "dns domain rekord zone",
-    requiresArea: "infrastructure",
-    requiresMinPriority: 90,
-  },
-  {
-    title: "Zasoby (CPU/RAM/Disk)",
-    subtitle: "Metryki + Docker stats",
-    href: "/admin/infrastructure?tab=resources",
-    keywords: "cpu ram disk docker zasoby metryki resources",
-    requiresArea: "infrastructure",
-    requiresMinPriority: 90,
-  },
-  {
-    title: "Bezpieczeństwo / Alerty",
-    subtitle: "Security events, severity, alert log",
-    href: "/admin/infrastructure?tab=security",
-    keywords: "alerty security events severity bezpieczenstwo",
-    requiresArea: "infrastructure",
-    requiresMinPriority: 90,
-  },
-  {
-    title: "Threat Intel — IP",
-    subtitle: "Blokady, risk score, geolokacja",
-    href: "/admin/infrastructure?tab=blocks",
-    keywords: "ip block threat blocked iptables wazuh risk score blocks",
-    requiresArea: "infrastructure",
-    requiresMinPriority: 90,
-  },
-  {
-    title: "Mapa zdarzeń",
-    subtitle: "Geo + timeline + correlations",
-    href: "/admin/infrastructure?tab=map",
-    keywords: "map mapa events timeline correlations attack geo",
-    requiresArea: "infrastructure",
-    requiresMinPriority: 90,
-  },
-  {
-    title: "Urządzenia",
-    subtitle: "Device fingerprinting, sightings",
-    href: "/admin/infrastructure?tab=devices",
-    keywords: "devices urzadzenia fingerprint cookie",
-    requiresArea: "infrastructure",
-    requiresMinPriority: 90,
-  },
-  {
-    title: "Wazuh SIEM",
-    subtitle: "Agenty, reguły, AR",
-    href: "/admin/infrastructure?tab=wazuh",
-    keywords: "wazuh siem agent rule active response",
-    requiresArea: "wazuh",
-    requiresMinPriority: 90,
-  },
-
-  // === Sub-views w /admin/email ===
-  {
-    title: "Szablony emaili",
-    subtitle: "Edytor + preview + włącz/wyłącz",
-    href: "/admin/email?tab=templates",
-    keywords: "szablony templates email mail kc keycloak",
-    requiresArea: "email-admin",
-    requiresMinPriority: 90,
-  },
-  {
-    title: "Branding emaili",
-    subtitle: "Logo, accent, footer",
-    href: "/admin/email?tab=branding",
-    keywords: "branding logo kolor footer mail email",
-    requiresArea: "email-admin",
-    requiresMinPriority: 90,
-  },
-  {
-    title: "Konfiguracje SMTP",
-    subtitle: "Aliasy, transactional/marketing",
-    href: "/admin/email?tab=smtp",
-    keywords: "smtp konfig email transactional marketing",
-    requiresArea: "email-admin",
-    requiresMinPriority: 90,
-  },
-  {
-    title: "Postal (infrastruktura)",
-    subtitle: "Organizacje, serwery, domeny",
-    href: "/admin/email?tab=postal",
-    keywords: "postal mail server organization domain dkim",
-    requiresArea: "postal",
-    requiresMinPriority: 90,
-  },
-
-  // === Konto (każdy user) ===
-  {
-    title: "Profil",
-    subtitle: "Imię, nazwisko, email",
-    href: "/account",
-    keywords: "profil profile imie nazwisko email konto account",
-    requiresArea: null,
-  },
-  {
-    title: "Bezpieczeństwo (2FA, hasło)",
-    subtitle: "TOTP + WebAuthn + zmiana hasła",
-    href: "/account?tab=security",
-    keywords: "bezpieczenstwo 2fa totp webauthn haslo password security",
-    requiresArea: null,
-  },
-  {
-    title: "Aktywne sesje",
-    subtitle: "Lista urządzeń + wyloguj",
-    href: "/account?tab=sessions",
-    keywords: "sesje sessions urzadzenia wyloguj logout",
-    requiresArea: null,
-  },
-  {
-    title: "Integracje",
-    subtitle: "Google, Kadromierz, Akademia",
-    href: "/account?tab=integrations",
-    keywords: "integracje integrations google kadromierz moodle akademia",
-    requiresArea: null,
-  },
-  {
-    title: "Logi aktywności",
-    subtitle: "Audit-trail Twojego konta",
-    href: "/account?tab=activity",
-    keywords: "logi log activity aktywnosc audit",
-    requiresArea: null,
-  },
-  {
-    title: "Preferencje",
-    subtitle: "Wskazówki + powiadomienia",
-    href: "/account?tab=preferences",
-    keywords: "preferencje preferences wskazowki hints powiadomienia notifications",
-    requiresArea: null,
-  },
-
-  // === Aplikacje (na podstawie areas) ===
-  {
-    title: "Kalendarz",
-    subtitle: "Twoje wydarzenia + integracje",
-    href: "/dashboard/calendar",
-    keywords: "kalendarz calendar wydarzenia events google moodle",
-    requiresArea: null,
-  },
-  {
-    title: "Dokumenty (Documenso)",
-    subtitle: "Podpisy elektroniczne",
-    href: "/api/documenso/sso",
-    keywords: "dokumenty documents documenso podpis signature",
-    requiresArea: "documenso",
-    requiresMinPriority: 10,
-  },
-  {
-    title: "Akademia (Moodle)",
-    subtitle: "Kursy, szkolenia, oceny",
-    href: "/api/moodle/launch",
-    keywords: "akademia moodle kursy courses szkolenia",
-    requiresArea: "moodle",
-    requiresMinPriority: 10,
-  },
-  {
-    title: "Chatwoot",
-    subtitle: "Live-chat z klientami",
-    href: "/api/chatwoot/sso",
-    keywords: "chatwoot chat live customer support",
-    requiresArea: "chatwoot",
-    requiresMinPriority: 10,
-  },
-  {
-    title: "Baza wiedzy (Outline)",
-    subtitle: "Procedury, how-to",
-    href: "/api/outline/launch",
-    keywords: "baza wiedzy outline knowledge procedury how-to wiki",
-    requiresArea: "knowledge",
-    requiresMinPriority: 10,
-  },
-  {
-    title: "Directus CMS",
-    subtitle: "Zarządzanie treścią",
-    href: "/api/directus/launch",
-    keywords: "directus cms tresc content collections",
-    requiresArea: "directus",
-    requiresMinPriority: 10,
-  },
-  {
-    title: "Postal — admin",
-    subtitle: "Native UI Postal",
-    href: "https://postal.myperformance.pl",
-    keywords: "postal admin email server native",
-    requiresArea: "postal",
-    requiresMinPriority: 90,
-  },
-  {
-    title: "Keycloak admin",
-    subtitle: "Realm, klienci, IdP",
-    href: "/admin/keycloak",
-    keywords: "keycloak idp realm clients admin console",
-    requiresArea: "keycloak",
-    requiresMinPriority: 90,
-  },
-];
+const TILES: TileSpec[] = APP_CATALOG.map((c) => ({
+  title: c.title,
+  subtitle: c.subtitle,
+  href: c.href,
+  keywords: c.keywords,
+  requiresArea: c.requiresArea,
+  requiresMinPriority: c.requiresMinPriority,
+}));
 
 function tileVisible(session: Session | null, t: TileSpec): boolean {
   if (t.requiresArea === null) return true;
@@ -337,13 +129,17 @@ export async function GET(req: Request) {
       return createSuccessResponse({ hits: hits.slice(0, limit) });
     }
 
-    // 1) Tiles + sub-views — filtrowane po dostępie usera.
+    // 1) Tiles + sub-views — filtrowane po dostępie usera + tagi z Directus.
+    const tagsMap = await getTagsFromDirectus();
     for (const t of TILES) {
       if (!tileVisible(session, t)) continue;
+      const tags = tagsMap.get(t.href) ?? [];
+      const tagsMatch = tags.some((tag) => tag.toLowerCase().includes(lower));
       if (
         t.title.toLowerCase().includes(lower) ||
         t.subtitle.toLowerCase().includes(lower) ||
-        t.keywords.includes(lower)
+        t.keywords.includes(lower) ||
+        tagsMatch
       ) {
         hits.push({
           type: "tile",

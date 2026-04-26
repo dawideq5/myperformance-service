@@ -141,6 +141,15 @@ export async function listItems<T = unknown>(
 /**
  * Konfiguracja bazowa — kolekcje które dashboard pushuje do Directusa
  * przy `pushAll()`. Dodanie nowej kolekcji = jeden wpis tutaj.
+ *
+ * Categorie:
+ *   - mp_app_catalog — kafelki/sub-views z tagami które admin uzupełnia
+ *     ręcznie w Directusie. Dashboard pull-uje przy starcie i używa do
+ *     wyszukiwarki Cmd+K (matching po keywords + tagach).
+ *   - mp_announcements — system messages widoczne dla wszystkich userów
+ *     (banery, ważne zmiany, planowane prace).
+ *   - mp_branding_cms / mp_email_templates_cms — read-only mirror, edycja
+ *     w /admin/email.
  */
 export const COLLECTION_SPECS: CollectionSpec[] = [
   {
@@ -211,6 +220,131 @@ export const COLLECTION_SPECS: CollectionSpec[] = [
         field: "synced_at",
         type: "timestamp",
         meta: { interface: "datetime", readonly: true },
+      },
+    ],
+  },
+
+  // === App catalog z tagami — edytowalne w Directusie ===
+  // Admin może dopisać tagi (csv) w Directus UI. Wyszukiwarka Cmd+K
+  // pull-uje tagi i matchuje query (np. "umowa" → Documenso bo tag).
+  // Dashboard ma fallback hardcoded TILES jeśli Directus niedostępny.
+  {
+    collection: "mp_app_catalog",
+    meta: {
+      icon: "apps",
+      note: "Katalog kafelków/sub-views z tagami. Admin uzupełnia tagi (CSV) w tej zakładce — wyszukiwarka Cmd+K matchuje po nich.",
+    },
+    fields: [
+      {
+        field: "id",
+        type: "string",
+        schema: { is_primary_key: true },
+        meta: { hidden: true, readonly: true },
+      },
+      {
+        field: "title",
+        type: "string",
+        meta: { interface: "input", required: true, readonly: true },
+      },
+      {
+        field: "subtitle",
+        type: "string",
+        meta: { interface: "input", readonly: true },
+      },
+      {
+        field: "href",
+        type: "string",
+        meta: { interface: "input", readonly: true },
+      },
+      {
+        field: "tags",
+        type: "csv",
+        meta: {
+          interface: "tags",
+          note: "Słowa kluczowe które user wpisze w Cmd+K. Np. dla Documenso: umowa,podpis,sign,nda. Edytujesz tu — nie w kodzie.",
+        },
+      },
+      {
+        field: "requires_area",
+        type: "string",
+        meta: {
+          interface: "input",
+          readonly: true,
+          note: "Area z AREAS registry. User bez tej area nie zobaczy.",
+        },
+      },
+      {
+        field: "requires_min_priority",
+        type: "integer",
+        meta: { interface: "input", readonly: true },
+      },
+      {
+        field: "synced_at",
+        type: "timestamp",
+        meta: { interface: "datetime", readonly: true },
+      },
+    ],
+  },
+
+  // === System announcements — widoczne na dashboardzie wszystkim userom ===
+  {
+    collection: "mp_announcements",
+    meta: {
+      icon: "campaign",
+      note: "Banery / komunikaty systemowe wyświetlane na dashboardzie. enabled=true → widoczne. severity = info|warning|error.",
+    },
+    fields: [
+      {
+        field: "id",
+        type: "uuid",
+        schema: { is_primary_key: true },
+        meta: { hidden: true, readonly: true, special: ["uuid"] },
+      },
+      {
+        field: "title",
+        type: "string",
+        meta: { interface: "input", required: true },
+      },
+      {
+        field: "body",
+        type: "text",
+        meta: { interface: "input-rich-text-md" },
+      },
+      {
+        field: "severity",
+        type: "string",
+        meta: {
+          interface: "select-dropdown",
+          options: { choices: [
+            { text: "Informacja", value: "info" },
+            { text: "Ostrzeżenie", value: "warning" },
+            { text: "Krytyczne", value: "error" },
+          ]},
+        },
+      },
+      {
+        field: "enabled",
+        type: "boolean",
+        meta: { interface: "boolean" },
+        schema: { default_value: false },
+      },
+      {
+        field: "starts_at",
+        type: "timestamp",
+        meta: { interface: "datetime" },
+      },
+      {
+        field: "ends_at",
+        type: "timestamp",
+        meta: { interface: "datetime" },
+      },
+      {
+        field: "requires_area",
+        type: "string",
+        meta: {
+          interface: "input",
+          note: "Pusty = wszyscy userzy. Wartość = tylko area-admini (np. infrastructure).",
+        },
       },
     ],
   },
