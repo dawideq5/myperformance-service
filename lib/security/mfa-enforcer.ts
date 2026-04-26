@@ -39,12 +39,37 @@ export async function enforceMfaForAdmins(): Promise<{
 
   const seen = new Set<string>();
 
+  // Resolve realm-management client UUID once — większość superadmin roles
+  // (realm-admin, manage-realm) to CLIENT-LEVEL roles na realm-management
+  // client, nie realm-level roles.
+  let realmManagementClientId: string | null = null;
+  try {
+    const cRes = await keycloak.adminRequest(
+      `/clients?clientId=realm-management`,
+      token,
+    );
+    if (cRes.ok) {
+      const cs = (await cRes.json()) as Array<{ id?: string }>;
+      realmManagementClientId = cs[0]?.id ?? null;
+    }
+  } catch {
+    /* ignore */
+  }
+
   for (const role of SUPERADMIN_ROLES) {
     try {
-      const res = await keycloak.adminRequest(
+      // Najpierw spróbuj REALM role (np. `admin` w MyPerformance realm).
+      let res = await keycloak.adminRequest(
         `/roles/${encodeURIComponent(role)}/users?max=200`,
         token,
       );
+      // Jeśli 404 i mamy realm-management — spróbuj CLIENT role
+      if (!res.ok && res.status === 404 && realmManagementClientId) {
+        res = await keycloak.adminRequest(
+          `/clients/${realmManagementClientId}/roles/${encodeURIComponent(role)}/users?max=200`,
+          token,
+        );
+      }
       if (!res.ok) {
         logger.warn("role users fetch failed", { role, status: res.status });
         errors++;
