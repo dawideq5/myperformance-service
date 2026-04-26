@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Bell, Check } from "lucide-react";
 import Link from "next/link";
 
@@ -17,7 +18,7 @@ interface InboxItem {
   read_at: string | null;
 }
 
-const POLL_INTERVAL_MS = 60_000;
+const POLL_INTERVAL_MS = 30_000;
 
 const SEVERITY_DOT: Record<string, string> = {
   info: "bg-blue-500",
@@ -27,15 +28,21 @@ const SEVERITY_DOT: Record<string, string> = {
 };
 
 /**
- * Dzwonek powiadomień — pobiera mp_inbox per user, wyświetla licznik nieprzeczytanych,
- * po kliknięciu pokazuje rozwijaną listę z ostatnimi 20 wpisami.
- * Auto-refresh co 60 s; po otwarciu dropdownu wszystkie widoczne idą jako read.
+ * Dzwonek powiadomień. Dropdown jest renderowany przez portal do
+ * document.body z fixed positioning + obliczoną pozycją względem przycisku
+ * — dzięki temu nie wpada pod kafelki niezależnie od nadrzędnych stacking
+ * contextów (header backdrop-blur, hover transform, itd).
  */
 export function NotificationBell() {
   const [items, setItems] = useState<InboxItem[]>([]);
   const [unread, setUnread] = useState(0);
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
+  const [mounted, setMounted] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => setMounted(true), []);
 
   const load = useCallback(async () => {
     try {
@@ -59,15 +66,45 @@ export function NotificationBell() {
     return () => window.clearInterval(iv);
   }, [load]);
 
+  useLayoutEffect(() => {
+    if (!open || !buttonRef.current) return;
+    function update() {
+      const r = buttonRef.current!.getBoundingClientRect();
+      setPos({
+        top: r.bottom + 8,
+        right: window.innerWidth - r.right,
+      });
+    }
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     function handleClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
+      const t = e.target as Node;
+      if (
+        buttonRef.current?.contains(t) ||
+        dropdownRef.current?.contains(t)
+      ) {
+        return;
       }
+      setOpen(false);
+    }
+    function handleEsc(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
     }
     document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
+    document.addEventListener("keydown", handleEsc);
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+      document.removeEventListener("keydown", handleEsc);
+    };
   }, [open]);
 
   async function markAllRead() {
@@ -88,12 +125,11 @@ export function NotificationBell() {
   }
 
   return (
-    <div ref={ref} className="relative">
+    <>
       <button
+        ref={buttonRef}
         type="button"
-        onClick={() => {
-          setOpen((o) => !o);
-        }}
+        onClick={() => setOpen((o) => !o)}
         className="relative p-2.5 rounded-xl text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-card)] transition-colors"
         aria-label={`Powiadomienia${unread > 0 ? ` (${unread} nieprzeczytanych)` : ""}`}
         title="Powiadomienia"
@@ -106,15 +142,23 @@ export function NotificationBell() {
         )}
       </button>
 
-      {open && (
-        <div
-          className="fixed right-4 top-16 sm:absolute sm:right-0 sm:top-auto sm:mt-2 w-[calc(100vw-2rem)] sm:w-96 max-h-[70vh] overflow-y-auto rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)] shadow-2xl z-[100] animate-fade-in"
-          role="dialog"
-          aria-label="Lista powiadomień"
-        >
-          <div className="flex items-center justify-between p-3 border-b border-[var(--border-subtle)] sticky top-0 bg-[var(--bg-card)]">
-            <h3 className="text-sm font-semibold">Powiadomienia</h3>
-            <div className="flex items-center gap-2">
+      {mounted &&
+        open &&
+        pos &&
+        createPortal(
+          <div
+            ref={dropdownRef}
+            className="fixed w-[calc(100vw-2rem)] sm:w-96 max-h-[70vh] overflow-y-auto rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)] shadow-2xl animate-fade-in"
+            style={{
+              top: pos.top,
+              right: Math.max(pos.right, 16),
+              zIndex: 2147483646,
+            }}
+            role="dialog"
+            aria-label="Lista powiadomień"
+          >
+            <div className="flex items-center justify-between p-3 border-b border-[var(--border-subtle)] sticky top-0 bg-[var(--bg-card)]">
+              <h3 className="text-sm font-semibold">Powiadomienia</h3>
               {unread > 0 && (
                 <button
                   type="button"
@@ -122,63 +166,61 @@ export function NotificationBell() {
                   className="text-xs text-[var(--accent)] hover:underline flex items-center gap-1"
                 >
                   <Check className="w-3 h-3" />
-                  Zaznacz wszystko jako przeczytane
+                  Zaznacz wszystko
                 </button>
               )}
             </div>
-          </div>
 
-          {items.length === 0 ? (
-            <div className="p-6 text-center text-sm text-[var(--text-muted)]">
-              Brak powiadomień.
+            {items.length === 0 ? (
+              <div className="p-6 text-center text-sm text-[var(--text-muted)]">
+                Brak powiadomień.
+              </div>
+            ) : (
+              <ul className="divide-y divide-[var(--border-subtle)]">
+                {items.map((item) => (
+                  <li
+                    key={item.id}
+                    className={`p-3 flex gap-3 ${item.read_at ? "opacity-70" : ""}`}
+                  >
+                    <span
+                      className={`mt-1.5 w-2 h-2 rounded-full flex-shrink-0 ${
+                        SEVERITY_DOT[item.severity] ?? "bg-blue-500"
+                      }`}
+                      aria-hidden="true"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2 mb-0.5">
+                        <span className="text-sm font-medium text-[var(--text-main)]">
+                          {item.title}
+                        </span>
+                        {!item.read_at && <Badge tone="neutral">Nowe</Badge>}
+                      </div>
+                      <p className="text-xs text-[var(--text-main)]/80 leading-relaxed">
+                        {item.body}
+                      </p>
+                      <div className="text-[10px] text-[var(--text-muted)] mt-1 font-mono">
+                        <RelativeTime date={item.created_at} />
+                        {" · "}
+                        {item.event_key}
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <div className="p-2 border-t border-[var(--border-subtle)] text-center sticky bottom-0 bg-[var(--bg-card)]">
+              <Link
+                href="/account?tab=preferences"
+                onClick={() => setOpen(false)}
+                className="text-xs text-[var(--accent)] hover:underline"
+              >
+                Zarządzaj typami powiadomień →
+              </Link>
             </div>
-          ) : (
-            <ul className="divide-y divide-[var(--border-subtle)]">
-              {items.map((item) => (
-                <li
-                  key={item.id}
-                  className={`p-3 flex gap-3 ${item.read_at ? "opacity-70" : ""}`}
-                >
-                  <span
-                    className={`mt-1.5 w-2 h-2 rounded-full flex-shrink-0 ${
-                      SEVERITY_DOT[item.severity] ?? "bg-blue-500"
-                    }`}
-                    aria-hidden="true"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-2 mb-0.5">
-                      <span className="text-sm font-medium text-[var(--text-main)]">
-                        {item.title}
-                      </span>
-                      {!item.read_at && (
-                        <Badge tone="neutral">Nowe</Badge>
-                      )}
-                    </div>
-                    <p className="text-xs text-[var(--text-muted)] leading-relaxed">
-                      {item.body}
-                    </p>
-                    <div className="text-[10px] text-[var(--text-muted)] mt-1 font-mono">
-                      <RelativeTime date={item.created_at} />
-                      {" · "}
-                      {item.event_key}
-                    </div>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-
-          <div className="p-2 border-t border-[var(--border-subtle)] text-center sticky bottom-0 bg-[var(--bg-card)]">
-            <Link
-              href="/account?tab=preferences"
-              onClick={() => setOpen(false)}
-              className="text-xs text-[var(--accent)] hover:underline"
-            >
-              Zarządzaj typami powiadomień →
-            </Link>
-          </div>
-        </div>
-      )}
-    </div>
+          </div>,
+          document.body,
+        )}
+    </>
   );
 }
