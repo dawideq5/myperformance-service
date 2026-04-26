@@ -563,29 +563,43 @@ function DnsPanel() {
 
 // ── Resources panel — VPS metrics + Docker containers ──────────────────────
 
-interface VpsUsage {
-  cpu: number | null;
-  memory: { used: number; total: number } | null;
-  disk: { used: number; total: number } | null;
-  bandwidth: { in: number; out: number } | null;
+interface MachineInfo {
+  ncpu: number | null;
+  memTotal: number | null;
+  containersRunning: number | null;
+  containersStopped: number | null;
+  kernel: string | null;
+  driver: string | null;
 }
 
 interface ContainerStat {
   name: string;
+  image: string;
+  status: string;
   cpuPercent: number;
   memUsage: number;
   memLimit: number;
   memPercent: number;
   netRx: number;
   netTx: number;
-  status: string;
+  blockRead: number;
+  blockWrite: number;
 }
 
 interface ResourcesData {
-  vpsUsage: VpsUsage | null;
+  machine: MachineInfo;
   containers: ContainerStat[];
   collectedAt: string;
   errors: string[];
+}
+
+const GB = 1024 ** 3;
+const MB = 1024 ** 2;
+function fmtBytes(n: number): string {
+  if (n >= GB) return `${(n / GB).toFixed(2)} GB`;
+  if (n >= MB) return `${(n / MB).toFixed(0)} MB`;
+  if (n >= 1024) return `${(n / 1024).toFixed(0)} KB`;
+  return `${n} B`;
 }
 
 function ResourcesPanel() {
@@ -643,7 +657,7 @@ function ResourcesPanel() {
         <CardHeader
           icon={<Activity className="w-6 h-6 text-[var(--accent)]" />}
           title="Monitoring zasobów"
-          description={`Live metryki VPS + per-kontener (Docker stats). Aktualizacja co 15 s. Ostatnio: ${new Date(data.collectedAt).toLocaleTimeString("pl-PL")}.`}
+          description={`Live metryki Dockera (per-kontener). Aktualizacja co 15 s. Ostatnio: ${new Date(data.collectedAt).toLocaleTimeString("pl-PL")}.${data.machine.driver ? ` · driver: ${data.machine.driver}` : ""}`}
         />
       </Card>
 
@@ -653,36 +667,48 @@ function ResourcesPanel() {
         </Alert>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
         <UsageGauge
-          label="CPU (suma kontenerów)"
+          label="CPU"
           value={totalContainerCpu}
-          max={data.vpsUsage ? 100 * (data.vpsUsage.cpu === null ? 1 : 1) : 100}
+          max={(data.machine.ncpu ?? 1) * 100}
           unit="%"
           icon={<Activity className="w-4 h-4" />}
         />
         <UsageGauge
-          label="RAM (suma kontenerów)"
-          value={totalContainerMem / 1024 / 1024 / 1024}
-          max={
-            data.vpsUsage?.memory?.total
-              ? data.vpsUsage.memory.total / 1024
-              : 16
-          }
+          label="RAM"
+          value={totalContainerMem / GB}
+          max={(data.machine.memTotal ?? 16 * GB) / GB}
           unit="GB"
           icon={<Database className="w-4 h-4" />}
         />
-        <UsageGauge
-          label="Disk (VPS)"
-          value={
-            data.vpsUsage?.disk
-              ? data.vpsUsage.disk.used
-              : 0
-          }
-          max={data.vpsUsage?.disk?.total ?? 100}
-          unit="GB"
-          icon={<HardDrive className="w-4 h-4" />}
-        />
+        <Card padding="md">
+          <div className="flex items-center gap-2 text-[var(--text-muted)] text-[11px] mb-2">
+            <Server className="w-4 h-4" />
+            <span className="uppercase tracking-wide">Kontenery</span>
+          </div>
+          <div className="text-2xl font-bold tabular-nums">
+            {data.machine.containersRunning ?? data.containers.length}
+          </div>
+          <div className="text-[10px] text-[var(--text-muted)] mt-0.5">
+            running
+            {data.machine.containersStopped !== null
+              ? ` · ${data.machine.containersStopped} stopped`
+              : ""}
+          </div>
+        </Card>
+        <Card padding="md">
+          <div className="flex items-center gap-2 text-[var(--text-muted)] text-[11px] mb-2">
+            <HardDrive className="w-4 h-4" />
+            <span className="uppercase tracking-wide">vCPU / RAM host</span>
+          </div>
+          <div className="text-2xl font-bold tabular-nums">
+            {data.machine.ncpu ?? "?"}
+          </div>
+          <div className="text-[10px] text-[var(--text-muted)] mt-0.5">
+            vCPU · {data.machine.memTotal ? fmtBytes(data.machine.memTotal) : "?"}
+          </div>
+        </Card>
       </div>
 
       <Card padding="md">
@@ -784,8 +810,8 @@ function ContainerList({
             </div>
             {metric === "full" && (
               <div className="text-[10px] text-[var(--text-muted)]">
-                CPU {c.cpuPercent.toFixed(1)}% · RAM{" "}
-                {(c.memUsage / 1024 / 1024 / 1024).toFixed(2)} GB
+                CPU {c.cpuPercent.toFixed(1)}% · RAM {fmtBytes(c.memUsage)}
+                {" · "}↓{fmtBytes(c.netRx)} ↑{fmtBytes(c.netTx)}
               </div>
             )}
           </div>
@@ -797,7 +823,7 @@ function ContainerList({
             )}
             {(metric === "mem" || metric === "full") && (
               <span className="font-mono text-[var(--text-muted)] tabular-nums">
-                {(c.memUsage / 1024 / 1024 / 1024).toFixed(2)} GB
+                {fmtBytes(c.memUsage)}
               </span>
             )}
           </div>

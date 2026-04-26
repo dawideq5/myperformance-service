@@ -1,148 +1,201 @@
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-import { exec } from "child_process";
-import { promisify } from "util";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
 import { requireInfrastructure } from "@/lib/admin-auth";
-import { getOvhConfig } from "@/lib/email/db";
-import { listVps } from "@/lib/email/ovh";
 import { createSuccessResponse, handleApiError } from "@/lib/api-utils";
 import { log } from "@/lib/logger";
 
-const execAsync = promisify(exec);
 const logger = log.child({ module: "infra-resources" });
 
-interface VpsUsage {
-  cpu: number | null;
-  memory: { used: number; total: number } | null;
-  disk: { used: number; total: number } | null;
-  bandwidth: { in: number; out: number } | null;
+const DOCKER_API_URL =
+  process.env.DOCKER_API_URL ?? "http://docker-socket-proxy:2375";
+
+interface ContainerListItem {
+  Id: string;
+  Names: string[];
+  Image: string;
+  State: string;
+  Status: string;
 }
 
 interface ContainerStat {
   name: string;
+  image: string;
+  status: string;
   cpuPercent: number;
   memUsage: number;
   memLimit: number;
   memPercent: number;
   netRx: number;
   netTx: number;
-  status: string;
+  blockRead: number;
+  blockWrite: number;
 }
 
-/**
- * Parsuje "100MiB / 8GiB" → bytes (used, limit).
- */
-function parseSize(s: string): number {
-  const match = s.match(/([\d.]+)\s*([KMGT]?i?B)/i);
-  if (!match) return 0;
-  const n = parseFloat(match[1]!);
-  const unit = match[2]!.toUpperCase();
-  const map: Record<string, number> = {
-    B: 1,
-    KIB: 1024,
-    KB: 1000,
-    MIB: 1024 ** 2,
-    MB: 1000 ** 2,
-    GIB: 1024 ** 3,
-    GB: 1000 ** 3,
-    TIB: 1024 ** 4,
-    TB: 1000 ** 4,
+interface DockerStatsResponse {
+  cpu_stats: {
+    cpu_usage: { total_usage: number };
+    system_cpu_usage: number;
+    online_cpus?: number;
   };
-  return n * (map[unit] ?? 1);
+  precpu_stats: {
+    cpu_usage: { total_usage: number };
+    system_cpu_usage: number;
+  };
+  memory_stats: {
+    usage: number;
+    limit: number;
+    stats?: { cache?: number; inactive_file?: number };
+  };
+  networks?: Record<string, { rx_bytes: number; tx_bytes: number }>;
+  blkio_stats: {
+    io_service_bytes_recursive?: Array<{ op: string; value: number }>;
+  };
 }
 
-async function collectDockerStats(): Promise<{
-  containers: ContainerStat[];
-  error: string | null;
-}> {
-  try {
-    // Format JSON pojedyncze linie — łatwo parse'ować.
-    const { stdout } = await execAsync(
-      `docker stats --no-stream --format '{{json .}}'`,
-      { timeout: 8000, maxBuffer: 5 * 1024 * 1024 },
-    );
-    const containers: ContainerStat[] = [];
-    for (const line of stdout.split("\n")) {
-      if (!line.trim()) continue;
-      try {
-        const j = JSON.parse(line) as {
-          Name: string;
-          CPUPerc: string;
-          MemUsage: string;
-          MemPerc: string;
-          NetIO: string;
-        };
-        const [memUsedRaw, memLimitRaw] = j.MemUsage.split(" / ");
-        const [netRxRaw, netTxRaw] = j.NetIO.split(" / ");
-        containers.push({
-          name: j.Name,
-          cpuPercent: parseFloat(j.CPUPerc.replace("%", "")) || 0,
-          memUsage: parseSize(memUsedRaw ?? "0"),
-          memLimit: parseSize(memLimitRaw ?? "0"),
-          memPercent: parseFloat(j.MemPerc.replace("%", "")) || 0,
-          netRx: parseSize(netRxRaw ?? "0"),
-          netTx: parseSize(netTxRaw ?? "0"),
-          status: "running",
-        });
-      } catch {
-        // skip malformed line
-      }
-    }
-    return { containers, error: null };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    logger.warn("docker stats failed", { err: msg });
-    return {
-      containers: [],
-      error: `Docker stats niedostępne: ${msg.slice(0, 100)}`,
-    };
+interface InfoResponse {
+  NCPU?: number;
+  MemTotal?: number;
+  Driver?: string;
+  Containers?: number;
+  ContainersRunning?: number;
+  ContainersStopped?: number;
+  KernelVersion?: string;
+}
+
+interface MachineInfo {
+  ncpu: number | null;
+  memTotal: number | null;
+  containersRunning: number | null;
+  containersStopped: number | null;
+  kernel: string | null;
+  driver: string | null;
+}
+
+function calcCpuPercent(s: DockerStatsResponse): number {
+  const cpuDelta =
+    s.cpu_stats.cpu_usage.total_usage - s.precpu_stats.cpu_usage.total_usage;
+  const sysDelta =
+    s.cpu_stats.system_cpu_usage - s.precpu_stats.system_cpu_usage;
+  if (sysDelta > 0 && cpuDelta > 0) {
+    const cpus = s.cpu_stats.online_cpus ?? 1;
+    return (cpuDelta / sysDelta) * cpus * 100;
   }
+  return 0;
 }
 
-async function collectVpsUsage(vpsName: string): Promise<{
-  usage: VpsUsage | null;
+function memUsageMinusCache(s: DockerStatsResponse): number {
+  const cache = s.memory_stats.stats?.cache ?? s.memory_stats.stats?.inactive_file ?? 0;
+  return Math.max(0, s.memory_stats.usage - cache);
+}
+
+function sumNetwork(s: DockerStatsResponse): { rx: number; tx: number } {
+  let rx = 0;
+  let tx = 0;
+  for (const v of Object.values(s.networks ?? {})) {
+    rx += v.rx_bytes;
+    tx += v.tx_bytes;
+  }
+  return { rx, tx };
+}
+
+function sumBlockIO(s: DockerStatsResponse): { read: number; write: number } {
+  let read = 0;
+  let write = 0;
+  for (const e of s.blkio_stats.io_service_bytes_recursive ?? []) {
+    if (e.op === "read" || e.op === "Read") read += e.value;
+    else if (e.op === "write" || e.op === "Write") write += e.value;
+  }
+  return { read, write };
+}
+
+async function fetchJson<T>(path: string, timeoutMs = 6000): Promise<T> {
+  const res = await fetch(`${DOCKER_API_URL}${path}`, {
+    cache: "no-store",
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!res.ok) {
+    throw new Error(`docker proxy ${path} → ${res.status}`);
+  }
+  return (await res.json()) as T;
+}
+
+async function collectInfo(): Promise<{
+  info: MachineInfo;
   error: string | null;
 }> {
   try {
-    const config = await getOvhConfig();
-    if (!config.appKey || !config.appSecret || !config.consumerKey) {
-      return { usage: null, error: null };
-    }
-    // OVH API nie ma jednego endpointu z całością — zbieramy disk usage
-    // z df via SSH. Dla VPS przez OVH API mamy tylko podstawowe info, a
-    // CPU/RAM live to docker stats wystarczy. Dla disk: df.
-    let diskUsed = 0;
-    let diskTotal = 0;
-    try {
-      const { stdout } = await execAsync(
-        `df -B1 / | awk 'NR==2 {print $2 "|" $3}'`,
-        { timeout: 5000 },
-      );
-      const [total, used] = stdout.trim().split("|").map((x) => parseInt(x, 10));
-      if (Number.isFinite(total)) diskTotal = total;
-      if (Number.isFinite(used)) diskUsed = used;
-    } catch {
-      /* ignore */
-    }
+    const i = await fetchJson<InfoResponse>("/info");
     return {
-      usage: {
-        cpu: null, // host CPU summary nie jest istotne, top-down z kontenerów
-        memory: null,
-        disk:
-          diskTotal > 0
-            ? { used: diskUsed / 1024 ** 3, total: diskTotal / 1024 ** 3 }
-            : null,
-        bandwidth: null,
+      info: {
+        ncpu: i.NCPU ?? null,
+        memTotal: i.MemTotal ?? null,
+        containersRunning: i.ContainersRunning ?? null,
+        containersStopped: i.ContainersStopped ?? null,
+        kernel: i.KernelVersion ?? null,
+        driver: i.Driver ?? null,
       },
       error: null,
     };
   } catch (err) {
     return {
-      usage: null,
+      info: {
+        ncpu: null,
+        memTotal: null,
+        containersRunning: null,
+        containersStopped: null,
+        kernel: null,
+        driver: null,
+      },
       error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+async function collectContainers(): Promise<{
+  containers: ContainerStat[];
+  error: string | null;
+}> {
+  try {
+    const list = await fetchJson<ContainerListItem[]>("/containers/json");
+    // równoległe stats — limit 30 jednocześnie żeby nie zaprzeć dockera.
+    const stats = await Promise.allSettled(
+      list.map(async (c) => {
+        const s = await fetchJson<DockerStatsResponse>(
+          `/containers/${c.Id}/stats?stream=false`,
+        );
+        const memUsage = memUsageMinusCache(s);
+        const memLimit = s.memory_stats.limit;
+        const net = sumNetwork(s);
+        const block = sumBlockIO(s);
+        return {
+          name: (c.Names[0] ?? c.Id).replace(/^\//, ""),
+          image: c.Image,
+          status: c.Status,
+          cpuPercent: calcCpuPercent(s),
+          memUsage,
+          memLimit,
+          memPercent: memLimit > 0 ? (memUsage / memLimit) * 100 : 0,
+          netRx: net.rx,
+          netTx: net.tx,
+          blockRead: block.read,
+          blockWrite: block.write,
+        } satisfies ContainerStat;
+      }),
+    );
+    const containers: ContainerStat[] = [];
+    for (const r of stats) {
+      if (r.status === "fulfilled") containers.push(r.value);
+    }
+    return { containers, error: null };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.warn("docker-socket-proxy unreachable", { err: msg });
+    return {
+      containers: [],
+      error: `Docker stats niedostępne: ${msg.slice(0, 120)}`,
     };
   }
 }
@@ -152,33 +205,17 @@ export async function GET() {
     const session = await getServerSession(authOptions);
     requireInfrastructure(session);
 
-    let vpsName: string | undefined;
-    try {
-      const config = await getOvhConfig();
-      if (config.appKey && config.appSecret && config.consumerKey) {
-        const list = await listVps({
-          endpoint: config.endpoint,
-          appKey: config.appKey,
-          appSecret: config.appSecret,
-          consumerKey: config.consumerKey,
-        });
-        vpsName = list[0];
-      }
-    } catch {
-      /* ignore */
-    }
-
     const errors: string[] = [];
-    const [docker, vpsUsage] = await Promise.all([
-      collectDockerStats(),
-      vpsName ? collectVpsUsage(vpsName) : Promise.resolve({ usage: null, error: null }),
+    const [info, containers] = await Promise.all([
+      collectInfo(),
+      collectContainers(),
     ]);
-    if (docker.error) errors.push(docker.error);
-    if (vpsUsage.error) errors.push(`VPS: ${vpsUsage.error}`);
+    if (info.error) errors.push(`Info: ${info.error}`);
+    if (containers.error) errors.push(containers.error);
 
     return createSuccessResponse({
-      vpsUsage: vpsUsage.usage,
-      containers: docker.containers,
+      machine: info.info,
+      containers: containers.containers,
       collectedAt: new Date().toISOString(),
       errors,
     });
