@@ -206,20 +206,54 @@ function VpsPanel() {
     void load();
   }, [load]);
 
-  async function takeSnapshot(name: string) {
-    if (!confirm(`Utworzyć snapshot VPS ${name}?\n\nProces zajmuje kilka minut. VPS pozostaje dostępny.`)) return;
+  async function takeSnapshot(name: string, force = false) {
+    const prompt = force
+      ? `Nadpisać istniejący snapshot VPS ${name}? Stary zostanie usunięty, nowy stworzony.`
+      : `Utworzyć snapshot VPS ${name}?\n\nProces zajmuje kilka minut. VPS pozostaje dostępny.`;
+    if (!confirm(prompt)) return;
     setSnapshotting(name);
     setNotice(null);
     setError(null);
     try {
-      const r = await api.post<{ message: string }, { vpsName: string }>(
-        "/api/admin/infrastructure/snapshot",
-        { vpsName: name },
-      );
+      const r = await api.post<
+        { message: string },
+        { vpsName: string; force?: boolean }
+      >("/api/admin/infrastructure/snapshot", { vpsName: name, force });
       setNotice(r.message);
       setTimeout(load, 5000);
     } catch (err) {
-      setError(err instanceof ApiRequestError ? err.message : "Snapshot failed");
+      if (err instanceof ApiRequestError && err.status === 409) {
+        // Snapshot already exists — zaproponuj force
+        if (
+          confirm(
+            `${err.message}\n\nKliknij OK aby nadpisać (usunąć stary i utworzyć nowy).`,
+          )
+        ) {
+          return takeSnapshot(name, true);
+        }
+      } else {
+        setError(
+          err instanceof ApiRequestError ? err.message : "Snapshot failed",
+        );
+      }
+    } finally {
+      setSnapshotting(null);
+    }
+  }
+
+  async function removeSnapshot(name: string) {
+    if (!confirm(`Usunąć snapshot VPS ${name}?`)) return;
+    setSnapshotting(name);
+    setError(null);
+    setNotice(null);
+    try {
+      const r = await api.delete<{ message: string }>(
+        `/api/admin/infrastructure/snapshot?vpsName=${encodeURIComponent(name)}`,
+      );
+      setNotice(r.message);
+      setTimeout(load, 3000);
+    } catch (err) {
+      setError(err instanceof ApiRequestError ? err.message : "Delete failed");
     } finally {
       setSnapshotting(null);
     }
@@ -370,16 +404,30 @@ function VpsPanel() {
                   Brak snapshotu.
                 </p>
               )}
-              <Button
-                size="sm"
-                onClick={() => takeSnapshot(v.name)}
-                loading={snapshotting === v.name}
-                fullWidth
-              >
-                Utwórz snapshot teraz
-              </Button>
+              <div className="flex flex-col gap-2">
+                <Button
+                  size="sm"
+                  onClick={() => takeSnapshot(v.name)}
+                  loading={snapshotting === v.name}
+                  fullWidth
+                >
+                  {v.lastSnapshot ? "Nadpisz snapshot" : "Utwórz snapshot teraz"}
+                </Button>
+                {v.lastSnapshot && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => removeSnapshot(v.name)}
+                    loading={snapshotting === v.name}
+                    fullWidth
+                  >
+                    Usuń snapshot
+                  </Button>
+                )}
+              </div>
               <p className="mt-2 text-[10px] text-[var(--text-muted)]">
-                Użyj przed dużymi zmianami (np. migracja DB).
+                OVH limit: 1 aktywny snapshot per VPS. „Nadpisz" usuwa stary
+                i tworzy nowy.
               </p>
             </Card>
           </div>

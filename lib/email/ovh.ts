@@ -434,7 +434,35 @@ export async function getSnapshot(
   );
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`OVH getSnapshot ${res.status}`);
-  return res.data!;
+  return res.data ?? null;
+}
+
+export async function deleteSnapshot(
+  creds: OvhCredentials,
+  name: string,
+): Promise<void> {
+  const res = await ovhRequest(
+    creds,
+    "DELETE",
+    `/vps/${encodeURIComponent(name)}/snapshot`,
+  );
+  if (!res.ok && res.status !== 404) {
+    throw new Error(`OVH deleteSnapshot ${res.status} ${res.error?.message ?? ""}`);
+  }
+}
+
+export async function getSnapshotInternal(
+  creds: OvhCredentials,
+  name: string,
+): Promise<VpsSnapshot | null> {
+  // Internal helper without throw — used by route handlers.
+  const res = await ovhRequest<VpsSnapshot>(
+    creds,
+    "GET",
+    `/vps/${encodeURIComponent(name)}/snapshot`,
+  );
+  if (res.status === 404 || !res.ok) return null;
+  return res.data ?? null;
 }
 
 export async function createSnapshot(
