@@ -228,9 +228,87 @@ export async function register(): Promise<void> {
         appsPushed++;
       }
 
+      // Areas registry mirror
+      const { AREAS } = await import("@/lib/permissions/areas");
+      let areasPushed = 0;
+      for (const a of AREAS) {
+        await upsertItem("mp_areas_registry", a.id, {
+          id: a.id,
+          label: a.label,
+          description: a.description,
+          provider: a.provider,
+          icon: a.icon ?? null,
+          kc_roles_count: a.kcRoles.length,
+          kc_roles: a.kcRoles.map((r) => ({
+            name: r.name,
+            label: r.label,
+            priority: r.priority,
+            nativeRoleId: r.nativeRoleId ?? null,
+          })),
+          synced_at: new Date().toISOString(),
+        }).catch(() => undefined);
+        areasPushed++;
+      }
+
+      // Notif events registry mirror
+      const { NOTIF_EVENTS } = await import("@/lib/preferences");
+      let notifPushed = 0;
+      for (const [key, ev] of Object.entries(NOTIF_EVENTS)) {
+        const def = ev as {
+          label: string;
+          category: string;
+          defaultInApp: boolean;
+          defaultEmail: boolean;
+          requiresArea?: string | null;
+        };
+        await upsertItem("mp_notif_events_registry", key, {
+          id: key,
+          label: def.label,
+          category: def.category,
+          default_in_app: def.defaultInApp,
+          default_email: def.defaultEmail,
+          requires_area: def.requiresArea ?? "",
+          synced_at: new Date().toISOString(),
+        }).catch(() => undefined);
+        notifPushed++;
+      }
+
+      // Email layouts mirror
+      const { listLayouts } = await import("@/lib/email/db");
+      const layouts = await listLayouts().catch(() => []);
+      let layoutsPushed = 0;
+      for (const l of layouts) {
+        await upsertItem("mp_email_layouts_cms", l.id, {
+          id: l.id,
+          name: l.name,
+          html: l.html,
+          is_default: l.isDefault,
+          synced_at: new Date().toISOString(),
+        }).catch(() => undefined);
+        layoutsPushed++;
+      }
+
+      // SMTP configs mirror — bez secrets (smtpUser/smtpPassword pomijamy)
+      const { listSmtpConfigs } = await import("@/lib/email/db");
+      const smtps = await listSmtpConfigs().catch(() => []);
+      let smtpsPushed = 0;
+      for (const s of smtps) {
+        await upsertItem("mp_smtp_configs_cms", s.id, {
+          id: s.id,
+          alias: s.alias,
+          host: s.smtpHost,
+          port: s.smtpPort,
+          secure: s.useTls,
+          from_address: s.fromEmail,
+          from_name: s.fromDisplay,
+          synced_at: new Date().toISOString(),
+        }).catch(() => undefined);
+        smtpsPushed++;
+      }
+
       // eslint-disable-next-line no-console
       console.log(
-        `[instrumentation] Directus initial push: branding + ${tpls.length} templates + ${appsPushed} app catalog entries`,
+        `[instrumentation] Directus initial push: branding + ${tpls.length} templates + ${appsPushed} apps + ${areasPushed} areas + ${notifPushed} notif events + ${layoutsPushed} layouts + ${smtpsPushed} smtps`,
       );
     }
   } catch (err) {

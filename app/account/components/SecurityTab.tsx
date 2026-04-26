@@ -92,6 +92,21 @@ export function SecurityTab() {
     })();
   }, [searchParams, router, refetchWebAuthn, refetchProfile]);
 
+  // Detect return from Keycloak CONFIGURE_TOTP flow.
+  useEffect(() => {
+    const done = searchParams.get("totp_done");
+    if (!done) return;
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("totp_done");
+    const qs = params.toString();
+    router.replace(qs ? `/account?${qs}` : "/account?tab=security", {
+      scroll: false,
+    });
+    void (async () => {
+      await Promise.all([refetchTwoFA(), refetchProfile()]);
+    })();
+  }, [searchParams, router, refetchTwoFA, refetchProfile]);
+
   // Password change
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -527,70 +542,46 @@ function WebAuthnKeyRow({
 function TotpSetupDialog({
   open,
   onClose,
-  onSuccess,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  onSuccess: _onSuccess,
 }: {
   open: boolean;
   onClose: () => void;
   onSuccess: () => void | Promise<void>;
 }) {
   const id = useId();
-  const [qr, setQr] = useState<string | null>(null);
-  const [secret, setSecret] = useState<string | null>(null);
-  const [code, setCode] = useState("");
-  const [copied, setCopied] = useState(false);
-
-  const generateAction = useAsyncAction(
-    async () => accountService.generateTOTP(),
-    {
-      onSuccess: (r) => {
-        setQr(r.qrCode);
-        setSecret(r.secret);
-      },
-    },
-  );
-
-  const verifyAction = useAsyncAction(
-    async (input: { secret: string; totpCode: string }) =>
-      accountService.verifyTOTP(input),
-    {
-      onSuccess: () => {
-        void onSuccess();
-      },
-      resolveError: (err) =>
-        err instanceof ApiRequestError
-          ? err.message
-          : "Nie udało się zweryfikować kodu",
-    },
-  );
+  const [starting, setStarting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) {
-      setQr(null);
-      setSecret(null);
-      setCode("");
-      setCopied(false);
-      generateAction.reset();
-      verifyAction.reset();
-      return;
+      setStarting(false);
+      setError(null);
     }
-    if (!qr) void generateAction.run();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  const submit = (e: FormEvent) => {
-    e.preventDefault();
-    if (!secret || code.trim().length < 6) return;
-    void verifyAction.run({ secret, totpCode: code.trim() });
-  };
-
-  const copySecret = async () => {
-    if (!secret) return;
+  // KC native flow: redirect do /authorize z kc_action=CONFIGURE_TOTP + prompt=login.
+  // KC sam pokaże QR, zweryfikuje kod i zapisze credential w prawidłowym
+  // formacie (manual PUT user.credentials wsadza JSON który KC nie traktuje
+  // jako enabled — credential nie jest używany przy login).
+  // Po powrocie z KC: callback ?totp_done=1 → refetchTwoFA w parent.
+  const startKcFlow = () => {
+    setError(null);
+    setStarting(true);
     try {
-      await navigator.clipboard.writeText(secret);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      /* ignore */
+      const callbackUrl = "/account?tab=security&totp_done=1";
+      void signIn(
+        "keycloak",
+        { callbackUrl, redirect: true },
+        { kc_action: "CONFIGURE_TOTP", prompt: "login" },
+      );
+    } catch (err) {
+      setStarting(false);
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Nie udało się uruchomić konfiguracji 2FA",
+      );
     }
   };
 
@@ -602,84 +593,39 @@ function TotpSetupDialog({
       labelledById={id}
       size="md"
     >
-      {generateAction.pending && !qr ? (
-        <p className="text-sm text-[var(--text-muted)]">Generowanie kodu QR…</p>
-      ) : generateAction.error ? (
-        <Alert tone="error">{generateAction.error}</Alert>
-      ) : (
-        qr &&
-        secret && (
-          <form onSubmit={submit} className="space-y-4">
-            <p className="text-sm text-[var(--text-muted)]">
-              Zeskanuj kod QR aplikacją (Google Authenticator, Authy, 1Password)
-              lub wpisz sekret ręcznie, a następnie podaj wygenerowany 6-cyfrowy
-              kod poniżej.
-            </p>
-            <div className="flex flex-col items-center gap-3 py-2">
-              <img
-                src={qr}
-                alt="Kod QR do skanowania"
-                width={200}
-                height={200}
-                className="rounded-xl border border-[var(--border-subtle)] bg-white p-2"
-              />
-              <div className="flex items-center gap-2 text-xs">
-                <code className="px-2 py-1 bg-[var(--bg-main)] border border-[var(--border-subtle)] rounded font-mono break-all">
-                  {secret}
-                </code>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  aria-label="Kopiuj sekret"
-                  onClick={copySecret}
-                >
-                  {copied ? (
-                    <Check
-                      className="w-4 h-4 text-green-500"
-                      aria-hidden="true"
-                    />
-                  ) : (
-                    <Copy className="w-4 h-4" aria-hidden="true" />
-                  )}
-                </Button>
-              </div>
-            </div>
-            <Input
-              label="Kod weryfikacyjny"
-              required
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              pattern="[0-9]{6}"
-              maxLength={6}
-              value={code}
-              onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
-              placeholder="123456"
-              disabled={verifyAction.pending}
-            />
-            {verifyAction.error && <Alert tone="error">{verifyAction.error}</Alert>}
-            <div className="flex gap-3">
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={onClose}
-                disabled={verifyAction.pending}
-                className="flex-1"
-              >
-                Anuluj
-              </Button>
-              <Button
-                type="submit"
-                loading={verifyAction.pending}
-                disabled={code.length !== 6}
-                className="flex-1"
-              >
-                Aktywuj
-              </Button>
-            </div>
-          </form>
-        )
-      )}
+      <div className="space-y-4">
+        <p className="text-sm text-[var(--text-main)]/85 leading-relaxed">
+          Skonfigurujemy aplikację 2FA przez Keycloak — zostaniesz przeniesiony
+          do bezpiecznego ekranu, gdzie zeskanujesz kod QR aplikacją (Google
+          Authenticator, Authy, 1Password) i wpiszesz wygenerowany kod. Po
+          zatwierdzeniu wrócisz tutaj.
+        </p>
+        <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-main)] p-3 text-xs text-[var(--text-main)]/75">
+          Dlaczego natywny flow? Keycloak generuje credential w prawidłowym
+          formacie i od razu wymusza go przy kolejnych logowaniach. Nasz wcześniejszy
+          custom flow wstawiał credential ale KC go nie używał.
+        </div>
+        {error && <Alert tone="error">{error}</Alert>}
+        <div className="flex gap-3">
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={onClose}
+            disabled={starting}
+            className="flex-1"
+          >
+            Anuluj
+          </Button>
+          <Button
+            type="button"
+            onClick={startKcFlow}
+            loading={starting}
+            className="flex-1"
+          >
+            Skonfiguruj przez Keycloak
+          </Button>
+        </div>
+      </div>
     </Dialog>
   );
 }

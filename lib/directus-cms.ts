@@ -286,6 +286,143 @@ export const COLLECTION_SPECS: CollectionSpec[] = [
     ],
   },
 
+  // === Areas registry — mirror z lib/permissions/areas.ts ===
+  // Read-only mirror — zmiana w kodzie wymaga deployu (kc-sync seeduje
+  // realm roles z tej listy + assignuje role-mappings). Directus pokazuje
+  // bieżący stan żeby admin widział strukturę uprawnień bez czytania kodu.
+  {
+    collection: "mp_areas_registry",
+    meta: {
+      icon: "shield",
+      note: "READ-ONLY mirror obszarów uprawnień (AREAS w kodzie). Edycja w lib/permissions/areas.ts wymaga deployu. Tu widzisz bieżący stan.",
+    },
+    fields: [
+      {
+        field: "id",
+        type: "string",
+        schema: { is_primary_key: true },
+        meta: { hidden: true, readonly: true },
+      },
+      { field: "label", type: "string", meta: { interface: "input", readonly: true } },
+      { field: "description", type: "text", meta: { interface: "input-multiline", readonly: true } },
+      { field: "provider", type: "string", meta: { interface: "input", readonly: true } },
+      { field: "icon", type: "string", meta: { interface: "input", readonly: true } },
+      { field: "kc_roles_count", type: "integer", meta: { interface: "input", readonly: true } },
+      { field: "kc_roles", type: "json", meta: { interface: "input-code", readonly: true, options: { language: "json" } } },
+      { field: "synced_at", type: "timestamp", meta: { interface: "datetime", readonly: true } },
+    ],
+  },
+
+  // === Notif events catalog — mirror z lib/preferences.ts NOTIF_EVENTS ===
+  {
+    collection: "mp_notif_events_registry",
+    meta: {
+      icon: "notifications",
+      note: "READ-ONLY katalog typów powiadomień. Defaults i requiresArea są w kodzie (lib/preferences.ts). Tu listing dla orientacji.",
+    },
+    fields: [
+      {
+        field: "id",
+        type: "string",
+        schema: { is_primary_key: true },
+        meta: { hidden: true, readonly: true },
+      },
+      { field: "label", type: "string", meta: { interface: "input", readonly: true } },
+      { field: "category", type: "string", meta: { interface: "input", readonly: true } },
+      { field: "default_in_app", type: "boolean", meta: { interface: "boolean", readonly: true } },
+      { field: "default_email", type: "boolean", meta: { interface: "boolean", readonly: true } },
+      { field: "requires_area", type: "string", meta: { interface: "input", readonly: true } },
+      { field: "synced_at", type: "timestamp", meta: { interface: "datetime", readonly: true } },
+    ],
+  },
+
+  // === Email layouts — mirror z mp_email_layouts ===
+  {
+    collection: "mp_email_layouts_cms",
+    meta: {
+      icon: "view_quilt",
+      note: "Layouty (header/footer wrapper dla emaili). Edytuj w /admin/email > Layouts. Tu read-only mirror.",
+    },
+    fields: [
+      {
+        field: "id",
+        type: "string",
+        schema: { is_primary_key: true },
+        meta: { hidden: true, readonly: true },
+      },
+      { field: "name", type: "string", meta: { interface: "input", readonly: true } },
+      { field: "html", type: "text", meta: { interface: "input-code", readonly: true, options: { language: "html" } } },
+      { field: "is_default", type: "boolean", meta: { interface: "boolean", readonly: true } },
+      { field: "synced_at", type: "timestamp", meta: { interface: "datetime", readonly: true } },
+    ],
+  },
+
+  // === SMTP configs — mirror BEZ secrets ===
+  {
+    collection: "mp_smtp_configs_cms",
+    meta: {
+      icon: "mail_outline",
+      note: "Konfiguracje SMTP (alias, host, port, from). BEZ haseł — secrets pozostają w lokalnej DB. Edytuj w /admin/email > SMTP.",
+    },
+    fields: [
+      {
+        field: "id",
+        type: "string",
+        schema: { is_primary_key: true },
+        meta: { hidden: true, readonly: true },
+      },
+      { field: "alias", type: "string", meta: { interface: "input", readonly: true } },
+      { field: "host", type: "string", meta: { interface: "input", readonly: true } },
+      { field: "port", type: "integer", meta: { interface: "input", readonly: true } },
+      { field: "secure", type: "boolean", meta: { interface: "boolean", readonly: true } },
+      { field: "from_address", type: "string", meta: { interface: "input", readonly: true } },
+      { field: "from_name", type: "string", meta: { interface: "input", readonly: true } },
+      { field: "synced_at", type: "timestamp", meta: { interface: "datetime", readonly: true } },
+    ],
+  },
+
+  // === Footer / nav links — w pełni edytowalne w Directus ===
+  // Footer dashboardu, sidebar, social links, pomoc URLs. Admin edytuje
+  // bezpośrednio w Directus, dashboard pull-uje przy starcie + 5min cache.
+  {
+    collection: "mp_links",
+    meta: {
+      icon: "link",
+      note: "Linki w UI: footer, sidebar, social. Edytuj swobodnie. category określa gdzie się pojawia.",
+    },
+    fields: [
+      {
+        field: "id",
+        type: "uuid",
+        schema: { is_primary_key: true },
+        meta: { hidden: true, readonly: true, special: ["uuid"] },
+      },
+      {
+        field: "category",
+        type: "string",
+        meta: {
+          interface: "select-dropdown",
+          options: { choices: [
+            { text: "Footer", value: "footer" },
+            { text: "Sidebar / pomoc", value: "help" },
+            { text: "Social media", value: "social" },
+            { text: "Stopka emaili", value: "email-footer" },
+          ]},
+        },
+      },
+      { field: "label", type: "string", meta: { interface: "input", required: true } },
+      { field: "url", type: "string", meta: { interface: "input", required: true } },
+      { field: "icon", type: "string", meta: { interface: "input", note: "lucide icon name lub emoji" } },
+      { field: "sort", type: "integer", meta: { interface: "input" }, schema: { default_value: 0 } },
+      { field: "enabled", type: "boolean", meta: { interface: "boolean" }, schema: { default_value: true } },
+      {
+        field: "requires_area",
+        type: "string",
+        meta: { interface: "input", note: "Pusty = wszyscy. area-id = tylko z dostępem." },
+      },
+    ],
+  },
+
   // === System announcements — widoczne na dashboardzie wszystkim userom ===
   {
     collection: "mp_announcements",
