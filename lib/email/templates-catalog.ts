@@ -199,7 +199,7 @@ Cieszymy się, że dołączasz do {{brand.name}}. Twoje konto jest aktywne — m
     appLabel: "Keycloak",
     name: "Aktywacja konta (potwierdzenie emaila)",
     description: "Link aktywacyjny — bez kliknięcia konto jest nieużywalne",
-    editability: "kc-localization",
+    editability: "full",
     trigger: "Po rejestracji lub admin tworzy nowego user-a",
     defaultSubject: "Aktywuj konto w {{brand.name}}",
     defaultBody: `# Witaj {{user.firstName}}
@@ -239,7 +239,7 @@ Jeśli to nie Ty zakładałeś konto, zignoruj tę wiadomość — bez kliknięc
     appLabel: "Keycloak",
     name: "Reset hasła",
     description: 'Wysyłany gdy user kliknie „Zapomniałem hasła"',
-    editability: "kc-localization",
+    editability: "full",
     trigger: "User kliknął reset hasła lub admin wymusił reset",
     defaultSubject: "Resetowanie hasła — {{brand.name}}",
     defaultBody: `# Cześć {{user.firstName}}
@@ -286,7 +286,7 @@ Link jest jednorazowy i wygasa za **{{linkExpiration}} minut**.
     appLabel: "Keycloak",
     name: "Potwierdzenie zmiany adresu email",
     description: "Idzie na NOWY adres po zmianie emaila — link potwierdza posiadanie skrzynki",
-    editability: "kc-localization",
+    editability: "full",
     trigger: "User zmienia email w profilu",
     defaultSubject: "Potwierdź nowy adres email — {{brand.name}}",
     defaultBody: `# Cześć {{user.firstName}}
@@ -326,7 +326,7 @@ Link jest jednorazowy i wygasa za **{{linkExpiration}} minut**.
     appLabel: "Keycloak",
     name: "Wymuszone akcje (np. zmiana hasła)",
     description: 'Gdy admin wymusza akcję przez Admin API (np. „zmień hasło przy następnym loginie")',
-    editability: "kc-localization",
+    editability: "full",
     trigger: "Admin wymusi required-action",
     defaultSubject: "Wymagana akcja na koncie {{brand.name}}",
     defaultBody: `# Cześć {{user.firstName}}
@@ -375,7 +375,7 @@ Link wygasa za **{{linkExpiration}} minut**. Po wygaśnięciu zaloguj się ponow
     appLabel: "Keycloak",
     name: "Powiązanie konta z dostawcą zewnętrznym",
     description: "Gdy user loguje się przez Google/Microsoft a istnieje już konto z tym emailem",
-    editability: "kc-localization",
+    editability: "full",
     trigger: "First login z IdP gdy KC chce połączyć z istniejącym kontem",
     defaultSubject: "Połącz konto z {{identityProviderName}} — {{brand.name}}",
     defaultBody: `# Cześć {{user.firstName}}
@@ -451,7 +451,7 @@ Działaj natychmiast:
     appLabel: "Keycloak",
     name: "Konto wyłączone przez administratora",
     description: "Powiadomienie gdy admin wyłącza konto",
-    editability: "kc-localization",
+    editability: "full",
     trigger: "Admin ustawia user.enabled=false",
     defaultSubject: "Twoje konto {{brand.name}} zostało wyłączone",
     defaultBody: `# Cześć {{user.firstName}}

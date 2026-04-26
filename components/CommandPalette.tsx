@@ -130,23 +130,24 @@ export function CommandPalette() {
       className="fixed inset-0 z-[100] flex items-start justify-center p-4 sm:pt-[15vh]"
       role="dialog"
       aria-modal="true"
-      aria-label="Wyszukaj wszędzie"
+      aria-label="Wyszukaj"
     >
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-fade-in"
         onClick={() => setOpen(false)}
       />
-      <div
-        className="relative w-full max-w-xl rounded-2xl bg-[var(--bg-card)] border border-[var(--border-subtle)] shadow-2xl overflow-hidden animate-fade-in"
-        onKeyDown={onListKey}
-      >
+      <div className="relative w-full max-w-xl mp-cmdk-glow animate-fade-in">
+        <div
+          className="relative rounded-2xl bg-[var(--bg-card)] border border-[var(--border-subtle)] shadow-2xl overflow-hidden"
+          onKeyDown={onListKey}
+        >
         <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border-subtle)]">
           <Search className="w-4 h-4 text-[var(--text-muted)] flex-shrink-0" />
           <input
             ref={inputRef}
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Szukaj: użytkownik, IP, urządzenie, panel…"
+            placeholder="Szukaj paneli, funkcji, użytkowników — wszystkiego do czego masz dostęp"
             className="flex-1 bg-transparent outline-none text-sm placeholder:text-[var(--text-muted)]"
             autoComplete="off"
             spellCheck={false}
@@ -161,11 +162,7 @@ export function CommandPalette() {
 
         <div className="max-h-[60vh] overflow-y-auto">
           {q.length === 0 ? (
-            <div className="px-4 py-8 text-center text-xs text-[var(--text-muted)]">
-              Wpisz email użytkownika, adres IP, fragment device id albo
-              nazwę panelu (np. {"\u201E"}infrastruktura{"\u201D"},{" "}
-              {"\u201E"}blocks{"\u201D"}).
-            </div>
+            <Suggestions onPick={navigateTo} />
           ) : hits.length === 0 && !loading ? (
             <div className="px-4 py-8 text-center text-xs text-[var(--text-muted)]">
               Brak wyników dla {"\u201E"}{q}{"\u201D"}.
@@ -226,8 +223,85 @@ export function CommandPalette() {
             <kbd className="font-mono">⌘K</kbd> aby zamknąć
           </span>
         </div>
+        </div>
       </div>
     </div>,
     document.body,
+  );
+}
+
+/**
+ * Sugestie po otwarciu palette — pobiera popularne panele dynamicznie z
+ * /api/admin/search?q=* (filtrowane po dostępie). Bez hardcoded kategoryzacji.
+ */
+function Suggestions({ onPick }: { onPick: (href: string) => void }) {
+  const [items, setItems] = useState<SearchHit[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await api.get<{ hits: SearchHit[] }>(
+          `/api/admin/search?q=panel&limit=12`,
+        );
+        if (!cancelled) setItems(r.hits);
+      } catch {
+        // ignore
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="px-4 py-8 text-center text-xs text-[var(--text-muted)]">
+        Wczytywanie…
+      </div>
+    );
+  }
+
+  if (items.length === 0) {
+    return (
+      <div className="px-4 py-8 text-center text-xs text-[var(--text-muted)]">
+        Zacznij wpisywać żeby wyszukać.
+      </div>
+    );
+  }
+
+  return (
+    <ul role="listbox">
+      <li className="px-4 pt-3 pb-1 text-[10px] uppercase tracking-wider text-[var(--text-muted)] font-semibold">
+        Popularne — Twoje uprawnienia
+      </li>
+      {items.map((h) => {
+        const Icon = TYPE_ICON[h.type];
+        return (
+          <li key={`sug-${h.type}-${h.id}`}>
+            <button
+              type="button"
+              onClick={() => onPick(h.href)}
+              className="w-full text-left px-4 py-2.5 flex items-center gap-3 hover:bg-[var(--bg-surface)] transition-colors"
+            >
+              <div className="w-8 h-8 rounded-lg bg-[var(--bg-main)] flex items-center justify-center flex-shrink-0">
+                <Icon className="w-4 h-4 text-[var(--text-muted)]" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm truncate">{h.title}</div>
+                {h.subtitle && (
+                  <div className="text-[11px] text-[var(--text-muted)] truncate">
+                    {h.subtitle}
+                  </div>
+                )}
+              </div>
+            </button>
+          </li>
+        );
+      })}
+    </ul>
   );
 }

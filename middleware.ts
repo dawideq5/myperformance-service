@@ -144,10 +144,6 @@ const ROLE_GUARDS: RoleGuard[] = [
   { path: "/api/admin/users", anyOf: areaRoles("keycloak") },
   { path: "/api/admin/certificates", anyOf: areaRoles("certificates") },
   { path: "/dashboard/step-ca", anyOf: areaRoles("stepca") },
-  {
-    path: "/dashboard/documents-handler",
-    anyOf: areaRoles("documenso", (n) => n !== "documenso_member"),
-  },
   // Moodle — dowolna rola z obszaru (seed + dynamic jak moodle_editingteacher,
   // moodle_teacher z `core_role_get_roles`) daje dostęp do integration API.
   { path: "/api/integrations/moodle", anyOf: [], anyPrefix: ["moodle_"] },

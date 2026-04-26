@@ -969,8 +969,63 @@ export async function upsertTemplate(args: {
       });
     })
     .catch(() => undefined);
+
+  // Sync KC localization — gdy edytujemy szablon `auth.*`, pushujemy treść
+  // do KC realm localization żeby KC FreeMarker email templates używały
+  // naszej kopii. Mapowanie actionKey → KC localization keys.
+  void import("@/lib/email/kc-localization")
+    .then(async ({ ensureLocaleEnabled, setLocaleMessage }) => {
+      const map = AUTH_TO_KC_LOCALIZATION[next.actionKey];
+      if (!map) return;
+      await ensureLocaleEnabled("pl");
+      for (const [kcKey, value] of Object.entries(map(next.subject, next.body))) {
+        await setLocaleMessage("pl", kcKey, value).catch(() => undefined);
+      }
+    })
+    .catch(() => undefined);
+
   return next;
 }
+
+/**
+ * Mapowanie actionKey z naszego catalog'u → klucze KC realm localization.
+ * KC FreeMarker email templates (theme=base) resolvują `${msg(key)}` z
+ * tego mappingu. HTML body trafia do `*BodyHtml` keys, plain do `*Body`.
+ */
+const AUTH_TO_KC_LOCALIZATION: Record<
+  string,
+  (subject: string, body: string) => Record<string, string>
+> = {
+  "auth.account-activation": (s, b) => ({
+    emailVerificationSubject: s,
+    emailVerificationBody: b,
+    emailVerificationBodyHtml: b,
+  }),
+  "auth.password-reset": (s, b) => ({
+    passwordResetSubject: s,
+    passwordResetBody: b,
+    passwordResetBodyHtml: b,
+  }),
+  "auth.email-update": (s, b) => ({
+    emailUpdateConfirmationSubject: s,
+    emailUpdateConfirmationBody: b,
+    emailUpdateConfirmationBodyHtml: b,
+  }),
+  "auth.required-actions": (s, b) => ({
+    executeActionsSubject: s,
+    executeActionsBody: b,
+    executeActionsBodyHtml: b,
+  }),
+  "auth.idp-link": (s, b) => ({
+    identityProviderLinkSubject: s,
+    identityProviderLinkBody: b,
+    identityProviderLinkBodyHtml: b,
+  }),
+  "auth.account-disabled": (s, b) => ({
+    loginDisabledSubject: s,
+    loginDisabledBody: b,
+  }),
+};
 
 export async function deleteTemplate(actionKey: string): Promise<void> {
   await withEmailClient((c) =>

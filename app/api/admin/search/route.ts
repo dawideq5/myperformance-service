@@ -236,14 +236,6 @@ const TILES: TileSpec[] = [
     requiresMinPriority: 10,
   },
   {
-    title: "Dokumenty — obieg organizacji",
-    subtitle: "Status, podpisy, wysyłka",
-    href: "/dashboard/documents-handler",
-    keywords: "dokumenty obieg organizacja handler documenso",
-    requiresArea: "documenso",
-    requiresMinPriority: 50,
-  },
-  {
     title: "Akademia (Moodle)",
     subtitle: "Kursy, szkolenia, oceny",
     href: "/api/moodle/launch",
@@ -305,11 +297,25 @@ export async function GET(req: Request) {
 
     const url = new URL(req.url);
     const q = (url.searchParams.get("q") ?? "").trim();
-    if (q.length < 1) return createSuccessResponse({ hits: [] });
-
     const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "20", 10), 50);
     const lower = q.toLowerCase();
     const hits: SearchHit[] = [];
+
+    // Special: q="panel" lub puste → wszystkie widoczne kafelki (sugestia
+    // przy otwartej palette zanim user zacznie pisać).
+    if (q.length === 0 || lower === "panel" || lower === "panels") {
+      for (const t of TILES) {
+        if (!tileVisible(session, t)) continue;
+        hits.push({
+          type: "tile",
+          id: t.href,
+          title: t.title,
+          subtitle: t.subtitle,
+          href: t.href,
+        });
+      }
+      return createSuccessResponse({ hits: hits.slice(0, limit) });
+    }
 
     // 1) Tiles + sub-views — filtrowane po dostępie usera.
     for (const t of TILES) {
