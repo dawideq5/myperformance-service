@@ -103,29 +103,42 @@ export async function ensureCollection(spec: CollectionSpec): Promise<void> {
 
 /**
  * Upsert (update lub insert) pojedynczego itemu po kluczu primary.
- * Directus nie ma natywnego upsert — robimy fetch + decyzja.
+ *
+ * Directus quirk: PATCH na non-existent item zwraca 204 (success, no content)
+ * ALE nic nie tworzy — to nie jest natywny upsert. Trzeba sprawdzić
+ * istnienie pierwsze przez GET. Inny fix: try POST najpierw (insert),
+ * jeśli 400 z "RECORD_NOT_UNIQUE" → PATCH. Idziemy POST-first bo szybsze
+ * dla idempotent seedów (tylko 1 request gdy item istnieje, 1 dla insert).
  */
 export async function upsertItem(
   collection: string,
   primaryKey: string,
   item: Record<string, unknown>,
 ): Promise<void> {
+  // Try POST insert
   try {
-    await directusFetch(
-      `/items/${collection}/${encodeURIComponent(primaryKey)}`,
-      { method: "PATCH", body: JSON.stringify(item) },
-    );
+    await directusFetch(`/items/${collection}`, {
+      method: "POST",
+      body: JSON.stringify(item),
+    });
     return;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    if (!msg.includes("404") && !msg.includes("FORBIDDEN")) {
-      throw err;
+    // 400 RECORD_NOT_UNIQUE / "primary key" → existing item, fallback PATCH
+    if (
+      msg.includes("RECORD_NOT_UNIQUE") ||
+      msg.includes("primary") ||
+      msg.includes("400") ||
+      msg.includes("409")
+    ) {
+      await directusFetch(
+        `/items/${collection}/${encodeURIComponent(primaryKey)}`,
+        { method: "PATCH", body: JSON.stringify(item) },
+      );
+      return;
     }
+    throw err;
   }
-  await directusFetch(`/items/${collection}`, {
-    method: "POST",
-    body: JSON.stringify(item),
-  });
 }
 
 export async function listItems<T = unknown>(
