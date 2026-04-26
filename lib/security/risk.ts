@@ -1,5 +1,6 @@
 import { withClient } from "@/lib/db";
 import { lookupIps, type GeoRow } from "@/lib/security/geoip";
+// import w tym samym pliku — używamy withClient bezpośrednio
 
 export type RiskBand = "low" | "medium" | "high" | "critical";
 
@@ -21,6 +22,9 @@ export interface IpIntel {
     distinctUsers: string[];
     distinctSources: string[];
   };
+
+  /** Urządzenia (cookie mp_did) widziane z tego IP. */
+  devices: Array<{ deviceId: string; sightings: number; lastSeen: string }>;
 
   riskScore: number; // 0-100
   riskBand: RiskBand;
@@ -274,13 +278,16 @@ export async function getIpIntel(args: {
     });
   });
 
-  // Geo lookup
-  const geoMap = await lookupIps(rows.map((r) => r.ip)).catch(
-    () => new Map<string, GeoRow>(),
-  );
+  // Geo lookup + device sightings per IP (równolegle)
+  const ips = rows.map((r) => r.ip);
+  const [geoMap, deviceMap] = await Promise.all([
+    lookupIps(ips).catch(() => new Map<string, GeoRow>()),
+    fetchDevicesPerIp(ips).catch(() => new Map<string, IpIntel["devices"]>()),
+  ]);
 
   return rows.map((r) => {
     const geo = geoMap.get(r.ip) ?? null;
+    const devices = deviceMap.get(r.ip) ?? [];
     const { score, reasons } = scoreIp({
       totalEvents: r.events.total,
       bySeverity: r.events.bySeverity,
@@ -299,10 +306,45 @@ export async function getIpIntel(args: {
       blockedSource: r.block?.source ?? null,
       blockedBy: r.block?.blocked_by ?? null,
       events: r.events,
+      devices,
       riskScore: score,
       riskBand: bandOf(score),
       riskReasons: reasons,
       geo,
     } satisfies IpIntel;
+  });
+}
+
+async function fetchDevicesPerIp(
+  ips: string[],
+): Promise<Map<string, IpIntel["devices"]>> {
+  if (ips.length === 0) return new Map();
+  return withClient(async (c) => {
+    const r = await c.query<{
+      ip: string;
+      device_id: string;
+      sightings: string;
+      last_seen: Date;
+    }>(
+      `SELECT ip, device_id::text, COUNT(*)::text AS sightings, MAX(seen_at) AS last_seen
+         FROM mp_device_sightings
+        WHERE ip = ANY($1::text[])
+        GROUP BY ip, device_id
+        ORDER BY ip, MAX(seen_at) DESC`,
+      [ips],
+    );
+    const map = new Map<string, IpIntel["devices"]>();
+    for (const row of r.rows) {
+      const arr = map.get(row.ip) ?? [];
+      if (arr.length < 8) {
+        arr.push({
+          deviceId: row.device_id,
+          sightings: parseInt(row.sightings, 10),
+          lastSeen: row.last_seen.toISOString(),
+        });
+      }
+      map.set(row.ip, arr);
+    }
+    return map;
   });
 }

@@ -1,6 +1,6 @@
 import type { Session } from "next-auth";
 import { ApiError } from "@/lib/api-errors";
-import { AREAS, findAreaForRole } from "@/lib/permissions/areas";
+import { AREAS, findAreaForRole, type AreaRoleSeed } from "@/lib/permissions/areas";
 
 /**
  * Realm-wide role catalog.
@@ -152,6 +152,76 @@ export function hasAnyRole(
   return isSuperAdmin(session) || hasAny(session, roles);
 }
 
+// ── Enterprise area-aware helpers ──────────────────────────────────────────
+//
+// Pojedyncza funkcja `hasArea` zastępuje 24× canAccessXxx*. Korzysta z
+// AREAS jako registry — dodanie nowego area lub roli automatycznie
+// rozszerza dostęp bez touchowania admin-auth.ts.
+//
+// ┌─ hasArea(session, "documenso") ──── true gdy user ma JAKĄKOLWIEK rolę z area
+// ├─ hasArea(session, "documenso", { min: 50 }) ─── true gdy minimum manager
+// └─ getRoleInArea(session, "documenso") ───────── "admin"|"manager"|"member"|null
+//
+// Priorities z areas.ts: user=10, manager=50, admin=90.
+
+interface HasAreaOpts {
+  /** Wymagaj minimum priority (10/50/90). */
+  min?: number;
+}
+
+/**
+ * True gdy user ma którąkolwiek rolę z danego area (uwzględniając minimum
+ * priority jeśli `opts.min` podane). Superadmin → zawsze true.
+ */
+export function hasArea(
+  session: Session | null | undefined,
+  areaId: string,
+  opts: HasAreaOpts = {},
+): boolean {
+  if (isSuperAdmin(session)) return true;
+  const area = AREAS.find((a) => a.id === areaId);
+  if (!area) return false;
+  const userRoles = new Set(rolesOf(session));
+  const minPriority = opts.min ?? 0;
+  // Match po seedach (area.kcRoles)
+  for (const r of area.kcRoles) {
+    if (r.priority >= minPriority && userRoles.has(r.name)) return true;
+  }
+  // Match po prefixie (dynamiczne role np. moodle_*) — dla area z dynamicRoles
+  if (area.dynamicRoles) {
+    const prefix = `${area.id.replace(/-/g, "_")}_`;
+    for (const r of userRoles) {
+      if (r.startsWith(prefix)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Zwraca nativeRoleId aktualnej (najwyższej priority) roli usera w area.
+ * Null gdy user nie ma żadnej roli w obszarze.
+ */
+export function getRoleInArea(
+  session: Session | null | undefined,
+  areaId: string,
+): { name: string; nativeRoleId: string | null; priority: number } | null {
+  const area = AREAS.find((a) => a.id === areaId);
+  if (!area) return null;
+  const userRoles = new Set(rolesOf(session));
+  let best: AreaRoleSeed | null = null;
+  for (const r of area.kcRoles) {
+    if (userRoles.has(r.name) && (!best || r.priority > best.priority)) {
+      best = r;
+    }
+  }
+  if (!best) return null;
+  return {
+    name: best.name,
+    nativeRoleId: best.nativeRoleId ?? null,
+    priority: best.priority,
+  };
+}
+
 export function canAccessPanel(
   session: Session | null | undefined,
   panel: PanelKey,
@@ -238,78 +308,44 @@ export function canAccessAdminPanel(
   return isAnyAdmin(session);
 }
 
-export function canAccessInfrastructure(
-  session: Session | null | undefined,
-): boolean {
-  return hasRole(session, ROLES.INFRASTRUCTURE_ADMIN);
-}
+// ── Per-area access checks (cienkie wrappery na hasArea) ──────────────────
+// Wszystkie używają teraz `hasArea` z minimum priority — jedno źródło
+// prawdy w AREAS registry. Dodanie nowej roli/area nie wymaga edycji
+// admin-auth.ts.
 
-export function canAccessEmail(
-  session: Session | null | undefined,
-): boolean {
-  return hasRole(session, ROLES.EMAIL_ADMIN);
-}
+export const canAccessInfrastructure = (s: Session | null | undefined) =>
+  hasArea(s, "infrastructure", { min: 90 });
 
-/**
- * @deprecated security panel został zmergowany z infrastructure (2026-04-26).
- * Funkcja zachowana dla backward-compat — używa infrastructure_admin.
- */
+export const canAccessEmail = (s: Session | null | undefined) =>
+  hasArea(s, "email-admin", { min: 90 });
+
+/** @deprecated security panel zmergowany z infrastructure (2026-04-26). */
 export const canAccessSecurity = canAccessInfrastructure;
 
-export function canAccessDirectus(
-  session: Session | null | undefined,
-): boolean {
-  return hasRole(session, ROLES.DIRECTUS_ADMIN);
-}
+export const canAccessDirectus = (s: Session | null | undefined) =>
+  hasArea(s, "directus", { min: 90 });
 
 // ─── Documenso — 3 tiery ──────────────────────────────────────────────────
-export function canAccessDocumensoAsMember(
-  session: Session | null | undefined,
-): boolean {
-  return hasAnyRole(session, [
-    ROLES.DOCUMENSO_MEMBER,
-    ROLES.DOCUMENSO_MANAGER,
-    ROLES.DOCUMENSO_ADMIN,
-  ]);
-}
-
-export function canAccessDocumensoAsManager(
-  session: Session | null | undefined,
-): boolean {
-  return hasAnyRole(session, [ROLES.DOCUMENSO_MANAGER, ROLES.DOCUMENSO_ADMIN]);
-}
-
-export function canAccessDocumensoAsAdmin(
-  session: Session | null | undefined,
-): boolean {
-  return hasRole(session, ROLES.DOCUMENSO_ADMIN);
-}
-
+export const canAccessDocumensoAsMember = (s: Session | null | undefined) =>
+  hasArea(s, "documenso", { min: 10 });
+export const canAccessDocumensoAsManager = (s: Session | null | undefined) =>
+  hasArea(s, "documenso", { min: 50 });
+export const canAccessDocumensoAsAdmin = (s: Session | null | undefined) =>
+  hasArea(s, "documenso", { min: 90 });
 /** @deprecated — zachowane dla kompatybilności callsite'ów. */
 export const canAccessDocumensoAsUser = canAccessDocumensoAsMember;
-
 /** @deprecated — handler = manager lub admin. */
 export const canAccessDocumensoAsHandler = canAccessDocumensoAsManager;
 
 // ─── Chatwoot ─────────────────────────────────────────────────────────────
-export function canAccessChatwootAsAgent(
-  session: Session | null | undefined,
-): boolean {
-  return hasAnyRole(session, [ROLES.CHATWOOT_AGENT, ROLES.CHATWOOT_ADMIN]);
-}
-
-export function canAccessChatwootAsAdmin(
-  session: Session | null | undefined,
-): boolean {
-  return hasRole(session, ROLES.CHATWOOT_ADMIN);
-}
+export const canAccessChatwootAsAgent = (s: Session | null | undefined) =>
+  hasArea(s, "chatwoot", { min: 10 });
+export const canAccessChatwootAsAdmin = (s: Session | null | undefined) =>
+  hasArea(s, "chatwoot", { min: 90 });
 
 // ─── Postal — admin-only ──────────────────────────────────────────────────
-export function canAccessPostal(
-  session: Session | null | undefined,
-): boolean {
-  return hasRole(session, ROLES.POSTAL_ADMIN);
-}
+export const canAccessPostal = (s: Session | null | undefined) =>
+  hasArea(s, "postal", { min: 90 });
 
 // ─── Moodle — dowolna rola z obszaru moodle daje dostęp ───────────────────
 function moodleAreaRoles(): string[] {
@@ -318,22 +354,17 @@ function moodleAreaRoles(): string[] {
   return area.kcRoles.map((r) => r.name);
 }
 
-export function canAccessMoodleAsStudent(
-  session: Session | null | undefined,
-): boolean {
-  // Każda rola Moodle (student, teacher, editingteacher, manager itp.)
-  // daje dostęp do tile'a Akademii. Lista ról jest dynamicznie
-  // rozszerzana przez provider + kc-sync — tu używamy prefix-match.
-  const own = rolesOf(session);
-  if (isSuperAdmin(session)) return true;
-  return own.some((r) => r.startsWith("moodle_"));
-}
+// ─── Moodle — dynamiczne role (provider list + seed) ──────────────────────
+// Area moodle ma `dynamicRoles=true` więc hasArea matchuje też role
+// stworzone w Moodle UI (moodle_editingteacher itd.) przez prefix.
+export const canAccessMoodleAsStudent = (s: Session | null | undefined) =>
+  hasArea(s, "moodle", { min: 10 });
 
 export function canAccessMoodleAsTeacher(
   session: Session | null | undefined,
 ): boolean {
-  const own = rolesOf(session);
   if (isSuperAdmin(session)) return true;
+  const own = rolesOf(session);
   return own.some(
     (r) =>
       r === "moodle_manager" ||
@@ -343,53 +374,24 @@ export function canAccessMoodleAsTeacher(
   );
 }
 
-export function canAccessMoodleAsAdmin(
-  session: Session | null | undefined,
-): boolean {
-  return hasRole(session, ROLES.MOODLE_MANAGER);
-}
+export const canAccessMoodleAsAdmin = (s: Session | null | undefined) =>
+  hasArea(s, "moodle", { min: 90 });
 
 // ─── Knowledge / Outline — 3 tiery ────────────────────────────────────────
-export function canAccessKnowledgeBase(
-  session: Session | null | undefined,
-): boolean {
-  return hasAnyRole(session, [
-    ROLES.KNOWLEDGE_VIEWER,
-    ROLES.KNOWLEDGE_EDITOR,
-    ROLES.KNOWLEDGE_ADMIN,
-  ]);
-}
-
-export function canAccessKnowledgeAsEditor(
-  session: Session | null | undefined,
-): boolean {
-  return hasAnyRole(session, [ROLES.KNOWLEDGE_EDITOR, ROLES.KNOWLEDGE_ADMIN]);
-}
-
-export function canAccessKnowledgeAdmin(
-  session: Session | null | undefined,
-): boolean {
-  return hasRole(session, ROLES.KNOWLEDGE_ADMIN);
-}
+export const canAccessKnowledgeBase = (s: Session | null | undefined) =>
+  hasArea(s, "knowledge", { min: 10 });
+export const canAccessKnowledgeAsEditor = (s: Session | null | undefined) =>
+  hasArea(s, "knowledge", { min: 50 });
+export const canAccessKnowledgeAdmin = (s: Session | null | undefined) =>
+  hasArea(s, "knowledge", { min: 90 });
 
 // ─── Keycloak / step-ca / certs ───────────────────────────────────────────
-export function canAccessKeycloakAdmin(
-  session: Session | null | undefined,
-): boolean {
-  return hasRole(session, ROLES.KEYCLOAK_ADMIN);
-}
-
-export function canAccessStepCa(
-  session: Session | null | undefined,
-): boolean {
-  return hasRole(session, ROLES.STEPCA_ADMIN);
-}
-
-export function canManageCertificates(
-  session: Session | null | undefined,
-): boolean {
-  return hasRole(session, ROLES.CERTIFICATES_ADMIN);
-}
+export const canAccessKeycloakAdmin = (s: Session | null | undefined) =>
+  hasArea(s, "keycloak", { min: 90 });
+export const canAccessStepCa = (s: Session | null | undefined) =>
+  hasArea(s, "stepca", { min: 90 });
+export const canManageCertificates = (s: Session | null | undefined) =>
+  hasArea(s, "certificates", { min: 90 });
 
 export function canAccessKadromierz(
   session: Session | null | undefined,

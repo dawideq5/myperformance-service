@@ -35,6 +35,8 @@ interface IpIntel {
     distinctSources: string[];
   };
 
+  devices: Array<{ deviceId: string; sightings: number; lastSeen: string }>;
+
   riskScore: number;
   riskBand: "low" | "medium" | "high" | "critical";
   riskReasons: string[];
@@ -499,6 +501,35 @@ function IntelCard({
                   </Badge>
                 ))}
               </div>
+            </div>
+          )}
+          {intel.devices.length > 0 && (
+            <div>
+              <div className="text-[10px] uppercase text-[var(--text-muted)] tracking-wide mb-1.5 flex items-center gap-1">
+                <Server className="w-3 h-3" />
+                Urządzenia widziane z tego IP ({intel.devices.length})
+              </div>
+              <ul className="space-y-1">
+                {intel.devices.slice(0, 8).map((d) => (
+                  <li
+                    key={d.deviceId}
+                    className="flex items-center justify-between gap-2"
+                  >
+                    <code className="font-mono text-[10px]">
+                      {d.deviceId.slice(0, 8)}…{d.deviceId.slice(-4)}
+                    </code>
+                    <span className="text-[10px] text-[var(--text-muted)]">
+                      {d.sightings}× ·{" "}
+                      {new Date(d.lastSeen).toLocaleString("pl-PL", {
+                        day: "2-digit",
+                        month: "2-digit",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
         </div>
