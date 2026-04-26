@@ -339,7 +339,7 @@ export async function updateBranding(
   patch: BrandingPatch,
   actor: string,
 ): Promise<Branding> {
-  return withEmailClient(async (c) => {
+  const next = await withEmailClient(async (c) => {
     await c.query(
       `UPDATE mp_branding SET
          brand_name      = COALESCE($1, brand_name),
@@ -367,6 +367,22 @@ export async function updateBranding(
     );
     return getBranding();
   });
+  // Write-through do Directus CMS (best-effort, non-blocking).
+  void import("@/lib/directus-cms")
+    .then(async ({ isConfigured, ensureCollection, upsertItem, COLLECTION_SPECS }) => {
+      if (!(await isConfigured())) return;
+      const spec = COLLECTION_SPECS.find((c) => c.collection === "mp_branding_cms");
+      if (spec) await ensureCollection(spec);
+      await upsertItem("mp_branding_cms", "default", {
+        id: "default",
+        logo_url: next.brandLogoUrl,
+        accent_color: next.primaryColor,
+        footer_html: next.legalName,
+        synced_at: new Date().toISOString(),
+      });
+    })
+    .catch(() => undefined);
+  return next;
 }
 
 // ── KC localization overrides ───────────────────────────────────────────────
@@ -911,7 +927,7 @@ export async function upsertTemplate(args: {
   smtpConfigId?: string | null;
   actor: string;
 }): Promise<EmailTemplate> {
-  return withEmailClient(async (c) => {
+  const next = await withEmailClient(async (c) => {
     const res = await c.query(
       `INSERT INTO mp_email_templates
          (action_key, enabled, subject, body, layout_id, smtp_config_id, updated_by)
@@ -937,6 +953,23 @@ export async function upsertTemplate(args: {
     );
     return rowToTemplate(res.rows[0]);
   });
+  // Write-through do Directus CMS — synchronizujemy treść szablonów żeby
+  // content team mógł je oglądać/edytować w natywnym Directus UI.
+  void import("@/lib/directus-cms")
+    .then(async ({ isConfigured, ensureCollection, upsertItem, COLLECTION_SPECS }) => {
+      if (!(await isConfigured())) return;
+      const spec = COLLECTION_SPECS.find((c) => c.collection === "mp_email_templates_cms");
+      if (spec) await ensureCollection(spec);
+      await upsertItem("mp_email_templates_cms", next.actionKey, {
+        id: next.actionKey,
+        kind: next.actionKey,
+        subject: next.subject,
+        html: next.body,
+        synced_at: new Date().toISOString(),
+      });
+    })
+    .catch(() => undefined);
+  return next;
 }
 
 export async function deleteTemplate(actionKey: string): Promise<void> {

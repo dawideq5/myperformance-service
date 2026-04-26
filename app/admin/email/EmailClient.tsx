@@ -158,6 +158,18 @@ function StartPanel({ onGoTo }: { onGoTo: (t: TabId) => void }) {
         </p>
       </Card>
 
+      <Alert tone="info" title="Synchronizacja z Directus CMS — automatyczna">
+        <p>
+          Każda zmiana brandingu lub szablonu w tym panelu jest natychmiast
+          zapisywana TAKŻE w Directus CMS (kolekcje{" "}
+          <code className="font-mono text-[11px]">mp_branding_cms</code> i{" "}
+          <code className="font-mono text-[11px]">mp_email_templates_cms</code>
+          ). Content team może je tam oglądać; edycja w Directusie zostanie
+          nadpisana przy kolejnym zapisie z dashboardu — dashboard pozostaje
+          source of truth.
+        </p>
+      </Alert>
+
       <NavTile
         icon={<Mail className="w-5 h-5 text-emerald-400" />}
         title="Szablony emaili"
