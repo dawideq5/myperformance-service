@@ -121,10 +121,7 @@ export function GroupsClient({ userLabel, userEmail, embedded }: GroupsClientPro
         requiresArea="keycloak"
         requiresMinPriority={90}
       >
-        Grupa to zestaw realm roles przyznawanych łącznie. Member-of-group
-        dziedziczy wszystkie role grupy + swoje własne. Praktyka: jedna grupa
-        per persona ("Sprzedawca", "Pełen admin"), a userzy są w 1-2 grupach
-        zamiast 10 osobnych ról.
+        {"Grupa to zestaw realm roles przyznawanych łącznie. Member-of-group dziedziczy wszystkie role grupy + swoje własne. Praktyka: jedna grupa per persona (\u201ESprzedawca\u201D, \u201EPełen admin\u201D), a userzy są w 1-2 grupach zamiast 10 osobnych ról."}
       </OnboardingCard>
 
       <section className="mb-6 flex flex-wrap items-start justify-between gap-4">

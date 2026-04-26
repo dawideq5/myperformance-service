@@ -364,7 +364,7 @@ export function ActivityTab() {
       >
         Każde logowanie, zmiana hasła, dodanie 2FA, połączenie integracji,
         sesja SSO — wszystko trafia tu na 7 dni. Filtry per dzień + per typ.
-        Anomalia? Wciśnij „Wyloguj wszystko" w sekcji Sesje i zmień hasło.
+        {"Anomalia? Wciśnij \u201EWyloguj wszystko\u201D w sekcji Sesje i zmień hasło."}
       </OnboardingCard>
       <Card padding="md">
         <CardHeader

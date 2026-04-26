@@ -173,10 +173,7 @@ export function SessionsTab() {
         storageKey="account-sessions"
         title="Aktywne sesje SSO"
       >
-        Każda sesja = aktywne logowanie do Keycloak (i wszystkie aplikacje, do
-        których SSO Cię już wpuściło). Wyloguj sesję jeśli nie poznajesz
-        urządzenia/IP. Bieżąca sesja oznaczona jest „Ta sesja"; jej wylogowanie
-        kończy też pracę w dashboardzie.
+        {"Każda sesja = aktywne logowanie do Keycloak (i wszystkie aplikacje, do których SSO Cię już wpuściło). Wyloguj sesję jeśli nie poznajesz urządzenia/IP. Bieżąca sesja oznaczona jest \u201ETa sesja\u201D; jej wylogowanie kończy też pracę w dashboardzie."}
       </OnboardingCard>
       <Card padding="md">
         <h2 className="text-lg font-semibold text-[var(--text-main)] mb-6">
