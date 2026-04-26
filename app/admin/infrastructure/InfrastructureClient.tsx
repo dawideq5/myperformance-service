@@ -34,6 +34,7 @@ import {
 } from "@/app/admin/security/SecurityClient";
 import { IntelBlocksPanel } from "./IntelBlocksPanel";
 import { EventMapPanel } from "./EventMapPanel";
+import { DevicesPanel } from "./DevicesPanel";
 
 type TabId =
   | "vps"
@@ -42,6 +43,7 @@ type TabId =
   | "security"
   | "blocks"
   | "map"
+  | "devices"
   | "wazuh";
 
 interface VpsItem {
@@ -112,6 +114,11 @@ export function InfrastructureClient({
         label: "Mapa & analityka",
         icon: <Globe className="w-5 h-5" />,
       },
+      {
+        id: "devices",
+        label: "Urządzenia",
+        icon: <HardDrive className="w-5 h-5" />,
+      },
       { id: "wazuh", label: "Wazuh SIEM", icon: <Shield className="w-5 h-5" /> },
     ],
     [],
@@ -167,6 +174,9 @@ export function InfrastructureClient({
           </TabPanel>
           <TabPanel tabId="map" active={tab === "map"}>
             <EventMapPanel />
+          </TabPanel>
+          <TabPanel tabId="devices" active={tab === "devices"}>
+            <DevicesPanel />
           </TabPanel>
           <TabPanel tabId="wazuh" active={tab === "wazuh"}>
             <WazuhPanel />

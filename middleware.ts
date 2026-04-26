@@ -84,6 +84,9 @@ function isSameOrigin(req: Request): boolean {
 }
 
 interface TokenPayload {
+  sub?: string;
+  email?: string;
+  preferred_username?: string;
   realm_access?: { roles?: string[] };
   resource_access?: Record<string, { roles?: string[] }>;
 }
@@ -187,11 +190,19 @@ export default withAuth(
       pathname.startsWith("/api/account") ||
       pathname.startsWith("/api/admin");
 
+    // Closure'em zmienna deviceCookieToSet ustawiana niżej — pasuje do
+    // każdego responses przez withDeviceCookie helper (poniżej).
+    let _deviceCookie: string | null = null;
+    const setDeviceCookieValue = (v: string) => {
+      _deviceCookie = v;
+    };
+
     const passThrough = () => {
       const res = NextResponse.next({
         request: { headers: new Headers(req.headers) },
       });
       res.headers.set(REQUEST_ID_HEADER, requestId);
+      if (_deviceCookie) res.headers.append("Set-Cookie", _deviceCookie);
       return res;
     };
 
@@ -199,6 +210,50 @@ export default withAuth(
     (req.headers as Headers).set(REQUEST_ID_HEADER, requestId);
 
     const isApi = pathname.startsWith("/api/");
+
+    // ── Device fingerprinting ─────────────────────────────────────────────
+    // Każdy request od auth'd usera dostaje cookie `mp_did` (HMAC-signed
+    // UUID, .myperformance.pl, 1y). recordSighting deduped na 5min per
+    // (device, user, path-prefix) — ogranicza zapis do DB.
+    let deviceId: string | null = null;
+    try {
+      const { parseDeviceCookie, newDeviceId, buildDeviceCookie, recordSighting, DEVICE_COOKIE_NAME } =
+        await import("@/lib/security/devices");
+      const existing = req.cookies.get(DEVICE_COOKIE_NAME)?.value;
+      const parsed = parseDeviceCookie(existing);
+      if (parsed) {
+        deviceId = parsed;
+      } else {
+        deviceId = newDeviceId();
+        setDeviceCookieValue(buildDeviceCookie(deviceId));
+      }
+      // Sighting tylko gdy mamy token (auth'd user) — anon nie loguje
+      if (token?.accessToken && deviceId) {
+        const accessTok = token.accessToken as string;
+        const payload = decodePayload(accessTok);
+        const userId = payload?.sub ?? null;
+        const userEmail = (payload?.email as string | undefined) ?? null;
+        const ip =
+          req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+          req.headers.get("x-real-ip") ??
+          null;
+        const ua = req.headers.get("user-agent");
+        // fire-and-forget
+        void recordSighting({
+          deviceId,
+          userId,
+          userEmail,
+          ip,
+          userAgent: ua,
+          path: pathname,
+          requestId,
+        });
+      }
+    } catch (err) {
+      logger.warn("device sighting failed", {
+        err: err instanceof Error ? err.message : String(err),
+      });
+    }
 
     if (!isProtected) return passThrough();
 

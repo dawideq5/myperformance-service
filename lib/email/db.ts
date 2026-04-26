@@ -138,6 +138,32 @@ async function ensureSchema(client: PoolClient): Promise<void> {
     CREATE INDEX IF NOT EXISTS mp_2fa_codes_cleanup_idx
       ON mp_2fa_codes (expires_at) WHERE used_at IS NULL;
 
+    -- Device fingerprinting: per-device cookie + sighting log per (device,user,ip).
+    CREATE TABLE IF NOT EXISTS mp_devices (
+      id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      first_seen   TIMESTAMPTZ NOT NULL DEFAULT now(),
+      last_seen    TIMESTAMPTZ NOT NULL DEFAULT now(),
+      user_agent   TEXT,
+      trusted      BOOLEAN NOT NULL DEFAULT FALSE,
+      label        TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS mp_device_sightings (
+      id           BIGSERIAL PRIMARY KEY,
+      device_id    UUID NOT NULL REFERENCES mp_devices(id) ON DELETE CASCADE,
+      user_id      TEXT,
+      user_email   TEXT,
+      ip           TEXT,
+      ua_hash      TEXT,
+      seen_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+      path         TEXT,
+      request_id   TEXT
+    );
+    CREATE INDEX IF NOT EXISTS mp_device_sightings_device_idx ON mp_device_sightings (device_id, seen_at DESC);
+    CREATE INDEX IF NOT EXISTS mp_device_sightings_user_idx ON mp_device_sightings (user_id, seen_at DESC);
+    CREATE INDEX IF NOT EXISTS mp_device_sightings_ip_idx ON mp_device_sightings (ip, seen_at DESC);
+    CREATE INDEX IF NOT EXISTS mp_device_sightings_seen_idx ON mp_device_sightings (seen_at DESC);
+
     -- Cache geolocation per IP — populowane on-demand z zewnętrznego API
     -- (ipapi.co, free 1000/day). TTL 30 dni przez cleanup.
     CREATE TABLE IF NOT EXISTS mp_ip_geo (
