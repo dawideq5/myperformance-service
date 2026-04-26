@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { ArrowLeft, LogOut, Settings, User as UserIcon } from "lucide-react";
-import { Button, PageHeader } from "@/components/ui";
+import { ArrowLeft, LogOut, Search, Settings, User as UserIcon } from "lucide-react";
+import { Button, PageHeader, ThemeToggle } from "@/components/ui";
 import { useAuthRedirect } from "@/hooks/useAuthRedirect";
 
 export interface AppHeaderProps {
@@ -60,6 +60,25 @@ export function AppHeader({
       right={
         <>
           {rightExtras}
+          <button
+            type="button"
+            className="hidden sm:inline-flex items-center gap-2 text-xs text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-surface)] px-2.5 py-1.5 rounded-lg border border-[var(--border-subtle)] transition"
+            aria-label="Wyszukaj globalnie"
+            title="Cmd+K (lub Ctrl+K) — szybkie wyszukiwanie"
+            onClick={() =>
+              window.dispatchEvent(
+                new KeyboardEvent("keydown", {
+                  key: "k",
+                  metaKey: true,
+                  bubbles: true,
+                }),
+              )
+            }
+          >
+            <Search className="w-3.5 h-3.5" />
+            <kbd className="font-mono text-[10px]">⌘K</kbd>
+          </button>
+          <ThemeToggle className="hidden sm:inline-flex" />
           {(userLabel || userSubLabel) && (
             <div className="hidden sm:flex items-center gap-3 pr-4 border-r border-[var(--border-subtle)]">
               <div className="w-9 h-9 rounded-full bg-[var(--accent)]/10 flex items-center justify-center flex-shrink-0">

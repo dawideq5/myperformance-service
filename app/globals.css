@@ -2,14 +2,67 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
+:root,
+html.dark {
   --bg-main: #0a0a0f;
   --bg-card: #12121a;
   --bg-header: #0f0f16;
+  --bg-surface: #14141d;
   --border-subtle: #1e1e2e;
   --text-main: #f1f1f4;
   --text-muted: #6b6b7b;
   --accent: #6366f1;
+}
+
+html.light {
+  --bg-main: #f7f7fa;
+  --bg-card: #ffffff;
+  --bg-header: #ffffff;
+  --bg-surface: #f0f0f5;
+  --border-subtle: #e5e5ea;
+  --text-main: #1a1a1f;
+  --text-muted: #6b6b7b;
+  --accent: #6366f1;
+}
+
+html.light body {
+  background-color: var(--bg-main);
+}
+
+/* Bezpieczne wstrzyknięcie theme przed paint — usuwa FOUC. */
+html { color-scheme: dark; }
+html.light { color-scheme: light; }
+
+/* Print-friendly views — raporty admin powinny ładnie się drukować
+   bez sidebarów, toastów i interakcji. */
+@media print {
+  @page {
+    margin: 1.5cm;
+  }
+  html, body {
+    background: white !important;
+    color: black !important;
+  }
+  /* Ukryj wszystko interaktywne / nawigacyjne */
+  nav, header, button, [role="dialog"], [role="region"][aria-label="Powiadomienia"],
+  .no-print {
+    display: none !important;
+  }
+  /* Linki — pokazuj URL po treści */
+  a[href^="http"]::after {
+    content: " (" attr(href) ")";
+    font-size: 90%;
+    color: #555;
+  }
+  /* Cards: usuń tła / cienie */
+  .bg-\[var\(--bg-card\)\], .bg-\[var\(--bg-surface\)\] {
+    background: white !important;
+    box-shadow: none !important;
+    border: 1px solid #ddd !important;
+    page-break-inside: avoid;
+  }
+  /* Wymusz czytelność */
+  * { color-adjust: exact !important; -webkit-print-color-adjust: exact !important; }
 }
 
 body {

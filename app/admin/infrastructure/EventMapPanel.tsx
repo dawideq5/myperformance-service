@@ -2,7 +2,14 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Globe, Loader2, TrendingUp, Zap } from "lucide-react";
-import { Alert, Badge, Card, CardHeader, EmptyState } from "@/components/ui";
+import {
+  Alert,
+  Badge,
+  Card,
+  CardHeader,
+  EmptyState,
+  OnboardingCard,
+} from "@/components/ui";
 import { api, ApiRequestError } from "@/lib/api-client";
 import { SEVERITY_HEX } from "@/lib/ui/severity";
 
@@ -73,6 +80,8 @@ export function EventMapPanel() {
 
   useEffect(() => {
     void load();
+    const id = setInterval(() => void load(), 60_000);
+    return () => clearInterval(id);
   }, [load]);
 
   return (
@@ -97,6 +106,14 @@ export function EventMapPanel() {
           </select>
         </div>
       </Card>
+
+      <OnboardingCard storageKey="event-map" title="Jak czytać mapę">
+        Markery to publiczne IP z <code>mp_security_events</code> w okresie.
+        Kolor = max severity (czerwony = critical), rozmiar ∝ log(events).
+        Sekcja <strong>Wzorce ataków</strong> auto-wykrywa: 1 IP × 3+
+        kont (credential stuffing), 1 user × 3+ IP (compromised account).
+        Timeline stacked bar po godzinach pokazuje pulse aktywności.
+      </OnboardingCard>
 
       {error && <Alert tone="error">{error}</Alert>}
 

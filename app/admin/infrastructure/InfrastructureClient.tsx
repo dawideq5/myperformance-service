@@ -19,11 +19,15 @@ import {
   Button,
   Card,
   CardHeader,
+  EmptyState,
   InfoTooltip,
+  OnboardingCard,
   PageShell,
+  Skeleton,
   TabPanel,
   Tabs,
   useConfirm,
+  useToast,
   type TabDefinition,
 } from "@/components/ui";
 import { AppHeader } from "@/components/AppHeader";
@@ -198,6 +202,7 @@ function VpsPanel() {
   const [snapshotting, setSnapshotting] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const { confirm, ConfirmDialogElement } = useConfirm();
+  const toast = useToast();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -246,6 +251,7 @@ function VpsPanel() {
         { message: string },
         { vpsName: string; force?: boolean }
       >("/api/admin/infrastructure/snapshot", { vpsName: name, force });
+      toast.success("Snapshot zlecony", r.message);
       setNotice(r.message);
       setTimeout(load, 5000);
     } catch (err) {
@@ -262,9 +268,9 @@ function VpsPanel() {
         });
         if (proceed) return takeSnapshot(name, true);
       } else {
-        setError(
-          err instanceof ApiRequestError ? err.message : "Snapshot failed",
-        );
+        const msg = err instanceof ApiRequestError ? err.message : "Snapshot failed";
+        toast.error("Snapshot failed", msg);
+        setError(msg);
       }
     } finally {
       setSnapshotting(null);
@@ -291,10 +297,13 @@ function VpsPanel() {
       const r = await api.delete<{ message: string }>(
         `/api/admin/infrastructure/snapshot?vpsName=${encodeURIComponent(name)}`,
       );
+      toast.success("Snapshot usunięty", r.message);
       setNotice(r.message);
       setTimeout(load, 3000);
     } catch (err) {
-      setError(err instanceof ApiRequestError ? err.message : "Delete failed");
+      const msg = err instanceof ApiRequestError ? err.message : "Delete failed";
+      toast.error("Delete failed", msg);
+      setError(msg);
     } finally {
       setSnapshotting(null);
     }
@@ -309,6 +318,14 @@ function VpsPanel() {
           description="Pełne info, automated backup OVH, snapshoty manualne, lista IP. Dane pobierane live z OVH API."
         />
       </Card>
+
+      <OnboardingCard storageKey="vps-panel" title="Trzy warstwy backupu">
+        Każdej nocy <strong>OVH 22:39</strong> robi off-site full disk
+        snapshot, <strong>23:00</strong> nasz cron dumpuje wszystkie bazy
+        + Coolify config (28MB, 7 dni retencji), a snapshot manualny tu
+        służy do <em>punktu-w-czasie przed dużą zmianą</em>. OVH limit:
+        1 aktywny snapshot per VPS — przycisk {"\u201E"}Nadpisz{"\u201D"} robi delete + create.
+      </OnboardingCard>
 
       {error && <Alert tone="error">{error}</Alert>}
       {notice && <Alert tone="success">{notice}</Alert>}
@@ -528,6 +545,7 @@ function DnsPanel() {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
   const { confirm, ConfirmDialogElement } = useConfirm();
+  const toast = useToast();
 
   const load = useCallback(async (z: string) => {
     setLoading(true);
@@ -586,9 +604,12 @@ function DnsPanel() {
       await api.delete(
         `/api/admin/infrastructure/dns?zone=${encodeURIComponent(zone)}&id=${id}`,
       );
+      toast.success("Rekord DNS usunięty", "OVH refreshuje strefę w 1-15 min");
       await load(zone);
     } catch (err) {
-      setError(err instanceof ApiRequestError ? err.message : "Delete failed");
+      const msg = err instanceof ApiRequestError ? err.message : "Delete failed";
+      toast.error("Nie udało się usunąć", msg);
+      setError(msg);
     }
   }
 
@@ -600,6 +621,16 @@ function DnsPanel() {
           title="DNS Zone — zarządzanie rekordami"
           description="Pełna kontrola nad strefą DNS przez OVH API. Dodawanie/usuwanie rekordów, auto-refresh strefy po zmianie. Automatyczne dodawanie SPF/DKIM/CNAME dla nowych usług."
         />
+        <OnboardingCard
+          storageKey="dns-panel"
+          title="Edycja DNS — uważaj na propagację"
+        >
+          Każda zmiana propaguje się przez TTL danego rekordu. Najczęściej
+          1-15 min, ale na DNS resolverach klienta może wisieć dłużej.
+          Usunięcie <strong>MX</strong> przerywa email, usunięcie A/CNAME
+          wyłącza aplikację pod tym subdomenem. OVH refreshuje strefę
+          automatycznie po naszym DELETE.
+        </OnboardingCard>
         <div className="mt-4 flex gap-2">
           <select
             className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-2 text-sm"
@@ -763,8 +794,28 @@ function ResourcesPanel() {
   if (error) return <Alert tone="error">{error}</Alert>;
   if (loading || !data) {
     return (
-      <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
-        <Loader2 className="w-4 h-4 animate-spin" /> Pobieram metryki…
+      <div className="space-y-4" aria-busy="true" aria-label="Pobieranie metryk">
+        <Card padding="md">
+          <Skeleton className="h-5 w-48 mb-2" />
+          <Skeleton className="h-3 w-3/4" />
+        </Card>
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Card padding="md" key={i}>
+              <Skeleton className="h-3 w-12 mb-2" />
+              <Skeleton className="h-7 w-16 mb-2" />
+              <Skeleton className="h-1.5 w-full" />
+            </Card>
+          ))}
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {Array.from({ length: 2 }).map((_, i) => (
+            <Card padding="md" key={i}>
+              <Skeleton className="h-4 w-32 mb-3" />
+              <Skeleton className="h-44 w-44 rounded-full mx-auto" />
+            </Card>
+          ))}
+        </div>
       </div>
     );
   }
@@ -793,6 +844,18 @@ function ResourcesPanel() {
           description={`Live metryki Dockera (per-kontener). Aktualizacja co 15 s. Ostatnio: ${new Date(data.collectedAt).toLocaleTimeString("pl-PL")}.${data.machine.driver ? ` · driver: ${data.machine.driver}` : ""}`}
         />
       </Card>
+
+      <OnboardingCard
+        storageKey="resources-panel"
+        title="Co tu widzisz"
+      >
+        Dane idą z <code>tecnativa/docker-socket-proxy</code> (read-only,
+        bez POST). CPU% to suma per-container delta cpu / system × online_cpus —
+        może przekraczać 100% (n × vCPU). RAM = working set bez page cache.
+        Donut RAM grupuje kontenery po aplikacji (Coolify labels). ROM
+        section pokazuje breakdown overlay storage z <code>/system/df</code>{" "}
+        (cache 5 min).
+      </OnboardingCard>
 
       {data.errors.length > 0 && (
         <Alert tone="warning" title="Część metryk niedostępna">

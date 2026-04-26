@@ -5,14 +5,22 @@ import {
   AlertTriangle,
   Clock,
   Globe,
-  Loader2,
   Monitor,
   Search,
   Smartphone,
   Users,
   Zap,
 } from "lucide-react";
-import { Alert, Badge, Card, EmptyState, Input, RelativeTime } from "@/components/ui";
+import {
+  Alert,
+  Badge,
+  Card,
+  EmptyState,
+  Input,
+  OnboardingCard,
+  RelativeTime,
+  Skeleton,
+} from "@/components/ui";
 import { api, ApiRequestError } from "@/lib/api-client";
 
 interface DeviceOverviewRow {
@@ -147,6 +155,15 @@ export function DevicesPanel() {
         </div>
       </Card>
 
+      <OnboardingCard storageKey="devices-panel" title="Cookie mp_did i co z niego mamy">
+        Każdy zalogowany user dostaje <strong>HMAC-signed cookie 1 rok</strong>{" "}
+        domain=.myperformance.pl. Sighting deduped na 5 min per (device,
+        user, /api segment). Trzy wzorce flagowane: 4+ kont na 1 device
+        = <em>shared/compromise</em>, 5+ devices na 1 user = <em>account sharing</em>,
+        10+ IP z 1 device = <em>VPN/mobile</em>. Klik na device →
+        szczegóły z kontami + IP + risk flags.
+      </OnboardingCard>
+
       {error && <Alert tone="error">{error}</Alert>}
 
       {overview?.suspicious && overview.suspicious.length > 0 && (
@@ -193,9 +210,20 @@ export function DevicesPanel() {
         </div>
 
         {loading ? (
-          <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
-            <Loader2 className="w-4 h-4 animate-spin" /> Ładowanie…
-          </div>
+          <ul className="space-y-2" aria-busy="true" aria-label="Ładowanie urządzeń">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <li
+                key={i}
+                className="flex items-center gap-3 py-2 border-b border-[var(--border-subtle)] last:border-0"
+              >
+                <Skeleton className="w-3.5 h-3.5 rounded" />
+                <Skeleton className="h-3 w-24" />
+                <Skeleton className="h-3 w-40 flex-1" />
+                <Skeleton className="h-3 w-16" />
+                <Skeleton className="h-3 w-12" />
+              </li>
+            ))}
+          </ul>
         ) : filtered && filtered.length > 0 ? (
           <ul className="divide-y divide-[var(--border-subtle)]">
             {filtered.map((d) => {
@@ -284,7 +312,22 @@ export function DevicesPanel() {
             </button>
           </div>
           {intelLoading || !intel ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
+            <div className="space-y-3">
+              <div className="flex flex-wrap gap-1.5">
+                <Skeleton className="h-5 w-32" />
+              </div>
+              <div className="grid grid-cols-4 gap-3">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="space-y-1.5">
+                    <Skeleton className="h-2 w-16" />
+                    <Skeleton className="h-5 w-12" />
+                  </div>
+                ))}
+              </div>
+              <Skeleton className="h-3 w-32" />
+              <Skeleton className="h-3 w-full" />
+              <Skeleton className="h-3 w-3/4" />
+            </div>
           ) : (
             <div className="space-y-3 text-xs">
               {intel.riskFlags.length > 0 && (

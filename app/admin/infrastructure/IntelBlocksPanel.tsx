@@ -69,6 +69,22 @@ interface IpIntel {
 
 type Status = "all" | "blocked" | "active";
 
+type PresetId = "all" | "critical" | "high-plus" | "active-blocks" | "many-users" | "long-running";
+
+const PRESETS: Array<{ id: PresetId; label: string; predicate: (i: IpIntel) => boolean }> = [
+  { id: "all", label: "Wszystko", predicate: () => true },
+  { id: "critical", label: "Tylko critical", predicate: (i) => i.riskBand === "critical" },
+  { id: "high-plus", label: "High + critical", predicate: (i) => i.riskBand === "critical" || i.riskBand === "high" },
+  { id: "active-blocks", label: "Aktywne blokady", predicate: (i) => i.blocked },
+  { id: "many-users", label: "Atak na 5+ kont", predicate: (i) => i.events.distinctUsers.length >= 5 },
+  { id: "long-running", label: "Trwa >24h", predicate: (i) => {
+      if (!i.events.firstSeen || !i.events.lastSeen) return false;
+      const span = (new Date(i.events.lastSeen).getTime() - new Date(i.events.firstSeen).getTime()) / 3_600_000;
+      return span >= 24;
+    },
+  },
+];
+
 export function IntelBlocksPanel() {
   const [search, setSearch] = useState("");
   const [debounced, setDebounced] = useState("");
@@ -77,6 +93,8 @@ export function IntelBlocksPanel() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [preset, setPreset] = useState<PresetId>("all");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const { confirm, ConfirmDialogElement } = useConfirm();
   const toast = useToast();
 
@@ -106,6 +124,9 @@ export function IntelBlocksPanel() {
 
   useEffect(() => {
     void load();
+    // Auto-refresh co 30s — security data jest realtime-ish
+    const id = setInterval(() => void load(), 30_000);
+    return () => clearInterval(id);
   }, [load]);
 
   async function unblock(ip: string, intel: IpIntel) {
@@ -173,14 +194,120 @@ export function IntelBlocksPanel() {
     }
   }
 
-  const stats = useMemo(() => {
+  const filteredData = useMemo(() => {
     if (!data) return null;
-    const total = data.length;
-    const blocked = data.filter((d) => d.blocked).length;
-    const critical = data.filter((d) => d.riskBand === "critical").length;
-    const high = data.filter((d) => d.riskBand === "high").length;
+    const p = PRESETS.find((x) => x.id === preset)!;
+    return data.filter(p.predicate);
+  }, [data, preset]);
+
+  const stats = useMemo(() => {
+    if (!filteredData) return null;
+    const total = filteredData.length;
+    const blocked = filteredData.filter((d) => d.blocked).length;
+    const critical = filteredData.filter((d) => d.riskBand === "critical").length;
+    const high = filteredData.filter((d) => d.riskBand === "high").length;
     return { total, blocked, critical, high };
-  }, [data]);
+  }, [filteredData]);
+
+  const allSelected =
+    filteredData != null &&
+    filteredData.length > 0 &&
+    filteredData.every((d) => selected.has(d.ip));
+
+  function toggleSelectAll() {
+    if (!filteredData) return;
+    if (allSelected) {
+      const next = new Set(selected);
+      for (const d of filteredData) next.delete(d.ip);
+      setSelected(next);
+    } else {
+      const next = new Set(selected);
+      for (const d of filteredData) next.add(d.ip);
+      setSelected(next);
+    }
+  }
+
+  function toggleSelect(ip: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(ip)) next.delete(ip);
+      else next.add(ip);
+      return next;
+    });
+  }
+
+  async function bulkBlock() {
+    if (!filteredData) return;
+    const ips = filteredData.filter((d) => selected.has(d.ip) && !d.blocked);
+    if (ips.length === 0) {
+      toast.warning("Brak IP do zablokowania", "Wybrane IP są już zablokowane.");
+      return;
+    }
+    const ok = await confirm({
+      title: `Zablokować ${ips.length} IP?`,
+      tone: "danger",
+      description: `Wszystkie wybrane IP zostaną zablokowane na 24h przez iptables.`,
+      consequences: [
+        `Operacja seryjna — ${ips.length} requestów do API`,
+        `Każdy IP otrzyma osobny wpis w mp_blocked_ips`,
+        "Możesz odblokować pojedynczo z karty IP",
+      ],
+      confirmLabel: `Zablokuj ${ips.length} IP`,
+    });
+    if (!ok) return;
+    let okCount = 0;
+    let failCount = 0;
+    for (const intel of ips) {
+      try {
+        await api.post("/api/admin/security/blocks", {
+          ip: intel.ip,
+          reason: `Bulk block (risk ${intel.riskScore})`,
+          durationMinutes: 1440,
+        });
+        okCount++;
+      } catch {
+        failCount++;
+      }
+    }
+    if (okCount > 0)
+      toast.success("Zablokowano", `${okCount} IP · ${failCount} błędów`);
+    else toast.error("Bulk block failed", `${failCount} błędów`);
+    setSelected(new Set());
+    await load();
+  }
+
+  async function bulkUnblock() {
+    if (!filteredData) return;
+    const ips = filteredData.filter((d) => selected.has(d.ip) && d.blocked);
+    if (ips.length === 0) {
+      toast.warning("Brak IP do odblokowania", "Wybrane IP nie są zablokowane.");
+      return;
+    }
+    const ok = await confirm({
+      title: `Odblokować ${ips.length} IP?`,
+      tone: "warning",
+      description: `Operacja seryjna — usuwa wpisy z mp_blocked_ips, cron sync zdejmie iptables w ≤1min.`,
+      confirmLabel: `Odblokuj ${ips.length} IP`,
+    });
+    if (!ok) return;
+    let okCount = 0;
+    let failCount = 0;
+    for (const intel of ips) {
+      try {
+        await api.delete(
+          `/api/admin/security/blocks?ip=${encodeURIComponent(intel.ip)}`,
+        );
+        okCount++;
+      } catch {
+        failCount++;
+      }
+    }
+    if (okCount > 0)
+      toast.success("Odblokowano", `${okCount} IP · ${failCount} błędów`);
+    else toast.error("Bulk unblock failed", `${failCount} błędów`);
+    setSelected(new Set());
+    await load();
+  }
 
   return (
     <div className="space-y-4">
@@ -242,6 +369,22 @@ export function IntelBlocksPanel() {
             <option value="active">Tylko wygasłe</option>
           </select>
         </div>
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {PRESETS.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => setPreset(p.id)}
+              className={`text-[11px] px-2.5 py-1 rounded-full border transition ${
+                preset === p.id
+                  ? "border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--text-main)]"
+                  : "border-[var(--border-subtle)] text-[var(--text-muted)] hover:border-[var(--text-muted)]"
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
       </Card>
 
       {loading ? (
@@ -270,7 +413,49 @@ export function IntelBlocksPanel() {
             </Card>
           ))}
         </div>
-      ) : !data || data.length === 0 ? (
+      ) : selected.size > 0 ? (
+        <Card padding="md" className="border-[var(--accent)]/40 bg-[var(--accent)]/5">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="text-xs">
+              Zaznaczono <strong>{selected.size}</strong> IP.{" "}
+              <button
+                type="button"
+                className="text-[var(--accent)] hover:underline"
+                onClick={() => setSelected(new Set())}
+              >
+                Wyczyść
+              </button>
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" variant="ghost" onClick={bulkUnblock}>
+                Odblokuj zaznaczone
+              </Button>
+              <Button size="sm" onClick={bulkBlock}>
+                Zablokuj zaznaczone na 24h
+              </Button>
+            </div>
+          </div>
+        </Card>
+      ) : null}
+
+      {!loading && filteredData && filteredData.length > 0 && (
+        <div className="flex items-center justify-between text-xs px-1">
+          <label className="inline-flex items-center gap-2 cursor-pointer text-[var(--text-muted)] hover:text-[var(--text-main)]">
+            <input
+              type="checkbox"
+              checked={allSelected}
+              onChange={toggleSelectAll}
+              className="rounded"
+            />
+            <span>{allSelected ? "Odznacz wszystkie" : "Zaznacz wszystkie"}</span>
+          </label>
+          <span className="text-[var(--text-muted)]">
+            {filteredData.length} z {data?.length ?? 0} po filtrach
+          </span>
+        </div>
+      )}
+
+      {loading ? null : !filteredData || filteredData.length === 0 ? (
         <Card padding="md">
           <EmptyState
             icon={<Ban className="w-7 h-7" />}
@@ -297,11 +482,13 @@ export function IntelBlocksPanel() {
         </Card>
       ) : (
         <div className="space-y-3">
-          {data.map((d) => (
+          {filteredData!.map((d) => (
             <IntelCard
               key={d.ip}
               intel={d}
               busy={busy === d.ip}
+              checked={selected.has(d.ip)}
+              onToggleSelect={() => toggleSelect(d.ip)}
               onUnblock={() => unblock(d.ip, d)}
               onBlock={() => blockNow(d.ip, d)}
             />
@@ -346,11 +533,15 @@ function KpiTile({
 function IntelCard({
   intel,
   busy,
+  checked,
+  onToggleSelect,
   onUnblock,
   onBlock,
 }: {
   intel: IpIntel;
   busy: boolean;
+  checked: boolean;
+  onToggleSelect: () => void;
   onUnblock: () => void;
   onBlock: () => void;
 }) {
@@ -372,6 +563,13 @@ function IntelCard({
       <div className="flex items-start justify-between gap-3 mb-2">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
+            <input
+              type="checkbox"
+              checked={checked}
+              onChange={onToggleSelect}
+              aria-label={`Zaznacz ${intel.ip}`}
+              className="rounded mr-1"
+            />
             <code className="text-sm font-semibold font-mono">{intel.ip}</code>
             <span className="inline-flex items-center gap-1">
               <Badge tone={bandTone}>
