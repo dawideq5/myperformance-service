@@ -48,6 +48,84 @@ export async function register(): Promise<void> {
     );
   }
 
+  // KC localization initial seed — push wszystkich auth.* templates do
+  // KC realm localization żeby KC FreeMarker email templates używały
+  // naszych treści zamiast generycznych defaults ("Administrator właśnie
+  // zażądał aktualizacji konta..."). Bez tego seedu KC localization keys
+  // są puste dopóki admin ręcznie nie kliknie Zapisz na każdym auth.* template.
+  try {
+    const { ensureLocaleEnabled, setLocaleMessage } = await import(
+      "@/lib/email/kc-localization"
+    );
+    const { EMAIL_ACTIONS } = await import("@/lib/email/templates-catalog");
+    const { listTemplates } = await import("@/lib/email/db");
+
+    const AUTH_KC_MAP: Record<
+      string,
+      (subject: string, body: string) => Record<string, string>
+    > = {
+      "auth.account-activation": (s, b) => ({
+        emailVerificationSubject: s,
+        emailVerificationBody: b,
+        emailVerificationBodyHtml: b,
+      }),
+      "auth.password-reset": (s, b) => ({
+        passwordResetSubject: s,
+        passwordResetBody: b,
+        passwordResetBodyHtml: b,
+      }),
+      "auth.email-update": (s, b) => ({
+        emailUpdateConfirmationSubject: s,
+        emailUpdateConfirmationBody: b,
+        emailUpdateConfirmationBodyHtml: b,
+      }),
+      "auth.required-actions": (s, b) => ({
+        executeActionsSubject: s,
+        executeActionsBody: b,
+        executeActionsBodyHtml: b,
+      }),
+      "auth.idp-link": (s, b) => ({
+        identityProviderLinkSubject: s,
+        identityProviderLinkBody: b,
+        identityProviderLinkBodyHtml: b,
+      }),
+      "auth.account-disabled": (s, b) => ({
+        loginDisabledSubject: s,
+        loginDisabledBody: b,
+      }),
+    };
+
+    await ensureLocaleEnabled("pl").catch(() => undefined);
+    await ensureLocaleEnabled("en").catch(() => undefined);
+
+    const stored = await listTemplates();
+    const overrideMap = new Map(stored.map((t) => [t.actionKey, t]));
+
+    let pushed = 0;
+    for (const action of EMAIL_ACTIONS) {
+      const mapper = AUTH_KC_MAP[action.key];
+      if (!mapper) continue;
+      const t = overrideMap.get(action.key);
+      const subject = t?.subject ?? action.defaultSubject;
+      const body = t?.body ?? action.defaultBody;
+      const kvs = mapper(subject, body);
+      for (const [k, v] of Object.entries(kvs)) {
+        await setLocaleMessage("pl", k, v).catch(() => undefined);
+        pushed++;
+      }
+    }
+    // eslint-disable-next-line no-console
+    console.log(
+      `[instrumentation] KC localization seed: ${pushed} keys pushed (locale=pl)`,
+    );
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      "[instrumentation] KC localization seed failed:",
+      err instanceof Error ? err.message : err,
+    );
+  }
+
   // Initial Directus push — przy starcie pushujemy aktualny branding +
   // szablony żeby content team natychmiast widział je w Directus UI bez
   // czekania aż admin coś zmieni.
