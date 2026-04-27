@@ -77,26 +77,100 @@ export async function isConfigured(): Promise<boolean> {
  * Tworzy collection w Directusie jeśli nie istnieje. Idempotent.
  */
 export async function ensureCollection(spec: CollectionSpec): Promise<void> {
+  let exists = true;
   try {
     await directusFetch(`/collections/${spec.collection}`);
-    return; // exists
   } catch {
-    // not found — create
+    exists = false;
   }
-  await directusFetch(`/collections`, {
-    method: "POST",
-    body: JSON.stringify({
-      collection: spec.collection,
-      meta: {
-        icon: "settings",
-        note: "Read-only mirror z dashboard MyPerformance — edytuj w /admin/email",
-        ...(spec.meta ?? {}),
-      },
-      schema: spec.schema ?? {},
-      fields: spec.fields ?? [],
-    }),
-  });
-  logger.info("Directus collection created", { collection: spec.collection });
+
+  if (!exists) {
+    await directusFetch(`/collections`, {
+      method: "POST",
+      body: JSON.stringify({
+        collection: spec.collection,
+        meta: {
+          icon: "settings",
+          note: "Read-only mirror z dashboard MyPerformance — edytuj w /admin/email",
+          ...(spec.meta ?? {}),
+        },
+        schema: spec.schema ?? {},
+        fields: spec.fields ?? [],
+      }),
+    });
+    logger.info("Directus collection created", { collection: spec.collection });
+    return;
+  }
+
+  // Collection istnieje — reconcile meta + fields. Bez tego DIR-5 polish
+  // (display_template, sort_field, archive_field, dropdown choices itd.)
+  // nigdy nie trafiłby do produkcji, bo przy starcie kolekcje już istnieją.
+  if (spec.meta) {
+    await directusFetch(`/collections/${spec.collection}`, {
+      method: "PATCH",
+      body: JSON.stringify({ meta: spec.meta }),
+    }).catch((err) => {
+      logger.warn("collection meta patch failed", {
+        collection: spec.collection,
+        err: String(err),
+      });
+    });
+  }
+
+  if (spec.fields && spec.fields.length > 0) {
+    let existingFieldNames = new Set<string>();
+    try {
+      const fields = await directusFetch<Array<{ field: string }>>(
+        `/fields/${spec.collection}`,
+      );
+      existingFieldNames = new Set(fields.map((f) => f.field));
+    } catch {
+      // Brak możliwości pobrania pól — robimy POST zawsze, niech Directus
+      // sam zwróci konflikt jeśli pole istnieje (i wtedy spadnie do PATCH).
+    }
+
+    for (const field of spec.fields) {
+      const isPrimary =
+        field.schema && (field.schema as { is_primary_key?: boolean }).is_primary_key === true;
+      // Primary keys: skip — istnieją od momentu create collection, PATCH na
+      // PK jest niebezpieczny (Directus odrzuca zmianę typu/specials).
+      if (isPrimary) continue;
+
+      if (existingFieldNames.has(field.field)) {
+        // PATCH — tylko meta + schema (type rzadko się zmienia, a Directus
+        // odrzuca zmianę typu na pełnej kolumnie z danymi).
+        await directusFetch(
+          `/fields/${spec.collection}/${field.field}`,
+          {
+            method: "PATCH",
+            body: JSON.stringify({
+              meta: field.meta ?? {},
+              ...(field.schema ? { schema: field.schema } : {}),
+            }),
+          },
+        ).catch((err) => {
+          logger.warn("field patch failed", {
+            collection: spec.collection,
+            field: field.field,
+            err: String(err),
+          });
+        });
+      } else {
+        await directusFetch(`/fields/${spec.collection}`, {
+          method: "POST",
+          body: JSON.stringify(field),
+        }).catch((err) => {
+          logger.warn("field create failed", {
+            collection: spec.collection,
+            field: field.field,
+            err: String(err),
+          });
+        });
+      }
+    }
+  }
+
+  logger.info("Directus collection reconciled", { collection: spec.collection });
 }
 
 /**
