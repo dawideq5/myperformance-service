@@ -20,6 +20,7 @@ import {
   CardHeader,
   Input,
   OnboardingCard,
+  useToast,
 } from "@/components/ui";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { ApiRequestError } from "@/lib/api-client";
@@ -213,6 +214,7 @@ function GoogleCard() {
   const googleConnected = googleStatus?.connected === true;
   const router = useRouter();
   const searchParams = useSearchParams();
+  const toast = useToast();
 
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -309,6 +311,17 @@ function GoogleCard() {
         setError(null);
         void refetchGoogleStatus();
         void refetchProfile();
+        toast.success(
+          "Konto Google odłączone",
+          "Synchronizacja kalendarza została wstrzymana. Możesz połączyć je ponownie kiedy chcesz.",
+        );
+      },
+      onError: (err) => {
+        const msg =
+          err instanceof ApiRequestError
+            ? err.message
+            : "Spróbuj ponownie za chwilę.";
+        toast.error("Nie udało się odłączyć konta Google", msg);
       },
     },
   );

@@ -18,7 +18,7 @@ interface InboxItem {
   read_at: string | null;
 }
 
-const POLL_INTERVAL_MS = 30_000;
+const POLL_INTERVAL_MS = 5_000;
 
 const SEVERITY_DOT: Record<string, string> = {
   info: "bg-blue-500",

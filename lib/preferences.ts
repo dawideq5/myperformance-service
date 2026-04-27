@@ -58,6 +58,36 @@ export const NOTIF_EVENTS = {
     defaultEmail: true,
     requiresArea: null,
   },
+
+  // Knowledge / Outline — comments, mentions, document publish.
+  "knowledge.mention": {
+    label: "Wspomniano o Tobie w dokumencie (Knowledge)",
+    category: "apps",
+    defaultInApp: true,
+    defaultEmail: true,
+    requiresArea: "knowledge",
+  },
+  "knowledge.comment.created": {
+    label: "Nowy komentarz w dokumencie (Knowledge)",
+    category: "apps",
+    defaultInApp: true,
+    defaultEmail: false,
+    requiresArea: "knowledge",
+  },
+  "knowledge.document.published": {
+    label: "Opublikowano dokument w Knowledge",
+    category: "apps",
+    defaultInApp: true,
+    defaultEmail: false,
+    requiresArea: "knowledge",
+  },
+  "knowledge.document.updated": {
+    label: "Zaktualizowano dokument w Knowledge",
+    category: "apps",
+    defaultInApp: false,
+    defaultEmail: false,
+    requiresArea: "knowledge",
+  },
   "security.brute_force.detected": {
     label: "Wykryto brute force na Twoim koncie",
     category: "security",

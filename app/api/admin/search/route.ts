@@ -3,7 +3,11 @@ export const dynamic = "force-dynamic";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
 import { keycloak } from "@/lib/keycloak";
-import { canAccessAdminPanel, hasArea } from "@/lib/admin-auth";
+import {
+  canAccessInfrastructure,
+  canAccessKeycloakAdmin,
+  hasArea,
+} from "@/lib/admin-auth";
 import { withClient } from "@/lib/db";
 import { ApiError, createSuccessResponse, handleApiError } from "@/lib/api-utils";
 import { getClientIp, rateLimit } from "@/lib/rate-limit";
@@ -151,10 +155,13 @@ export async function GET(req: Request) {
       }
     }
 
-    // 2) IP / user / device search — TYLKO admini (privacy boundary).
-    const isAdmin = canAccessAdminPanel(session);
+    // 2) Privacy boundary: każdy typ wyniku ma własny gate uprawnień.
+    // Wcześniej był canAccessAdminPanel (any admin role) — przez co np.
+    // email-admin widział userów i IP, klikał, dostawał "Brak dostępu".
+    const canSearchUsers = canAccessKeycloakAdmin(session);
+    const canSearchInfra = canAccessInfrastructure(session);
 
-    if (isAdmin) {
+    if (canSearchInfra) {
       const looksLikeIp = /^[\d.:]+$/.test(q);
       if (looksLikeIp || lower.length >= 3) {
         const ipRows = await withClient(async (c) => {
@@ -188,70 +195,70 @@ export async function GET(req: Request) {
           });
         }
       }
+    }
 
-      if (lower.length >= 2) {
-        try {
-          const token = await keycloak.getServiceAccountToken();
-          const res = await keycloak.adminRequest(
-            `/users?search=${encodeURIComponent(q)}&max=${Math.min(limit, 10)}`,
-            token,
-          );
-          if (res.ok) {
-            const users = (await res.json()) as Array<{
-              id: string;
-              username?: string;
-              email?: string;
-              firstName?: string;
-              lastName?: string;
-            }>;
-            for (const u of users) {
-              const name =
-                [u.firstName, u.lastName].filter(Boolean).join(" ") ||
-                u.username ||
-                u.email ||
-                u.id;
-              hits.push({
-                type: "user",
-                id: u.id,
-                title: name,
-                subtitle: u.email ?? u.username ?? "",
-                href: `/admin/users/${u.id}`,
-              });
-            }
+    if (canSearchUsers && lower.length >= 2) {
+      try {
+        const token = await keycloak.getServiceAccountToken();
+        const res = await keycloak.adminRequest(
+          `/users?search=${encodeURIComponent(q)}&max=${Math.min(limit, 10)}`,
+          token,
+        );
+        if (res.ok) {
+          const users = (await res.json()) as Array<{
+            id: string;
+            username?: string;
+            email?: string;
+            firstName?: string;
+            lastName?: string;
+          }>;
+          for (const u of users) {
+            const name =
+              [u.firstName, u.lastName].filter(Boolean).join(" ") ||
+              u.username ||
+              u.email ||
+              u.id;
+            hits.push({
+              type: "user",
+              id: u.id,
+              title: name,
+              subtitle: u.email ?? u.username ?? "",
+              href: `/admin/users/${u.id}`,
+            });
           }
-        } catch {
-          // ignore
         }
+      } catch {
+        // ignore
       }
+    }
 
-      if (lower.length >= 4) {
-        const devRows = await withClient(async (c) => {
-          const r = await c.query<{
-            device_id: string;
-            user_email: string | null;
-            last_seen: Date;
-          }>(
-            `SELECT s.device_id::text,
-                    (array_agg(DISTINCT s.user_email) FILTER (WHERE s.user_email IS NOT NULL))[1] AS user_email,
-                    MAX(s.seen_at) AS last_seen
-               FROM mp_device_sightings s
-              WHERE s.device_id::text ILIKE $1
-              GROUP BY s.device_id
-              ORDER BY MAX(s.seen_at) DESC
-              LIMIT $2`,
-            [`%${q}%`, 5],
-          );
-          return r.rows;
-        }).catch(() => []);
-        for (const r of devRows) {
-          hits.push({
-            type: "device",
-            id: r.device_id,
-            title: `Urządzenie ${r.device_id.slice(0, 8)}…${r.device_id.slice(-4)}`,
-            subtitle: r.user_email ?? "anonimowe",
-            href: `/admin/infrastructure?tab=devices&id=${r.device_id}`,
-          });
-        }
+    if (canSearchInfra && lower.length >= 4) {
+      const devRows = await withClient(async (c) => {
+        const r = await c.query<{
+          device_id: string;
+          user_email: string | null;
+          last_seen: Date;
+        }>(
+          `SELECT s.device_id::text,
+                  (array_agg(DISTINCT s.user_email) FILTER (WHERE s.user_email IS NOT NULL))[1] AS user_email,
+                  MAX(s.seen_at) AS last_seen
+             FROM mp_device_sightings s
+            WHERE s.device_id::text ILIKE $1
+            GROUP BY s.device_id
+            ORDER BY MAX(s.seen_at) DESC
+            LIMIT $2`,
+          [`%${q}%`, 5],
+        );
+        return r.rows;
+      }).catch(() => []);
+      for (const r of devRows) {
+        hits.push({
+          type: "device",
+          id: r.device_id,
+          title: `Urządzenie ${r.device_id.slice(0, 8)}…${r.device_id.slice(-4)}`,
+          subtitle: r.user_email ?? "anonimowe",
+          href: `/admin/infrastructure?tab=devices&id=${r.device_id}`,
+        });
       }
     }
 

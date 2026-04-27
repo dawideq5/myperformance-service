@@ -80,19 +80,21 @@ export async function register(): Promise<void> {
     );
   }
 
-  // Background timer pollujący KC events co 30s. Phasetwo webhook delivery
+  // Background timer pollujący KC events co 5s. Phasetwo webhook delivery
   // jest niesprawne w naszym setupie (storeWebhookEvents=true ale send
   // worker nie startuje), więc czytamy KC Admin API bezpośrednio.
+  // 5s = kompromis między natychmiastowością UX a obciążeniem KC. Stare 30s
+  // generowało user-perceived "powiadomienia są opóźnione".
   try {
     const { pollKcEvents } = await import("@/lib/security/kc-events-poll");
-    const interval = 30_000;
+    const interval = 5_000;
     setInterval(() => {
       void pollKcEvents().catch(() => undefined);
     }, interval).unref?.();
-    // Pierwsze odpalenie 5s po starcie żeby DB miał szansę uruchomić.
+    // Pierwsze odpalenie 3s po starcie żeby DB miał szansę uruchomić.
     setTimeout(() => {
       void pollKcEvents().catch(() => undefined);
-    }, 5_000).unref?.();
+    }, 3_000).unref?.();
     // eslint-disable-next-line no-console
     console.log(`[instrumentation] kc-events-poll started (every ${interval}ms)`);
   } catch (err) {

@@ -31,6 +31,7 @@ import {
   Input,
   OnboardingCard,
   PasswordInput,
+  useToast,
 } from "@/components/ui";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { MIN_PASSWORD_LENGTH } from "@/lib/constants";
@@ -60,6 +61,7 @@ export function SecurityTab() {
   } = useAccount();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const toast = useToast();
 
   const requiredActions = profile?.requiredActions ?? [];
   const totpAdminForced = requiredActions.includes("CONFIGURE_TOTP");
@@ -150,6 +152,17 @@ export function SecurityTab() {
         setCurrentPassword("");
         setNewPassword("");
         setConfirmPassword("");
+        toast.success(
+          "Hasło zmienione",
+          "Nowe hasło zostało zapisane. Wyślemy też powiadomienie email.",
+        );
+      },
+      onError: (err) => {
+        const msg =
+          err instanceof ApiRequestError
+            ? err.message
+            : "Sprawdź obecne hasło i spróbuj ponownie.";
+        toast.error("Nie udało się zmienić hasła", msg);
       },
     },
   );
@@ -185,6 +198,17 @@ export function SecurityTab() {
     {
       onSuccess: async () => {
         await refetchTwoFA();
+        toast.success(
+          "Aplikacja 2FA usunięta",
+          "Wysłaliśmy email z potwierdzeniem na Twoje konto.",
+        );
+      },
+      onError: (err) => {
+        const msg =
+          err instanceof ApiRequestError
+            ? err.message
+            : "Spróbuj ponownie za chwilę.";
+        toast.error("Nie udało się usunąć aplikacji 2FA", msg);
       },
       resolveError: (err) =>
         err instanceof ApiRequestError
@@ -200,11 +224,21 @@ export function SecurityTab() {
       try {
         await accountService.deleteWebAuthnKey(key.credentialId || key.id);
         await refetchWebAuthn();
+        toast.success(
+          "Klucz usunięty",
+          `Klucz „${key.label}" został usunięty z Twojego konta.`,
+        );
+      } catch (err) {
+        const msg =
+          err instanceof ApiRequestError
+            ? err.message
+            : "Spróbuj ponownie za chwilę.";
+        toast.error("Nie udało się usunąć klucza", msg);
       } finally {
         setDeletingKeyId(null);
       }
     },
-    [refetchWebAuthn],
+    [refetchWebAuthn, toast],
   );
 
   return (
