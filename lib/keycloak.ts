@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "crypto";
+import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 import { DEFAULT_KEYCLOAK_REALM } from "@/lib/keycloak-constants";
 import { trimSlash } from "@/lib/utils";
 
@@ -79,14 +80,51 @@ export class KeycloakService {
     return `${this.getBaseUrl()}/admin/${adminRealm}/console/`;
   }
 
+  /**
+   * NAIVE decode (BEZ weryfikacji podpisu) — używać TYLKO gdy token został
+   * już wcześniej zwalidowany w upstream layer (np. NextAuth refresh callback,
+   * gdzie KC właśnie wystawił token w odpowiedzi na nasze żądanie). Dla
+   * tokenów przychodzących z client request użyj `verifyTokenPayload()`.
+   */
   public decodeTokenPayload(token: string) {
     const [, payload] = token.split(".");
-
     if (!payload) {
       throw new Error("Invalid JWT payload");
     }
-
     return JSON.parse(Buffer.from(payload, "base64url").toString("utf-8"));
+  }
+
+  /**
+   * Pełna walidacja JWT — sygnatura przez JWKS realmu, issuer, audience.
+   * Używać dla tokenów przychodzących z untrusted source (request headers,
+   * webhooks, brokered IdP). Cache JWKS jest wbudowany w jose 4 minuty.
+   */
+  private jwksCache: ReturnType<typeof createRemoteJWKSet> | null = null;
+  private jwksCacheIssuer: string | null = null;
+
+  private getJwks(): ReturnType<typeof createRemoteJWKSet> {
+    const issuer = this.getPublicIssuer();
+    if (this.jwksCache && this.jwksCacheIssuer === issuer) return this.jwksCache;
+    const url = new URL(`${issuer}/protocol/openid-connect/certs`);
+    this.jwksCache = createRemoteJWKSet(url, {
+      cooldownDuration: 30_000,
+      cacheMaxAge: 600_000,
+    });
+    this.jwksCacheIssuer = issuer;
+    return this.jwksCache;
+  }
+
+  public async verifyTokenPayload(
+    token: string,
+    options: { audience?: string | string[]; clockToleranceSec?: number } = {},
+  ): Promise<JWTPayload> {
+    const issuer = this.getPublicIssuer();
+    const { payload } = await jwtVerify(token, this.getJwks(), {
+      issuer,
+      audience: options.audience,
+      clockTolerance: options.clockToleranceSec ?? 5,
+    });
+    return payload;
   }
 
   public getBrokerLinkUrl(

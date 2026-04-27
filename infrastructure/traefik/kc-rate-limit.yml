@@ -1,0 +1,36 @@
+# File-provider router applying rate-limits na Keycloak token + login endpoints.
+# Priorytet 1000 > docker-provider default (0) = wygrywa w router resolution.
+# Coolify dynamicznie regeneruje labels w docker compose przy każdym deploy,
+# więc dodanie middleware bezpośrednio w compose `labels:` nie działa —
+# Coolify je nadpisuje. File-provider router omija ten problem.
+#
+# Rate-limit middlewares zdefiniowane w mtls.yml.
+http:
+  routers:
+    kc-token-ratelimited:
+      rule: "Host(`auth.myperformance.pl`) && PathPrefix(`/realms/MyPerformance/protocol/openid-connect/token`)"
+      service: kc-keycloak-svc
+      entryPoints:
+        - https
+      tls:
+        certResolver: letsencrypt
+      middlewares:
+        - kc-token-ratelimit@file
+        - secure-headers@file
+      priority: 1000
+    kc-login-ratelimited:
+      rule: "Host(`auth.myperformance.pl`) && PathPrefix(`/realms/MyPerformance/login-actions`)"
+      service: kc-keycloak-svc
+      entryPoints:
+        - https
+      tls:
+        certResolver: letsencrypt
+      middlewares:
+        - kc-login-ratelimit@file
+        - secure-headers@file
+      priority: 1000
+  services:
+    kc-keycloak-svc:
+      loadBalancer:
+        servers:
+          - url: "http://keycloak-hg0i1ii7tg5btyok3o2gqnf0:8080"

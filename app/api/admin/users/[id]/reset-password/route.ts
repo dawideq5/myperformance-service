@@ -42,10 +42,29 @@ export async function POST(req: Request, { params }: Ctx) {
     }
 
     const password = body?.password?.trim();
-    if (!password || password.length < 8) {
+    // Walidujemy zsynchronizowane z KC realm passwordPolicy: length(16) +
+    // upperCase + lowerCase + digits + specialChars + notUsername. Odbijamy
+    // request *przed* trafieniem do KC, daje to lepszy UX (jeden round-trip
+    // mniej) i blokuje próbę bypass'owania policy gdyby ktoś wyłączył ją w KC.
+    if (!password) {
       throw ApiError.badRequest(
-        "Password required (min. 8 chars) when sendEmail=false",
+        "Password required when sendEmail=false",
       );
+    }
+    if (password.length < 16) {
+      throw ApiError.badRequest("Hasło musi mieć minimum 16 znaków");
+    }
+    if (!/[A-Z]/.test(password)) {
+      throw ApiError.badRequest("Hasło musi zawierać wielką literę");
+    }
+    if (!/[a-z]/.test(password)) {
+      throw ApiError.badRequest("Hasło musi zawierać małą literę");
+    }
+    if (!/[0-9]/.test(password)) {
+      throw ApiError.badRequest("Hasło musi zawierać cyfrę");
+    }
+    if (!/[^A-Za-z0-9]/.test(password)) {
+      throw ApiError.badRequest("Hasło musi zawierać znak specjalny");
     }
 
     const res = await keycloak.adminRequest(
@@ -62,12 +81,14 @@ export async function POST(req: Request, { params }: Ctx) {
     );
 
     if (!res.ok) {
-      const details = await res.text();
+      // KC może odrzucić z passwordPolicy violation — zwracamy generic msg
+      // żeby nie ujawniać internal KC error details. Pełny detail w logu.
+      const details = await res.text().catch(() => "");
       throw new ApiError(
         "SERVICE_UNAVAILABLE",
-        "Failed to reset password",
+        "Nie udało się zresetować hasła (KC password policy?)",
         res.status,
-        details,
+        details.slice(0, 200),
       );
     }
 

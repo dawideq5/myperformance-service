@@ -64,19 +64,61 @@ const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   { key: "X-DNS-Prefetch-Control", value: "off" },
+  // Cross-Origin-Opener-Policy=same-origin uniemożliwia XS-Leaks i Spectre
+  // przez window.opener / window.postMessage z innego origina.
   { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
   { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
+  // Process isolation per-origin (mitigation Spectre + Meltdown po stronie
+  // przeglądarki). Bezpieczne dla SPA; łamie tylko apki które potrzebują
+  // shared memory między origins (my nie używamy).
+  { key: "Origin-Agent-Cluster", value: "?1" },
+  // Legacy header dla starszych przeglądarek (Flash/Acrobat) — i tak deprecated
+  // ale dodanie kosztuje 0 i blokuje crossdomain.xml exploit.
+  { key: "X-Permitted-Cross-Domain-Policies", value: "none" },
+  // Anty-MIME-sniffing extra dla starszych browserów. nosniff już to robi
+  // ale download-options chroni IE/Edge przed automatycznym otwieraniem.
+  { key: "X-Download-Options", value: "noopen" },
   {
     key: "Permissions-Policy",
     value: [
+      // Sensors / IO
       "camera=()",
       "microphone=()",
       "geolocation=()",
-      "payment=()",
+      "accelerometer=()",
+      "gyroscope=()",
+      "magnetometer=()",
+      "ambient-light-sensor=()",
+      "battery=()",
+      "bluetooth=()",
+      "midi=()",
       "usb=()",
+      "serial=()",
+      "hid=()",
+      // Media / display
+      "autoplay=()",
+      "fullscreen=(self)",
+      "picture-in-picture=()",
+      "display-capture=()",
+      "screen-wake-lock=()",
+      // Commerce / privacy
+      "payment=()",
       "interest-cohort=()",
+      "browsing-topics=()",
+      "attribution-reporting=()",
+      // WebAuthn — restricted do same-origin (passkey/security key registration)
       "publickey-credentials-get=(self)",
       "publickey-credentials-create=(self)",
+      // Cross-origin clipboard — block (Documenso/Moodle używają w iframe ale
+      // tam mają własne origin, nie potrzebują naszego permission).
+      "clipboard-read=(self)",
+      "clipboard-write=(self)",
+      // Embedded sync features — blokujemy
+      "encrypted-media=()",
+      "execution-while-not-rendered=()",
+      "execution-while-out-of-viewport=()",
+      "web-share=()",
+      "xr-spatial-tracking=()",
     ].join(", "),
   },
   { key: "Content-Security-Policy", value: cspDirectives.join("; ") },

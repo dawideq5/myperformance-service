@@ -15,6 +15,9 @@ import {
   consumeChallenge,
   storeChallenge,
 } from "@/lib/security/webauthn-challenges";
+import { log } from "@/lib/logger";
+
+const logger = log.child({ module: "webauthn-route" });
 
 const MAX_WEBAUTHN_KEYS = 2;
 
@@ -284,10 +287,13 @@ export async function POST(request: Request) {
         try {
           attestation = parseAttestationObject(credential.attestationObject);
         } catch (err) {
-          console.error("[webauthn register] CBOR parse failed:", err);
-          throw ApiError.badRequest(
-            `Nieprawidłowy attestationObject: ${err instanceof Error ? err.message : "unknown"}`,
-          );
+          logger.warn("attestationObject CBOR parse failed", {
+            userId,
+            err: err instanceof Error ? err.message : String(err),
+          });
+          // NIE zwracamy szczegółów błędu CBOR do klienta — daje to attacker
+          // info o naszym parserze. Generic msg + log full detail.
+          throw ApiError.badRequest("Nieprawidłowy attestationObject");
         }
 
         const credentialIdBase64 = attestation.credentialIdBase64;
@@ -349,16 +355,17 @@ export async function POST(request: Request) {
 
         if (!updateRes.ok && updateRes.status !== 204) {
           const details = await updateRes.text().catch(() => "");
-          console.error(
-            "[webauthn register] KC PUT /users failed:",
-            updateRes.status,
-            details.slice(0, 500),
-          );
+          logger.error("KC PUT /users failed during webauthn register", {
+            userId,
+            status: updateRes.status,
+            // Trzymamy full details w server log, ale nie wystawiamy ich
+            // w response do klienta — może wyciec internal KC error info.
+            details: details.slice(0, 500),
+          });
           throw new ApiError(
             "SERVICE_UNAVAILABLE",
             "Keycloak odrzucił credential — użyj opcji 'Wymuszone akcje → Rejestracja klucza passkey' z panelu admina (natywny flow Keycloaka).",
             updateRes.status,
-            details.slice(0, 500),
           );
         }
       });

@@ -47,10 +47,12 @@ async function checkKeycloak(): Promise<{ status: CheckStatus; latencyMs: number
  */
 export async function GET(request: NextRequest) {
   const deep = request.nextUrl.searchParams.get("deep") === "1";
+  // Wycinamy version i internal details — `/api/health` jest publiczny
+  // (Docker HEALTHCHECK + Traefik probe). Atakujący NIE potrzebują znać
+  // dokładnej wersji apki do footprintingu. Status + timestamp wystarczy
+  // do live-/readinesss checków.
   const base = {
     status: "ok" as const,
-    uptime: process.uptime(),
-    version: process.env.NEXT_PUBLIC_APP_VERSION ?? "unknown",
     timestamp: new Date().toISOString(),
   };
 
@@ -66,8 +68,17 @@ export async function GET(request: NextRequest) {
     log.warn("health probe degraded", { checks });
   }
 
+  // Deep mode: detail tylko status, bez `latencyMs` ani `detail` które mogą
+  // ujawniać upstream errory (KC version, timeouty itd.). Pełny detail
+  // dostępny w server logs przez log.warn.
   return NextResponse.json(
-    { ...base, status: healthy ? "ok" : "degraded", checks },
+    {
+      ...base,
+      status: healthy ? "ok" : "degraded",
+      checks: {
+        keycloak: { status: keycloakCheck.status },
+      },
+    },
     { status: healthy ? 200 : 503 },
   );
 }
