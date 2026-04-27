@@ -27,7 +27,6 @@ import {
   type TabDefinition,
 } from "@/components/ui";
 import { AppHeader } from "@/components/AppHeader";
-import { LocationMap } from "@/components/LocationMap";
 import type { Location } from "@/lib/locations";
 import type { CertLinkRow, ConfigOverviewStats } from "@/lib/config-overview";
 import { CertLocationsDialog } from "../certificates/CertLocationsDialog";
@@ -468,11 +467,6 @@ function LocationsSummaryTab({ locations }: { locations: Location[] }) {
           Pełne zarządzanie w /admin/locations <ExternalLink className="w-3 h-3" />
         </Link>
       </div>
-      {locations.length > 0 ? (
-        <div style={{ height: 360 }}>
-          <LocationMap locations={locations} className="h-full" />
-        </div>
-      ) : null}
       {locations.length === 0 ? (
         <Card padding="lg">
           <p className="text-center text-sm text-[var(--text-muted)] py-6">

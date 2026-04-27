@@ -296,17 +296,6 @@ export function LocationsClient({
           </div>
         </div>
 
-        {/* Mapa wszystkich punktów */}
-        <Card padding="none" className="overflow-hidden">
-          <div style={{ height: 400 }}>
-            <LocationMap
-              locations={filtered}
-              onSelect={(l) => setEditing(locationToDraft(l))}
-              className="h-full"
-            />
-          </div>
-        </Card>
-
         {/* Lista */}
         {filtered.length === 0 ? (
           <Card padding="lg">
