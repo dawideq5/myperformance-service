@@ -1,0 +1,26 @@
+# File-provider router dla Wazuh AR webhook na dashboardzie.
+# Aplikuje IP allowlist + rate-limit + secure-headers. Priorytet 1000
+# wygrywa nad docker-provider router Coolify.
+http:
+  routers:
+    wazuh-webhook-route:
+      rule: "Host(`myperformance.pl`) && PathPrefix(`/api/webhooks/wazuh/`)"
+      service: dashboard-svc
+      entryPoints:
+        - https
+      tls:
+        certResolver: letsencrypt
+      middlewares:
+        - wazuh-webhook-allowlist@file
+        - webhook-ratelimit@file
+        - secure-headers@file
+      priority: 1000
+  services:
+    dashboard-svc:
+      loadBalancer:
+        servers:
+          # Coolify deploy container ma sufix -<timestamp> który zmienia się
+          # przy każdym redeploy. Zamiast hardcoded sufix, używamy alias
+          # przez Coolify network DNS — `cft13k98wnuqm4u8p6freksn` rozwija
+          # do current container w docker network.
+          - url: "http://cft13k98wnuqm4u8p6freksn:3000"

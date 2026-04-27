@@ -61,6 +61,20 @@ http:
           ipStrategy:
             depth: 1
 
+    # IP allowlist dla Wazuh AR webhook. Wazuh manager container używa kilku
+    # IP w Docker networks (10.0.x.x). Dodatkowo loopback dla lokalnych AR
+    # scriptów uruchamianych z hosta. Atakujący który zna HMAC secret nadal
+    # potrzebowałby skompromitować jeden z tych IP — defense-in-depth.
+    wazuh-webhook-allowlist:
+      ipAllowList:
+        sourceRange:
+          - "10.0.0.0/8"        # Docker networks (Coolify + wazuh-net)
+          - "172.16.0.0/12"     # Docker default bridges
+          - "127.0.0.1/32"      # Localhost (lokalne AR scripts)
+          - "57.128.249.245/32" # Sam VPS (jeśli AR woła egress→ingress)
+        ipStrategy:
+          depth: 1
+
     # Globalne security headers (defense-in-depth — dashboard ma swoje
     # przez Next.js, ale Traefik łapie też inne usługi typu Postal/Wazuh).
     secure-headers:

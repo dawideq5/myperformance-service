@@ -1,5 +1,6 @@
 export const dynamic = "force-dynamic";
 
+import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
 import { keycloak } from "@/lib/keycloak";
@@ -9,6 +10,7 @@ import {
   handleApiError,
 } from "@/lib/api-utils";
 import { requireAdminPanel } from "@/lib/admin-auth";
+import { getClientIp, rateLimit } from "@/lib/rate-limit";
 
 interface Ctx {
   params: Promise<{ id: string }>;
@@ -27,6 +29,36 @@ export async function POST(req: Request, { params }: Ctx) {
 
     const { id } = await params;
     if (!id) throw ApiError.badRequest("Missing user id");
+
+    // Rate-limit: skompromitowane admin konto mogłoby spamować user mailbox
+    // password-reset emailami. 20/5min per admin, ale 5/5min per target user.
+    const adminId = session.user?.id ?? session.user?.email ?? "unknown";
+    const ip = getClientIp(req);
+    for (const [key, capacity] of [
+      [`admin:reset-pwd:by:${adminId}:${ip}`, 20],
+      [`admin:reset-pwd:to:${id}`, 5],
+    ] as const) {
+      const r = rateLimit(key, {
+        capacity,
+        refillPerSec: capacity / 300,
+      });
+      if (!r.allowed) {
+        return NextResponse.json(
+          {
+            error: {
+              code: "RATE_LIMITED",
+              message: "Zbyt wiele resetów hasła — odczekaj chwilę.",
+            },
+          },
+          {
+            status: 429,
+            headers: {
+              "Retry-After": String(Math.ceil(r.retryAfterMs / 1000)),
+            },
+          },
+        );
+      }
+    }
 
     const body = (await req.json().catch(() => null)) as Payload | null;
     const adminToken = await keycloak.getServiceAccountToken();

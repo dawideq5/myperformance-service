@@ -41,6 +41,24 @@ async function ensureSchema(client: PoolClient): Promise<void> {
     CREATE INDEX IF NOT EXISTS iam_audit_log_target_idx
       ON iam_audit_log (target_type, target_id);
   `);
+
+  // Migracja: tabela mogła być stworzona w starszej wersji bez kolumny
+  // `action` (było `event_type`/inne). Bez tych ALTER TABLE call kc-sync
+  // spamuje logi błędem "column action does not exist".
+  await client.query(`
+    ALTER TABLE iam_audit_log
+      ADD COLUMN IF NOT EXISTS action TEXT NOT NULL DEFAULT 'unknown';
+    ALTER TABLE iam_audit_log
+      ADD COLUMN IF NOT EXISTS target_type TEXT NOT NULL DEFAULT 'unknown';
+    ALTER TABLE iam_audit_log
+      ADD COLUMN IF NOT EXISTS target_id TEXT NOT NULL DEFAULT '';
+    ALTER TABLE iam_audit_log
+      ADD COLUMN IF NOT EXISTS payload JSONB;
+    ALTER TABLE iam_audit_log
+      ADD COLUMN IF NOT EXISTS result TEXT NOT NULL DEFAULT 'success';
+    ALTER TABLE iam_audit_log
+      ADD COLUMN IF NOT EXISTS error_message TEXT;
+  `);
 }
 
 export async function withIamClient<T>(

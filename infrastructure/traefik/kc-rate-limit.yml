@@ -34,3 +34,7 @@ http:
       loadBalancer:
         servers:
           - url: "http://keycloak-hg0i1ii7tg5btyok3o2gqnf0:8080"
+
+# Wazuh AR webhook — IP allowlist + rate-limit + secure headers.
+# Atakujący który ma HMAC secret nadal nie może wywołać webhook spoza
+# Docker network — defense-in-depth. Path: /api/webhooks/wazuh/active-response.

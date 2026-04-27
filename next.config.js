@@ -59,6 +59,30 @@ const cspDirectives = [
 ];
 if (!isDev) cspDirectives.push("upgrade-insecure-requests");
 
+// Report-Only CSP — strict version BEZ 'unsafe-inline'. Browsery NIE blokują
+// inline scripts, ale wysyłają report do /api/csp-report dla każdego
+// violation. Pozwala monitorować skalę unsafe-inline w aplikacji przed
+// migracją do nonce-based strict CSP. Po wyzerowaniu reportów można
+// usunąć 'unsafe-inline' z głównego CSP.
+const cspReportOnlyDirectives = !isDev
+  ? [
+      "default-src 'self'",
+      "script-src 'self'", // BEZ unsafe-inline — to chcemy osiągnąć
+      "style-src 'self'",  // BEZ unsafe-inline
+      "img-src 'self' data: blob:",
+      "font-src 'self' data:",
+      `connect-src 'self'${externalSrc}`,
+      `frame-src 'self'${externalSrc}`,
+      `form-action 'self'${keycloakOrigin ? ` ${keycloakOrigin}` : ""}`,
+      "frame-ancestors 'none'",
+      "worker-src 'self' blob:",
+      "base-uri 'self'",
+      "object-src 'none'",
+      "report-uri /api/csp-report",
+      "upgrade-insecure-requests",
+    ]
+  : null;
+
 const securityHeaders = [
   { key: "X-Frame-Options", value: "DENY" },
   { key: "X-Content-Type-Options", value: "nosniff" },
@@ -122,6 +146,14 @@ const securityHeaders = [
     ].join(", "),
   },
   { key: "Content-Security-Policy", value: cspDirectives.join("; ") },
+  ...(cspReportOnlyDirectives
+    ? [
+        {
+          key: "Content-Security-Policy-Report-Only",
+          value: cspReportOnlyDirectives.join("; "),
+        },
+      ]
+    : []),
   ...(!isDev
     ? [
         {

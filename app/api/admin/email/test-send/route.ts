@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import nodemailer from "nodemailer";
+import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
 import { requireEmail } from "@/lib/admin-auth";
@@ -11,6 +12,10 @@ import {
   createSuccessResponse,
   handleApiError,
 } from "@/lib/api-utils";
+import { getClientIp, rateLimit } from "@/lib/rate-limit";
+import { log } from "@/lib/logger";
+
+const logger = log.child({ module: "admin-test-send" });
 
 interface Payload {
   to: string;
@@ -30,8 +35,42 @@ export async function POST(req: Request) {
   try {
     const session = await getServerSession(authOptions);
     requireEmail(session);
+
+    // Rate-limit: nawet zaufany admin nie powinien móc spamować mailbox.
+    // 10/5min per (admin, IP) — wystarczy do testów branding/template,
+    // a ucina abuse jeśli admin account zostanie skompromitowany.
+    const adminId = session.user?.id ?? session.user?.email ?? "unknown";
+    const ip = getClientIp(req);
+    const limit = rateLimit(`admin:test-send:${adminId}:${ip}`, {
+      capacity: 10,
+      refillPerSec: 10 / 300,
+    });
+    if (!limit.allowed) {
+      logger.warn("admin test-send rate-limited", { adminId, ip });
+      return NextResponse.json(
+        {
+          error: {
+            code: "RATE_LIMITED",
+            message: "Zbyt wiele test-send — odczekaj chwilę.",
+          },
+        },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(Math.ceil(limit.retryAfterMs / 1000)),
+          },
+        },
+      );
+    }
+
     const body = (await req.json().catch(() => null)) as Payload | null;
     if (!body?.to) throw ApiError.badRequest("to required");
+    // Walidacja recipient: bardzo prosta — bez tego admin mógłby wysłać do
+    // dowolnego adresu, co przy XSS w admin panel byłoby vector. Akceptujemy
+    // tylko valid email format.
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.to) || body.to.length > 254) {
+      throw ApiError.badRequest("Nieprawidłowy adres email odbiorcy");
+    }
 
     const host = getOptionalEnv("SMTP_HOST");
     const port = Number(getOptionalEnv("SMTP_PORT") || "25");

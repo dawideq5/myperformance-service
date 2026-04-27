@@ -130,6 +130,17 @@ async function main() {
       "length(16) and upperCase(1) and lowerCase(1) and digits(1) and specialChars(1) and notUsername(undefined) and notEmail(undefined) and passwordHistory(5) and forceExpiredPasswordChange(0)",
     revokeRefreshToken: true,
     refreshTokenMaxReuse: 0,
+    // Token + session hardening:
+    //   - access 5min: krótkie okno gdy skradziony token jest użyteczny
+    //   - SSO session max 8h: wymusza re-login po dniu pracy (był 24h)
+    //   - SSO idle 4h: zamyka pozostawione zalogowane sesje
+    //   - offline session 30d: refresh token max lifespan (privileged
+    //     account compromise — atakujący ma 30d windowing przed forced
+    //     re-login). NIST SP 800-63B AAL2 dopuszcza do 30d dla refresh.
+    accessTokenLifespan: 300,
+    ssoSessionIdleTimeout: 14400,
+    ssoSessionMaxLifespan: 28800,
+    offlineSessionIdleTimeout: 2592000,
     offlineSessionMaxLifespanEnabled: true,
     offlineSessionMaxLifespan: 2592000,
 
