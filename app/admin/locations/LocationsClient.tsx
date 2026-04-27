@@ -309,7 +309,7 @@ export function LocationsClient({
         {filtered.length === 0 ? (
           <Card padding="lg">
             <p className="text-center text-sm text-[var(--text-muted)]">
-              Brak punktów. Kliknij „Dodaj punkt" aby utworzyć pierwszy.
+              Brak punktów. Kliknij „Dodaj punkt&rdquo; aby utworzyć pierwszy.
             </p>
           </Card>
         ) : (
