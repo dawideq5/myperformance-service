@@ -47,9 +47,41 @@ async function fetchAccountCredentials(
       Accept: "application/json",
     },
   });
-  if (!res.ok) return [];
+  if (!res.ok) {
+    logger.warn("KC Account API /credentials failed", {
+      status: res.status,
+      // Pomocne gdy diagnozujemy "klucz jest w KC ale UI nie pokazuje" —
+      // 401 = session lost / invalid token, 403 = brak permission, 5xx = KC down.
+    });
+    return [];
+  }
   const data = await res.json();
   return Array.isArray(data) ? (data as KeycloakCredentialEntry[]) : [];
+}
+
+/**
+ * Fallback: jeśli Account API zwraca puste / nie ma webauthn entry, pobieramy
+ * credentials usera przez Admin API (service-account). KC Account API
+ * w niektórych wersjach 26.x nie expose'uje webauthn-passwordless w
+ * /account/credentials nawet jeśli credential istnieje — Admin API to source
+ * of truth.
+ */
+async function fetchAdminCredentials(
+  accessToken: string,
+): Promise<Array<{ id: string; type: string; userLabel?: string; createdDate?: number }>> {
+  try {
+    const userId = await keycloak.getUserIdFromToken(accessToken);
+    const adminToken = await keycloak.getServiceAccountToken();
+    const res = await keycloak.adminRequest(
+      `/users/${userId}/credentials`,
+      adminToken,
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return [];
+  }
 }
 
 export async function GET() {
@@ -57,17 +89,15 @@ export async function GET() {
     const session = await getServerSession(authOptions);
     requireSession(session);
 
-    const credentials = await fetchAccountCredentials(
-      session.accessToken ?? "",
-    );
+    const accessToken = session.accessToken ?? "";
+    const credentials = await fetchAccountCredentials(accessToken);
     // KC zapisuje passkey/security keys w 2 osobnych types:
     //   webauthn               — security key jako 2FA (po hasle)
     //   webauthn-passwordless  — passkey jako primary auth (pierwszy factor)
-    // Pokazujemy oba zestawy razem z labelem typu.
     const buckets = credentials.filter(
       (c) => c?.type === "webauthn" || c?.type === "webauthn-passwordless",
     );
-    const keys = buckets.flatMap((bucket) =>
+    let keys = buckets.flatMap((bucket) =>
       (bucket.userCredentialMetadatas || []).map((m) => ({
         id: m.credential?.id,
         credentialId: m.credential?.id,
@@ -76,6 +106,28 @@ export async function GET() {
         kind: bucket.type === "webauthn-passwordless" ? "passkey" : "security-key",
       })),
     );
+
+    // Fallback: KC Account API w niektórych wersjach 26.x nie zwraca
+    // webauthn-passwordless w /account/credentials. Jeśli nasz Account API
+    // pokazuje 0 webauthn keys ALE Admin API ma — bierzemy z Admin.
+    if (keys.length === 0) {
+      const adminCreds = await fetchAdminCredentials(accessToken);
+      const adminWebauthn = adminCreds.filter(
+        (c) => c.type === "webauthn" || c.type === "webauthn-passwordless",
+      );
+      if (adminWebauthn.length > 0) {
+        keys = adminWebauthn.map((c) => ({
+          id: c.id,
+          credentialId: c.id,
+          label: c.userLabel || "Klucz bezpieczeństwa",
+          createdDate: c.createdDate,
+          kind: c.type === "webauthn-passwordless" ? "passkey" : "security-key",
+        }));
+        logger.info("webauthn keys via Admin API fallback", {
+          count: adminWebauthn.length,
+        });
+      }
+    }
 
     return createSuccessResponse({ keys, hasWebAuthn: keys.length > 0 });
   } catch (error) {

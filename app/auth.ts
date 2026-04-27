@@ -322,8 +322,15 @@ function buildAuthOptions(): AuthOptions {
       process.env.NODE_ENV === "production" ||
       (process.env.NEXTAUTH_URL?.startsWith("https://") ?? false),
     cookies: {
-      // sameSite=strict eliminuje CSRF surface i top-level POST z innego
-      // origin. Klient i tak nigdy nie woła session cookie z innego origina.
+      // sameSite MUSI być "lax", nie "strict":
+      //   - OAuth callback z auth.myperformance.pl wraca na myperformance.pl
+      //     przez 302 redirect. Z sameSite=strict browser NIE wysyła session
+      //     cookie przy cross-site top-level navigation, więc po loginie
+      //     dashboard widzi unauthenticated user → redirect do login → loop.
+      //   - sameSite=lax pozwala cookie przy top-level GET navigation
+      //     (link/redirect), nadal blokuje cross-site POST/iframe (CSRF).
+      //   - CSRF chroni middleware.ts przez Origin/Referer check na /api/account
+      //     i /api/admin (defense-in-depth).
       sessionToken: {
         name:
           process.env.NODE_ENV === "production"
@@ -331,7 +338,7 @@ function buildAuthOptions(): AuthOptions {
             : "next-auth.session-token",
         options: {
           httpOnly: true,
-          sameSite: "strict",
+          sameSite: "lax",
           path: "/",
           secure: process.env.NODE_ENV === "production",
         },
@@ -342,7 +349,7 @@ function buildAuthOptions(): AuthOptions {
             ? "__Secure-next-auth.callback-url"
             : "next-auth.callback-url",
         options: {
-          sameSite: "strict",
+          sameSite: "lax",
           path: "/",
           secure: process.env.NODE_ENV === "production",
         },
@@ -354,7 +361,7 @@ function buildAuthOptions(): AuthOptions {
             : "next-auth.csrf-token",
         options: {
           httpOnly: true,
-          sameSite: "strict",
+          sameSite: "lax",
           path: "/",
           secure: process.env.NODE_ENV === "production",
         },
