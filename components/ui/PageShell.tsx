@@ -29,7 +29,15 @@ export function PageShell({
       )}
     >
       {header}
-      <main className={cn("mx-auto px-6 py-8", widthStyles[maxWidth])}>
+      <main
+        className={cn(
+          // Mobile padding 16px (px-4), tablet 24px (sm:px-6) — szerszy
+          // padding na desktopach. Pionowy py-6 na mobile (py-8 na sm+) bo
+          // wysokie ekrany mobilne tracą za dużo viewport na padding.
+          "mx-auto px-4 py-6 sm:px-6 sm:py-8",
+          widthStyles[maxWidth],
+        )}
+      >
         {children}
       </main>
     </div>
@@ -58,12 +66,16 @@ export function PageHeader({
     >
       <div
         className={cn(
-          "mx-auto px-6 h-16 flex items-center justify-between gap-4",
+          "mx-auto px-4 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-2 sm:gap-4",
           widthStyles[maxWidth],
         )}
       >
-        <div className="flex items-center gap-4 min-w-0">{left}</div>
-        {right && <div className="flex items-center gap-3 flex-shrink-0">{right}</div>}
+        <div className="flex items-center gap-2 sm:gap-4 min-w-0">{left}</div>
+        {right && (
+          <div className="flex items-center gap-1.5 sm:gap-3 flex-shrink-0">
+            {right}
+          </div>
+        )}
       </div>
     </header>
   );

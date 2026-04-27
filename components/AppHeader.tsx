@@ -6,6 +6,7 @@ import { ArrowLeft, LogOut, Search, Settings, User as UserIcon } from "lucide-re
 import { Button, PageHeader, ThemeToggle } from "@/components/ui";
 import { NotificationBell } from "@/components/NotificationBell";
 import { useAuthRedirect } from "@/hooks/useAuthRedirect";
+import { usePlatform } from "@/hooks/usePlatform";
 
 export interface AppHeaderProps {
   userLabel?: string;
@@ -28,6 +29,8 @@ export function AppHeader({
   rightExtras,
 }: AppHeaderProps) {
   const { fullLogout } = useAuthRedirect();
+  const platform = usePlatform();
+  const shortcutKey = platform === "other" ? "Ctrl+K" : "⌘K";
 
   const left = backHref ? (
     <>
@@ -66,7 +69,7 @@ export function AppHeader({
             data-tour="cmdk-button"
             className="hidden sm:inline-flex items-center gap-2 text-xs text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-surface)] px-2.5 py-1.5 rounded-lg border border-[var(--border-subtle)] transition"
             aria-label="Wyszukaj globalnie"
-            title="Cmd+K (lub Ctrl+K) — szybkie wyszukiwanie"
+            title={`${shortcutKey} — szybkie wyszukiwanie`}
             onClick={() =>
               window.dispatchEvent(
                 new KeyboardEvent("keydown", {
@@ -78,7 +81,7 @@ export function AppHeader({
             }
           >
             <Search className="w-3.5 h-3.5" />
-            <kbd className="font-mono text-[10px]">⌘K</kbd>
+            <kbd className="font-mono text-[10px]">{shortcutKey}</kbd>
           </button>
           <span data-tour="theme-toggle" className="hidden sm:inline-flex">
             <ThemeToggle />

@@ -175,6 +175,9 @@ export function CommandPalette() {
             ESC
           </kbd>
         </div>
+        {/* Mobile-only hint że można dotknąć tła aby zamknąć — kbd nie ma
+            sensu na touch device, ale ESC button na klawiaturze ekranowej
+            może nie być dostępny. */}
 
         <div className="max-h-[60vh] overflow-y-auto">
           {q.length === 0 ? (
