@@ -50,7 +50,7 @@ const securityHeaders = [
       `connect-src 'self'${kc}${dash}${directus} ${mapTilesSrc}`,
       `script-src ${scriptSrc}`,
       "style-src 'self' 'unsafe-inline'",
-      `img-src 'self' data: blob: ${mapTilesSrc} ${leafletAssetsSrc}${directus}`,
+      `img-src 'self' data: blob: ${mapTilesSrc} ${leafletAssetsSrc}${dash}${directus}`,
       "font-src 'self' data:",
       `frame-src 'self'${kc}`,
       `form-action 'self'${kc}`,

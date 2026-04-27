@@ -15,22 +15,24 @@ interface DirectusFile {
   folder?: string | null;
 }
 
-function getConfig(): { baseUrl: string; token: string; publicUrl: string } | null {
+function getConfig(): { baseUrl: string; token: string; dashboardUrl: string } | null {
   const baseUrl =
     getOptionalEnv("DIRECTUS_INTERNAL_URL") || getOptionalEnv("DIRECTUS_URL");
   const token =
     getOptionalEnv("DIRECTUS_ADMIN_TOKEN") || getOptionalEnv("DIRECTUS_TOKEN");
-  // Public URL używany do generowania linków do zdjęć z dashboardu i paneli
-  // (NEXT_PUBLIC_DIRECTUS_URL jest expose'd na klienta).
-  const publicUrl =
-    getOptionalEnv("NEXT_PUBLIC_DIRECTUS_URL") ||
-    getOptionalEnv("DIRECTUS_URL") ||
-    baseUrl;
-  if (!baseUrl || !token || !publicUrl) return null;
+  // Dashboard URL — używany do generowania absolutnych URL-i do proxy
+  // `/api/public/photos/{id}`. Panele (sprzedawca/serwisant) mają osobny
+  // origin, więc photos URL musi wskazywać na dashboard.
+  const dashboardUrl =
+    getOptionalEnv("DASHBOARD_URL") ||
+    getOptionalEnv("NEXT_PUBLIC_APP_URL") ||
+    getOptionalEnv("NEXTAUTH_URL") ||
+    "https://myperformance.pl";
+  if (!baseUrl || !token) return null;
   return {
     baseUrl: baseUrl.replace(/\/$/, ""),
     token,
-    publicUrl: publicUrl.replace(/\/$/, ""),
+    dashboardUrl: dashboardUrl.replace(/\/$/, ""),
   };
 }
 
@@ -78,8 +80,9 @@ export interface UploadedPhoto {
 
 /**
  * Upload zdjęcia do Directus Files w folderze "locations".
- * Zwraca publiczny URL `/assets/{file_id}` gotowy do zapisania w
- * mp_locations.photos[].
+ * Zwraca publiczny URL `${DASHBOARD_URL}/api/public/photos/{file_id}` gotowy
+ * do zapisania w mp_locations.photos[]. Dashboard proxy strumieniuje plik
+ * z Directus admin tokenem (Directus public role nie ma read na files).
  */
 export async function uploadLocationPhoto(args: {
   file: Blob;
@@ -117,7 +120,7 @@ export async function uploadLocationPhoto(args: {
 
   return {
     id: fileId,
-    url: `${cfg.publicUrl}/assets/${fileId}`,
+    url: `${cfg.dashboardUrl}/api/public/photos/${fileId}`,
     filename: args.filename,
   };
 }

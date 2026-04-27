@@ -62,6 +62,7 @@ export const ROLES = {
   // Dashboard admin sections — niezależne od Keycloak admin
   INFRASTRUCTURE_ADMIN: "infrastructure_admin",
   EMAIL_ADMIN: "email_admin",
+  CONFIG_ADMIN: "config_admin",
 } as const;
 
 export type AppRole = (typeof ROLES)[keyof typeof ROLES];
@@ -105,6 +106,7 @@ export const ROLE_CATALOG: RoleSpec[] = [
 
   { name: ROLES.INFRASTRUCTURE_ADMIN, description: "/admin/infrastructure — VPS, DNS, snapshoty, backupy, monitoring, Wazuh/SIEM", default: false },
   { name: ROLES.EMAIL_ADMIN, description: "/admin/email — branding, KC templates, Postal, catalog", default: false },
+  { name: ROLES.CONFIG_ADMIN, description: "/admin/config — punkty, certyfikaty, powiązania, grupy targetowe", default: false },
 ];
 
 /**
@@ -392,6 +394,10 @@ export const canAccessStepCa = (s: Session | null | undefined) =>
   hasArea(s, "stepca", { min: 90 });
 export const canManageCertificates = (s: Session | null | undefined) =>
   hasArea(s, "certificates", { min: 90 });
+export const canAccessConfigHub = (s: Session | null | undefined) =>
+  hasArea(s, "config-hub", { min: 90 }) ||
+  canManageCertificates(s) ||
+  canAccessKeycloakAdmin(s);
 
 export function canAccessKadromierz(
   session: Session | null | undefined,

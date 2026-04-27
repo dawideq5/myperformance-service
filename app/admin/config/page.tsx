@@ -1,10 +1,7 @@
 import { getServerSession } from "next-auth/next";
 import { redirect } from "next/navigation";
 import { authOptions } from "@/app/auth";
-import {
-  canAccessKeycloakAdmin,
-  canManageCertificates,
-} from "@/lib/admin-auth";
+import { canAccessConfigHub } from "@/lib/admin-auth";
 import {
   getConfigOverviewStats,
   listCertLinks,
@@ -18,7 +15,7 @@ export const dynamic = "force-dynamic";
 export default async function ConfigHubPage() {
   const session = await getServerSession(authOptions);
   if (!session) redirect("/login");
-  if (!canManageCertificates(session) && !canAccessKeycloakAdmin(session)) {
+  if (!canAccessConfigHub(session)) {
     redirect("/forbidden");
   }
 

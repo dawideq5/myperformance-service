@@ -348,6 +348,23 @@ export const AREAS: PermissionArea[] = [
     ],
   },
   {
+    id: "config-hub",
+    label: "Zarządzanie konfiguracją",
+    description:
+      "Centralna konfiguracja: punkty sprzedaży/serwisu, certyfikaty mTLS, powiązania, grupy targetowe i progi punktowe (panel /admin/config).",
+    provider: "keycloak-only",
+    icon: "Settings",
+    kcRoles: [
+      {
+        name: "config_admin",
+        label: "Administrator",
+        description:
+          "Pełny dostęp do panelu Zarządzanie konfiguracją: edycja punktów, grup targetowych, progów, powiązań cert↔punkt.",
+        priority: 90,
+      },
+    ],
+  },
+  {
     id: "email-admin",
     label: "Email — centralne zarządzanie",
     description: "Branding, szablony Keycloak, Postal admin, catalog (panel /admin/email).",

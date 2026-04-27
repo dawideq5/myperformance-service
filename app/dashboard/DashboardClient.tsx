@@ -53,6 +53,7 @@ import {
   canAccessMoodleAsTeacher,
   canAccessPanel,
   canAccessPostal,
+  canAccessConfigHub,
   canManageCertificates,
 } from "@/lib/admin-auth";
 import { cn } from "@/lib/utils";
@@ -131,6 +132,7 @@ function TileGrid() {
   const showEmailAdmin = canAccessEmail(session);
   const showInfrastructureAdmin = canAccessInfrastructure(session);
   const showCerts = canManageCertificates(session);
+  const showConfig = canAccessConfigHub(session);
   const showSprzedawca = canAccessPanel(session, "sprzedawca");
   const showSerwisant = canAccessPanel(session, "serwisant");
   const showKierowca = canAccessPanel(session, "kierowca");
@@ -140,7 +142,7 @@ function TileGrid() {
     showDocumenso || showMoodle || showKnowledge ||
     showChatwoot || showPostal || showKeycloak ||
     showUsersAdmin || showEmailAdmin || showInfrastructureAdmin ||
-    showCerts ||
+    showCerts || showConfig ||
     showSprzedawca || showSerwisant || showKierowca;
 
   return (
@@ -254,7 +256,7 @@ function TileGrid() {
             }}
           />
         )}
-        {showCerts && (
+        {showConfig && (
           <Tile
             icon={
               <SettingsIcon className="w-7 h-7 text-violet-500" aria-hidden="true" />
@@ -262,7 +264,7 @@ function TileGrid() {
             iconBg="bg-violet-500/10"
             title="Zarządzanie konfiguracją"
             tourId="config"
-            description="Punkty + certyfikaty + powiązania w jednym hubie"
+            description="Punkty + certyfikaty + powiązania + grupy targetowe"
             onClick={() => {
               window.location.href = "/admin/config";
             }}
