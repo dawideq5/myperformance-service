@@ -1,18 +1,34 @@
 #!/usr/bin/env node
 /**
- * Aplikuje security hardening na KC realm MyPerformance przez Admin API.
- * Zmiany muszą być zsynchronizowane z infrastructure/keycloak/realm.json —
- * realm.json jest source-of-truth, ten skrypt push-uje zmiany do live KC.
+ * OPCJONALNY skrypt — NIE uruchamiany automatycznie.
  *
- * Idempotent. Bez wymagań / argumentów. Czyta KC creds z env:
+ * Aplikuje konkretne security defaults na KC realm. Admin sam decyduje
+ * kiedy go uruchomić (np. po świeżym imporcie realm.json). Wszystkie
+ * settings można też ustawić ręcznie w KC Admin Console (Realm Settings →
+ * Sessions / Tokens / Headers / WebAuthn Policy).
+ *
+ * Wymaga eksplicitnego CONFIRM=yes żeby uniknąć przypadkowego uruchomienia
+ * i nadpisania manualnych zmian admina.
+ *
+ * Czyta KC creds z env:
  *   KC_BASE_URL              (default https://auth.myperformance.pl)
  *   KC_BOOTSTRAP_USER        (default admin)
  *   KC_BOOTSTRAP_PASSWORD    (required)
  *   KC_REALM                 (default MyPerformance)
+ *   CONFIRM=yes              (required — explicit opt-in)
  *
  * Usage:
- *   KC_BOOTSTRAP_PASSWORD=... node scripts/keycloak/apply-realm-hardening.mjs
+ *   CONFIRM=yes KC_BOOTSTRAP_PASSWORD=... node scripts/keycloak/apply-realm-hardening.mjs
  */
+
+if (process.env.CONFIRM !== "yes") {
+  console.error(
+    "Ten skrypt nadpisuje konfigurację realm w live KC.\n" +
+      "Aby kontynuować ustaw CONFIRM=yes:\n" +
+      "  CONFIRM=yes KC_BOOTSTRAP_PASSWORD=... node scripts/keycloak/apply-realm-hardening.mjs",
+  );
+  process.exit(1);
+}
 
 const KC_BASE_URL = (process.env.KC_BASE_URL ?? "https://auth.myperformance.pl").replace(/\/$/, "");
 const KC_REALM = process.env.KC_REALM ?? "MyPerformance";

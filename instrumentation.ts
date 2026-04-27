@@ -58,26 +58,28 @@ export async function register(): Promise<void> {
     );
   }
 
-  // MFA enforcement dla admin role (Zero Trust). Co 6h sprawdza userów
-  // z superadmin roles i jeśli ktoś nie ma TOTP/WebAuthn — dodaje
-  // CONFIGURE_TOTP required-action. User przy następnym loginie skonfiguruje.
-  try {
-    const { enforceMfaForAdmins } = await import("@/lib/security/mfa-enforcer");
-    const interval = 6 * 60 * 60 * 1000;
-    setInterval(() => {
-      void enforceMfaForAdmins().catch(() => undefined);
-    }, interval).unref?.();
-    setTimeout(() => {
-      void enforceMfaForAdmins().catch(() => undefined);
-    }, 30_000).unref?.();
-    // eslint-disable-next-line no-console
-    console.log("[instrumentation] mfa-enforcer scheduled (every 6h)");
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.warn(
-      "[instrumentation] mfa-enforcer init failed:",
-      err instanceof Error ? err.message : err,
-    );
+  // MFA enforcement OPT-IN przez env MFA_ENFORCE_ADMINS=true. Domyślnie
+  // wyłączone — admin sam decyduje w KC Admin Console kogo wymusić
+  // (Authentication → Required Actions). Brak narzucania z dashboardu.
+  if (process.env.MFA_ENFORCE_ADMINS === "true") {
+    try {
+      const { enforceMfaForAdmins } = await import("@/lib/security/mfa-enforcer");
+      const interval = 6 * 60 * 60 * 1000;
+      setInterval(() => {
+        void enforceMfaForAdmins().catch(() => undefined);
+      }, interval).unref?.();
+      setTimeout(() => {
+        void enforceMfaForAdmins().catch(() => undefined);
+      }, 30_000).unref?.();
+      // eslint-disable-next-line no-console
+      console.log("[instrumentation] mfa-enforcer scheduled (MFA_ENFORCE_ADMINS=true)");
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        "[instrumentation] mfa-enforcer init failed:",
+        err instanceof Error ? err.message : err,
+      );
+    }
   }
 
   // Background timer pollujący KC events co 5s. Phasetwo webhook delivery
@@ -105,12 +107,12 @@ export async function register(): Promise<void> {
     );
   }
 
-  // KC localization initial seed — push wariantów KC-friendly (numbered
-  // args {0}, {1}, {2}) do realm localization. KC FreeMarker email
-  // templates resolwują ${msg("key", arg0, arg1)} z tego mapping.
-  // Mustache placeholders {{user.firstName}} z naszych szablonów NIE
-  // pasują do KC — dla KC trzymamy oddzielne wersje w lib/email/kc-templates.ts.
-  try {
+  // KC localization seed — OPT-IN przez DASHBOARD_PUSH_KC_TEMPLATES=true.
+  // Domyślnie wyłączone, żeby NIE nadpisywać manualnych zmian admina
+  // w KC Admin Console (Realm Settings → Localization). Admin uruchamia
+  // tylko gdy chce zsynchronizować z lib/email/kc-templates.ts.
+  if (process.env.DASHBOARD_PUSH_KC_TEMPLATES === "true") {
+   try {
     const { ensureLocaleEnabled, setLocaleMessage } = await import(
       "@/lib/email/kc-localization"
     );
@@ -164,12 +166,13 @@ export async function register(): Promise<void> {
     console.log(
       `[instrumentation] KC localization seed: ${pushed} keys pushed (locale=pl)`,
     );
-  } catch (err) {
+   } catch (err) {
     // eslint-disable-next-line no-console
     console.warn(
       "[instrumentation] KC localization seed failed:",
       err instanceof Error ? err.message : err,
     );
+   }
   }
 
   // Initial Directus push — branding + szablony + app catalog z tagami

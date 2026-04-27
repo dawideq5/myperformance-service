@@ -1,14 +1,19 @@
 #!/usr/bin/env node
 /**
- * Aplikuje security hardening na KC clients:
- *   - PKCE S256 wymagane (wszystkie clients, nawet confidential)
- *   - Implicit flow disabled (defense — był i tak false dla wszystkich)
- *   - Direct Access Grants (Resource Owner Password) disabled
- *   - Standard flow (auth code) explicit enabled
- *   - Service accounts only dla myperformance-service (client credentials)
+ * OPCJONALNY skrypt — NIE uruchamiany automatycznie.
  *
- * Idempotent. Skip system clients (account, broker, realm-management).
+ * Aplikuje konkretne KC client defaults. Admin sam decyduje kiedy.
+ * Wymaga CONFIRM=yes — bez tego no-op.
  */
+
+if (process.env.CONFIRM !== "yes") {
+  console.error(
+    "Ten skrypt nadpisuje konfigurację KC clients w live KC.\n" +
+      "Aby kontynuować ustaw CONFIRM=yes:\n" +
+      "  CONFIRM=yes KC_BOOTSTRAP_PASSWORD=... node scripts/keycloak/apply-clients-hardening.mjs",
+  );
+  process.exit(1);
+}
 
 const KC_BASE_URL = (process.env.KC_BASE_URL ?? "https://auth.myperformance.pl").replace(/\/$/, "");
 const KC_REALM = process.env.KC_REALM ?? "MyPerformance";
