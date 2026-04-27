@@ -54,6 +54,18 @@ export function PanelHome({
     } catch {
       /* noop */
     }
+    // Audit log — best-effort, brak czeka na response. Endpoint jest na
+    // dashboard /api/panel/audit z Bearer KC token. Token mamy w cookie
+    // sesji NextAuth — pobieramy go przez /api/auth/session.
+    void fetch("/api/audit-relay", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        locationId: loc.id,
+        actionType: "panel.location.selected",
+        payload: { name: loc.name, type: loc.type },
+      }),
+    }).catch(() => undefined);
   }, []);
 
   const onClearSelection = useCallback(() => {

@@ -54,6 +54,18 @@ export function PanelHome({
     } catch {
       /* noop */
     }
+    // Audit log — best-effort, brak czeka na response. Endpoint jest na
+    // dashboard /api/panel/audit z Bearer KC token. Token mamy w cookie
+    // sesji NextAuth — pobieramy go przez /api/auth/session.
+    void fetch("/api/audit-relay", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        locationId: loc.id,
+        actionType: "panel.location.selected",
+        payload: { name: loc.name, type: loc.type },
+      }),
+    }).catch(() => undefined);
   }, []);
 
   const onClearSelection = useCallback(() => {
@@ -95,7 +107,7 @@ export function PanelHome({
           </h1>
           <p className="text-sm mb-6" style={{ color: "var(--text-muted)" }}>
             Twój certyfikat klienta nie ma przypisanych żadnych punktów
-            serwisowego. Skontaktuj się z administratorem aby przypisać Cię
+            serwisowy. Skontaktuj się z administratorem aby przypisać Cię
             do odpowiednich lokalizacji.
           </p>
           <div className="flex gap-2 justify-center">
@@ -173,7 +185,7 @@ export function PanelHome({
         <main className="flex-1 mx-auto max-w-7xl w-full px-4 sm:px-6 py-6 sm:py-8 space-y-4 animate-fade-in">
           <div>
             <h1 className="text-2xl font-bold mb-1" style={{ color: "var(--text-main)" }}>
-              Wybierz punkt serwisowego
+              Wybierz punkt serwisowy
             </h1>
             <p className="text-sm" style={{ color: "var(--text-muted)" }}>
               Masz dostęp do <strong>{locations.length}</strong>{" "}

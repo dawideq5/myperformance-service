@@ -15,6 +15,8 @@ import {
   updateLocation,
   type LocationInput,
 } from "@/lib/locations";
+import { logLocationAction } from "@/lib/location-audit";
+import { getClientIp } from "@/lib/rate-limit";
 
 interface Ctx {
   params: Promise<{ id: string }>;
@@ -47,6 +49,14 @@ export async function PUT(req: Request, { params }: Ctx) {
     }
     try {
       const location = await updateLocation(id, body);
+      await logLocationAction({
+        locationId: id,
+        userId: session.user?.id ?? null,
+        userEmail: session.user?.email ?? null,
+        actionType: "details.updated",
+        payload: { changedFields: Object.keys(body) },
+        srcIp: getClientIp(req),
+      });
       return createSuccessResponse({ location });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -57,7 +67,7 @@ export async function PUT(req: Request, { params }: Ctx) {
   }
 }
 
-export async function DELETE(_req: Request, { params }: Ctx) {
+export async function DELETE(req: Request, { params }: Ctx) {
   try {
     const session = await getServerSession(authOptions);
     requireSession(session);
@@ -66,6 +76,13 @@ export async function DELETE(_req: Request, { params }: Ctx) {
     }
     const { id } = await params;
     await deleteLocation(id);
+    await logLocationAction({
+      locationId: id,
+      userId: session.user?.id ?? null,
+      userEmail: session.user?.email ?? null,
+      actionType: "details.deleted",
+      srcIp: getClientIp(req),
+    });
     return createSuccessResponse({ ok: true });
   } catch (error) {
     return handleApiError(error);

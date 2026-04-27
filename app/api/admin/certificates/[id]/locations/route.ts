@@ -10,9 +10,12 @@ import {
 } from "@/lib/api-utils";
 import { canManageCertificates } from "@/lib/admin-auth";
 import {
+  getLocationIdsForCertificate,
   getLocationsForCertificate,
   setCertificateLocations,
 } from "@/lib/certificate-locations";
+import { logLocationAction } from "@/lib/location-audit";
+import { getClientIp } from "@/lib/rate-limit";
 
 interface Ctx {
   params: Promise<{ id: string }>;
@@ -48,13 +51,46 @@ export async function PUT(req: Request, { params }: Ctx) {
       throw ApiError.badRequest("locationIds[] required");
     }
     const actor = session.user?.email ?? session.user?.id ?? "admin";
+    const newIds = body.locationIds.filter(
+      (s): s is string => typeof s === "string" && s.length > 0,
+    );
+    const oldIds = await getLocationIdsForCertificate(id);
     await setCertificateLocations({
       certificateId: id,
-      locationIds: body.locationIds.filter(
-        (s): s is string => typeof s === "string" && s.length > 0,
-      ),
+      locationIds: newIds,
       assignedBy: actor,
     });
+    // Audit per-location: cert.assigned dla nowo dodanych, cert.unassigned
+    // dla usuniętych. Pomaga w timeline historii punktu.
+    const oldSet = new Set(oldIds);
+    const newSet = new Set(newIds);
+    const ip = getClientIp(req);
+    await Promise.all([
+      ...newIds
+        .filter((lid) => !oldSet.has(lid))
+        .map((lid) =>
+          logLocationAction({
+            locationId: lid,
+            userId: session.user?.id ?? null,
+            userEmail: session.user?.email ?? null,
+            actionType: "cert.assigned",
+            payload: { certificateId: id, by: actor },
+            srcIp: ip,
+          }),
+        ),
+      ...oldIds
+        .filter((lid) => !newSet.has(lid))
+        .map((lid) =>
+          logLocationAction({
+            locationId: lid,
+            userId: session.user?.id ?? null,
+            userEmail: session.user?.email ?? null,
+            actionType: "cert.unassigned",
+            payload: { certificateId: id, by: actor },
+            srcIp: ip,
+          }),
+        ),
+    ]);
     return createSuccessResponse({ ok: true });
   } catch (error) {
     return handleApiError(error);
