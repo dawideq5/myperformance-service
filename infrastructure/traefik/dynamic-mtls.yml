@@ -1,3 +1,15 @@
+# myperformance.pl mTLS — canonical Traefik dynamic config.
+#
+# Panele certyfikatowe (sprzedawca/serwisant/kierowca) i wazuh wymagają
+# certyfikatu klienckiego — bez wyjątków.
+# clientAuthType: RequireAndVerifyClientCert oznacza:
+#   - Traefik odrzuca połączenie w TLS handshake gdy klient nie ma certu
+#   - Cert musi być podpisany przez myperformance-ca.pem (caFile)
+#   - Brak fallback: panele nie są dostępne bez certu (enterprise default)
+#
+# Edycja tego pliku jest zarządzana ręcznie + sync skrypt z repo. Aby zmienić
+# zachowanie mTLS, edytuj ten plik bezpośrednio i Traefik przeładuje (file
+# provider watch=true).
 http:
   middlewares:
     mtls-required:
@@ -18,8 +30,7 @@ http:
     # Rate-limit dla Keycloak token endpoint (login + refresh + admin auth).
     # KC ma BFP po 10 failed login attempts, ale Traefik rate-limit chwyta
     # *zanim* request dotrze do KC = lepsza ochrona przed brute force.
-    # Per-IP, average=10 req/s, burst=30. Legit user nawet z mobile network
-    # nie zrobi >10 token requestów na sekundę.
+    # Per-IP, average=10 req/s, burst=30.
     kc-token-ratelimit:
       rateLimit:
         average: 10
@@ -29,9 +40,7 @@ http:
           ipStrategy:
             depth: 1
 
-    # Bardziej agresywny limit na same login form submission — admin/user
-    # POST /realms/.../login-actions/authenticate. Brute force credential
-    # stuffing.
+    # Bardziej agresywny limit na same login form submission.
     kc-login-ratelimit:
       rateLimit:
         average: 5
@@ -41,8 +50,8 @@ http:
           ipStrategy:
             depth: 1
 
-    # Dla webhook endpoints — Wazuh AR + KC SPI. Webhooks powinny mieć
-    # bardzo niski volume; >100 req/min = atak/loop.
+    # Webhook endpoints — Wazuh AR + KC SPI. Webhooks powinny mieć bardzo
+    # niski volume; >100 req/min = atak/loop.
     webhook-ratelimit:
       rateLimit:
         average: 100
@@ -52,7 +61,7 @@ http:
           ipStrategy:
             depth: 1
 
-    # Globalne security headers (defense-in-depth — dashboard już ma swoje
+    # Globalne security headers (defense-in-depth — dashboard ma swoje
     # przez Next.js, ale Traefik łapie też inne usługi typu Postal/Wazuh).
     secure-headers:
       headers:
@@ -80,6 +89,12 @@ tls:
         clientAuthType: RequireAndVerifyClientCert
       minVersion: VersionTLS12
     mtls-kierowca:
+      clientAuth:
+        caFiles:
+          - /traefik/certs/myperformance-ca.pem
+        clientAuthType: RequireAndVerifyClientCert
+      minVersion: VersionTLS12
+    mtls-wazuh:
       clientAuth:
         caFiles:
           - /traefik/certs/myperformance-ca.pem
