@@ -116,6 +116,13 @@ export async function POST(request: NextRequest) {
               : undefined,
           },
           location: location ? String(location).slice(0, 200) : undefined,
+          // Etykieta źródła w Google Calendar — zawsze "MyPerformance",
+          // niezależnie czy event jest synced z Akademii / dashboardu / itd.
+          // User widzi ten label przy wydarzeniu w Google Calendar.
+          source: {
+            title: "MyPerformance",
+            url: "https://myperformance.pl",
+          },
         };
         const calResp = await fetch(
           "https://www.googleapis.com/calendar/v3/calendars/primary/events",

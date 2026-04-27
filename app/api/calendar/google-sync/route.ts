@@ -84,16 +84,31 @@ export async function POST(request: NextRequest) {
         const errText = await calResp.text();
         console.error("[Calendar Google Sync] Failed:", calResp.status, errText);
         if (calResp.status === 401) {
-          // Return 200 with `needsReconnect: true` — 4xx/5xx here would
-          // trip the global fetch error handler and also show as "Failed
-          // to load resource" in browser devtools. Frontend reads the
-          // flag and prompts re-consent without console noise.
+          // Token Google wygasł / revoked. Auto-disconnect: usuwamy federated
+          // identity + atrybuty `google_*` żeby user nie musiał manualnie
+          // klikać "Odłącz". Notify usera + zwracamy needsReconnect=true tak
+          // żeby UI pokazało CTA "Połącz ponownie z Google".
+          try {
+            const { disconnectGoogleForUser } = await import(
+              "@/lib/integrations/google-disconnect"
+            );
+            const userId = await keycloak.getUserIdFromToken(
+              session.accessToken!,
+            );
+            await disconnectGoogleForUser({ userId, reason: "token_expired" });
+          } catch (e) {
+            console.warn(
+              "[Calendar Google Sync] auto-disconnect failed:",
+              e instanceof Error ? e.message : String(e),
+            );
+          }
           return NextResponse.json({
             synced: 0,
             total: 0,
             events: [],
             needsReconnect: true,
             reason: "google_token_expired",
+            autoDisconnected: true,
           });
         }
         return NextResponse.json(

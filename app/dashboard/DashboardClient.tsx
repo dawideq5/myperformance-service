@@ -215,7 +215,7 @@ function TileGrid() {
             title="Panel Sprzedawcy"
             tourId="panel-sprzedawca"
             description="Oferty, zamówienia, klienci"
-            href="https://panelsprzedawcy.myperformance.pl"
+            href="/panel/sprzedawca/launch"
           />
         )}
         {showSerwisant && (
@@ -225,7 +225,7 @@ function TileGrid() {
             title="Panel Serwisanta"
             tourId="panel-serwisant"
             description="Zgłoszenia serwisowe i naprawy"
-            href="https://panelserwisanta.myperformance.pl"
+            href="/panel/serwisant/launch"
           />
         )}
         {showKierowca && (
@@ -235,7 +235,7 @@ function TileGrid() {
             title="Panel Kierowcy"
             tourId="panel-kierowca"
             description="Trasy, dostawy, pojazdy"
-            href="https://panelkierowcy.myperformance.pl"
+            href="/panel/kierowca/launch"
           />
         )}
 

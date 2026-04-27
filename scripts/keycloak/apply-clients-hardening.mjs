@@ -86,10 +86,27 @@ async function main() {
       standard: c.standardFlowEnabled,
     });
 
-    // Force PKCE S256 — chroni przed authorization code interception attack
-    // (w tym confidential clients, gdzie code może wyciec przez logi proxy)
+    // PKCE S256 — TYLKO na public clients (bez client_secret) i NextAuth
+    // (myperformance-dashboard wysyła PKCE auto). Ustawienie tego attribute
+    // na confidential clients WYMUSZA PKCE, a większość OIDC pluginów
+    // (Moodle/Outline/Documenso/Postal/Chatwoot/Wazuh/Directus) nie wysyła
+    // code_challenge → KC odrzuca jako "invalid_request: Missing parameter:
+    // code_challenge_method".
+    //
+    // Dla confidential clients PKCE jest opcjonalne — chronią je już:
+    //   - client_secret (nie wycieknie przez URL/proxy logs)
+    //   - exact-match redirect URI
+    //   - HTTPS na całej trasie
     c.attributes = c.attributes ?? {};
-    c.attributes["pkce.code.challenge.method"] = "S256";
+    const isPublic = c.publicClient === true;
+    const isDashboard = c.clientId === "myperformance-dashboard";
+    if (isPublic || isDashboard) {
+      c.attributes["pkce.code.challenge.method"] = "S256";
+    } else {
+      // Usuwamy attribute jeśli był ustawiony wcześniej — żeby Moodle/Outline
+      // mogły logować się normalnie auth-code flow bez PKCE.
+      delete c.attributes["pkce.code.challenge.method"];
+    }
 
     // Disable implicit flow (deprecated, leak token w URL fragment)
     c.implicitFlowEnabled = false;
