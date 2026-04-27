@@ -6,7 +6,24 @@ const keycloakOrigin = (() => {
   if (!url) return null;
   try { return new URL(url).origin; } catch { return null; }
 })();
+const dashboardOrigin = (() => {
+  const url = process.env.DASHBOARD_URL?.trim() || "https://myperformance.pl";
+  try { return new URL(url).origin; } catch { return null; }
+})();
+const directusOrigin = (() => {
+  const url = process.env.NEXT_PUBLIC_DIRECTUS_URL?.trim() || process.env.DIRECTUS_URL?.trim();
+  if (!url) return null;
+  try { return new URL(url).origin; } catch { return null; }
+})();
 const kc = keycloakOrigin ? ` ${keycloakOrigin}` : "";
+const dash = dashboardOrigin ? ` ${dashboardOrigin}` : "";
+const directus = directusOrigin ? ` ${directusOrigin}` : "";
+// Mapy: CartoDB Dark Matter (ciemny motyw) + OSM (fallback) + unpkg
+// (Leaflet marker icons). Bez tych wpisów panele NIE WYŚWIETLAJĄ MAP.
+const mapTilesSrc =
+  "https://*.basemaps.cartocdn.com https://*.tile.openstreetmap.org https://tile.openstreetmap.org";
+const leafletAssetsSrc = "https://unpkg.com";
+
 const scriptSrc = isDev ? "'self' 'unsafe-inline' 'unsafe-eval'" : "'self' 'unsafe-inline'";
 
 const securityHeaders = [
@@ -30,10 +47,10 @@ const securityHeaders = [
     key: "Content-Security-Policy",
     value: [
       "default-src 'self'",
-      `connect-src 'self'${kc}`,
+      `connect-src 'self'${kc}${dash}${directus} ${mapTilesSrc}`,
       `script-src ${scriptSrc}`,
       "style-src 'self' 'unsafe-inline'",
-      "img-src 'self' data: blob:",
+      `img-src 'self' data: blob: ${mapTilesSrc} ${leafletAssetsSrc}${directus}`,
       "font-src 'self' data:",
       `frame-src 'self'${kc}`,
       `form-action 'self'${kc}`,

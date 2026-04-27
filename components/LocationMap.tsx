@@ -24,6 +24,41 @@ const Popup = dynamic(
   () => import("react-leaflet").then((m) => m.Popup),
   { ssr: false },
 );
+// FlyTo helper — child komponent MapContainer który auto-zoomuje gdy
+// lat/lng/zoom zmieniają się. Bez tego MapContainer's `center` prop działa
+// tylko initial — po np. wybraniu adresu z autocomplete mapa zostawała
+// na starej lokalizacji.
+const FlyTo = dynamic(
+  () =>
+    import("react-leaflet").then((m) => {
+      function Comp({
+        lat,
+        lng,
+        zoom,
+      }: {
+        lat: number;
+        lng: number;
+        zoom: number;
+      }) {
+        const map = m.useMap();
+        useEffect(() => {
+          if (typeof lat === "number" && typeof lng === "number") {
+            map.flyTo([lat, lng], zoom, { duration: 0.7 });
+          }
+        }, [lat, lng, zoom, map]);
+        return null;
+      }
+      return Comp;
+    }),
+  { ssr: false },
+);
+
+// Ciemny motyw — CartoDB Dark Matter (free, OSM-based, retina-ready).
+// Atrybucja CartoDB + OSM wymagana licensowo.
+const DARK_TILE_URL =
+  "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
+const DARK_TILE_ATTRIBUTION =
+  '<a href="https://carto.com/attributions">CARTO</a> · <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
 
 export interface LocationMapProps {
   locations: Location[];
@@ -114,9 +149,13 @@ export function LocationMap({
         style={{ minHeight: 360 }}
         scrollWheelZoom
       >
-        <TileLayer
-          attribution='<a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        <TileLayer attribution={DARK_TILE_ATTRIBUTION} url={DARK_TILE_URL} />
+        {/* FlyTo: gdy editPin albo selected location się zmieni — animowany
+            zoom na nowe współrzędne. Bez tego mapa zostawała na initial. */}
+        <FlyTo
+          lat={center[0]}
+          lng={center[1]}
+          zoom={editPin || selectedId ? 15 : defaultZoom}
         />
         {locations
           .filter((l) => l.lat != null && l.lng != null)

@@ -19,6 +19,24 @@ const Popup = dynamic(
   () => import("react-leaflet").then((m) => m.Popup),
   { ssr: false },
 );
+const FlyTo = dynamic(
+  () =>
+    import("react-leaflet").then((m) => {
+      function Comp({ lat, lng, zoom }: { lat: number; lng: number; zoom: number }) {
+        const map = m.useMap();
+        useEffect(() => {
+          map.flyTo([lat, lng], zoom, { duration: 0.7 });
+        }, [lat, lng, zoom, map]);
+        return null;
+      }
+      return Comp;
+    }),
+  { ssr: false },
+);
+
+const DARK_TILE_URL = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
+const DARK_TILE_ATTRIBUTION =
+  '<a href="https://carto.com/attributions">CARTO</a> · <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
 
 export interface PanelLocation {
   id: string;
@@ -102,10 +120,8 @@ export function PanelLocationMap({
         style={{ minHeight: 360 }}
         scrollWheelZoom
       >
-        <TileLayer
-          attribution='<a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        />
+        <TileLayer attribution={DARK_TILE_ATTRIBUTION} url={DARK_TILE_URL} />
+        <FlyTo lat={center[0]} lng={center[1]} zoom={selectedId ? 15 : 6} />
         {locations
           .filter((l) => l.lat != null && l.lng != null)
           .map((l) => (

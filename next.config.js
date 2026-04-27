@@ -40,10 +40,11 @@ const scriptSrc = isDev
   ? "'self' 'unsafe-inline' 'unsafe-eval'"
   : "'self' 'unsafe-inline'"; // TODO: migrate to per-request nonces
 
-// OSM tiles (mapa) + unpkg (Leaflet marker icons) + Directus (uploaded photos).
+// Map tiles + unpkg (Leaflet marker icons) + Directus (uploaded photos).
 // Bez tych mapy się NIE WCZYTUJĄ — browser blokuje tile fetch przez CSP.
+// CartoDB Dark Matter dla ciemnego motywu + OSM fallback.
 const osmTilesSrc =
-  "https://*.tile.openstreetmap.org https://tile.openstreetmap.org";
+  "https://*.basemaps.cartocdn.com https://*.tile.openstreetmap.org https://tile.openstreetmap.org";
 const leafletAssetsSrc = "https://unpkg.com";
 const directusOrigin = originOf(
   process.env.NEXT_PUBLIC_DIRECTUS_URL,
