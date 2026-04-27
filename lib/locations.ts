@@ -1,4 +1,10 @@
-import { listItems, deleteItem, isConfigured as directusConfigured } from "@/lib/directus-cms";
+import {
+  createItem,
+  deleteItem,
+  isConfigured as directusConfigured,
+  listItems,
+  updateItem,
+} from "@/lib/directus-cms";
 import { log } from "@/lib/logger";
 
 const logger = log.child({ module: "locations" });
@@ -167,6 +173,93 @@ export function validateLocation(loc: Partial<Location>): string[] {
     errors.push("Maksymalnie 3 zdjęcia");
   }
   return errors;
+}
+
+export interface LocationInput {
+  name: string;
+  warehouseCode?: string | null;
+  type: LocationType;
+  address?: string | null;
+  lat?: number | null;
+  lng?: number | null;
+  description?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  hours?: LocationHours | null;
+  photos?: string[];
+  budgetPlan?: number | null;
+  serviceId?: string | null;
+  salesIds?: string[];
+  enabled?: boolean;
+}
+
+function inputToDirectus(input: LocationInput): Record<string, unknown> {
+  return {
+    name: input.name,
+    warehouse_code: input.warehouseCode ?? null,
+    type: input.type,
+    address: input.address ?? null,
+    lat: input.lat ?? null,
+    lng: input.lng ?? null,
+    description: input.description ?? null,
+    email: input.email ?? null,
+    phone: input.phone ?? null,
+    hours: input.hours ?? null,
+    photos: (input.photos ?? []).slice(0, 3),
+    budget_plan: input.budgetPlan ?? null,
+    service_id: input.type === "sales" ? (input.serviceId ?? null) : null,
+    sales_ids: input.type === "service" ? (input.salesIds ?? []) : [],
+    enabled: input.enabled !== false,
+    updated_at: new Date().toISOString(),
+  };
+}
+
+export async function createLocation(input: LocationInput): Promise<Location> {
+  const errors = validateLocation(input as Partial<Location>);
+  if (errors.length > 0) {
+    throw new Error(errors.join("; "));
+  }
+  const created = await createItem<DirectusLocationRow>(
+    "mp_locations",
+    inputToDirectus(input),
+  );
+  return mapRow(created);
+}
+
+export async function updateLocation(
+  id: string,
+  input: Partial<LocationInput> & { type?: LocationType },
+): Promise<Location> {
+  const errors = validateLocation(input as Partial<Location>);
+  if (errors.length > 0) {
+    throw new Error(errors.join("; "));
+  }
+  // Tylko pola które przyszły w input — partial update.
+  const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (input.name !== undefined) patch.name = input.name;
+  if (input.warehouseCode !== undefined)
+    patch.warehouse_code = input.warehouseCode ?? null;
+  if (input.type !== undefined) patch.type = input.type;
+  if (input.address !== undefined) patch.address = input.address ?? null;
+  if (input.lat !== undefined) patch.lat = input.lat ?? null;
+  if (input.lng !== undefined) patch.lng = input.lng ?? null;
+  if (input.description !== undefined)
+    patch.description = input.description ?? null;
+  if (input.email !== undefined) patch.email = input.email ?? null;
+  if (input.phone !== undefined) patch.phone = input.phone ?? null;
+  if (input.hours !== undefined) patch.hours = input.hours ?? null;
+  if (input.photos !== undefined) patch.photos = input.photos.slice(0, 3);
+  if (input.budgetPlan !== undefined) patch.budget_plan = input.budgetPlan ?? null;
+  if (input.serviceId !== undefined) patch.service_id = input.serviceId ?? null;
+  if (input.salesIds !== undefined) patch.sales_ids = input.salesIds;
+  if (input.enabled !== undefined) patch.enabled = input.enabled;
+
+  const updated = await updateItem<DirectusLocationRow>(
+    "mp_locations",
+    id,
+    patch,
+  );
+  return mapRow(updated);
 }
 
 export async function deleteLocation(id: string): Promise<void> {

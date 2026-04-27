@@ -213,6 +213,36 @@ export async function upsertItem(
   }
 }
 
+/**
+ * Create item w collection. Zwraca utworzony obiekt z auto-generated PK.
+ * Dla idempotent seeds użyj `upsertItem` zamiast (próbuje POST + fallback
+ * PATCH). createItem jest dla user-driven create (np. admin POST z UI).
+ */
+export async function createItem<T = Record<string, unknown>>(
+  collection: string,
+  item: Record<string, unknown>,
+): Promise<T> {
+  return directusFetch<T>(`/items/${collection}`, {
+    method: "POST",
+    body: JSON.stringify(item),
+  });
+}
+
+/**
+ * Update item w collection (PATCH). Zwraca zaktualizowany obiekt.
+ * Directus partial update — wystarczy podać tylko pola które się zmieniły.
+ */
+export async function updateItem<T = Record<string, unknown>>(
+  collection: string,
+  primaryKey: string,
+  item: Record<string, unknown>,
+): Promise<T> {
+  return directusFetch<T>(
+    `/items/${collection}/${encodeURIComponent(primaryKey)}`,
+    { method: "PATCH", body: JSON.stringify(item) },
+  );
+}
+
 export async function deleteItem(
   collection: string,
   primaryKey: string,
