@@ -151,7 +151,7 @@ export const APP_CATALOG: AppCatalogEntry[] = [
     subtitle: "Agenty, reguły, AR",
     href: "/admin/infrastructure?tab=wazuh",
     keywords: "wazuh siem agent rule active response",
-    requiresArea: "wazuh",
+    requiresArea: "infrastructure",
     requiresMinPriority: 90,
     defaultTags: ["wazuh", "siem", "agent", "ids"],
   },

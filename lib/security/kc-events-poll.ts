@@ -122,25 +122,52 @@ async function dispatch(event: KcEvent): Promise<void> {
     return;
   }
 
-  // SEND_RESET_PASSWORD / EXECUTE_ACTIONS → security.2fa.code_sent (proxy)
-  if ((type === "SEND_RESET_PASSWORD" || type === "EXECUTE_ACTIONS") && userId) {
-    await notifyUser(userId, "security.2fa.code_sent", {
-      title: "Wysłano kod weryfikacyjny / link resetu",
-      body: `Z IP ${ip ?? "?"} został wysłany email weryfikacyjny lub reset hasła. Sprawdź skrzynkę.`,
-      severity: "info",
-      payload: { ip, type },
+  // SEND_RESET_PASSWORD / EXECUTE_ACTIONS — info-only event, nie generujemy
+  // powiadomienia (user sam triggerował akcję, niepotrzebny szum).
+
+  // REMOVE_TOTP / UPDATE_TOTP → security.totp.removed / .configured
+  if (type === "UPDATE_TOTP" && userId) {
+    await notifyUser(userId, "security.totp.configured", {
+      title: "Skonfigurowano aplikację 2FA",
+      body: `Aplikacja TOTP została skonfigurowana ${new Date().toLocaleString("pl-PL")}${ip ? `, z IP ${ip}` : ""}. Jeśli to nie Ty — natychmiast skontaktuj się z administratorem.`,
+      severity: "success",
+      payload: { ip },
+      forceEmail: true,
+    });
+    return;
+  }
+  if (type === "REMOVE_TOTP" && userId) {
+    await notifyUser(userId, "security.totp.removed", {
+      title: "Usunięto aplikację 2FA",
+      body: `Aplikacja TOTP została usunięta z konta ${new Date().toLocaleString("pl-PL")}${ip ? `, z IP ${ip}` : ""}. Jeśli to nie Ty — natychmiast skontaktuj się z administratorem.`,
+      severity: "warning",
+      payload: { ip },
+      forceEmail: true,
     });
     return;
   }
 
-  // REMOVE_TOTP / UPDATE_TOTP → security event high (admin.security.event.high)
-  // — recordEvent powyżej już to wyzwoli dla high/critical, ale TOTP zmiana
-  // jest medium → bumpiemy ręcznie userowi notif.
-  if ((type === "REMOVE_TOTP" || type === "UPDATE_TOTP") && userId) {
-    await notifyUser(userId, "security.password.changed", {
-      title: type === "REMOVE_TOTP" ? "Usunięto 2FA TOTP" : "Skonfigurowano 2FA TOTP",
-      body: `Akcja wykonana ${new Date().toLocaleString("pl-PL")} z IP ${ip ?? "?"}. Jeśli to nie Ty — natychmiast skontaktuj się z administratorem.`,
-      severity: type === "REMOVE_TOTP" ? "warning" : "success",
+  // UPDATE_CREDENTIAL z type=webauthn / webauthn-passwordless
+  // → security.webauthn.configured. KC poll catch-uje przez generic event.
+  if (
+    (type === "UPDATE_CREDENTIAL" || type === "REGISTER") &&
+    userId &&
+    /webauthn/i.test(JSON.stringify(event.details ?? {}))
+  ) {
+    await notifyUser(userId, "security.webauthn.configured", {
+      title: "Zarejestrowano klucz bezpieczeństwa",
+      body: `Klucz bezpieczeństwa / passkey został zarejestrowany ${new Date().toLocaleString("pl-PL")}${ip ? `, z IP ${ip}` : ""}. Jeśli to nie Ty — natychmiast skontaktuj się z administratorem.`,
+      severity: "success",
+      payload: { ip },
+      forceEmail: true,
+    });
+    return;
+  }
+  if (type === "REMOVE_CREDENTIAL" && userId) {
+    await notifyUser(userId, "security.webauthn.removed", {
+      title: "Usunięto klucz bezpieczeństwa",
+      body: `Klucz bezpieczeństwa / passkey został usunięty ${new Date().toLocaleString("pl-PL")}${ip ? `, z IP ${ip}` : ""}. Jeśli to nie Ty — natychmiast skontaktuj się z administratorem.`,
+      severity: "warning",
       payload: { ip },
       forceEmail: true,
     });
@@ -182,6 +209,8 @@ export async function pollKcEvents(opts: { realm?: string; max?: number } = {}):
     "UPDATE_PASSWORD",
     "REMOVE_TOTP",
     "UPDATE_TOTP",
+    "UPDATE_CREDENTIAL",
+    "REMOVE_CREDENTIAL",
     "SEND_RESET_PASSWORD",
     "EXECUTE_ACTIONS",
     "VERIFY_EMAIL",

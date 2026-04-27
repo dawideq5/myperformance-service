@@ -30,11 +30,32 @@ export const NOTIF_EVENTS = {
     defaultEmail: false,
     requiresArea: null,
   },
-  "security.2fa.code_sent": {
-    label: "Wysłano kod 2FA",
+  "security.totp.configured": {
+    label: "Skonfigurowano aplikację 2FA",
     category: "security",
     defaultInApp: true,
-    defaultEmail: false,
+    defaultEmail: true,
+    requiresArea: null,
+  },
+  "security.totp.removed": {
+    label: "Usunięto aplikację 2FA",
+    category: "security",
+    defaultInApp: true,
+    defaultEmail: true,
+    requiresArea: null,
+  },
+  "security.webauthn.configured": {
+    label: "Zarejestrowano klucz bezpieczeństwa / passkey",
+    category: "security",
+    defaultInApp: true,
+    defaultEmail: true,
+    requiresArea: null,
+  },
+  "security.webauthn.removed": {
+    label: "Usunięto klucz bezpieczeństwa / passkey",
+    category: "security",
+    defaultInApp: true,
+    defaultEmail: true,
     requiresArea: null,
   },
   "security.brute_force.detected": {

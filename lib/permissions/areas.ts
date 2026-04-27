@@ -319,34 +319,30 @@ export const AREAS: PermissionArea[] = [
     ],
   },
   {
-    id: "wazuh",
-    label: "Wazuh SIEM",
-    description: "Dashboard Wazuh — agenty, reguły, polityki. Tylko administrator.",
-    provider: "keycloak-only",
-    icon: "ShieldAlert",
-    nativeAdminUrl: "https://wazuh.myperformance.pl",
-    kcRoles: [
-      {
-        name: "wazuh_admin",
-        label: "Administrator",
-        description: "Pełny dostęp do Wazuh — agenty, reguły, polityki, użytkownicy.",
-        priority: 90,
-      },
-    ],
-  },
-  {
     id: "infrastructure",
     label: "Infrastruktura serwera",
     description:
-      "VPS, DNS, snapshoty, backupy, monitoring zasobów + bezpieczeństwo/SIEM (panel /admin/infrastructure).",
+      "VPS, DNS, snapshoty, backupy, monitoring zasobów, bezpieczeństwo/SIEM, Wazuh dashboard (panel /admin/infrastructure + https://wazuh.myperformance.pl).",
     provider: "keycloak-only",
     icon: "Server",
+    nativeAdminUrl: "https://wazuh.myperformance.pl",
     kcRoles: [
       {
         name: "infrastructure_admin",
         label: "Administrator",
         description:
-          "Pełny dostęp: OVH API (VPS, DNS, snapshot, backup), monitoring zasobów (CPU/RAM/Disk per kontener), security events, blokady IP, integracja Wazuh.",
+          "Pełny dostęp: OVH API (VPS, DNS, snapshot, backup), monitoring zasobów (CPU/RAM/Disk per kontener), security events, blokady IP, Wazuh SIEM (agenty, reguły, polityki, użytkownicy).",
+        priority: 90,
+      },
+      // Wazuh OpenSearch Dashboards mapuje rolę `wazuh_admin` → all_access
+      // przez roles_mapping.yml. Trzymamy ją jako drugi alias w tej samej
+      // area — kc-sync nadaje wszystkim infrastructure adminom OBIE role,
+      // dzięki temu Wazuh OIDC login działa bez osobnej area.
+      {
+        name: "wazuh_admin",
+        label: "Wazuh OpenSearch (alias)",
+        description:
+          "Mapuje na all_access w Wazuh OpenSearch Dashboards (roles_mapping.yml). Auto-przypisywane razem z infrastructure_admin.",
         priority: 90,
       },
     ],

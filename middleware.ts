@@ -153,7 +153,7 @@ const ROLE_GUARDS: RoleGuard[] = [
   { path: "/admin/infrastructure", anyOf: areaRoles("infrastructure") },
   { path: "/api/admin/infrastructure", anyOf: areaRoles("infrastructure") },
   { path: "/api/admin/security", anyOf: areaRoles("infrastructure") },
-  { path: "/api/admin/wazuh", anyOf: areaRoles("wazuh") },
+  { path: "/api/admin/wazuh", anyOf: areaRoles("infrastructure") },
   // Email panel
   { path: "/admin/email", anyOf: areaRoles("email-admin") },
   { path: "/api/admin/email", anyOf: areaRoles("email-admin") },

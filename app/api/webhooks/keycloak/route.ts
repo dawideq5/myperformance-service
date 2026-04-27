@@ -314,21 +314,57 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // 2FA code sent — KC może emitować jako CUSTOM_REQUIRED_ACTION lub w
-  // details.email_action_token_attempted. Bezpiecznie wpinamy się w nazwę
-  // którą Keycloak realny wysyła dla email-OTP w naszym setupie.
+  // 2FA TOTP configure / remove
+  if (normalizedType === "UPDATE_TOTP" && event.userId) {
+    void import("@/lib/notify").then(async ({ notifyUser }) => {
+      await notifyUser(event.userId!, "security.totp.configured", {
+        title: "Skonfigurowano aplikację 2FA",
+        body: `Aplikacja TOTP została skonfigurowana ${new Date().toLocaleString("pl-PL")}${event.ipAddress ? `, z IP ${event.ipAddress}` : ""}. Jeśli to nie Ty — natychmiast skontaktuj się z administratorem.`,
+        severity: "success",
+        payload: { ip: event.ipAddress },
+        forceEmail: true,
+      });
+    }).catch(() => undefined);
+  }
+  if (normalizedType === "REMOVE_TOTP" && event.userId) {
+    void import("@/lib/notify").then(async ({ notifyUser }) => {
+      await notifyUser(event.userId!, "security.totp.removed", {
+        title: "Usunięto aplikację 2FA",
+        body: `Aplikacja TOTP została usunięta ${new Date().toLocaleString("pl-PL")}${event.ipAddress ? `, z IP ${event.ipAddress}` : ""}. Jeśli to nie Ty — natychmiast skontaktuj się z administratorem.`,
+        severity: "warning",
+        payload: { ip: event.ipAddress },
+        forceEmail: true,
+      });
+    }).catch(() => undefined);
+  }
+
+  // WebAuthn / passkey configure / remove. KC wysyła UPDATE_CREDENTIAL/
+  // REMOVE_CREDENTIAL z details.credential_type=webauthn/webauthn-passwordless.
+  const credType = String(event.details?.credential_type ?? "").toLowerCase();
+  const isWebAuthn = credType.includes("webauthn");
   if (
-    (normalizedType === "SEND_RESET_PASSWORD" ||
-      normalizedType === "EXECUTE_ACTIONS" ||
-      event.details?.token_id === "email-otp") &&
+    (normalizedType === "UPDATE_CREDENTIAL" || normalizedType === "REGISTER") &&
+    isWebAuthn &&
     event.userId
   ) {
     void import("@/lib/notify").then(async ({ notifyUser }) => {
-      await notifyUser(event.userId!, "security.2fa.code_sent", {
-        title: "Wysłano kod 2FA",
-        body: `Wysłaliśmy kod weryfikacyjny na Twój email (z IP ${event.ipAddress ?? "?"}). Wpisz go w formularzu, żeby dokończyć logowanie.`,
-        severity: "info",
-        payload: { ip: event.ipAddress },
+      await notifyUser(event.userId!, "security.webauthn.configured", {
+        title: "Zarejestrowano klucz bezpieczeństwa",
+        body: `Klucz bezpieczeństwa / passkey został zarejestrowany ${new Date().toLocaleString("pl-PL")}${event.ipAddress ? `, z IP ${event.ipAddress}` : ""}. Jeśli to nie Ty — natychmiast skontaktuj się z administratorem.`,
+        severity: "success",
+        payload: { ip: event.ipAddress, credentialType: credType },
+        forceEmail: true,
+      });
+    }).catch(() => undefined);
+  }
+  if (normalizedType === "REMOVE_CREDENTIAL" && isWebAuthn && event.userId) {
+    void import("@/lib/notify").then(async ({ notifyUser }) => {
+      await notifyUser(event.userId!, "security.webauthn.removed", {
+        title: "Usunięto klucz bezpieczeństwa",
+        body: `Klucz bezpieczeństwa / passkey został usunięty ${new Date().toLocaleString("pl-PL")}${event.ipAddress ? `, z IP ${event.ipAddress}` : ""}. Jeśli to nie Ty — natychmiast skontaktuj się z administratorem.`,
+        severity: "warning",
+        payload: { ip: event.ipAddress, credentialType: credType },
+        forceEmail: true,
       });
     }).catch(() => undefined);
   }
