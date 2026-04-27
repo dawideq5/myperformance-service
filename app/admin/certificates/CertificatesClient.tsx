@@ -9,6 +9,7 @@ import {
   Loader2,
   Lock,
   Mail,
+  MapPin,
   Radio,
   RotateCcw,
   ShieldAlert,
@@ -33,6 +34,7 @@ import {
 import { api, ApiRequestError } from "@/lib/api-client";
 import { AppHeader } from "@/components/AppHeader";
 import type { IssuedCertificate } from "@/lib/step-ca";
+import { CertLocationsDialog } from "./CertLocationsDialog";
 
 type BindingEventKind = "created" | "seen" | "denied" | "reset";
 interface LiveBindingEvent {
@@ -587,6 +589,9 @@ function ListPanel({
   const [revoking, setRevoking] = useState<string | null>(null);
   const [hiding, setHiding] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [assigningCert, setAssigningCert] = useState<IssuedCertificate | null>(
+    null,
+  );
 
   async function revoke(id: string) {
     if (!confirm("Unieważnić certyfikat? Operacja jest nieodwracalna.")) return;
@@ -673,12 +678,22 @@ function ListPanel({
                   hiding={hiding === c.id}
                   onRevoke={() => revoke(c.id)}
                   onHide={() => hide(c.id)}
+                  onAssignLocations={() => setAssigningCert(c)}
                   lastEvent={lastEvent}
                 />
               ))}
             </tbody>
           </table>
         </div>
+      )}
+      {assigningCert && (
+        <CertLocationsDialog
+          open
+          certId={assigningCert.id}
+          certSubject={assigningCert.subject}
+          certRoles={assigningCert.roles ?? (assigningCert.role ? [assigningCert.role] : [])}
+          onClose={() => setAssigningCert(null)}
+        />
       )}
     </Card>
   );
@@ -770,6 +785,7 @@ function CertRow({
   hiding,
   onRevoke,
   onHide,
+  onAssignLocations,
   lastEvent,
 }: {
   cert: IssuedCertificate;
@@ -777,6 +793,7 @@ function CertRow({
   hiding: boolean;
   onRevoke: () => void;
   onHide: () => void;
+  onAssignLocations: () => void;
   lastEvent: LiveBindingEvent | null;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -933,7 +950,7 @@ function CertRow({
             <Badge tone="success">aktywny</Badge>
           )}
         </td>
-        <td className="py-3 px-3 text-right">
+        <td className="py-3 px-3 text-right whitespace-nowrap">
           {cert.revokedAt ? (
             <Button
               variant="ghost"
@@ -942,18 +959,29 @@ function CertRow({
               leftIcon={<EyeOff className="w-4 h-4 text-[var(--text-muted)]" />}
               onClick={onHide}
             >
-              Ukryj z listy
+              Ukryj
             </Button>
           ) : (
-            <Button
-              variant="ghost"
-              size="sm"
-              loading={revoking}
-              leftIcon={<ShieldX className="w-4 h-4 text-red-500" />}
-              onClick={onRevoke}
-            >
-              Unieważnij
-            </Button>
+            <div className="flex items-center justify-end gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                leftIcon={<MapPin className="w-4 h-4 text-sky-400" />}
+                onClick={onAssignLocations}
+                title="Przypisz punkty do certyfikatu"
+              >
+                Punkty
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                loading={revoking}
+                leftIcon={<ShieldX className="w-4 h-4 text-red-500" />}
+                onClick={onRevoke}
+              >
+                Unieważnij
+              </Button>
+            </div>
           )}
         </td>
       </tr>
