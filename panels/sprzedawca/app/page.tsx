@@ -1,7 +1,30 @@
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { PanelShell } from "@/components/PanelShell";
+import { PanelHome } from "@/components/PanelHome";
+import type { PanelLocation } from "@/components/PanelLocationMap";
+
+const DASHBOARD_URL =
+  process.env.DASHBOARD_URL?.trim().replace(/\/$/, "") ??
+  "https://myperformance.pl";
+
+async function fetchLocationsForUser(accessToken: string): Promise<PanelLocation[]> {
+  try {
+    const res = await fetch(
+      `${DASHBOARD_URL}/api/panel/locations?type=sales`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        cache: "no-store",
+        signal: AbortSignal.timeout(8_000),
+      },
+    );
+    if (!res.ok) return [];
+    const data = (await res.json()) as { locations?: PanelLocation[] };
+    return data.locations ?? [];
+  } catch {
+    return [];
+  }
+}
 
 export default async function HomePage() {
   const session = await getServerSession(authOptions);
@@ -11,12 +34,20 @@ export default async function HomePage() {
   const hasRole = roles.includes("sprzedawca") || roles.includes("admin");
   if (!hasRole) redirect("/forbidden");
 
+  const accessToken =
+    (session as { accessToken?: string }).accessToken ?? "";
+  const locations = accessToken
+    ? await fetchLocationsForUser(accessToken)
+    : [];
+
+  const userLabel = session.user?.name ?? session.user?.email ?? "";
+  const userEmail = session.user?.email ?? "";
+
   return (
-    <PanelShell
-      title="Panel Sprzedawcy"
-      subtitle="panelsprzedawcy.myperformance.pl"
-      userLabel={session.user?.name ?? session.user?.email ?? ""}
-      roles={roles}
+    <PanelHome
+      locations={locations}
+      userLabel={userLabel}
+      userEmail={userEmail}
     />
   );
 }
