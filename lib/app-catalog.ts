@@ -74,6 +74,16 @@ export const APP_CATALOG: AppCatalogEntry[] = [
     requiresMinPriority: 90,
     defaultTags: ["certyfikat", "mtls", "pki", "podpis", "tls"],
   },
+  {
+    id: "/admin/locations",
+    title: "Punkty (sklepy / serwisy)",
+    subtitle: "Mapa, kontakt, godziny, plan budżetu",
+    href: "/admin/locations",
+    keywords: "punkty sklepy serwis mapa lokalizacja adres godziny",
+    requiresArea: "certificates",
+    requiresMinPriority: 90,
+    defaultTags: ["punkty", "mapa", "sklep", "serwis", "lokalizacja"],
+  },
   // Sub-views w infrastructure
   {
     id: "/admin/infrastructure?tab=vps",

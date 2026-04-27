@@ -149,6 +149,11 @@ const ROLE_GUARDS: RoleGuard[] = [
   // Certyfikaty mTLS
   { path: "/admin/certificates", anyOf: areaRoles("certificates") },
   { path: "/api/admin/certificates", anyOf: areaRoles("certificates") },
+  // Punkty (sklepy/serwisy) — admin: certificates_admin lub keycloak_admin
+  {
+    path: "/admin/locations",
+    anyOf: [...areaRoles("certificates"), ...areaRoles("keycloak")],
+  },
   // Infrastruktura serwera
   { path: "/admin/infrastructure", anyOf: areaRoles("infrastructure") },
   { path: "/api/admin/infrastructure", anyOf: areaRoles("infrastructure") },
