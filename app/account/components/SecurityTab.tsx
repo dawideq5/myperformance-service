@@ -71,39 +71,64 @@ export function SecurityTab() {
     { tone: "success" | "error"; message: string } | null
   >(null);
 
-  // Detect return from Keycloak webauthn-register flow (via kc_action). KC
-  // redirects back with our callbackUrl untouched — we tag that URL with
-  // ?webauthn_done=1, then refresh the keys list and clear the query param.
+  // Detect return from Keycloak webauthn-register flow. Może wrócić w 3 stanach:
+  //   1. ?webauthn_done=1                 → success, refetch + success msg
+  //   2. ?webauthn_done=1&error=...       → KC odrzucił flow (np. anulowane)
+  //   3. brak parametrów (manual back)    → user opuścił flow bez akcji
+  // Drugi i trzeci przypadek wcześniej milczał — teraz pokazujemy clear
+  // feedback żeby user wiedział co się stało i mógł spróbować ponownie.
   useEffect(() => {
     const done = searchParams.get("webauthn_done");
     if (!done) return;
+    const errorCode = searchParams.get("error");
+    const errorDesc = searchParams.get("error_description");
     const params = new URLSearchParams(searchParams.toString());
     params.delete("webauthn_done");
+    params.delete("error");
+    params.delete("error_description");
     const qs = params.toString();
     router.replace(qs ? `/account?${qs}` : "/account?tab=security", {
       scroll: false,
     });
     void (async () => {
       await Promise.all([refetchWebAuthn(), refetchProfile()]);
-      setWebauthnFeedback({
-        tone: "success",
-        message: "Klucz bezpieczeństwa został zarejestrowany.",
-      });
+      if (errorCode || errorDesc) {
+        setWebauthnFeedback({
+          tone: "error",
+          message: `Rejestracja klucza nie powiodła się: ${decodeURIComponent(errorDesc ?? errorCode ?? "nieznany błąd")}. Spróbuj ponownie.`,
+        });
+      } else {
+        setWebauthnFeedback({
+          tone: "success",
+          message: "Klucz bezpieczeństwa został zarejestrowany.",
+        });
+      }
     })();
   }, [searchParams, router, refetchWebAuthn, refetchProfile]);
 
-  // Detect return from Keycloak CONFIGURE_TOTP flow.
+  // Detect return from Keycloak CONFIGURE_TOTP flow — analogicznie z error
+  // handling jak webauthn powyżej.
   useEffect(() => {
     const done = searchParams.get("totp_done");
     if (!done) return;
+    const errorCode = searchParams.get("error");
+    const errorDesc = searchParams.get("error_description");
     const params = new URLSearchParams(searchParams.toString());
     params.delete("totp_done");
+    params.delete("error");
+    params.delete("error_description");
     const qs = params.toString();
     router.replace(qs ? `/account?${qs}` : "/account?tab=security", {
       scroll: false,
     });
     void (async () => {
       await Promise.all([refetchTwoFA(), refetchProfile()]);
+      if (errorCode || errorDesc) {
+        setWebauthnFeedback({
+          tone: "error",
+          message: `Konfiguracja 2FA nie powiodła się: ${decodeURIComponent(errorDesc ?? errorCode ?? "nieznany błąd")}. Spróbuj ponownie.`,
+        });
+      }
     })();
   }, [searchParams, router, refetchTwoFA, refetchProfile]);
 

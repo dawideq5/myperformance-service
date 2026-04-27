@@ -74,29 +74,14 @@ export async function POST(req: Request, { params }: Ctx) {
     }
 
     const password = body?.password?.trim();
-    // Walidujemy zsynchronizowane z KC realm passwordPolicy: length(16) +
-    // upperCase + lowerCase + digits + specialChars + notUsername. Odbijamy
-    // request *przed* trafieniem do KC, daje to lepszy UX (jeden round-trip
-    // mniej) i blokuje próbę bypass'owania policy gdyby ktoś wyłączył ją w KC.
+    // Sanity check: nie pusta. Pełna walidacja (długość, complexity) jest
+    // delegowana do Keycloak realm passwordPolicy — admin zarządza tą
+    // policy w KC Admin Console, nie tutaj. Jeśli KC odrzuci, zwracamy
+    // KC error message do klienta poniżej.
     if (!password) {
       throw ApiError.badRequest(
-        "Password required when sendEmail=false",
+        "Hasło jest wymagane gdy sendEmail=false",
       );
-    }
-    if (password.length < 16) {
-      throw ApiError.badRequest("Hasło musi mieć minimum 16 znaków");
-    }
-    if (!/[A-Z]/.test(password)) {
-      throw ApiError.badRequest("Hasło musi zawierać wielką literę");
-    }
-    if (!/[a-z]/.test(password)) {
-      throw ApiError.badRequest("Hasło musi zawierać małą literę");
-    }
-    if (!/[0-9]/.test(password)) {
-      throw ApiError.badRequest("Hasło musi zawierać cyfrę");
-    }
-    if (!/[^A-Za-z0-9]/.test(password)) {
-      throw ApiError.badRequest("Hasło musi zawierać znak specjalny");
     }
 
     const res = await keycloak.adminRequest(
@@ -113,14 +98,25 @@ export async function POST(req: Request, { params }: Ctx) {
     );
 
     if (!res.ok) {
-      // KC może odrzucić z passwordPolicy violation — zwracamy generic msg
-      // żeby nie ujawniać internal KC error details. Pełny detail w logu.
+      // KC może odrzucić z passwordPolicy violation — przekazujemy KC
+      // error message do klienta (helpful gdy admin ustawia policy w UI).
+      // KC Admin API zwraca {"errorMessage":"..."} z konkretną informacją
+      // (np. "invalidPasswordMinLengthMessage").
       const details = await res.text().catch(() => "");
+      let userMessage = "Nie udało się zresetować hasła";
+      try {
+        const parsed = JSON.parse(details) as { errorMessage?: string };
+        if (parsed.errorMessage) {
+          userMessage = `Keycloak: ${parsed.errorMessage}`;
+        }
+      } catch {
+        /* nie JSON, zostaje generic msg */
+      }
       throw new ApiError(
         "SERVICE_UNAVAILABLE",
-        "Nie udało się zresetować hasła (KC password policy?)",
+        userMessage,
         res.status,
-        details.slice(0, 200),
+        details.slice(0, 300),
       );
     }
 

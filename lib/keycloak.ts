@@ -247,23 +247,52 @@ export class KeycloakService {
   ) {
     const url = this.getAdminUrl(path);
 
-    const response = await fetch(url, {
-      ...options,
-      headers: {
-        Authorization: `Bearer ${adminToken}`,
-        "Content-Type": "application/json",
-        ...options.headers,
-      },
-    });
+    // Retry z exponential backoff dla transient KC errors (5xx, network).
+    // 4xx (włącznie 401/403/404) NIE jest retried — to permanent rejection.
+    // Po 401 invalidujemy cache service-account tokenu; KC może mieć rotated
+    // signing keys (np. po realm reset) i kolejny call powinien wziąć fresh.
+    const delays = [0, 200, 800]; // ms; pierwsze attempt natychmiast
+    let lastResponse: Response | null = null;
+    let lastError: unknown = null;
 
-    // Cache invalidation: jeśli token został odrzucony jako wygasły/odebrany,
-    // wywal cache żeby kolejny call wziął świeży token. Bez tego wisielibyśmy
-    // w pętli 401 przez cały TTL window.
-    if (response.status === 401) {
-      this.invalidateServiceTokenCache();
+    for (let attempt = 0; attempt < delays.length; attempt++) {
+      if (delays[attempt] > 0) {
+        await new Promise((r) => setTimeout(r, delays[attempt]));
+      }
+      try {
+        const response = await fetch(url, {
+          ...options,
+          headers: {
+            Authorization: `Bearer ${adminToken}`,
+            "Content-Type": "application/json",
+            ...options.headers,
+          },
+          signal: options.signal ?? AbortSignal.timeout(15_000),
+        });
+
+        if (response.status === 401) {
+          this.invalidateServiceTokenCache();
+          return response; // permanent — caller decyduje (np. throw)
+        }
+
+        // Retry tylko 5xx + 408 (timeout). Wszystko inne to ostateczna odp.
+        if (response.status >= 500 || response.status === 408) {
+          lastResponse = response;
+          continue;
+        }
+
+        return response;
+      } catch (err) {
+        // AbortError (timeout) lub network error — retry.
+        lastError = err;
+        const errMsg = err instanceof Error ? err.message : String(err);
+        // Błędy które NIE chcemy retry-ować (np. invalid URL).
+        if (/Invalid URL|Failed to construct/i.test(errMsg)) throw err;
+      }
     }
 
-    return response;
+    if (lastResponse) return lastResponse;
+    throw lastError ?? new Error("KC adminRequest failed after retries");
   }
 
   private REQUIRED_ACTION_ALIAS_MAP: Record<string, string[]> = {

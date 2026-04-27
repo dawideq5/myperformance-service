@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 import { getServerSession } from "next-auth/next";
 import { NextResponse } from "next/server";
 import { authOptions } from "@/app/auth";
-import { requestCode } from "@/lib/security/two-factor";
+import { requestCode, TwoFactorEmailError } from "@/lib/security/two-factor";
 import {
   ApiError,
   createSuccessResponse,
@@ -50,12 +50,31 @@ export async function POST(req: Request) {
     if (!["login", "sensitive_action", "password_change", "email_change"].includes(purpose)) {
       throw ApiError.badRequest("invalid purpose");
     }
-    const result = await requestCode({
-      userId: session.user.id,
-      email: session.user.email,
-      purpose,
-      srcIp: ip === "unknown" ? undefined : ip,
-    });
+    let result;
+    try {
+      result = await requestCode({
+        userId: session.user.id,
+        email: session.user.email,
+        purpose,
+        srcIp: ip === "unknown" ? undefined : ip,
+      });
+    } catch (err) {
+      if (err instanceof TwoFactorEmailError) {
+        // Mapowanie SMTP error → user-friendly response. Klient może wtedy
+        // pokazać retry button albo info o problemie z mailbox.
+        const userMsg =
+          err.code === "smtp_auth"
+            ? "Konfiguracja serwera pocztowego jest błędna. Skontaktuj się z administratorem."
+            : err.code === "smtp_rejected"
+              ? "Twój adres email został odrzucony przez serwer pocztowy. Sprawdź ustawienia konta."
+              : "Nie udało się wysłać kodu — serwer pocztowy chwilowo niedostępny. Spróbuj za chwilę.";
+        return NextResponse.json(
+          { error: { code: "EMAIL_SEND_FAILED", message: userMsg } },
+          { status: 503 },
+        );
+      }
+      throw err;
+    }
     return createSuccessResponse({
       codeId: result.codeId,
       // Maskujemy email — tylko 2 pierwsze znaki

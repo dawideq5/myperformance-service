@@ -26,7 +26,23 @@ export interface TwoFactorRequest {
 /**
  * Generuje 6-cyfrowy kod, zapisuje hash w DB, wysyła email z kodem.
  * Zwraca codeId — używany później przy verify.
+ *
+ * Reliability:
+ *   - Jeśli email send fail po 3 próbach → mark code as used (rollback),
+ *     żeby user nie zobaczył "kod wysłany" gdy faktycznie nie poszedł.
+ *   - SMTP retry z exponential backoff (300ms → 1s → 3s).
+ *   - Wszystkie błędy są clearly typed dla UI.
  */
+export class TwoFactorEmailError extends Error {
+  constructor(
+    public readonly code: "smtp_unreachable" | "smtp_auth" | "smtp_rejected",
+    message: string,
+  ) {
+    super(message);
+    this.name = "TwoFactorEmailError";
+  }
+}
+
 export async function requestCode(args: {
   userId: string;
   email: string;
@@ -52,14 +68,33 @@ export async function requestCode(args: {
     return res.rows[0];
   });
 
-  // Wyślij email
-  await sendCodeEmail({
-    code,
-    email: args.email,
-    purpose: args.purpose,
-    expiresInMinutes: TTL_MINUTES,
-    srcIp: args.srcIp,
-  });
+  try {
+    await sendCodeEmailWithRetry({
+      code,
+      email: args.email,
+      purpose: args.purpose,
+      expiresInMinutes: TTL_MINUTES,
+      srcIp: args.srcIp,
+    });
+  } catch (err) {
+    // Rollback: code jest w DB ale email nie poszedł — oznaczamy used żeby
+    // user nie miał "ghost" kodu który nigdy nie dotrze.
+    await withClient(async (c) => {
+      await c.query(`UPDATE mp_2fa_codes SET used_at = now() WHERE id = $1`, [
+        result.id,
+      ]);
+    }).catch(() => undefined);
+    logger.error("2FA email send failed after retries", {
+      userId: args.userId,
+      purpose: args.purpose,
+      err: err instanceof Error ? err.message : String(err),
+    });
+    if (err instanceof TwoFactorEmailError) throw err;
+    throw new TwoFactorEmailError(
+      "smtp_unreachable",
+      "Nie udało się wysłać kodu — serwer pocztowy niedostępny. Spróbuj ponownie za chwilę.",
+    );
+  }
 
   logger.info("2FA code sent", { userId: args.userId, purpose: args.purpose });
 
@@ -108,6 +143,41 @@ export async function verifyCode(args: {
   });
 }
 
+async function sendCodeEmailWithRetry(args: {
+  code: string;
+  email: string;
+  purpose: string;
+  expiresInMinutes: number;
+  srcIp?: string;
+}): Promise<void> {
+  const delays = [300, 1000, 3000]; // ms
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < delays.length; attempt++) {
+    try {
+      await sendCodeEmail(args);
+      return;
+    } catch (err) {
+      lastErr = err;
+      const errMsg = err instanceof Error ? err.message : String(err);
+      // SMTP auth failure — nie ma sensu retry z tym samym credential.
+      if (/EAUTH|535|invalid login/i.test(errMsg)) {
+        throw new TwoFactorEmailError("smtp_auth", errMsg);
+      }
+      // Rejected (recipient invalid) — też nie retry.
+      if (/EENVELOPE|550|user unknown/i.test(errMsg)) {
+        throw new TwoFactorEmailError("smtp_rejected", errMsg);
+      }
+      logger.warn(`2FA email send attempt ${attempt + 1}/${delays.length} failed`, {
+        err: errMsg,
+      });
+      if (attempt < delays.length - 1) {
+        await new Promise((r) => setTimeout(r, delays[attempt]));
+      }
+    }
+  }
+  throw lastErr;
+}
+
 async function sendCodeEmail(args: {
   code: string;
   email: string;
@@ -118,12 +188,18 @@ async function sendCodeEmail(args: {
   const nodemailer = await import("nodemailer");
   const host = process.env.SMTP_HOST;
   const port = Number(process.env.SMTP_PORT ?? 25);
-  if (!host) throw new Error("SMTP_HOST not configured");
+  if (!host) throw new TwoFactorEmailError("smtp_unreachable", "SMTP_HOST not configured");
 
   const transporter = nodemailer.default.createTransport({
     host,
     port,
     secure: false,
+    // SMTP timeouts: bez tego nodemailer może wisieć w nieskończoność na
+    // unresponsive serwerze pocztowym, blokując request handler i pulę
+    // połączeń. 5s connect / 10s greeting / 15s socket = max 30s per attempt.
+    connectionTimeout: 5_000,
+    greetingTimeout: 10_000,
+    socketTimeout: 15_000,
     auth:
       process.env.SMTP_USER && process.env.SMTP_PASSWORD
         ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASSWORD }

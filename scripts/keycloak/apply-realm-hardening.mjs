@@ -126,8 +126,9 @@ async function main() {
   console.log("✓ Got admin token");
 
   const realmPatch = {
-    passwordPolicy:
-      "length(16) and upperCase(1) and lowerCase(1) and digits(1) and specialChars(1) and notUsername(undefined) and notEmail(undefined) and passwordHistory(5) and forceExpiredPasswordChange(0)",
+    // passwordPolicy NIE jest tutaj — admin zarządza w Keycloak Admin Console
+    // (Realm Settings → Authentication → Password Policy). Skrypt nie dotyka
+    // tego pola, żeby nie nadpisywać manualnych zmian admina.
     revokeRefreshToken: true,
     refreshTokenMaxReuse: 0,
     // Token + session hardening:
@@ -144,21 +145,11 @@ async function main() {
     offlineSessionMaxLifespanEnabled: true,
     offlineSessionMaxLifespan: 2592000,
 
-    // WebAuthn standard (security key)
+    // WebAuthn — patchujemy TYLKO RpId (krytyczne dla działania subdomain
+    // logowania, bez tego WebAuthn rejection na Safari). Resztę (UV,
+    // attachment, attestation, residentKey) zostawiamy adminowi w UI.
     webAuthnPolicyRpId: "myperformance.pl",
-    webAuthnPolicyAttestationConveyancePreference: "none",
-    webAuthnPolicyUserVerificationRequirement: "required",
-    webAuthnPolicyCreateTimeout: 60,
-    webAuthnPolicyAvoidSameAuthenticatorRegister: true,
-
-    // WebAuthn passwordless (passkey)
     webAuthnPolicyPasswordlessRpId: "myperformance.pl",
-    webAuthnPolicyPasswordlessAttestationConveyancePreference: "none",
-    webAuthnPolicyPasswordlessAuthenticatorAttachment: "platform",
-    webAuthnPolicyPasswordlessRequireResidentKey: "Yes",
-    webAuthnPolicyPasswordlessUserVerificationRequirement: "required",
-    webAuthnPolicyPasswordlessCreateTimeout: 60,
-    webAuthnPolicyPasswordlessAvoidSameAuthenticatorRegister: true,
 
     browserSecurityHeaders: {
       contentSecurityPolicyReportOnly: "",
