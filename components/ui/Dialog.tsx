@@ -69,7 +69,10 @@ export function Dialog({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      // z-[2000] żeby Dialog był ponad Leaflet (default zoom controls
+      // z-index: 1000, popup-pane: 700, marker-pane: 600). Bez tego mapa
+      // pod modalem przebijała się przez backdrop.
+      className="fixed inset-0 z-[2000] flex items-center justify-center p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby={labelledById}

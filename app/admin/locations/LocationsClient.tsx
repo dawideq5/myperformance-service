@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   Activity,
   Briefcase,
@@ -741,7 +741,7 @@ function PhotosUpload({
 }) {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const inputId = useId();
   const remaining = MAX_PHOTOS - photos.length;
 
   const onFile = useCallback(
@@ -772,7 +772,6 @@ function PhotosUpload({
         setError(err instanceof Error ? err.message : "Upload nieudany");
       } finally {
         setUploading(false);
-        if (fileInputRef.current) fileInputRef.current.value = "";
       }
     },
     [photos, onChange],
@@ -807,36 +806,44 @@ function PhotosUpload({
           </div>
         ))}
         {remaining > 0 && (
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-            className="aspect-square rounded-lg border-2 border-dashed border-[var(--border-subtle)] hover:border-[var(--accent)]/50 flex flex-col items-center justify-center text-[var(--text-muted)] hover:text-[var(--accent)] transition disabled:opacity-50"
-          >
-            {uploading ? (
-              <>
-                <Activity className="w-5 h-5 animate-spin" />
-                <span className="text-[10px] mt-1">Wgrywanie…</span>
-              </>
-            ) : (
-              <>
-                <Plus className="w-6 h-6" />
-                <span className="text-[10px] mt-1">Wgraj zdjęcie</span>
-              </>
-            )}
-          </button>
+          <>
+            {/* htmlFor + sr-only input — natywny mechanizm browser otwierający
+                file picker. Programmatic ref.click() na hidden input bywał
+                blokowany przez niektóre browsery (Safari, Firefox z user gesture
+                requirements). Label z htmlFor jest niezawodny. */}
+            <label
+              htmlFor={inputId}
+              className={`aspect-square rounded-lg border-2 border-dashed border-[var(--border-subtle)] hover:border-[var(--accent)]/50 flex flex-col items-center justify-center text-[var(--text-muted)] hover:text-[var(--accent)] transition cursor-pointer ${
+                uploading ? "opacity-50 pointer-events-none" : ""
+              }`}
+            >
+              {uploading ? (
+                <>
+                  <Activity className="w-5 h-5 animate-spin" />
+                  <span className="text-[10px] mt-1">Wgrywanie…</span>
+                </>
+              ) : (
+                <>
+                  <Plus className="w-6 h-6" />
+                  <span className="text-[10px] mt-1">Wgraj zdjęcie</span>
+                </>
+              )}
+            </label>
+            <input
+              id={inputId}
+              type="file"
+              accept="image/*"
+              className="sr-only"
+              disabled={uploading}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) void onFile(f);
+                e.target.value = ""; // reset żeby ten sam plik dało się wgrać ponownie
+              }}
+            />
+          </>
         )}
       </div>
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          if (f) void onFile(f);
-        }}
-      />
       {error && (
         <p className="text-[11px] text-red-400 mt-1.5">{error}</p>
       )}

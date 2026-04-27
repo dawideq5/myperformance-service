@@ -91,7 +91,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     <ToastContext.Provider value={api}>
       {children}
       <div
-        className="fixed top-4 right-4 z-[60] flex flex-col gap-2 max-w-sm w-full pointer-events-none"
+        className="fixed top-4 right-4 z-[2100] flex flex-col gap-2 max-w-sm w-full pointer-events-none"
         role="region"
         aria-label="Powiadomienia"
       >

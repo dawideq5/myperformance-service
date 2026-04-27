@@ -137,3 +137,20 @@ body {
     @apply border-[var(--border-subtle)];
   }
 }
+
+/* Leaflet z-index containment — wszystkie panes Leafleta clamp do 1 żeby
+   Dialog (z-2000), CommandPalette (z-2050), Toast (z-2100) zawsze były
+   ponad mapą. Bez tego Leaflet zoom controls (default z-1000) i markers
+   (z-600) wpełzały pod / nad portale. */
+.leaflet-container {
+  z-index: 1;
+}
+.leaflet-pane,
+.leaflet-top,
+.leaflet-bottom {
+  z-index: 1 !important;
+}
+.leaflet-tooltip-pane,
+.leaflet-popup-pane {
+  z-index: 2 !important;
+}

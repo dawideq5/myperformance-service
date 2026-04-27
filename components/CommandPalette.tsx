@@ -143,7 +143,7 @@ export function CommandPalette() {
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[100] flex items-start justify-center p-4 sm:pt-[15vh]"
+      className="fixed inset-0 z-[2050] flex items-start justify-center p-4 sm:pt-[15vh]"
       role="dialog"
       aria-modal="true"
       aria-label="Wyszukaj"
