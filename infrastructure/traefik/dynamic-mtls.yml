@@ -35,9 +35,3 @@ tls:
           - /traefik/certs/myperformance-ca.pem
         clientAuthType: RequireAndVerifyClientCert
       minVersion: VersionTLS12
-    mtls-dokumenty:
-      clientAuth:
-        caFiles:
-          - /traefik/certs/myperformance-ca.pem
-        clientAuthType: RequireAndVerifyClientCert
-      minVersion: VersionTLS12

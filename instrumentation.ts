@@ -173,7 +173,7 @@ export async function register(): Promise<void> {
   // Initial Directus push — branding + szablony + app catalog z tagami
   // (tagi NIE są nadpisywane jeśli admin już je edytował w Directusie).
   try {
-    const { isConfigured, ensureCollection, upsertItem, listItems, COLLECTION_SPECS } =
+    const { isConfigured, ensureCollection, upsertItem, listItems, deleteItem, COLLECTION_SPECS } =
       await import("@/lib/directus-cms");
     if (await isConfigured()) {
       const { getBranding, listTemplates } = await import("@/lib/email/db");
@@ -383,7 +383,9 @@ export async function register(): Promise<void> {
         // OVH config może być pusty
       }
 
-      // Panele certyfikatowe (hardcoded — domeny niezmienne)
+      // Panele certyfikatowe (hardcoded — domeny niezmienne).
+      // Documenso pozostaje przez SSO w "Mp App Catalog" — nie ma osobnego
+      // panelu mTLS na dokumenty.
       const PANELS = [
         {
           slug: "sprzedawca",
@@ -412,15 +414,6 @@ export async function register(): Promise<void> {
           icon: "Truck",
           sort: 3,
         },
-        {
-          slug: "dokumenty",
-          label: "Panel Dokumenty",
-          domain: "dokumenty.myperformance.pl",
-          description: "Wewnętrzny obieg dokumentów.",
-          requiredRole: "dokumenty",
-          icon: "FileText",
-          sort: 4,
-        },
       ];
       // Sprawdź jakie panels już ma admin edited — preserve label/description
       const existingPanels = await listItems<{
@@ -429,6 +422,16 @@ export async function register(): Promise<void> {
         description?: string;
       }>("mp_panels_cms", { limit: 50 }).catch(() => []);
       const existingPanelMap = new Map(existingPanels.map((p) => [p.slug, p]));
+      // Usuń orphan panele które już nie istnieją w PANELS (np. dokumenty
+      // został usunięty — używamy Documenso przez SSO zamiast osobnego
+      // panelu certyfikatowego).
+      const validSlugs = new Set(PANELS.map((p) => p.slug));
+      for (const p of existingPanels) {
+        if (!validSlugs.has(p.slug)) {
+          await deleteItem("mp_panels_cms", p.slug).catch(() => undefined);
+        }
+      }
+
       let panelsPushed = 0;
       for (const p of PANELS) {
         const existing = existingPanelMap.get(p.slug);

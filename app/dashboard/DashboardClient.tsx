@@ -26,6 +26,8 @@ import {
   Wrench,
 } from "lucide-react";
 
+import { AnnouncementBanner } from "@/components/AnnouncementBanner";
+import { AppFooter } from "@/components/AppFooter";
 import { AppHeader } from "@/components/AppHeader";
 import { Card, OnboardingCard, PageShell } from "@/components/ui";
 import { AccountProvider, useAccount } from "@/app/account/AccountProvider";
@@ -83,8 +85,17 @@ function DashboardBody({ userLabel, email }: DashboardClientProps) {
       maxWidth="xl"
       header={<AppHeader userLabel={userLabel} userSubLabel={email} />}
     >
-      <TileGrid />
+      <TileGridWithFooter />
     </PageShell>
+  );
+}
+
+function TileGridWithFooter() {
+  return (
+    <>
+      <TileGrid />
+      <AppFooter />
+    </>
   );
 }
 
@@ -133,6 +144,7 @@ function TileGrid() {
 
   return (
     <div className="space-y-4">
+      <AnnouncementBanner />
       <OnboardingCard
         storageKey="dashboard-welcome"
         title="Witaj w MyPerformance"

@@ -282,7 +282,6 @@ function deriveAppName(c: ContainerListItem): string {
       j25t315yl6ei2yrqsu8678hl: "Panel sprzedawca",
       h2azkj3hconcktdleledntcj: "Panel serwisant",
       wx710sd7tvmu9f7qsbu907u3: "Panel kierowca",
-      uq1p6xoih3gbthxoklumzyxv: "Panel dokumenty",
       o4roacrk9qxh08gwv37iphd1: "Outline",
       iut9wf1rz9ey54g7lbkje0je: "Postal",
       upzcjtn9rcswer2vg2vey5d3: "Moodle",

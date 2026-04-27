@@ -56,12 +56,10 @@ async function directusFetch<T = unknown>(
 
 interface CollectionSpec {
   collection: string;
-  meta?: {
-    icon?: string;
-    note?: string;
-    display_template?: string;
-    singleton?: boolean;
-  };
+  // Directus meta jest bogate (display_template, sort_field, archive_field,
+  // archive_value, unarchive_value, archive_app_filter itd.) — nie próbujemy
+  // typować całości, akceptujemy dowolne klucze które Directus rozumie.
+  meta?: Record<string, unknown>;
   schema?: Record<string, unknown>;
   fields?: Array<{
     field: string;
@@ -141,6 +139,22 @@ export async function upsertItem(
   }
 }
 
+export async function deleteItem(
+  collection: string,
+  primaryKey: string,
+): Promise<void> {
+  try {
+    await directusFetch(
+      `/items/${collection}/${encodeURIComponent(primaryKey)}`,
+      { method: "DELETE" },
+    );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("404")) return; // already gone
+    throw err;
+  }
+}
+
 export async function listItems<T = unknown>(
   collection: string,
   query: Record<string, string | number> = {},
@@ -149,6 +163,121 @@ export async function listItems<T = unknown>(
   for (const [k, v] of Object.entries(query)) qs.set(k, String(v));
   const path = `/items/${collection}${qs.toString() ? `?${qs.toString()}` : ""}`;
   return directusFetch<T[]>(path);
+}
+
+// =============================================================================
+// Public read API — używane przez dashboard do pull-owania user-facing CMS
+// content (banery, linki w stopce). Zwracają [] gdy Directus niedostępny —
+// dashboard musi tolerować brak treści (zero-state).
+// =============================================================================
+
+export interface CmsAnnouncement {
+  id: string;
+  title: string;
+  body: string | null;
+  severity: "info" | "warning" | "error";
+  startsAt: string | null;
+  endsAt: string | null;
+  requiresArea: string | null;
+}
+
+export interface CmsLink {
+  id: string;
+  category: "footer" | "help" | "social" | "email-footer";
+  label: string;
+  url: string;
+  icon: string | null;
+  sort: number;
+  requiresArea: string | null;
+}
+
+interface AnnouncementRow {
+  id: string;
+  title: string;
+  body: string | null;
+  severity: string | null;
+  enabled: boolean;
+  starts_at: string | null;
+  ends_at: string | null;
+  requires_area: string | null;
+}
+
+interface LinkRow {
+  id: string;
+  category: string | null;
+  label: string;
+  url: string;
+  icon: string | null;
+  sort: number | null;
+  enabled: boolean;
+  requires_area: string | null;
+}
+
+const SEVERITY_VALUES: ReadonlySet<CmsAnnouncement["severity"]> = new Set([
+  "info",
+  "warning",
+  "error",
+]);
+
+export async function getActiveAnnouncements(): Promise<CmsAnnouncement[]> {
+  if (!getConfig()) return [];
+  try {
+    const rows = await listItems<AnnouncementRow>("mp_announcements", {
+      "filter[enabled][_eq]": "true",
+      sort: "-starts_at",
+      limit: 50,
+    });
+    const now = Date.now();
+    return rows
+      .filter((r) => {
+        if (r.starts_at && Date.parse(r.starts_at) > now) return false;
+        if (r.ends_at && Date.parse(r.ends_at) < now) return false;
+        return true;
+      })
+      .map((r) => ({
+        id: r.id,
+        title: r.title,
+        body: r.body,
+        severity: SEVERITY_VALUES.has(r.severity as CmsAnnouncement["severity"])
+          ? (r.severity as CmsAnnouncement["severity"])
+          : "info",
+        startsAt: r.starts_at,
+        endsAt: r.ends_at,
+        requiresArea: r.requires_area || null,
+      }));
+  } catch (err) {
+    logger.warn("getActiveAnnouncements failed", { err: String(err) });
+    return [];
+  }
+}
+
+export async function getLinks(
+  category?: CmsLink["category"],
+): Promise<CmsLink[]> {
+  if (!getConfig()) return [];
+  try {
+    const query: Record<string, string | number> = {
+      "filter[enabled][_eq]": "true",
+      sort: "sort,label",
+      limit: 200,
+    };
+    if (category) query["filter[category][_eq]"] = category;
+    const rows = await listItems<LinkRow>("mp_links", query);
+    return rows
+      .filter((r) => r.label && r.url && r.category)
+      .map((r) => ({
+        id: r.id,
+        category: r.category as CmsLink["category"],
+        label: r.label,
+        url: r.url,
+        icon: r.icon,
+        sort: r.sort ?? 0,
+        requiresArea: r.requires_area || null,
+      }));
+  } catch (err) {
+    logger.warn("getLinks failed", { err: String(err) });
+    return [];
+  }
 }
 
 /**
@@ -171,6 +300,7 @@ export const COLLECTION_SPECS: CollectionSpec[] = [
       icon: "palette",
       note: "Branding stack-wide (logo, accent, footer). Edytuj w dashboardzie /admin/email.",
       singleton: true,
+      display_template: "Branding ({{accent_color}})",
     },
     fields: [
       {
@@ -182,22 +312,42 @@ export const COLLECTION_SPECS: CollectionSpec[] = [
       {
         field: "logo_url",
         type: "string",
-        meta: { interface: "input", readonly: true },
+        meta: {
+          interface: "input",
+          readonly: true,
+          width: "full",
+          options: { iconLeft: "image" },
+        },
       },
       {
         field: "accent_color",
         type: "string",
-        meta: { interface: "select-color", readonly: true },
+        meta: {
+          interface: "select-color",
+          readonly: true,
+          width: "half",
+          display: "color",
+        },
       },
       {
         field: "footer_html",
         type: "text",
-        meta: { interface: "input-rich-text-html", readonly: true },
+        meta: {
+          interface: "input-rich-text-html",
+          readonly: true,
+          width: "full",
+        },
       },
       {
         field: "synced_at",
         type: "timestamp",
-        meta: { interface: "datetime", readonly: true },
+        meta: {
+          interface: "datetime",
+          readonly: true,
+          width: "half",
+          display: "datetime",
+          display_options: { relative: true },
+        },
       },
     ],
   },
@@ -206,6 +356,8 @@ export const COLLECTION_SPECS: CollectionSpec[] = [
     meta: {
       icon: "mail",
       note: "Read-only mirror szablonów Keycloak. Edytuj w dashboardzie /admin/email.",
+      display_template: "{{kind}} — {{subject}}",
+      sort_field: "kind",
     },
     fields: [
       {
@@ -217,22 +369,38 @@ export const COLLECTION_SPECS: CollectionSpec[] = [
       {
         field: "kind",
         type: "string",
-        meta: { interface: "input", readonly: true },
+        meta: {
+          interface: "input",
+          readonly: true,
+          width: "half",
+          options: { iconLeft: "label" },
+        },
       },
       {
         field: "subject",
         type: "string",
-        meta: { interface: "input", readonly: true },
+        meta: { interface: "input", readonly: true, width: "half" },
       },
       {
         field: "html",
         type: "text",
-        meta: { interface: "input-code", readonly: true, options: { language: "html" } },
+        meta: {
+          interface: "input-code",
+          readonly: true,
+          width: "full",
+          options: { language: "htmlmixed", lineNumber: true, lineWrapping: true },
+        },
       },
       {
         field: "synced_at",
         type: "timestamp",
-        meta: { interface: "datetime", readonly: true },
+        meta: {
+          interface: "datetime",
+          readonly: true,
+          width: "half",
+          display: "datetime",
+          display_options: { relative: true },
+        },
       },
     ],
   },
@@ -246,6 +414,8 @@ export const COLLECTION_SPECS: CollectionSpec[] = [
     meta: {
       icon: "apps",
       note: "Katalog kafelków/sub-views z tagami. Admin uzupełnia tagi (CSV) w tej zakładce — wyszukiwarka Cmd+K matchuje po nich.",
+      display_template: "{{title}}",
+      sort_field: "title",
     },
     fields: [
       {
@@ -257,23 +427,36 @@ export const COLLECTION_SPECS: CollectionSpec[] = [
       {
         field: "title",
         type: "string",
-        meta: { interface: "input", required: true, readonly: true },
+        meta: {
+          interface: "input",
+          required: true,
+          readonly: true,
+          width: "half",
+          options: { iconLeft: "title" },
+        },
       },
       {
         field: "subtitle",
         type: "string",
-        meta: { interface: "input", readonly: true },
+        meta: { interface: "input", readonly: true, width: "half" },
       },
       {
         field: "href",
         type: "string",
-        meta: { interface: "input", readonly: true },
+        meta: {
+          interface: "input",
+          readonly: true,
+          width: "full",
+          options: { iconLeft: "link", font: "monospace" },
+        },
       },
       {
         field: "tags",
         type: "csv",
         meta: {
           interface: "tags",
+          width: "full",
+          options: { presets: ["umowa", "podpis", "kurs", "wiki", "chat", "email", "vps"] },
           note: "Słowa kluczowe które user wpisze w Cmd+K. Np. dla Documenso: umowa,podpis,sign,nda. Edytujesz tu — nie w kodzie.",
         },
       },
@@ -283,18 +466,31 @@ export const COLLECTION_SPECS: CollectionSpec[] = [
         meta: {
           interface: "input",
           readonly: true,
+          width: "half",
+          options: { iconLeft: "shield" },
           note: "Area z AREAS registry. User bez tej area nie zobaczy.",
         },
       },
       {
         field: "requires_min_priority",
         type: "integer",
-        meta: { interface: "input", readonly: true },
+        meta: {
+          interface: "input",
+          readonly: true,
+          width: "half",
+          options: { min: 0, max: 100 },
+        },
       },
       {
         field: "synced_at",
         type: "timestamp",
-        meta: { interface: "datetime", readonly: true },
+        meta: {
+          interface: "datetime",
+          readonly: true,
+          width: "half",
+          display: "datetime",
+          display_options: { relative: true },
+        },
       },
     ],
   },
@@ -308,6 +504,8 @@ export const COLLECTION_SPECS: CollectionSpec[] = [
     meta: {
       icon: "shield",
       note: "READ-ONLY mirror obszarów uprawnień (AREAS w kodzie). Edycja w lib/permissions/areas.ts wymaga deployu. Tu widzisz bieżący stan.",
+      display_template: "{{label}} ({{provider}})",
+      sort_field: "label",
     },
     fields: [
       {
@@ -316,13 +514,80 @@ export const COLLECTION_SPECS: CollectionSpec[] = [
         schema: { is_primary_key: true },
         meta: { hidden: true, readonly: true },
       },
-      { field: "label", type: "string", meta: { interface: "input", readonly: true } },
-      { field: "description", type: "text", meta: { interface: "input-multiline", readonly: true } },
-      { field: "provider", type: "string", meta: { interface: "input", readonly: true } },
-      { field: "icon", type: "string", meta: { interface: "input", readonly: true } },
-      { field: "kc_roles_count", type: "integer", meta: { interface: "input", readonly: true } },
-      { field: "kc_roles", type: "json", meta: { interface: "input-code", readonly: true, options: { language: "json" } } },
-      { field: "synced_at", type: "timestamp", meta: { interface: "datetime", readonly: true } },
+      {
+        field: "label",
+        type: "string",
+        meta: { interface: "input", readonly: true, width: "half" },
+      },
+      {
+        field: "description",
+        type: "text",
+        meta: { interface: "input-multiline", readonly: true, width: "full" },
+      },
+      {
+        field: "provider",
+        type: "string",
+        meta: {
+          interface: "select-dropdown",
+          readonly: true,
+          width: "half",
+          options: {
+            choices: [
+              { text: "Keycloak (native)", value: "keycloak" },
+              { text: "Documenso", value: "documenso" },
+              { text: "Moodle", value: "moodle" },
+              { text: "Outline", value: "outline" },
+              { text: "Chatwoot", value: "chatwoot" },
+              { text: "Postal", value: "postal" },
+              { text: "Directus", value: "directus" },
+              { text: "Wazuh", value: "wazuh" },
+            ],
+            allowOther: true,
+          },
+        },
+      },
+      {
+        field: "icon",
+        type: "string",
+        meta: {
+          interface: "input",
+          readonly: true,
+          width: "half",
+          options: { iconLeft: "image" },
+        },
+      },
+      {
+        field: "kc_roles_count",
+        type: "integer",
+        meta: {
+          interface: "input",
+          readonly: true,
+          width: "half",
+          display: "formatted-value",
+          display_options: { suffix: " ról" },
+        },
+      },
+      {
+        field: "kc_roles",
+        type: "json",
+        meta: {
+          interface: "input-code",
+          readonly: true,
+          width: "full",
+          options: { language: "json", lineNumber: true },
+        },
+      },
+      {
+        field: "synced_at",
+        type: "timestamp",
+        meta: {
+          interface: "datetime",
+          readonly: true,
+          width: "half",
+          display: "datetime",
+          display_options: { relative: true },
+        },
+      },
     ],
   },
 
@@ -332,6 +597,8 @@ export const COLLECTION_SPECS: CollectionSpec[] = [
     meta: {
       icon: "notifications",
       note: "READ-ONLY katalog typów powiadomień. Defaults i requiresArea są w kodzie (lib/preferences.ts). Tu listing dla orientacji.",
+      display_template: "{{label}} — {{category}}",
+      sort_field: "category",
     },
     fields: [
       {
@@ -340,12 +607,61 @@ export const COLLECTION_SPECS: CollectionSpec[] = [
         schema: { is_primary_key: true },
         meta: { hidden: true, readonly: true },
       },
-      { field: "label", type: "string", meta: { interface: "input", readonly: true } },
-      { field: "category", type: "string", meta: { interface: "input", readonly: true } },
-      { field: "default_in_app", type: "boolean", meta: { interface: "boolean", readonly: true } },
-      { field: "default_email", type: "boolean", meta: { interface: "boolean", readonly: true } },
-      { field: "requires_area", type: "string", meta: { interface: "input", readonly: true } },
-      { field: "synced_at", type: "timestamp", meta: { interface: "datetime", readonly: true } },
+      {
+        field: "label",
+        type: "string",
+        meta: { interface: "input", readonly: true, width: "half" },
+      },
+      {
+        field: "category",
+        type: "string",
+        meta: {
+          interface: "select-dropdown",
+          readonly: true,
+          width: "half",
+          options: {
+            choices: [
+              { text: "Bezpieczeństwo", value: "security" },
+              { text: "Konto", value: "account" },
+              { text: "Integracje", value: "integrations" },
+              { text: "System", value: "system" },
+              { text: "Infrastruktura", value: "infrastructure" },
+            ],
+            allowOther: true,
+          },
+        },
+      },
+      {
+        field: "default_in_app",
+        type: "boolean",
+        meta: { interface: "boolean", readonly: true, width: "half" },
+      },
+      {
+        field: "default_email",
+        type: "boolean",
+        meta: { interface: "boolean", readonly: true, width: "half" },
+      },
+      {
+        field: "requires_area",
+        type: "string",
+        meta: {
+          interface: "input",
+          readonly: true,
+          width: "half",
+          options: { iconLeft: "shield" },
+        },
+      },
+      {
+        field: "synced_at",
+        type: "timestamp",
+        meta: {
+          interface: "datetime",
+          readonly: true,
+          width: "half",
+          display: "datetime",
+          display_options: { relative: true },
+        },
+      },
     ],
   },
 
@@ -355,6 +671,8 @@ export const COLLECTION_SPECS: CollectionSpec[] = [
     meta: {
       icon: "view_quilt",
       note: "Layouty (header/footer wrapper dla emaili). Edytuj w /admin/email > Layouts. Tu read-only mirror.",
+      display_template: "{{name}}{{is_default ? ' • domyślny' : ''}}",
+      sort_field: "name",
     },
     fields: [
       {
@@ -363,10 +681,37 @@ export const COLLECTION_SPECS: CollectionSpec[] = [
         schema: { is_primary_key: true },
         meta: { hidden: true, readonly: true },
       },
-      { field: "name", type: "string", meta: { interface: "input", readonly: true } },
-      { field: "html", type: "text", meta: { interface: "input-code", readonly: true, options: { language: "html" } } },
-      { field: "is_default", type: "boolean", meta: { interface: "boolean", readonly: true } },
-      { field: "synced_at", type: "timestamp", meta: { interface: "datetime", readonly: true } },
+      {
+        field: "name",
+        type: "string",
+        meta: { interface: "input", readonly: true, width: "half" },
+      },
+      {
+        field: "is_default",
+        type: "boolean",
+        meta: { interface: "boolean", readonly: true, width: "half" },
+      },
+      {
+        field: "html",
+        type: "text",
+        meta: {
+          interface: "input-code",
+          readonly: true,
+          width: "full",
+          options: { language: "htmlmixed", lineNumber: true, lineWrapping: true },
+        },
+      },
+      {
+        field: "synced_at",
+        type: "timestamp",
+        meta: {
+          interface: "datetime",
+          readonly: true,
+          width: "half",
+          display: "datetime",
+          display_options: { relative: true },
+        },
+      },
     ],
   },
 
@@ -376,6 +721,8 @@ export const COLLECTION_SPECS: CollectionSpec[] = [
     meta: {
       icon: "mail_outline",
       note: "Konfiguracje SMTP (alias, host, port, from). BEZ haseł — secrets pozostają w lokalnej DB. Edytuj w /admin/email > SMTP.",
+      display_template: "{{alias}} → {{host}}:{{port}}",
+      sort_field: "alias",
     },
     fields: [
       {
@@ -384,13 +731,72 @@ export const COLLECTION_SPECS: CollectionSpec[] = [
         schema: { is_primary_key: true },
         meta: { hidden: true, readonly: true },
       },
-      { field: "alias", type: "string", meta: { interface: "input", readonly: true } },
-      { field: "host", type: "string", meta: { interface: "input", readonly: true } },
-      { field: "port", type: "integer", meta: { interface: "input", readonly: true } },
-      { field: "secure", type: "boolean", meta: { interface: "boolean", readonly: true } },
-      { field: "from_address", type: "string", meta: { interface: "input", readonly: true } },
-      { field: "from_name", type: "string", meta: { interface: "input", readonly: true } },
-      { field: "synced_at", type: "timestamp", meta: { interface: "datetime", readonly: true } },
+      {
+        field: "alias",
+        type: "string",
+        meta: {
+          interface: "input",
+          readonly: true,
+          width: "half",
+          options: { iconLeft: "label" },
+        },
+      },
+      {
+        field: "host",
+        type: "string",
+        meta: {
+          interface: "input",
+          readonly: true,
+          width: "half",
+          options: { iconLeft: "dns" },
+        },
+      },
+      {
+        field: "port",
+        type: "integer",
+        meta: {
+          interface: "input",
+          readonly: true,
+          width: "half",
+          options: { min: 1, max: 65535 },
+        },
+      },
+      {
+        field: "secure",
+        type: "boolean",
+        meta: {
+          interface: "boolean",
+          readonly: true,
+          width: "half",
+          options: { label: "TLS / STARTTLS" },
+        },
+      },
+      {
+        field: "from_address",
+        type: "string",
+        meta: {
+          interface: "input",
+          readonly: true,
+          width: "half",
+          options: { iconLeft: "alternate_email" },
+        },
+      },
+      {
+        field: "from_name",
+        type: "string",
+        meta: { interface: "input", readonly: true, width: "half" },
+      },
+      {
+        field: "synced_at",
+        type: "timestamp",
+        meta: {
+          interface: "datetime",
+          readonly: true,
+          width: "half",
+          display: "datetime",
+          display_options: { relative: true },
+        },
+      },
     ],
   },
 
@@ -402,6 +808,12 @@ export const COLLECTION_SPECS: CollectionSpec[] = [
     meta: {
       icon: "link",
       note: "Linki w UI: footer, sidebar, social. Edytuj swobodnie. category określa gdzie się pojawia.",
+      display_template: "{{label}} ({{category}})",
+      sort_field: "sort",
+      archive_field: "enabled",
+      archive_value: "false",
+      unarchive_value: "true",
+      archive_app_filter: false,
     },
     fields: [
       {
@@ -413,25 +825,102 @@ export const COLLECTION_SPECS: CollectionSpec[] = [
       {
         field: "category",
         type: "string",
+        schema: { is_nullable: false },
         meta: {
           interface: "select-dropdown",
-          options: { choices: [
-            { text: "Footer", value: "footer" },
-            { text: "Sidebar / pomoc", value: "help" },
-            { text: "Social media", value: "social" },
-            { text: "Stopka emaili", value: "email-footer" },
-          ]},
+          required: true,
+          width: "half",
+          display: "labels",
+          display_options: {
+            showAsDot: true,
+            choices: [
+              { text: "Footer", value: "footer", foreground: "#fff", background: "#5856D6" },
+              { text: "Sidebar / pomoc", value: "help", foreground: "#fff", background: "#34C759" },
+              { text: "Social media", value: "social", foreground: "#fff", background: "#FF2D55" },
+              { text: "Stopka emaili", value: "email-footer", foreground: "#fff", background: "#FF9500" },
+            ],
+          },
+          options: {
+            choices: [
+              { text: "Footer dashboardu", value: "footer" },
+              { text: "Sidebar / pomoc", value: "help" },
+              { text: "Social media", value: "social" },
+              { text: "Stopka emaili", value: "email-footer" },
+            ],
+          },
         },
       },
-      { field: "label", type: "string", meta: { interface: "input", required: true } },
-      { field: "url", type: "string", meta: { interface: "input", required: true } },
-      { field: "icon", type: "string", meta: { interface: "input", note: "lucide icon name lub emoji" } },
-      { field: "sort", type: "integer", meta: { interface: "input" }, schema: { default_value: 0 } },
-      { field: "enabled", type: "boolean", meta: { interface: "boolean" }, schema: { default_value: true } },
+      {
+        field: "label",
+        type: "string",
+        schema: { is_nullable: false },
+        meta: {
+          interface: "input",
+          required: true,
+          width: "half",
+          options: { iconLeft: "title", placeholder: "np. Polityka prywatności" },
+        },
+      },
+      {
+        field: "url",
+        type: "string",
+        schema: { is_nullable: false },
+        meta: {
+          interface: "input",
+          required: true,
+          width: "full",
+          options: {
+            iconLeft: "link",
+            placeholder: "https://… lub /admin/…",
+            font: "monospace",
+            trim: true,
+          },
+        },
+      },
+      {
+        field: "icon",
+        type: "string",
+        meta: {
+          interface: "input",
+          width: "half",
+          options: {
+            iconLeft: "image",
+            placeholder: "np. shield, mail (lucide) lub emoji",
+          },
+          note: "Lucide icon name lub emoji.",
+        },
+      },
+      {
+        field: "sort",
+        type: "integer",
+        schema: { default_value: 0 },
+        meta: {
+          interface: "input",
+          width: "half",
+          display: "formatted-value",
+          options: { min: 0, max: 999, step: 1, iconLeft: "sort" },
+          note: "Niższe = wyżej na liście.",
+        },
+      },
+      {
+        field: "enabled",
+        type: "boolean",
+        schema: { default_value: true },
+        meta: {
+          interface: "boolean",
+          width: "half",
+          options: { label: "Widoczne w UI" },
+        },
+      },
       {
         field: "requires_area",
         type: "string",
-        meta: { interface: "input", note: "Pusty = wszyscy. area-id = tylko z dostępem." },
+        meta: {
+          interface: "input",
+          width: "half",
+          options: { iconLeft: "shield" },
+          note: "Pusty = wszyscy. area-id (np. infrastructure) = widoczne tylko dla userów z dostępem do tej area.",
+        },
       },
     ],
   },
@@ -442,6 +931,10 @@ export const COLLECTION_SPECS: CollectionSpec[] = [
     meta: {
       icon: "verified_user",
       note: "Certyfikaty klienckie mTLS. Mirror z lokalnej DB. Wystawienie/revoke w /admin/certificates (operacje w step-ca).",
+      display_template: "{{subject}} ({{email}})",
+      sort_field: "issued_at",
+      archive_field: "revoked_at",
+      archive_app_filter: true,
     },
     fields: [
       {
@@ -450,15 +943,97 @@ export const COLLECTION_SPECS: CollectionSpec[] = [
         schema: { is_primary_key: true },
         meta: { hidden: true, readonly: true },
       },
-      { field: "subject", type: "string", meta: { interface: "input", readonly: true, note: "Common Name" } },
-      { field: "email", type: "string", meta: { interface: "input", readonly: true } },
-      { field: "roles", type: "csv", meta: { interface: "tags", readonly: true, note: "panele które cert otwiera" } },
-      { field: "serial_number", type: "string", meta: { interface: "input", readonly: true } },
-      { field: "not_after", type: "timestamp", meta: { interface: "datetime", readonly: true } },
-      { field: "issued_at", type: "timestamp", meta: { interface: "datetime", readonly: true } },
-      { field: "revoked_at", type: "timestamp", meta: { interface: "datetime", readonly: true } },
-      { field: "revoked_reason", type: "string", meta: { interface: "input", readonly: true } },
-      { field: "synced_at", type: "timestamp", meta: { interface: "datetime", readonly: true } },
+      {
+        field: "subject",
+        type: "string",
+        meta: {
+          interface: "input",
+          readonly: true,
+          width: "half",
+          options: { iconLeft: "person" },
+          note: "Common Name (CN) z certyfikatu.",
+        },
+      },
+      {
+        field: "email",
+        type: "string",
+        meta: {
+          interface: "input",
+          readonly: true,
+          width: "half",
+          options: { iconLeft: "alternate_email" },
+        },
+      },
+      {
+        field: "roles",
+        type: "csv",
+        meta: {
+          interface: "tags",
+          readonly: true,
+          width: "full",
+          note: "Panele które cert otwiera (sprzedawca / serwisant / kierowca).",
+        },
+      },
+      {
+        field: "serial_number",
+        type: "string",
+        meta: {
+          interface: "input",
+          readonly: true,
+          width: "full",
+          options: { iconLeft: "fingerprint", font: "monospace" },
+        },
+      },
+      {
+        field: "issued_at",
+        type: "timestamp",
+        meta: {
+          interface: "datetime",
+          readonly: true,
+          width: "half",
+          display: "datetime",
+          display_options: { relative: false },
+        },
+      },
+      {
+        field: "not_after",
+        type: "timestamp",
+        meta: {
+          interface: "datetime",
+          readonly: true,
+          width: "half",
+          display: "datetime",
+          display_options: { relative: true },
+          note: "Data wygaśnięcia.",
+        },
+      },
+      {
+        field: "revoked_at",
+        type: "timestamp",
+        meta: {
+          interface: "datetime",
+          readonly: true,
+          width: "half",
+          display: "datetime",
+          display_options: { relative: true },
+        },
+      },
+      {
+        field: "revoked_reason",
+        type: "string",
+        meta: { interface: "input", readonly: true, width: "half" },
+      },
+      {
+        field: "synced_at",
+        type: "timestamp",
+        meta: {
+          interface: "datetime",
+          readonly: true,
+          width: "half",
+          display: "datetime",
+          display_options: { relative: true },
+        },
+      },
     ],
   },
 
@@ -468,22 +1043,105 @@ export const COLLECTION_SPECS: CollectionSpec[] = [
     meta: {
       icon: "block",
       note: "Zablokowane IP (Wazuh AR + ręczne). Mirror. Akcje block/unblock w /admin/infrastructure?tab=blocks.",
+      display_template: "{{ip}} — {{country}} ({{attempts}}×)",
+      sort_field: "blocked_at",
     },
     fields: [
       {
         field: "ip",
         type: "string",
         schema: { is_primary_key: true },
-        meta: { interface: "input", readonly: true },
+        meta: {
+          interface: "input",
+          readonly: true,
+          width: "half",
+          options: { iconLeft: "router", font: "monospace" },
+        },
       },
-      { field: "reason", type: "text", meta: { interface: "input-multiline", readonly: true } },
-      { field: "blocked_at", type: "timestamp", meta: { interface: "datetime", readonly: true } },
-      { field: "expires_at", type: "timestamp", meta: { interface: "datetime", readonly: true } },
-      { field: "blocked_by", type: "string", meta: { interface: "input", readonly: true } },
-      { field: "source", type: "string", meta: { interface: "input", readonly: true } },
-      { field: "attempts", type: "integer", meta: { interface: "input", readonly: true } },
-      { field: "country", type: "string", meta: { interface: "input", readonly: true } },
-      { field: "synced_at", type: "timestamp", meta: { interface: "datetime", readonly: true } },
+      {
+        field: "country",
+        type: "string",
+        meta: {
+          interface: "input",
+          readonly: true,
+          width: "half",
+          options: { iconLeft: "public" },
+          note: "ISO 3166-1 alpha-2.",
+        },
+      },
+      {
+        field: "reason",
+        type: "text",
+        meta: { interface: "input-multiline", readonly: true, width: "full" },
+      },
+      {
+        field: "source",
+        type: "string",
+        meta: {
+          interface: "select-dropdown",
+          readonly: true,
+          width: "half",
+          options: {
+            choices: [
+              { text: "Wazuh AR", value: "wazuh" },
+              { text: "Ręczne", value: "manual" },
+              { text: "Threat-feed", value: "threat-feed" },
+              { text: "Auto (rate-limit)", value: "auto" },
+            ],
+            allowOther: true,
+          },
+        },
+      },
+      {
+        field: "attempts",
+        type: "integer",
+        meta: {
+          interface: "input",
+          readonly: true,
+          width: "half",
+          display: "formatted-value",
+          display_options: { suffix: "×" },
+        },
+      },
+      {
+        field: "blocked_at",
+        type: "timestamp",
+        meta: {
+          interface: "datetime",
+          readonly: true,
+          width: "half",
+          display: "datetime",
+          display_options: { relative: true },
+        },
+      },
+      {
+        field: "expires_at",
+        type: "timestamp",
+        meta: {
+          interface: "datetime",
+          readonly: true,
+          width: "half",
+          display: "datetime",
+          display_options: { relative: true },
+          note: "NULL = blokada permanentna.",
+        },
+      },
+      {
+        field: "blocked_by",
+        type: "string",
+        meta: { interface: "input", readonly: true, width: "half" },
+      },
+      {
+        field: "synced_at",
+        type: "timestamp",
+        meta: {
+          interface: "datetime",
+          readonly: true,
+          width: "half",
+          display: "datetime",
+          display_options: { relative: true },
+        },
+      },
     ],
   },
 
@@ -494,6 +1152,7 @@ export const COLLECTION_SPECS: CollectionSpec[] = [
       icon: "cloud",
       note: "OVH API config metadata (endpoint + appKey prefix). BEZ secrets — appSecret/consumerKey w env. Edytuj w /admin/email > OVH.",
       singleton: true,
+      display_template: "OVH ({{endpoint}}) — {{configured ? 'OK' : 'brak'}}",
     },
     fields: [
       {
@@ -502,11 +1161,68 @@ export const COLLECTION_SPECS: CollectionSpec[] = [
         schema: { is_primary_key: true },
         meta: { hidden: true, readonly: true },
       },
-      { field: "endpoint", type: "string", meta: { interface: "input", readonly: true, note: "ovh-eu / ovh-us / ovh-ca" } },
-      { field: "app_key_preview", type: "string", meta: { interface: "input", readonly: true, note: "First 8 chars (audit)" } },
-      { field: "consumer_key_preview", type: "string", meta: { interface: "input", readonly: true, note: "First 8 chars (audit)" } },
-      { field: "configured", type: "boolean", meta: { interface: "boolean", readonly: true } },
-      { field: "synced_at", type: "timestamp", meta: { interface: "datetime", readonly: true } },
+      {
+        field: "configured",
+        type: "boolean",
+        meta: {
+          interface: "boolean",
+          readonly: true,
+          width: "half",
+          options: { label: "Skonfigurowane (appSecret + consumerKey w env)" },
+        },
+      },
+      {
+        field: "endpoint",
+        type: "string",
+        meta: {
+          interface: "select-dropdown",
+          readonly: true,
+          width: "half",
+          options: {
+            choices: [
+              { text: "OVH Europa (ovh-eu)", value: "ovh-eu" },
+              { text: "OVH USA (ovh-us)", value: "ovh-us" },
+              { text: "OVH Kanada (ovh-ca)", value: "ovh-ca" },
+              { text: "SoYouStart EU (soyoustart-eu)", value: "soyoustart-eu" },
+              { text: "Kimsufi EU (kimsufi-eu)", value: "kimsufi-eu" },
+            ],
+            allowOther: true,
+          },
+        },
+      },
+      {
+        field: "app_key_preview",
+        type: "string",
+        meta: {
+          interface: "input",
+          readonly: true,
+          width: "half",
+          options: { iconLeft: "key", font: "monospace" },
+          note: "Pierwsze 8 znaków AppKey (audit-trail). Pełny klucz w env.",
+        },
+      },
+      {
+        field: "consumer_key_preview",
+        type: "string",
+        meta: {
+          interface: "input",
+          readonly: true,
+          width: "half",
+          options: { iconLeft: "vpn_key", font: "monospace" },
+          note: "Pierwsze 8 znaków ConsumerKey (audit-trail). Pełny klucz w env.",
+        },
+      },
+      {
+        field: "synced_at",
+        type: "timestamp",
+        meta: {
+          interface: "datetime",
+          readonly: true,
+          width: "half",
+          display: "datetime",
+          display_options: { relative: true },
+        },
+      },
     ],
   },
 
@@ -515,24 +1231,122 @@ export const COLLECTION_SPECS: CollectionSpec[] = [
     collection: "mp_panels_cms",
     meta: {
       icon: "view_list",
-      note: "Panele zewnętrzne wymagające mTLS. Edytuj domenę / role / opis tutaj — zmiany propagują do dashboardu.",
+      note: "Panele zewnętrzne wymagające mTLS. Edytuj label / opis — domena i required_role są ustalone przez infrastrukturę.",
+      display_template: "{{label}} ({{domain}})",
+      sort_field: "sort",
+      archive_field: "enabled",
+      archive_value: "false",
+      unarchive_value: "true",
     },
     fields: [
       {
         field: "slug",
         type: "string",
         schema: { is_primary_key: true },
-        meta: { interface: "input", readonly: true, note: "sprzedawca / serwisant / kierowca / dokumenty" },
+        meta: {
+          interface: "input",
+          readonly: true,
+          width: "half",
+          options: { iconLeft: "tag" },
+          note: "sprzedawca / serwisant / kierowca",
+        },
       },
-      { field: "label", type: "string", meta: { interface: "input", required: true } },
-      { field: "domain", type: "string", meta: { interface: "input", required: true } },
-      { field: "description", type: "text", meta: { interface: "input-multiline" } },
-      { field: "required_role", type: "string", meta: { interface: "input", note: "KC realm role" } },
-      { field: "mtls_required", type: "boolean", meta: { interface: "boolean" }, schema: { default_value: true } },
-      { field: "icon", type: "string", meta: { interface: "input", note: "lucide icon name" } },
-      { field: "sort", type: "integer", meta: { interface: "input" }, schema: { default_value: 0 } },
-      { field: "enabled", type: "boolean", meta: { interface: "boolean" }, schema: { default_value: true } },
-      { field: "synced_at", type: "timestamp", meta: { interface: "datetime", readonly: true } },
+      {
+        field: "label",
+        type: "string",
+        schema: { is_nullable: false },
+        meta: {
+          interface: "input",
+          required: true,
+          width: "half",
+          options: { iconLeft: "label", placeholder: "Panel Sprzedawcy" },
+        },
+      },
+      {
+        field: "domain",
+        type: "string",
+        schema: { is_nullable: false },
+        meta: {
+          interface: "input",
+          required: true,
+          readonly: true,
+          width: "half",
+          options: { iconLeft: "language", font: "monospace" },
+          note: "Read-only — domena ustalona przez Traefik/DNS.",
+        },
+      },
+      {
+        field: "required_role",
+        type: "string",
+        meta: {
+          interface: "input",
+          readonly: true,
+          width: "half",
+          options: { iconLeft: "shield" },
+          note: "Realm role w Keycloaku.",
+        },
+      },
+      {
+        field: "description",
+        type: "text",
+        meta: {
+          interface: "input-multiline",
+          width: "full",
+          options: { placeholder: "Krótki opis funkcji panelu — wyświetlany na dashboardzie." },
+        },
+      },
+      {
+        field: "icon",
+        type: "string",
+        meta: {
+          interface: "input",
+          width: "half",
+          options: { iconLeft: "image", placeholder: "Briefcase / Wrench / Truck" },
+          note: "Lucide icon name.",
+        },
+      },
+      {
+        field: "sort",
+        type: "integer",
+        schema: { default_value: 0 },
+        meta: {
+          interface: "input",
+          width: "half",
+          options: { min: 0, max: 999, step: 1, iconLeft: "sort" },
+        },
+      },
+      {
+        field: "mtls_required",
+        type: "boolean",
+        schema: { default_value: true },
+        meta: {
+          interface: "boolean",
+          readonly: true,
+          width: "half",
+          options: { label: "Wymaga mTLS (zawsze tak — hard-locked)" },
+        },
+      },
+      {
+        field: "enabled",
+        type: "boolean",
+        schema: { default_value: true },
+        meta: {
+          interface: "boolean",
+          width: "half",
+          options: { label: "Widoczny na dashboardzie" },
+        },
+      },
+      {
+        field: "synced_at",
+        type: "timestamp",
+        meta: {
+          interface: "datetime",
+          readonly: true,
+          width: "half",
+          display: "datetime",
+          display_options: { relative: true },
+        },
+      },
     ],
   },
 
@@ -541,7 +1355,13 @@ export const COLLECTION_SPECS: CollectionSpec[] = [
     collection: "mp_announcements",
     meta: {
       icon: "campaign",
-      note: "Banery / komunikaty systemowe wyświetlane na dashboardzie. enabled=true → widoczne. severity = info|warning|error.",
+      note: "Banery / komunikaty systemowe wyświetlane na dashboardzie. enabled=true → widoczne (w oknie starts_at..ends_at).",
+      display_template: "{{severity}} • {{title}}",
+      sort_field: "starts_at",
+      archive_field: "enabled",
+      archive_value: "false",
+      unarchive_value: "true",
+      archive_app_filter: false,
     },
     fields: [
       {
@@ -553,47 +1373,96 @@ export const COLLECTION_SPECS: CollectionSpec[] = [
       {
         field: "title",
         type: "string",
-        meta: { interface: "input", required: true },
-      },
-      {
-        field: "body",
-        type: "text",
-        meta: { interface: "input-rich-text-md" },
+        schema: { is_nullable: false },
+        meta: {
+          interface: "input",
+          required: true,
+          width: "full",
+          options: {
+            iconLeft: "campaign",
+            placeholder: "Krótki, konkretny tytuł — np. „Planowane prace serwisowe 27.04 21:00–23:00",
+            trim: true,
+          },
+        },
       },
       {
         field: "severity",
         type: "string",
+        schema: { default_value: "info", is_nullable: false },
         meta: {
           interface: "select-dropdown",
-          options: { choices: [
-            { text: "Informacja", value: "info" },
-            { text: "Ostrzeżenie", value: "warning" },
-            { text: "Krytyczne", value: "error" },
-          ]},
+          required: true,
+          width: "half",
+          display: "labels",
+          display_options: {
+            showAsDot: true,
+            choices: [
+              { text: "Informacja", value: "info", foreground: "#fff", background: "#0A84FF" },
+              { text: "Ostrzeżenie", value: "warning", foreground: "#000", background: "#FFD60A" },
+              { text: "Krytyczne", value: "error", foreground: "#fff", background: "#FF453A" },
+            ],
+          },
+          options: {
+            choices: [
+              { text: "Informacja (niebieski)", value: "info" },
+              { text: "Ostrzeżenie (żółty)", value: "warning" },
+              { text: "Krytyczne (czerwony)", value: "error" },
+            ],
+          },
         },
       },
       {
         field: "enabled",
         type: "boolean",
-        meta: { interface: "boolean" },
         schema: { default_value: false },
+        meta: {
+          interface: "boolean",
+          width: "half",
+          options: { label: "Aktywne (widoczne na dashboardzie)" },
+        },
+      },
+      {
+        field: "body",
+        type: "text",
+        meta: {
+          interface: "input-rich-text-md",
+          width: "full",
+          options: {
+            toolbar: ["bold", "italic", "link", "bullist", "numlist", "code"],
+            placeholder: "Treść komunikatu w Markdown.",
+          },
+        },
       },
       {
         field: "starts_at",
         type: "timestamp",
-        meta: { interface: "datetime" },
+        meta: {
+          interface: "datetime",
+          width: "half",
+          display: "datetime",
+          display_options: { relative: true },
+          note: "Pusty = od razu.",
+        },
       },
       {
         field: "ends_at",
         type: "timestamp",
-        meta: { interface: "datetime" },
+        meta: {
+          interface: "datetime",
+          width: "half",
+          display: "datetime",
+          display_options: { relative: true },
+          note: "Pusty = bez końca.",
+        },
       },
       {
         field: "requires_area",
         type: "string",
         meta: {
           interface: "input",
-          note: "Pusty = wszyscy userzy. Wartość = tylko area-admini (np. infrastructure).",
+          width: "full",
+          options: { iconLeft: "shield", placeholder: "(opcjonalnie) np. infrastructure" },
+          note: "Pusty = widoczne dla wszystkich. area-id = tylko userzy z dostępem do tej area (np. infrastructure dla wiadomości techniczne).",
         },
       },
     ],

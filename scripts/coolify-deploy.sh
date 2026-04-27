@@ -12,15 +12,14 @@
 #
 # Per-app UUIDs (only those you want to deploy need be set):
 #   COOLIFY_DASHBOARD_UUID
-#   COOLIFY_DOKUMENTY_UUID
 #   COOLIFY_SPRZEDAWCA_UUID
 #   COOLIFY_SERWISANT_UUID
 #   COOLIFY_KIEROWCA_UUID
 #
 # Usage:
 #   scripts/coolify-deploy.sh                       # deploys every app with a UUID set
-#   scripts/coolify-deploy.sh dashboard dokumenty   # deploys the listed apps only
-#   FORCE=1 scripts/coolify-deploy.sh dokumenty     # force rebuild (ignore cache)
+#   scripts/coolify-deploy.sh dashboard sprzedawca  # deploys the listed apps only
+#   FORCE=1 scripts/coolify-deploy.sh sprzedawca    # force rebuild (ignore cache)
 
 set -euo pipefail
 
@@ -31,7 +30,6 @@ FORCE="${FORCE:-0}"
 
 declare -A UUIDS=(
   [dashboard]="${COOLIFY_DASHBOARD_UUID:-}"
-  [dokumenty]="${COOLIFY_DOKUMENTY_UUID:-}"
   [sprzedawca]="${COOLIFY_SPRZEDAWCA_UUID:-}"
   [serwisant]="${COOLIFY_SERWISANT_UUID:-}"
   [kierowca]="${COOLIFY_KIEROWCA_UUID:-}"

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
+  ExternalLink,
   Globe,
   LayoutGrid,
   Loader2,
@@ -34,6 +35,15 @@ const TYPE_LABEL: Record<SearchHit["type"], string> = {
   device: "Urządzenie",
   tile: "Panel",
 };
+
+// Zewnętrzny target: pełny URL (https://) lub /api/*/sso /api/*/launch
+// (SSO bridge → app na innej domenie). Wewnętrzne /admin /account /dashboard
+// nawigujemy w tej samej karcie.
+function isExternalHref(href: string): boolean {
+  if (/^https?:\/\//i.test(href)) return true;
+  if (/^\/api\/[^/]+\/(sso|launch)(\?|$)/i.test(href)) return true;
+  return false;
+}
 
 /**
  * Cmd+K / Ctrl+K command palette — fuzzy search po userach, IP, urządzeniach,
@@ -106,7 +116,13 @@ export function CommandPalette() {
   }, [q, open]);
 
   const navigateTo = useCallback((href: string) => {
-    window.location.href = href;
+    if (isExternalHref(href)) {
+      // Zewnętrzny panel (Documenso/Moodle/Outline/Postal/Directus przez SSO
+      // lub pełny URL) — otwieramy w nowej karcie. Dashboard zostaje otwarty.
+      window.open(href, "_blank", "noopener,noreferrer");
+    } else {
+      window.location.href = href;
+    }
     setOpen(false);
   }, []);
 
@@ -189,6 +205,12 @@ export function CommandPalette() {
                       <div className="flex-1 min-w-0">
                         <div className="text-sm truncate flex items-center gap-2">
                           {h.title}
+                          {isExternalHref(h.href) && (
+                            <ExternalLink
+                              className="w-3 h-3 text-[var(--text-muted)] flex-shrink-0"
+                              aria-label="Otwiera w nowej karcie"
+                            />
+                          )}
                           <span className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">
                             {TYPE_LABEL[h.type]}
                           </span>
@@ -201,7 +223,7 @@ export function CommandPalette() {
                       </div>
                       {active === i && (
                         <kbd className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-subtle)] text-[var(--text-muted)] font-mono">
-                          ↵
+                          {isExternalHref(h.href) ? "↗" : "↵"}
                         </kbd>
                       )}
                     </button>
@@ -291,7 +313,15 @@ function Suggestions({ onPick }: { onPick: (href: string) => void }) {
                 <Icon className="w-4 h-4 text-[var(--text-muted)]" />
               </div>
               <div className="flex-1 min-w-0">
-                <div className="text-sm truncate">{h.title}</div>
+                <div className="text-sm truncate flex items-center gap-2">
+                  <span className="truncate">{h.title}</span>
+                  {isExternalHref(h.href) && (
+                    <ExternalLink
+                      className="w-3 h-3 text-[var(--text-muted)] flex-shrink-0"
+                      aria-label="Otwiera w nowej karcie"
+                    />
+                  )}
+                </div>
                 {h.subtitle && (
                   <div className="text-[11px] text-[var(--text-muted)] truncate">
                     {h.subtitle}
