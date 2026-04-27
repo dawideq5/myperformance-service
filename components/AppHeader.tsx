@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { ArrowLeft, LogOut, Search, Settings, User as UserIcon } from "lucide-react";
 import { Button, PageHeader, ThemeToggle } from "@/components/ui";
@@ -29,13 +30,31 @@ export function AppHeader({
   rightExtras,
 }: AppHeaderProps) {
   const { fullLogout } = useAuthRedirect();
+  const router = useRouter();
   const platform = usePlatform();
   const shortcutKey = platform === "other" ? "Ctrl+K" : "⌘K";
+
+  // Smart back: jeśli mamy poprzednią stronę w historii sesji (referrer
+  // z tego samego origin), router.back() zachowa kontekst (np. powrót
+  // z /admin/locations/X do /admin/config). Bez historii — fallback do
+  // backHref (zazwyczaj /dashboard albo logiczny rodzic).
+  const handleBack = (e: React.MouseEvent) => {
+    if (typeof window === "undefined") return;
+    const ref = document.referrer;
+    const sameOriginHistory =
+      ref && ref.startsWith(window.location.origin) && window.history.length > 1;
+    if (sameOriginHistory) {
+      e.preventDefault();
+      router.back();
+    }
+    // else: zostawiamy default <Link href={backHref}> behavior
+  };
 
   const left = backHref ? (
     <>
       <Link
         href={backHref}
+        onClick={handleBack}
         className="flex items-center gap-2 text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors"
       >
         <ArrowLeft className="w-5 h-5" aria-hidden="true" />

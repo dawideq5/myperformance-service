@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   Briefcase,
@@ -10,6 +10,7 @@ import {
   Search,
   Trash2,
   Wrench,
+  X,
 } from "lucide-react";
 import {
   Badge,
@@ -42,12 +43,12 @@ const DAY_LABELS: Record<keyof Omit<LocationHours, "sundays_handlowe">, string> 
 };
 
 const EMPTY_HOURS: LocationHours = {
-  mon: "09-17",
-  tue: "09-17",
-  wed: "09-17",
-  thu: "09-17",
-  fri: "09-17",
-  sat: "10-14",
+  mon: "09-21",
+  tue: "09-21",
+  wed: "09-21",
+  thu: "09-21",
+  fri: "09-21",
+  sat: "09-21",
   sun: null,
   sundays_handlowe: [],
 };
@@ -460,40 +461,29 @@ function EditDialog({
           </div>
         </div>
 
-        {/* Adres + GPS + drag pin na mapie */}
-        <Input
-          label="Adres"
+        {/* Adres + autocomplete + drag pin na mapie */}
+        <AddressAutocomplete
           value={draft.address}
-          onChange={(e) => set("address", e.target.value)}
-          placeholder="ul., numer, kod, miasto"
+          onAddressChange={(v) => set("address", v)}
+          onSelect={(r) =>
+            onChange({
+              ...draft,
+              address: r.displayName,
+              lat: r.lat,
+              lng: r.lng,
+            })
+          }
         />
-        <div className="grid grid-cols-2 gap-3">
-          <Input
-            label="Latitude"
-            type="number"
-            step="0.0000001"
-            value={draft.lat ?? ""}
-            onChange={(e) =>
-              set("lat", e.target.value === "" ? null : Number(e.target.value))
-            }
-            placeholder="52.2297"
-          />
-          <Input
-            label="Longitude"
-            type="number"
-            step="0.0000001"
-            value={draft.lng ?? ""}
-            onChange={(e) =>
-              set("lng", e.target.value === "" ? null : Number(e.target.value))
-            }
-            placeholder="21.0122"
-          />
-        </div>
         <div>
           <label className="block text-xs font-medium mb-1.5 text-[var(--text-muted)]">
-            Pinezka na mapie (przeciągnij aby ustawić GPS)
+            Pinezka na mapie (przeciągnij aby ustawić)
+            {draft.lat != null && draft.lng != null && (
+              <span className="ml-2 font-mono text-[10px]">
+                {draft.lat.toFixed(5)}, {draft.lng.toFixed(5)}
+              </span>
+            )}
           </label>
-          <div style={{ height: 280 }}>
+          <div style={{ height: 320 }}>
             <LocationMap
               locations={[]}
               editPin={
@@ -613,13 +603,13 @@ function EditDialog({
           </div>
         </div>
 
-        {/* Plan budżetu */}
+        {/* Plan budżetu (DZIENNY) */}
         <Input
-          label="Plan realizacji budżetu (PLN)"
+          label="Plan realizacji dziennego budżetu (PLN)"
           type="number"
           value={draft.budgetPlan}
           onChange={(e) => set("budgetPlan", e.target.value)}
-          placeholder="np. 250000"
+          placeholder="np. 8500"
         />
 
         {/* Relacje sales↔service */}
@@ -644,29 +634,11 @@ function EditDialog({
           </div>
         )}
         {draft.type === "service" && candidateSales.length > 0 && (
-          <div>
-            <label className="block text-xs font-medium mb-1.5 text-[var(--text-muted)]">
-              Podległe punkty sprzedaży (Cmd/Ctrl-klik dla wielu)
-            </label>
-            <select
-              multiple
-              value={draft.salesIds}
-              onChange={(e) =>
-                set(
-                  "salesIds",
-                  Array.from(e.target.selectedOptions).map((o) => o.value),
-                )
-              }
-              className="w-full rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] px-3 py-2 text-sm min-h-[120px]"
-            >
-              {candidateSales.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                  {s.warehouseCode ? ` (${s.warehouseCode})` : ""}
-                </option>
-              ))}
-            </select>
-          </div>
+          <SalesAssignment
+            salesIds={draft.salesIds}
+            candidates={candidateSales}
+            onChange={(ids) => set("salesIds", ids)}
+          />
         )}
 
         {/* Enabled */}
@@ -676,7 +648,7 @@ function EditDialog({
             checked={draft.enabled}
             onChange={(e) => set("enabled", e.target.checked)}
           />
-          Aktywny w systemie (widoczny userom)
+          Widoczny dla użytkowników
         </label>
 
         {/* Historia (tylko dla istniejącego punktu) */}
@@ -705,6 +677,236 @@ function EditDialog({
         </div>
       </div>
     </Dialog>
+  );
+}
+
+// ── Adres autocomplete (Nominatim OSM) ──────────────────────────────────
+interface NominatimResult {
+  displayName: string;
+  lat: number;
+  lng: number;
+}
+
+function AddressAutocomplete({
+  value,
+  onAddressChange,
+  onSelect,
+}: {
+  value: string;
+  onAddressChange: (v: string) => void;
+  onSelect: (r: NominatimResult) => void;
+}) {
+  const [results, setResults] = useState<NominatimResult[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [open, setOpen] = useState(false);
+  const debounceRef = useRef<number | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!value || value.length < 4) {
+      setResults([]);
+      return;
+    }
+    if (debounceRef.current) window.clearTimeout(debounceRef.current);
+    debounceRef.current = window.setTimeout(async () => {
+      setLoading(true);
+      try {
+        const url = new URL("https://nominatim.openstreetmap.org/search");
+        url.searchParams.set("q", value);
+        url.searchParams.set("format", "json");
+        url.searchParams.set("addressdetails", "1");
+        url.searchParams.set("countrycodes", "pl");
+        url.searchParams.set("limit", "6");
+        url.searchParams.set("accept-language", "pl");
+        const res = await fetch(url.toString(), {
+          headers: { "Accept-Language": "pl" },
+        });
+        if (res.ok) {
+          const data = (await res.json()) as Array<{
+            display_name: string;
+            lat: string;
+            lon: string;
+          }>;
+          setResults(
+            data.map((r) => ({
+              displayName: r.display_name,
+              lat: Number(r.lat),
+              lng: Number(r.lon),
+            })),
+          );
+          setOpen(true);
+        }
+      } catch {
+        setResults([]);
+      } finally {
+        setLoading(false);
+      }
+    }, 400);
+    return () => {
+      if (debounceRef.current) window.clearTimeout(debounceRef.current);
+    };
+  }, [value]);
+
+  // Click outside zamyka dropdown
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (!containerRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  return (
+    <div ref={containerRef} className="relative">
+      <Input
+        label="Adres"
+        value={value}
+        onChange={(e) => onAddressChange(e.target.value)}
+        onFocus={() => results.length > 0 && setOpen(true)}
+        placeholder="Zacznij wpisywać ulicę / miasto…"
+      />
+      {loading && (
+        <span className="absolute right-3 top-9 text-[10px] text-[var(--text-muted)]">
+          szukanie…
+        </span>
+      )}
+      {open && results.length > 0 && (
+        <ul
+          className="absolute z-50 mt-1 w-full rounded-lg border bg-[var(--bg-card)] shadow-2xl max-h-64 overflow-auto animate-fade-in"
+          style={{ borderColor: "var(--border-subtle)" }}
+        >
+          {results.map((r, i) => (
+            <li key={i}>
+              <button
+                type="button"
+                onClick={() => {
+                  onSelect(r);
+                  setOpen(false);
+                }}
+                className="w-full text-left px-3 py-2 hover:bg-[var(--bg-surface)] text-xs"
+              >
+                {r.displayName}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// ── Przypisanie podległych sklepów (do service location) ─────────────────
+const SALES_LIMIT = 50;
+
+function SalesAssignment({
+  salesIds,
+  candidates,
+  onChange,
+}: {
+  salesIds: string[];
+  candidates: Location[];
+  onChange: (ids: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const assigned = candidates.filter((c) => salesIds.includes(c.id));
+  const limitReached = salesIds.length >= SALES_LIMIT;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1.5">
+        <label className="text-xs font-medium text-[var(--text-muted)]">
+          Punkty
+        </label>
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          onClick={() => setOpen(true)}
+          leftIcon={<Plus className="w-3 h-3" />}
+        >
+          Przypisz
+        </Button>
+      </div>
+      {assigned.length === 0 ? (
+        <div className="text-xs text-[var(--text-muted)] p-3 rounded-lg border border-dashed border-[var(--border-subtle)] text-center">
+          Brak przypisanych punktów. Klik &bdquo;Przypisz&rdquo; aby dodać.
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-1.5">
+          {assigned.map((s) => (
+            <span
+              key={s.id}
+              className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-[var(--bg-surface)] text-xs"
+            >
+              <Briefcase className="w-3 h-3 text-sky-400" />
+              {s.name}
+              {s.warehouseCode && (
+                <span className="text-[10px] text-[var(--text-muted)] font-mono">
+                  {s.warehouseCode}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => onChange(salesIds.filter((id) => id !== s.id))}
+                className="text-[var(--text-muted)] hover:text-red-400 ml-0.5"
+                aria-label="Usuń"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      {open && (
+        <Dialog open onClose={() => setOpen(false)} title="Przypisz punkty" size="md">
+          {limitReached && (
+            <div className="text-xs text-amber-400 bg-amber-500/10 rounded-lg p-2.5 mb-3">
+              Osiągnięto limit {SALES_LIMIT} punktów. Usuń jakieś żeby dodać kolejne.
+            </div>
+          )}
+          <div className="space-y-1.5 max-h-[60vh] overflow-y-auto">
+            {candidates.map((c) => {
+              const checked = salesIds.includes(c.id);
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  disabled={!checked && limitReached}
+                  onClick={() => {
+                    if (checked) {
+                      onChange(salesIds.filter((id) => id !== c.id));
+                    } else if (!limitReached) {
+                      onChange([...salesIds, c.id]);
+                    }
+                  }}
+                  className={`w-full text-left p-3 rounded-lg border transition flex items-center gap-3 disabled:opacity-40 ${
+                    checked
+                      ? "border-[var(--accent)] bg-[var(--accent)]/5"
+                      : "border-[var(--border-subtle)] hover:bg-[var(--bg-surface)]"
+                  }`}
+                >
+                  <input type="checkbox" checked={checked} readOnly tabIndex={-1} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium">{c.name}</div>
+                    {c.warehouseCode && (
+                      <div className="text-[10px] uppercase font-mono text-[var(--text-muted)]">
+                        {c.warehouseCode}
+                      </div>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex justify-end pt-3 border-t border-[var(--border-subtle)] mt-3">
+            <Button onClick={() => setOpen(false)}>
+              Gotowe ({salesIds.length})
+            </Button>
+          </div>
+        </Dialog>
+      )}
+    </div>
   );
 }
 

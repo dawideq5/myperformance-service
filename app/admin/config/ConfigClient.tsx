@@ -181,32 +181,6 @@ function OverviewTab({ stats }: { stats: ConfigOverviewStats }) {
       </div>
 
       <Card padding="lg">
-        <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
-          <Plus className="w-4 h-4" /> Szybkie akcje
-        </h3>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-          <QuickAction
-            href="/admin/locations"
-            icon={<MapPin className="w-4 h-4 text-sky-400" />}
-            title="Dodaj punkt"
-            subtitle="Nowy sklep / serwis z mapą i godzinami"
-          />
-          <QuickAction
-            href="/admin/certificates#issue"
-            icon={<FileSignature className="w-4 h-4 text-emerald-400" />}
-            title="Wystaw certyfikat"
-            subtitle="Nowy klient z mTLS dostępu"
-          />
-          <QuickAction
-            href="/admin/certificates"
-            icon={<LinkIcon className="w-4 h-4 text-violet-400" />}
-            title="Powiąż istniejący cert"
-            subtitle={'Klik „Punkty" przy aktywnym cercie'}
-          />
-        </div>
-      </Card>
-
-      <Card padding="lg">
         <h3 className="text-sm font-semibold mb-2 flex items-center gap-2">
           <Activity className="w-4 h-4" /> Stan synchronizacji
         </h3>

@@ -40,13 +40,25 @@ const scriptSrc = isDev
   ? "'self' 'unsafe-inline' 'unsafe-eval'"
   : "'self' 'unsafe-inline'"; // TODO: migrate to per-request nonces
 
+// OSM tiles (mapa) + unpkg (Leaflet marker icons) + Directus (uploaded photos).
+// Bez tych mapy się NIE WCZYTUJĄ — browser blokuje tile fetch przez CSP.
+const osmTilesSrc =
+  "https://*.tile.openstreetmap.org https://tile.openstreetmap.org";
+const leafletAssetsSrc = "https://unpkg.com";
+const directusOrigin = originOf(
+  process.env.NEXT_PUBLIC_DIRECTUS_URL,
+  process.env.DIRECTUS_URL,
+);
+const nominatimSrc = "https://nominatim.openstreetmap.org";
+const photosSrc = directusOrigin ? ` ${directusOrigin}` : "";
+
 const cspDirectives = [
   "default-src 'self'",
   `script-src ${scriptSrc}`,
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
+  `img-src 'self' data: blob: ${osmTilesSrc} ${leafletAssetsSrc}${photosSrc}`,
   "font-src 'self' data:",
-  `connect-src 'self'${externalSrc}`,
+  `connect-src 'self'${externalSrc} ${osmTilesSrc} ${nominatimSrc}${photosSrc}`,
   `frame-src 'self'${externalSrc}`,
   `form-action 'self'${keycloakOrigin ? ` ${keycloakOrigin}` : ""}`,
   "frame-ancestors 'none'",
