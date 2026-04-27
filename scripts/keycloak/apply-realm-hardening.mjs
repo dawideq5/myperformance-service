@@ -129,7 +129,15 @@ async function main() {
     // passwordPolicy NIE jest tutaj — admin zarządza w Keycloak Admin Console
     // (Realm Settings → Authentication → Password Policy). Skrypt nie dotyka
     // tego pola, żeby nie nadpisywać manualnych zmian admina.
-    revokeRefreshToken: true,
+    //
+    // revokeRefreshToken=true (token rotation) generował race conditions
+    // w przypadku parallel requestów dashboardu (notifications poll +
+    // user fetch + sightings) — pierwszy zżerał refresh token, kolejne
+    // dostawały invalid_grant → middleware logout cascade → user wyrzucany
+    // do /api/auth/logout. KC default (false, 1 token przez całą sesję)
+    // jest pragmatyczny w tym setup. Refresh expiry chroni Z OFFLINE max
+    // lifespan (30d) + bruteForceProtection.
+    revokeRefreshToken: false,
     refreshTokenMaxReuse: 0,
     // Token + session hardening:
     //   - access 5min: krótkie okno gdy skradziony token jest użyteczny

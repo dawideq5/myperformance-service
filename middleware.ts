@@ -326,8 +326,11 @@ export default withAuth(
             requestId,
           );
         }
+        // NIE wywołuj /api/auth/logout — to KC RP-Initiated Logout który
+        // potrzebuje id_token_hint i pokazuje "Do you want to log out?"
+        // prompt gdy go brak. /login route obsługuje silent re-login.
         return withRequestIdHeaders(
-          NextResponse.redirect(new URL("/api/auth/logout", req.url)),
+          NextResponse.redirect(new URL("/login?error=SessionExpired", req.url)),
           requestId,
         );
       }
@@ -392,8 +395,12 @@ export default withAuth(
             requestId,
           );
         }
+        // /login route z NextAuth signIn redirectuje na KC, KC widzi już
+        // istniejącą session (jeśli nadal valid mimo że nasz access token
+        // expired) i redirectuje z powrotem bez user prompt — silent SSO
+        // re-issue. Brak "Do you want to log out?" promptu.
         return withRequestIdHeaders(
-          NextResponse.redirect(new URL("/api/auth/logout", req.url)),
+          NextResponse.redirect(new URL("/login?error=SessionExpired", req.url)),
           requestId,
         );
       }

@@ -316,57 +316,20 @@ function buildAuthOptions(): AuthOptions {
         });
       },
     },
-    // Secure cookies: w produkcji ZAWSZE true — niezależnie od konfiguracji
-    // NEXTAUTH_URL (która może być błędnie ustawiona). Dev: tylko gdy https.
+    // Secure cookies: w produkcji ZAWSZE true. NextAuth z useSecureCookies=true
+    // automatycznie:
+    //   - dodaje __Secure- prefix do session-token, callback-url, pkce/state
+    //   - dodaje __Host- do csrf-token
+    //   - ustawia secure=true + sameSite=lax na wszystkich
+    // Częściowy override `cookies:` był BUGGY — definiowaliśmy 3 cookies
+    // (session/callback/csrf) ale NIE pkce/state/nonce. NextAuth nie merguje
+    // z defaults — gdy podajesz `cookies`, używa tylko Twojej konfiguracji
+    // dla wymienionych pól, a brakujące zostają undefined → OAuth flow
+    // cookies (pkce, state) idą bez prefix nawet gdy useSecureCookies=true,
+    // co prowadzi do mismatch po callback i logout cascade.
     useSecureCookies:
       process.env.NODE_ENV === "production" ||
       (process.env.NEXTAUTH_URL?.startsWith("https://") ?? false),
-    cookies: {
-      // sameSite MUSI być "lax", nie "strict":
-      //   - OAuth callback z auth.myperformance.pl wraca na myperformance.pl
-      //     przez 302 redirect. Z sameSite=strict browser NIE wysyła session
-      //     cookie przy cross-site top-level navigation, więc po loginie
-      //     dashboard widzi unauthenticated user → redirect do login → loop.
-      //   - sameSite=lax pozwala cookie przy top-level GET navigation
-      //     (link/redirect), nadal blokuje cross-site POST/iframe (CSRF).
-      //   - CSRF chroni middleware.ts przez Origin/Referer check na /api/account
-      //     i /api/admin (defense-in-depth).
-      sessionToken: {
-        name:
-          process.env.NODE_ENV === "production"
-            ? "__Secure-next-auth.session-token"
-            : "next-auth.session-token",
-        options: {
-          httpOnly: true,
-          sameSite: "lax",
-          path: "/",
-          secure: process.env.NODE_ENV === "production",
-        },
-      },
-      callbackUrl: {
-        name:
-          process.env.NODE_ENV === "production"
-            ? "__Secure-next-auth.callback-url"
-            : "next-auth.callback-url",
-        options: {
-          sameSite: "lax",
-          path: "/",
-          secure: process.env.NODE_ENV === "production",
-        },
-      },
-      csrfToken: {
-        name:
-          process.env.NODE_ENV === "production"
-            ? "__Host-next-auth.csrf-token"
-            : "next-auth.csrf-token",
-        options: {
-          httpOnly: true,
-          sameSite: "lax",
-          path: "/",
-          secure: process.env.NODE_ENV === "production",
-        },
-      },
-    },
     debug: process.env.NODE_ENV === "development",
   };
 }
