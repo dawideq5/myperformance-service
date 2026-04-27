@@ -117,3 +117,21 @@ export async function PATCH(request: Request) {
     return handleApiError(error);
   }
 }
+
+/**
+ * DELETE /api/account/inbox — czyści wszystkie powiadomienia usera.
+ * Soft-delete by hard delete dla user-facing inbox (audit log eventów
+ * security siedzi w mp_security_events; mp_inbox to tylko UI cache).
+ */
+export async function DELETE() {
+  try {
+    const session = await getServerSession(authOptions);
+    requireSession(session);
+    await withClient((c) =>
+      c.query(`DELETE FROM mp_inbox WHERE user_id = $1`, [userId(session)]),
+    );
+    return createSuccessResponse({ ok: true });
+  } catch (error) {
+    return handleApiError(error);
+  }
+}

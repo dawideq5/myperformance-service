@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Bell, Check } from "lucide-react";
+import { Bell, Check, Trash2 } from "lucide-react";
 import Link from "next/link";
 
-import { Badge } from "@/components/ui";
+import { Badge, useToast } from "@/components/ui";
 import { RelativeTime } from "@/components/ui";
 
 interface InboxItem {
@@ -39,8 +39,16 @@ export function NotificationBell() {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
   const [mounted, setMounted] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const toast = useToast();
+
+  // Trzymamy ID-ki notyfikacji widzianych w poprzednim cyklu — diff vs nowy
+  // fetch daje nam nowo-przybyłe powiadomienia, dla których pokazujemy toast.
+  // null = pierwsza inicjalizacja (nie spamujemy toastami przy pierwszym
+  // load, gdy user otwiera dashboard z N starymi powiadomieniami).
+  const seenIdsRef = useRef<Set<string> | null>(null);
 
   useEffect(() => setMounted(true), []);
 
@@ -51,12 +59,33 @@ export function NotificationBell() {
       });
       if (!res.ok) return;
       const json = await res.json();
-      setItems(json.data?.items ?? []);
+      const fetchedItems: InboxItem[] = json.data?.items ?? [];
+
+      // Toast dla nowych notyfikacji (nieobecnych w poprzednim cyklu).
+      if (seenIdsRef.current !== null) {
+        const newOnes = fetchedItems.filter(
+          (it) => !seenIdsRef.current!.has(it.id) && !it.read_at,
+        );
+        for (const it of newOnes) {
+          const tone =
+            it.severity === "error"
+              ? "error"
+              : it.severity === "warning"
+                ? "warning"
+                : it.severity === "success"
+                  ? "success"
+                  : "info";
+          toast[tone](it.title, it.body);
+        }
+      }
+      seenIdsRef.current = new Set(fetchedItems.map((it) => it.id));
+
+      setItems(fetchedItems);
       setUnread(json.data?.unread ?? 0);
     } catch {
       // ignore
     }
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
     void load();
@@ -124,6 +153,30 @@ export function NotificationBell() {
     }
   }
 
+  async function clearAll() {
+    if (clearing || items.length === 0) return;
+    setClearing(true);
+    // Animacja fade-out: stan `clearing` triggeruje opacity:0 + translateX
+    // przez ~300ms (tailwind transition). Po animacji DELETE w API + clear
+    // local state. seenIdsRef też clear żeby toast nie wystrzelił dla
+    // tych samych po następnym fetch.
+    setTimeout(async () => {
+      try {
+        await fetch("/api/account/inbox", {
+          method: "DELETE",
+          credentials: "include",
+        });
+        setItems([]);
+        setUnread(0);
+        seenIdsRef.current = new Set();
+      } catch {
+        // ignore
+      } finally {
+        setClearing(false);
+      }
+    }, 320);
+  }
+
   return (
     <>
       <button
@@ -159,16 +212,31 @@ export function NotificationBell() {
           >
             <div className="flex items-center justify-between p-3 border-b border-[var(--border-subtle)] sticky top-0 bg-[var(--bg-card)]">
               <h3 className="text-sm font-semibold">Powiadomienia</h3>
-              {unread > 0 && (
-                <button
-                  type="button"
-                  onClick={markAllRead}
-                  className="text-xs text-[var(--accent)] hover:underline flex items-center gap-1"
-                >
-                  <Check className="w-3 h-3" />
-                  Zaznacz wszystko
-                </button>
-              )}
+              <div className="flex items-center gap-3">
+                {unread > 0 && (
+                  <button
+                    type="button"
+                    onClick={markAllRead}
+                    disabled={clearing}
+                    className="text-xs text-[var(--accent)] hover:underline flex items-center gap-1 disabled:opacity-40"
+                  >
+                    <Check className="w-3 h-3" />
+                    Zaznacz wszystko
+                  </button>
+                )}
+                {items.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={clearAll}
+                    disabled={clearing}
+                    className="text-xs text-red-400 hover:underline flex items-center gap-1 disabled:opacity-40"
+                    title="Wyczyść wszystkie powiadomienia"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    Wyczyść wszystkie
+                  </button>
+                )}
+              </div>
             </div>
 
             {items.length === 0 ? (
@@ -177,10 +245,18 @@ export function NotificationBell() {
               </div>
             ) : (
               <ul className="divide-y divide-[var(--border-subtle)]">
-                {items.map((item) => (
+                {items.map((item, idx) => (
                   <li
                     key={item.id}
-                    className={`p-3 flex gap-3 ${item.read_at ? "opacity-70" : ""}`}
+                    style={{
+                      // Stagger fade-out — kolejne wpisy znikają z opóźnieniem
+                      // 30ms żeby animacja była "kaskadowa" zamiast pukającego
+                      // wszystko-na-raz.
+                      transitionDelay: clearing ? `${idx * 30}ms` : "0ms",
+                    }}
+                    className={`p-3 flex gap-3 transition-all duration-300 ease-out ${
+                      item.read_at ? "opacity-70" : ""
+                    } ${clearing ? "opacity-0 translate-x-8 pointer-events-none" : ""}`}
                   >
                     <span
                       className={`mt-1.5 w-2 h-2 rounded-full flex-shrink-0 ${
