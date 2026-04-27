@@ -15,6 +15,29 @@ function isExternal(url: string): boolean {
   return /^https?:\/\//i.test(url);
 }
 
+// Allowlist URL schemes. CMS editor mógłby teoretycznie wstawić
+// javascript:/data:/vbscript: w mp_links.url — odrzucamy.
+function safeFooterUrl(url: string): string | null {
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+  if (
+    /^https?:\/\//i.test(trimmed) ||
+    /^mailto:/i.test(trimmed) ||
+    /^tel:/i.test(trimmed) ||
+    trimmed.startsWith("/") ||
+    trimmed.startsWith("#")
+  ) {
+    try {
+      const decoded = decodeURIComponent(trimmed);
+      if (/^(javascript|data|vbscript|file):/i.test(decoded.trim())) return null;
+    } catch {
+      /* noop */
+    }
+    return trimmed;
+  }
+  return null;
+}
+
 /**
  * Footer dashboardu — linki z mp_links (kategoria=footer). Public api: każdy
  * zalogowany user widzi linki bez area-restriction; linki z `requires_area`
@@ -49,11 +72,13 @@ export function AppFooter() {
         aria-label="Stopka"
       >
         {links.map((l) => {
-          const external = isExternal(l.url);
+          const safeUrl = safeFooterUrl(l.url);
+          if (!safeUrl) return null;
+          const external = isExternal(safeUrl);
           return (
             <a
               key={l.id}
-              href={l.url}
+              href={safeUrl}
               target={external ? "_blank" : undefined}
               rel={external ? "noopener noreferrer" : undefined}
               className="inline-flex items-center gap-1.5 hover:text-[var(--text-main)] transition-colors"

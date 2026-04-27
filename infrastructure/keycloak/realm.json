@@ -26,8 +26,10 @@
   "maxDeltaTimeSeconds": 43200,
 
   "defaultSignatureAlgorithm": "RS256",
-  "revokeRefreshToken": false,
+  "revokeRefreshToken": true,
   "refreshTokenMaxReuse": 0,
+
+  "passwordPolicy": "length(16) and upperCase(1) and lowerCase(1) and digits(1) and specialChars(1) and notUsername(undefined) and notEmail(undefined) and passwordHistory(5) and forceExpiredPasswordChange(0)",
 
   "accessTokenLifespan": 300,
   "accessTokenLifespanForImplicitFlow": 900,
@@ -36,8 +38,8 @@
   "ssoSessionIdleTimeoutRememberMe": 0,
   "ssoSessionMaxLifespanRememberMe": 0,
   "offlineSessionIdleTimeout": 2592000,
-  "offlineSessionMaxLifespanEnabled": false,
-  "offlineSessionMaxLifespan": 5184000,
+  "offlineSessionMaxLifespanEnabled": true,
+  "offlineSessionMaxLifespan": 2592000,
   "clientSessionIdleTimeout": 0,
   "clientSessionMaxLifespan": 0,
   "clientOfflineSessionIdleTimeout": 0,
@@ -65,24 +67,24 @@
 
   "webAuthnPolicyRpEntityName": "MyPerformance",
   "webAuthnPolicySignatureAlgorithms": ["ES256", "RS256"],
-  "webAuthnPolicyRpId": "",
-  "webAuthnPolicyAttestationConveyancePreference": "not specified",
+  "webAuthnPolicyRpId": "myperformance.pl",
+  "webAuthnPolicyAttestationConveyancePreference": "none",
   "webAuthnPolicyAuthenticatorAttachment": "not specified",
   "webAuthnPolicyRequireResidentKey": "not specified",
-  "webAuthnPolicyUserVerificationRequirement": "not specified",
-  "webAuthnPolicyCreateTimeout": 0,
-  "webAuthnPolicyAvoidSameAuthenticatorRegister": false,
+  "webAuthnPolicyUserVerificationRequirement": "required",
+  "webAuthnPolicyCreateTimeout": 60,
+  "webAuthnPolicyAvoidSameAuthenticatorRegister": true,
   "webAuthnPolicyAcceptableAaguids": [],
   "webAuthnPolicyExtraOrigins": [],
   "webAuthnPolicyPasswordlessRpEntityName": "MyPerformance",
   "webAuthnPolicyPasswordlessSignatureAlgorithms": ["ES256", "RS256"],
-  "webAuthnPolicyPasswordlessRpId": "",
-  "webAuthnPolicyPasswordlessAttestationConveyancePreference": "not specified",
-  "webAuthnPolicyPasswordlessAuthenticatorAttachment": "not specified",
-  "webAuthnPolicyPasswordlessRequireResidentKey": "not specified",
-  "webAuthnPolicyPasswordlessUserVerificationRequirement": "not specified",
-  "webAuthnPolicyPasswordlessCreateTimeout": 0,
-  "webAuthnPolicyPasswordlessAvoidSameAuthenticatorRegister": false,
+  "webAuthnPolicyPasswordlessRpId": "myperformance.pl",
+  "webAuthnPolicyPasswordlessAttestationConveyancePreference": "none",
+  "webAuthnPolicyPasswordlessAuthenticatorAttachment": "platform",
+  "webAuthnPolicyPasswordlessRequireResidentKey": "Yes",
+  "webAuthnPolicyPasswordlessUserVerificationRequirement": "required",
+  "webAuthnPolicyPasswordlessCreateTimeout": 60,
+  "webAuthnPolicyPasswordlessAvoidSameAuthenticatorRegister": true,
   "webAuthnPolicyPasswordlessAcceptableAaguids": [],
   "webAuthnPolicyPasswordlessExtraOrigins": [],
 
@@ -1018,13 +1020,7 @@
       "firstName": "Admin",
       "lastName": "User",
       "email": "admin@myperformance.pl",
-      "credentials": [
-        {
-          "type": "password",
-          "temporary": true,
-          "value": "admin"
-        }
-      ],
+      "requiredActions": ["UPDATE_PASSWORD", "CONFIGURE_TOTP"],
       "realmRoles": [
         "default-roles-myperformance",
         "keycloak_admin",
@@ -1057,10 +1053,10 @@
     "xContentTypeOptions": "nosniff",
     "referrerPolicy": "no-referrer",
     "xRobotsTag": "none",
-    "xFrameOptions": "SAMEORIGIN",
-    "contentSecurityPolicy": "frame-src 'self'; frame-ancestors 'self'; object-src 'none';",
+    "xFrameOptions": "DENY",
+    "contentSecurityPolicy": "frame-src 'self'; frame-ancestors 'none'; object-src 'none';",
     "xXSSProtection": "1; mode=block",
-    "strictTransportSecurity": "max-age=31536000; includeSubDomains"
+    "strictTransportSecurity": "max-age=63072000; includeSubDomains; preload"
   },
 
   "smtpServer": {},
@@ -1079,7 +1075,7 @@
   "firstBrokerLoginFlow": "first broker login",
 
   "eventsEnabled": true,
-  "eventsExpiration": 604800,
+  "eventsExpiration": 7776000,
   "eventsListeners": ["jboss-logging"],
   "enabledEventTypes": [
     "LOGIN",
@@ -1105,8 +1101,8 @@
     "REMOVE_TOTP",
     "UPDATE_TOTP"
   ],
-  "adminEventsEnabled": false,
-  "adminEventsDetailsEnabled": false,
+  "adminEventsEnabled": true,
+  "adminEventsDetailsEnabled": true,
 
   "attributes": {
     "cibaBackchannelTokenDeliveryMode": "poll",

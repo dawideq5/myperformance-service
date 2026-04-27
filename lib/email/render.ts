@@ -43,6 +43,35 @@ export function renderVars(
  *   - paragrafy (puste linie)
  *   - line breaks
  */
+// Allowlist URL schemes — admin nie może wstrzyknąć javascript:/data:/vbscript:
+// w treść maila albo banneru przez markdown link/button. Zwracamy "#" jako
+// placeholder żeby renderowanie nie złamało się ale link był nieaktywny.
+function safeUrl(raw: string): string {
+  const trimmed = raw.trim();
+  if (
+    /^https?:\/\//i.test(trimmed) ||
+    /^mailto:/i.test(trimmed) ||
+    /^tel:/i.test(trimmed) ||
+    trimmed.startsWith("/") ||
+    trimmed.startsWith("#")
+  ) {
+    // Dodatkowa obrona: po normalizacji odrzucamy URLs które po decode
+    // ujawniłyby javascript: (rzadkie ale możliwe via percent-encoding).
+    try {
+      const decoded = decodeURIComponent(trimmed);
+      if (/^(javascript|data|vbscript|file):/i.test(decoded.trim())) return "#";
+    } catch {
+      // malformed encoding — zwracamy oryginał gdy zaczyna się legit prefixem
+    }
+    return trimmed
+      .replace(/"/g, "%22")
+      .replace(/'/g, "%27")
+      .replace(/</g, "%3C")
+      .replace(/>/g, "%3E");
+  }
+  return "#";
+}
+
 export function markdownToHtml(input: string): string {
   const escapeHtml = (s: string) =>
     s
@@ -82,12 +111,14 @@ export function markdownToHtml(input: string): string {
     // Linki [text](url)
     out = out.replace(
       /\[([^\]]+)\]\(([^)]+)\)/g,
-      '<a href="$2" style="color:#0c0c0e;text-decoration:underline;">$1</a>',
+      (_m, label: string, url: string) =>
+        `<a href="${safeUrl(url)}" style="color:#0c0c0e;text-decoration:underline;">${label}</a>`,
     );
-    // Bare URLs https://...
+    // Bare URLs https://... (już prefixed https/http więc safeUrl je zachowa)
     out = out.replace(
       /(^|\s)(https?:\/\/[^\s<]+)/g,
-      '$1<a href="$2" style="color:#0c0c0e;text-decoration:underline;">$2</a>',
+      (_m, pre: string, url: string) =>
+        `${pre}<a href="${safeUrl(url)}" style="color:#0c0c0e;text-decoration:underline;">${url}</a>`,
     );
     return out;
   }
@@ -105,7 +136,7 @@ export function markdownToHtml(input: string): string {
       flushList();
       flushParagraph();
       const label = escapeHtml(buttonMatch[1].trim());
-      const url = buttonMatch[2].trim();
+      const url = safeUrl(buttonMatch[2]);
       htmlBlocks.push(
         `<div class="button-container" style="text-align:center;margin:32px 0 8px 0;">` +
         `<a href="${url}" class="button" style="display:inline-block;padding:14px 28px;background-color:#0c0c0e;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:bold;font-size:16px;">` +

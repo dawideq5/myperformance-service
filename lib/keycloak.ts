@@ -128,7 +128,21 @@ export class KeycloakService {
   }
 
   // Admin APIs
+  // Cache service-account tokenu — bez tego każde call do Admin API
+  // robiło refetch. KC token-endpoint pod heavy traffic potrafi rzucić 503,
+  // a poza tym audit log spamuje. TTL liczone z `expires_in` minus 30s buffer.
+  private serviceTokenCache: { token: string; expiresAt: number } | null = null;
+
+  public invalidateServiceTokenCache(): void {
+    this.serviceTokenCache = null;
+  }
+
   public async getServiceAccountToken(): Promise<string> {
+    const cached = this.serviceTokenCache;
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.token;
+    }
+
     const clientId =
       process.env.KEYCLOAK_SERVICE_CLIENT_ID ||
       process.env.KEYCLOAK_CLIENT_ID!;
@@ -160,7 +174,15 @@ export class KeycloakService {
       throw new Error(`Failed to get service account token: ${err}`);
     }
 
-    const data = await response.json();
+    const data = (await response.json()) as {
+      access_token: string;
+      expires_in?: number;
+    };
+    const ttlMs = Math.max(((data.expires_in ?? 300) - 30) * 1000, 30_000);
+    this.serviceTokenCache = {
+      token: data.access_token,
+      expiresAt: Date.now() + ttlMs,
+    };
     return data.access_token;
   }
 
@@ -195,6 +217,13 @@ export class KeycloakService {
         ...options.headers,
       },
     });
+
+    // Cache invalidation: jeśli token został odrzucony jako wygasły/odebrany,
+    // wywal cache żeby kolejny call wziął świeży token. Bez tego wisielibyśmy
+    // w pętli 401 przez cały TTL window.
+    if (response.status === 401) {
+      this.invalidateServiceTokenCache();
+    }
 
     return response;
   }

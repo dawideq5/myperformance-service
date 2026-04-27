@@ -11,6 +11,10 @@ import {
 } from "@/lib/api-utils";
 import { withAdminContext } from "@/lib/keycloak-admin";
 import { parseAttestationObject } from "@/lib/webauthn-attestation";
+import {
+  consumeChallenge,
+  storeChallenge,
+} from "@/lib/security/webauthn-challenges";
 
 const MAX_WEBAUTHN_KEYS = 2;
 
@@ -119,6 +123,15 @@ export async function POST(request: Request) {
           ? rawAttachment
           : undefined;
 
+      // Persist challenge → walidujemy go przy `register` żeby nie dało się
+      // wysłać podstawionego clientDataJSON.challenge (replay protection).
+      await storeChallenge({
+        challenge,
+        userId,
+        purpose: `register-${attachment ?? "any"}`,
+        ttlSeconds: 60,
+      });
+
       const authenticatorSelection: Record<string, unknown> = {
         // Dla passkeys (Touch ID, Windows Hello) residentKey musi być
         // `required`, inaczej macOS zapamiętuje klucz jako zewnętrzny
@@ -168,6 +181,7 @@ export async function POST(request: Request) {
         credential?: {
           id: string;
           attestationObject: string;
+          clientDataJSON?: string;
           publicKey?: string;
           transports?: string[];
         };
@@ -180,6 +194,64 @@ export async function POST(request: Request) {
       }
 
       await withAdminContext(accessToken, async (adminToken, userId) => {
+        // Replay protection: walidujemy challenge wystawiony w get-options.
+        // ClientDataJSON zawiera challenge wybrany przez przeglądarkę przy
+        // navigator.credentials.create — musi się zgadzać z tym który
+        // wystawiliśmy 60s wcześniej i jeszcze nie skonsumowali.
+        if (credential.clientDataJSON) {
+          let challengeFromClient: string | null = null;
+          let originFromClient: string | null = null;
+          let typeFromClient: string | null = null;
+          try {
+            const decoded = Buffer.from(
+              credential.clientDataJSON,
+              "base64",
+            ).toString("utf8");
+            const parsed = JSON.parse(decoded) as {
+              challenge?: string;
+              origin?: string;
+              type?: string;
+            };
+            challengeFromClient = parsed.challenge ?? null;
+            originFromClient = parsed.origin ?? null;
+            typeFromClient = parsed.type ?? null;
+          } catch {
+            throw ApiError.badRequest("Nieprawidłowy clientDataJSON");
+          }
+          if (typeFromClient !== "webauthn.create") {
+            throw ApiError.badRequest(
+              `Niepoprawny typ clientData: ${typeFromClient}`,
+            );
+          }
+          // Origin musi się zgadzać z naszym dashboardem (RP origin)
+          const expectedOrigin = process.env.NEXT_PUBLIC_APP_URL?.replace(
+            /\/$/,
+            "",
+          );
+          if (
+            expectedOrigin &&
+            originFromClient &&
+            originFromClient.replace(/\/$/, "") !== expectedOrigin
+          ) {
+            throw ApiError.badRequest(
+              `Nieprawidłowy origin: ${originFromClient}`,
+            );
+          }
+          if (!challengeFromClient) {
+            throw ApiError.badRequest("Brak challenge w clientData");
+          }
+          const ok = await consumeChallenge({
+            challenge: challengeFromClient,
+            userId,
+            purpose: `register-${attachment ?? "any"}`,
+          });
+          if (!ok) {
+            throw ApiError.unauthorized(
+              "Challenge wygasł lub został już wykorzystany — odśwież i spróbuj ponownie",
+            );
+          }
+        }
+
         const userRes = await keycloak.adminRequest(
           `/users/${userId}`,
           adminToken,

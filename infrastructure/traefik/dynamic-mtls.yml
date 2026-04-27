@@ -15,6 +15,56 @@ http:
           sans: true
           notAfter: true
 
+    # Rate-limit dla Keycloak token endpoint (login + refresh + admin auth).
+    # KC ma BFP po 10 failed login attempts, ale Traefik rate-limit chwyta
+    # *zanim* request dotrze do KC = lepsza ochrona przed brute force.
+    # Per-IP, average=10 req/s, burst=30. Legit user nawet z mobile network
+    # nie zrobi >10 token requestów na sekundę.
+    kc-token-ratelimit:
+      rateLimit:
+        average: 10
+        burst: 30
+        period: 1s
+        sourceCriterion:
+          ipStrategy:
+            depth: 1
+
+    # Bardziej agresywny limit na same login form submission — admin/user
+    # POST /realms/.../login-actions/authenticate. Brute force credential
+    # stuffing.
+    kc-login-ratelimit:
+      rateLimit:
+        average: 5
+        burst: 10
+        period: 1m
+        sourceCriterion:
+          ipStrategy:
+            depth: 1
+
+    # Dla webhook endpoints — Wazuh AR + KC SPI. Webhooks powinny mieć
+    # bardzo niski volume; >100 req/min = atak/loop.
+    webhook-ratelimit:
+      rateLimit:
+        average: 100
+        burst: 200
+        period: 1m
+        sourceCriterion:
+          ipStrategy:
+            depth: 1
+
+    # Globalne security headers (defense-in-depth — dashboard już ma swoje
+    # przez Next.js, ale Traefik łapie też inne usługi typu Postal/Wazuh).
+    secure-headers:
+      headers:
+        stsSeconds: 63072000
+        stsIncludeSubdomains: true
+        stsPreload: true
+        contentTypeNosniff: true
+        frameDeny: true
+        browserXssFilter: true
+        referrerPolicy: "strict-origin-when-cross-origin"
+        permissionsPolicy: "camera=(), microphone=(), geolocation=()"
+
 tls:
   options:
     mtls-sprzedawca:

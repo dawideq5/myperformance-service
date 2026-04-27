@@ -19,7 +19,38 @@ type RefreshFailure =
   | { kind: "transient" }
   | { kind: "invalid_grant"; reason: string };
 
+// Single-flight: równoległe requesty z tym samym refresh tokenem zostaną
+// scoalesce'd do jednego fetch'a do KC. Bez tego z `revokeRefreshToken=true`
+// pierwszy request rotuje refresh token, drugi dostaje 400 invalid_grant
+// i wywala usera z sesji.
+const inflightRefresh = new Map<
+  string,
+  Promise<RefreshResult | RefreshFailure>
+>();
+
 async function refreshKeycloakToken(
+  refreshToken: string,
+  issuer: string,
+  clientId: string,
+  clientSecret: string,
+): Promise<RefreshResult | RefreshFailure> {
+  const cached = inflightRefresh.get(refreshToken);
+  if (cached) return cached;
+  const promise = doRefreshKeycloakToken(
+    refreshToken,
+    issuer,
+    clientId,
+    clientSecret,
+  ).finally(() => {
+    // Trzymamy mapping przez chwilę po rozwiązaniu, żeby pozostałe equal
+    // requesty załapały się na ten sam result. setTimeout 1s wystarczy.
+    setTimeout(() => inflightRefresh.delete(refreshToken), 1000).unref?.();
+  });
+  inflightRefresh.set(refreshToken, promise);
+  return promise;
+}
+
+async function doRefreshKeycloakToken(
   refreshToken: string,
   issuer: string,
   clientId: string,
@@ -285,7 +316,50 @@ function buildAuthOptions(): AuthOptions {
         });
       },
     },
-    useSecureCookies: process.env.NEXTAUTH_URL?.startsWith("https://") ?? false,
+    // Secure cookies: w produkcji ZAWSZE true — niezależnie od konfiguracji
+    // NEXTAUTH_URL (która może być błędnie ustawiona). Dev: tylko gdy https.
+    useSecureCookies:
+      process.env.NODE_ENV === "production" ||
+      (process.env.NEXTAUTH_URL?.startsWith("https://") ?? false),
+    cookies: {
+      // sameSite=strict eliminuje CSRF surface i top-level POST z innego
+      // origin. Klient i tak nigdy nie woła session cookie z innego origina.
+      sessionToken: {
+        name:
+          process.env.NODE_ENV === "production"
+            ? "__Secure-next-auth.session-token"
+            : "next-auth.session-token",
+        options: {
+          httpOnly: true,
+          sameSite: "strict",
+          path: "/",
+          secure: process.env.NODE_ENV === "production",
+        },
+      },
+      callbackUrl: {
+        name:
+          process.env.NODE_ENV === "production"
+            ? "__Secure-next-auth.callback-url"
+            : "next-auth.callback-url",
+        options: {
+          sameSite: "strict",
+          path: "/",
+          secure: process.env.NODE_ENV === "production",
+        },
+      },
+      csrfToken: {
+        name:
+          process.env.NODE_ENV === "production"
+            ? "__Host-next-auth.csrf-token"
+            : "next-auth.csrf-token",
+        options: {
+          httpOnly: true,
+          sameSite: "strict",
+          path: "/",
+          secure: process.env.NODE_ENV === "production",
+        },
+      },
+    },
     debug: process.env.NODE_ENV === "development",
   };
 }

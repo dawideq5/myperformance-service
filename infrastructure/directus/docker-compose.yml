@@ -91,10 +91,12 @@ services:
       - 'AUTH_KEYCLOAK_EMAIL_KEY=email'
       - 'AUTH_KEYCLOAK_FIRST_NAME_KEY=given_name'
       - 'AUTH_KEYCLOAK_LAST_NAME_KEY=family_name'
-      - 'AUTH_KEYCLOAK_ALLOW_PUBLIC_REGISTRATION=true'
-      # Domyślna rola dla nowo-provisioned userów. Ustawiona na Administrator
-      # UUID po pierwszym zalogowaniu (zobacz README). Rola w KC
-      # `directus_admin` → Directus Administrator przez mapper realm-role.
+      # Public registration OFF — tylko userzy z explicit role mapper'em
+      # w Keycloak (realm role `directus_admin` / `directus_editor` itd.)
+      # mogą zalogować się do Directusa. Bez tego każdy KC-verified user
+      # (a w MyPerformance wszyscy są verified) dostawał auto-created rolę
+      # Administrator → masowy privilege escalation.
+      - 'AUTH_KEYCLOAK_ALLOW_PUBLIC_REGISTRATION=false'
       - 'AUTH_KEYCLOAK_DEFAULT_ROLE_ID=${DIRECTUS_DEFAULT_ROLE_ID:-}'
       - AUTH_KEYCLOAK_SCOPE=openid profile email
       - AUTH_KEYCLOAK_MODE=session

@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { getServerSession } from "next-auth/next";
+import { NextResponse } from "next/server";
 import { authOptions } from "@/app/auth";
 import { requestCode } from "@/lib/security/two-factor";
 import {
@@ -8,6 +9,7 @@ import {
   createSuccessResponse,
   handleApiError,
 } from "@/lib/api-utils";
+import { getClientIp, rateLimit } from "@/lib/rate-limit";
 
 interface PostPayload {
   purpose?: string;
@@ -19,20 +21,40 @@ export async function POST(req: Request) {
     if (!session?.user?.id || !session.user.email) {
       throw ApiError.unauthorized();
     }
+    const ip = getClientIp(req);
+    // Wysyłka kodu OTP idzie mailem — flooding wystarczy żeby zaspamować
+    // skrzynkę usera. 5 prób na 5 min per (user, IP) jest wystarczające do
+    // legit re-send a blokuje masowy abuse.
+    const limit = rateLimit(`2fa:request:${session.user.id}:${ip}`, {
+      capacity: 5,
+      refillPerSec: 5 / 300,
+    });
+    if (!limit.allowed) {
+      return NextResponse.json(
+        {
+          error: {
+            code: "RATE_LIMITED",
+            message: "Zbyt wiele żądań kodu — odczekaj chwilę.",
+          },
+        },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(Math.ceil(limit.retryAfterMs / 1000)),
+          },
+        },
+      );
+    }
     const body = (await req.json().catch(() => ({}))) as PostPayload;
     const purpose = body.purpose ?? "sensitive_action";
     if (!["login", "sensitive_action", "password_change", "email_change"].includes(purpose)) {
       throw ApiError.badRequest("invalid purpose");
     }
-    const srcIp =
-      req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-      req.headers.get("x-real-ip") ??
-      undefined;
     const result = await requestCode({
       userId: session.user.id,
       email: session.user.email,
       purpose,
-      srcIp,
+      srcIp: ip === "unknown" ? undefined : ip,
     });
     return createSuccessResponse({
       codeId: result.codeId,

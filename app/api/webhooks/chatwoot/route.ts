@@ -12,8 +12,9 @@ const logger = log.child({ module: "chatwoot-webhook" });
  * Chatwoot webhook — strzela m.in. event `assignee_changed` przy
  * przypisaniu rozmowy do agenta. Mapujemy na chatwoot.conversation.assigned.
  *
- * Auth: opcjonalna HMAC sygnatura (Chatwoot wspiera webhook secrets).
- * Jeśli secret nie skonfigurowany, akceptujemy ale logujemy warning.
+ * Auth: HMAC sygnatura (Chatwoot wspiera webhook secrets). Tryb fail-closed:
+ * gdy CHATWOOT_WEBHOOK_SECRET nie ustawiony w env, zwracamy 503 — webhook
+ * NIE jest publicznym endpointem do anonimowych powiadomień.
  */
 
 interface ChatwootPayload {
@@ -26,24 +27,38 @@ interface ChatwootPayload {
   };
 }
 
-function verifySignature(rawBody: string, signature: string | null): boolean {
+type VerifyResult = "ok" | "no-secret" | "no-signature" | "bad-signature";
+
+function verifySignature(rawBody: string, signature: string | null): VerifyResult {
   const secret = process.env.CHATWOOT_WEBHOOK_SECRET?.trim();
-  if (!secret) return true; // not configured — accept (best-effort)
-  if (!signature) return false;
+  if (!secret) return "no-secret";
+  if (!signature) return "no-signature";
   const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
   const provided = signature.replace(/^sha256=/, "").trim();
-  if (provided.length !== expected.length) return false;
+  if (provided.length !== expected.length) return "bad-signature";
   try {
-    return timingSafeEqual(Buffer.from(expected, "hex"), Buffer.from(provided, "hex"));
+    const ok = timingSafeEqual(
+      Buffer.from(expected, "hex"),
+      Buffer.from(provided, "hex"),
+    );
+    return ok ? "ok" : "bad-signature";
   } catch {
-    return false;
+    return "bad-signature";
   }
 }
 
 export async function POST(req: Request) {
   const rawBody = await req.text();
   const signature = req.headers.get("x-chatwoot-signature") ?? req.headers.get("x-hub-signature-256");
-  if (!verifySignature(rawBody, signature)) {
+  const verdict = verifySignature(rawBody, signature);
+  if (verdict === "no-secret") {
+    logger.error("CHATWOOT_WEBHOOK_SECRET nie ustawiony — odrzucam webhook (fail-closed)");
+    return NextResponse.json(
+      { error: "webhook secret not configured" },
+      { status: 503 },
+    );
+  }
+  if (verdict !== "ok") {
     return NextResponse.json({ error: "Bad signature" }, { status: 401 });
   }
 

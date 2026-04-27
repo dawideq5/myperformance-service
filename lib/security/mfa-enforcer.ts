@@ -1,23 +1,39 @@
 import { keycloak } from "@/lib/keycloak";
 import { log } from "@/lib/logger";
+import { AREAS } from "@/lib/permissions/areas";
 import { SUPERADMIN_ROLES } from "@/lib/permissions/superadmin";
 
 const logger = log.child({ module: "mfa-enforcer" });
 
 /**
- * Wymusza MFA dla każdego usera z którąkolwiek superadmin role
- * (realm-admin / manage-realm / admin). Algorytm:
+ * Wymusza MFA dla wszystkich privileged accounts:
+ *   - SUPERADMIN_ROLES (realm-admin / manage-realm / admin)
+ *   - role z AREAS gdzie priority >= 90 (area-admins: infrastructure_admin,
+ *     keycloak_admin, email_admin, postal_admin, certificates_admin itd.)
  *
- * 1. Pobierz userów z każdej superadmin role.
- * 2. Dla każdego user-a sprawdź credentials KC: czy ma OTP albo WebAuthn?
+ * Algorytm:
+ * 1. Skompiluj zbiór privileged ról (SUPERADMIN ∪ area priority>=90).
+ * 2. Dla każdej roli pobierz userów (realm role lub client role na
+ *    realm-management).
+ * 3. Dla każdego user-a sprawdź credentials KC: czy ma OTP albo WebAuthn?
  *    - Tak → nic nie rób.
- *    - Nie → dodaj `CONFIGURE_TOTP` do user.requiredActions; user przy
- *      najbliższym loginie MUSI skonfigurować 2FA.
+ *    - Nie → dodaj `CONFIGURE_TOTP` do user.requiredActions.
  *
- * Idempotent — bezpieczny do uruchamiania w pętli.
- *
- * Zgodnie z Zero Trust + NIST 800-63B: privileged accounts MUSZĄ mieć MFA.
+ * Idempotent. Zgodnie z Zero Trust + NIST 800-63B: ALL privileged accounts
+ * MUSZĄ mieć MFA — nie tylko superadmin.
  */
+
+const ADMIN_PRIORITY_THRESHOLD = 90;
+
+function buildPrivilegedRoleSet(): string[] {
+  const roles = new Set<string>(SUPERADMIN_ROLES);
+  for (const area of AREAS) {
+    for (const r of area.kcRoles) {
+      if (r.priority >= ADMIN_PRIORITY_THRESHOLD) roles.add(r.name);
+    }
+  }
+  return Array.from(roles);
+}
 export async function enforceMfaForAdmins(): Promise<{
   checked: number;
   enforced: number;
@@ -56,7 +72,8 @@ export async function enforceMfaForAdmins(): Promise<{
     /* ignore */
   }
 
-  for (const role of SUPERADMIN_ROLES) {
+  const privilegedRoles = buildPrivilegedRoleSet();
+  for (const role of privilegedRoles) {
     try {
       // Najpierw spróbuj REALM role (np. `admin` w MyPerformance realm).
       let res = await keycloak.adminRequest(
