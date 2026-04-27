@@ -154,6 +154,11 @@ const ROLE_GUARDS: RoleGuard[] = [
     path: "/admin/locations",
     anyOf: [...areaRoles("certificates"), ...areaRoles("keycloak")],
   },
+  // Hub Zarządzanie konfiguracją — analogicznie
+  {
+    path: "/admin/config",
+    anyOf: [...areaRoles("certificates"), ...areaRoles("keycloak")],
+  },
   // Infrastruktura serwera
   { path: "/admin/infrastructure", anyOf: areaRoles("infrastructure") },
   { path: "/api/admin/infrastructure", anyOf: areaRoles("infrastructure") },

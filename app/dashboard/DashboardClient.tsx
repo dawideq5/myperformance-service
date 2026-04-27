@@ -16,6 +16,7 @@ import {
   Library,
   Mail,
   Server,
+  Settings as SettingsIcon,
   MessageSquare,
   Plug,
   School,
@@ -250,6 +251,20 @@ function TileGrid() {
             description="Zarządzanie certyfikatami dostępu do paneli"
             onClick={() => {
               window.location.href = "/admin/certificates";
+            }}
+          />
+        )}
+        {showCerts && (
+          <Tile
+            icon={
+              <SettingsIcon className="w-7 h-7 text-violet-500" aria-hidden="true" />
+            }
+            iconBg="bg-violet-500/10"
+            title="Zarządzanie konfiguracją"
+            tourId="config"
+            description="Punkty + certyfikaty + powiązania w jednym hubie"
+            onClick={() => {
+              window.location.href = "/admin/config";
             }}
           />
         )}

@@ -84,6 +84,17 @@ export const APP_CATALOG: AppCatalogEntry[] = [
     requiresMinPriority: 90,
     defaultTags: ["punkty", "mapa", "sklep", "serwis", "lokalizacja"],
   },
+  {
+    id: "/admin/config",
+    title: "Zarządzanie konfiguracją",
+    subtitle: "Hub: punkty + certyfikaty + powiązania w jednym miejscu",
+    href: "/admin/config",
+    keywords:
+      "konfiguracja punkty certyfikaty powiązania hub centralne zarządzanie",
+    requiresArea: "certificates",
+    requiresMinPriority: 90,
+    defaultTags: ["konfiguracja", "hub", "powiązania", "certyfikaty", "punkty"],
+  },
   // Sub-views w infrastructure
   {
     id: "/admin/infrastructure?tab=vps",
