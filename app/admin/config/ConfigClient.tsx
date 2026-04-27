@@ -436,7 +436,7 @@ function LinksTab({ links }: { links: CertLinkRow[] }) {
               {row.locations.length === 0 ? (
                 <div className="flex items-center gap-2 text-xs text-rose-400 bg-rose-500/5 rounded-lg p-2.5">
                   <Link2Off className="w-3.5 h-3.5" />
-                  Brak przypisanych punktów. User z tym cert dostanie „Brak przypisanych punktów" przy logowaniu do panelu.
+                  Brak przypisanych punktów. User z tym cert dostanie &bdquo;Brak przypisanych punktów&rdquo; przy logowaniu do panelu.
                 </div>
               ) : (
                 <div className="flex flex-wrap gap-1.5">
