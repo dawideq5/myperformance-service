@@ -1572,6 +1572,201 @@ export const COLLECTION_SPECS: CollectionSpec[] = [
     ],
   },
 
+  // === Grupy targetowe (kategorie produktów / usług) ===
+  // Każda grupa ma swój kod, label, opis. Architektonicznie przygotowane
+  // pod przyszłą integrację z zewnętrznym systemem ERP — pole external_code
+  // zostanie zmapowane na ich identyfikator. Na razie pusty.
+  {
+    collection: "mp_target_groups",
+    meta: {
+      icon: "category",
+      note: "Kategorie produktów/usług dla planów punktów. Każda ma progi (mp_target_thresholds).",
+      display_template: "{{label}} ({{code}})",
+      sort_field: "sort",
+      archive_field: "enabled",
+      archive_value: "false",
+      unarchive_value: "true",
+    },
+    fields: [
+      {
+        field: "id",
+        type: "uuid",
+        schema: { is_primary_key: true },
+        meta: { hidden: true, readonly: true, special: ["uuid"] },
+      },
+      {
+        field: "code",
+        type: "string",
+        schema: { is_nullable: false, is_unique: true },
+        meta: {
+          interface: "input",
+          required: true,
+          width: "half",
+          options: { iconLeft: "tag", placeholder: "np. UCH_SAM, GWA_SZK" },
+          note: "Krótki kod (CSV-friendly). Używany w API i raportach.",
+        },
+      },
+      {
+        field: "label",
+        type: "string",
+        schema: { is_nullable: false },
+        meta: {
+          interface: "input",
+          required: true,
+          width: "half",
+          options: { iconLeft: "label" },
+        },
+      },
+      {
+        field: "description",
+        type: "text",
+        meta: { interface: "input-multiline", width: "full" },
+      },
+      {
+        field: "unit",
+        type: "string",
+        schema: { default_value: "szt" },
+        meta: {
+          interface: "select-dropdown",
+          width: "half",
+          options: {
+            choices: [
+              { text: "Sztuki (szt)", value: "szt" },
+              { text: "Złote (PLN)", value: "PLN" },
+              { text: "Komplety", value: "kpl" },
+              { text: "Godziny (h)", value: "h" },
+              { text: "Inne", value: "other" },
+            ],
+            allowOther: true,
+          },
+        },
+      },
+      {
+        field: "external_code",
+        type: "string",
+        meta: {
+          interface: "input",
+          width: "half",
+          options: { iconLeft: "link", font: "monospace" },
+          note: "Mapping do zewnętrznego systemu ERP (opcjonalnie).",
+        },
+      },
+      {
+        field: "sort",
+        type: "integer",
+        schema: { default_value: 0 },
+        meta: {
+          interface: "input",
+          width: "half",
+          options: { min: 0, max: 999 },
+        },
+      },
+      {
+        field: "enabled",
+        type: "boolean",
+        schema: { default_value: true },
+        meta: {
+          interface: "boolean",
+          width: "half",
+          options: { label: "Aktywna grupa" },
+        },
+      },
+    ],
+  },
+
+  // === Progi grup targetowych (od X do Y → wartość Z) ===
+  // Pełna personalizacja per-grupa: dowolnie wiele progów, każdy z range
+  // [from, to] i wartością (np. cena za szt, liczba punktów lojalnościowych,
+  // procent prowizji). label opcjonalny dla custom nazwy progu.
+  {
+    collection: "mp_target_thresholds",
+    meta: {
+      icon: "tune",
+      note: "Progi liczbowe per grupa targetowa. Range [from, to] → wartość. Dowolnie wiele progów.",
+      display_template: "{{group}}: {{from_value}}–{{to_value}} → {{value}}",
+      sort_field: "from_value",
+    },
+    fields: [
+      {
+        field: "id",
+        type: "uuid",
+        schema: { is_primary_key: true },
+        meta: { hidden: true, readonly: true, special: ["uuid"] },
+      },
+      {
+        field: "group",
+        type: "uuid",
+        schema: { is_nullable: false },
+        meta: {
+          interface: "select-dropdown-m2o",
+          required: true,
+          width: "full",
+          options: { template: "{{label}} ({{code}})" },
+          special: ["m2o"],
+        },
+      },
+      {
+        field: "label",
+        type: "string",
+        meta: {
+          interface: "input",
+          width: "full",
+          options: { placeholder: "np. Niski / Średni / Wysoki" },
+          note: "Opcjonalna nazwa progu dla raportów (jeśli puste — generujemy z range).",
+        },
+      },
+      {
+        field: "from_value",
+        type: "decimal",
+        schema: { numeric_precision: 14, numeric_scale: 2, default_value: 0 },
+        meta: {
+          interface: "input",
+          required: true,
+          width: "half",
+          options: { iconLeft: "trending_flat" },
+          note: "OD (włącznie). Może być 0.",
+        },
+      },
+      {
+        field: "to_value",
+        type: "decimal",
+        schema: { numeric_precision: 14, numeric_scale: 2 },
+        meta: {
+          interface: "input",
+          width: "half",
+          options: { iconLeft: "trending_flat" },
+          note: "DO (włącznie). Puste = bez górnego limitu.",
+        },
+      },
+      {
+        field: "value",
+        type: "decimal",
+        schema: { numeric_precision: 14, numeric_scale: 2, is_nullable: false },
+        meta: {
+          interface: "input",
+          required: true,
+          width: "full",
+          options: { iconLeft: "calculate" },
+          note: "Wartość liczona dla tego progu (np. cena, prowizja, punkty).",
+        },
+      },
+      {
+        field: "color",
+        type: "string",
+        meta: {
+          interface: "select-color",
+          width: "half",
+        },
+      },
+      {
+        field: "sort",
+        type: "integer",
+        schema: { default_value: 0 },
+        meta: { interface: "input", width: "half" },
+      },
+    ],
+  },
+
   // === Punkty (sklepy / serwisy) — dane biznesowe ===
   // Edytowalne z dashboard /admin/locations LUB bezpośrednio w Directus UI.
   // Source of truth: Directus DB. Custom dashboard UI używa Directus REST.

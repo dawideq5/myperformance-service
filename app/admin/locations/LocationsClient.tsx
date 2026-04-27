@@ -508,11 +508,9 @@ function EditDialog({
             onChange={(e) => set("email", e.target.value)}
             placeholder="punkt@firma.pl"
           />
-          <Input
-            label="Telefon"
+          <PhoneField
             value={draft.phone}
-            onChange={(e) => set("phone", e.target.value)}
-            placeholder="+48 …"
+            onChange={(v) => set("phone", v)}
           />
         </div>
 
@@ -580,28 +578,11 @@ function EditDialog({
           </div>
         </div>
 
-        {/* Zdjęcia (max 3 URL) */}
-        <div>
-          <label className="block text-xs font-medium mb-1.5 text-[var(--text-muted)]">
-            Zdjęcia (max 3 URL-e — np. wgrane w Directus / Outline / dowolny CDN)
-          </label>
-          <div className="space-y-2">
-            {[0, 1, 2].map((idx) => (
-              <input
-                key={idx}
-                type="url"
-                value={draft.photos[idx] ?? ""}
-                onChange={(e) => {
-                  const next = [...draft.photos];
-                  next[idx] = e.target.value;
-                  set("photos", next.filter((_, i) => i <= idx || next[i]));
-                }}
-                placeholder={`https://… (zdjęcie ${idx + 1})`}
-                className="w-full rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] px-3 py-2 text-xs font-mono"
-              />
-            ))}
-          </div>
-        </div>
+        {/* Zdjęcia — upload do Directus folder "locations" */}
+        <PhotosUpload
+          photos={draft.photos}
+          onChange={(p) => set("photos", p)}
+        />
 
         {/* Plan budżetu (DZIENNY) */}
         <Input
@@ -677,6 +658,189 @@ function EditDialog({
         </div>
       </div>
     </Dialog>
+  );
+}
+
+// ── Telefon z country code dropdown ──────────────────────────────────────
+const PHONE_PREFIXES = [
+  { code: "+48", label: "🇵🇱 PL" },
+  { code: "+49", label: "🇩🇪 DE" },
+  { code: "+44", label: "🇬🇧 UK" },
+  { code: "+1", label: "🇺🇸 US" },
+  { code: "+33", label: "🇫🇷 FR" },
+  { code: "+39", label: "🇮🇹 IT" },
+  { code: "+34", label: "🇪🇸 ES" },
+  { code: "+420", label: "🇨🇿 CZ" },
+  { code: "+421", label: "🇸🇰 SK" },
+  { code: "+380", label: "🇺🇦 UA" },
+];
+
+function splitPhone(value: string): { prefix: string; rest: string } {
+  const trimmed = value.trim();
+  for (const p of PHONE_PREFIXES) {
+    if (trimmed.startsWith(p.code)) {
+      return { prefix: p.code, rest: trimmed.slice(p.code.length).trim() };
+    }
+  }
+  return { prefix: "+48", rest: trimmed.replace(/^\+\d+\s*/, "") };
+}
+
+function PhoneField({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const { prefix, rest } = splitPhone(value);
+
+  return (
+    <div>
+      <label className="block text-xs font-medium mb-1.5 text-[var(--text-muted)]">
+        Telefon
+      </label>
+      <div className="flex gap-2">
+        <select
+          value={prefix}
+          onChange={(e) => {
+            const newPrefix = e.target.value;
+            onChange(rest ? `${newPrefix} ${rest}` : newPrefix);
+          }}
+          className="rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] px-2 py-2 text-sm font-mono w-24"
+        >
+          {PHONE_PREFIXES.map((p) => (
+            <option key={p.code} value={p.code}>
+              {p.label} {p.code}
+            </option>
+          ))}
+        </select>
+        <input
+          type="tel"
+          value={rest}
+          onChange={(e) => {
+            const v = e.target.value.replace(/[^0-9 -]/g, "");
+            onChange(v ? `${prefix} ${v}` : prefix);
+          }}
+          placeholder="500 100 200"
+          className="flex-1 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] px-3 py-2 text-sm"
+        />
+      </div>
+    </div>
+  );
+}
+
+// ── Photos upload (Directus folder "locations") ─────────────────────────
+const MAX_PHOTOS = 3;
+
+function PhotosUpload({
+  photos,
+  onChange,
+}: {
+  photos: string[];
+  onChange: (p: string[]) => void;
+}) {
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const remaining = MAX_PHOTOS - photos.length;
+
+  const onFile = useCallback(
+    async (file: File) => {
+      if (photos.length >= MAX_PHOTOS) {
+        setError(`Osiągnięto limit ${MAX_PHOTOS} zdjęć`);
+        return;
+      }
+      setUploading(true);
+      setError(null);
+      try {
+        const fd = new FormData();
+        fd.set("file", file);
+        fd.set("filename", file.name);
+        const res = await fetch("/api/locations/upload", {
+          method: "POST",
+          body: fd,
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(
+            body?.error?.message ?? `HTTP ${res.status}`,
+          );
+        }
+        const data = (await res.json()) as { data: { url: string } };
+        onChange([...photos, data.data.url].slice(0, MAX_PHOTOS));
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Upload nieudany");
+      } finally {
+        setUploading(false);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+      }
+    },
+    [photos, onChange],
+  );
+
+  return (
+    <div>
+      <label className="block text-xs font-medium mb-1.5 text-[var(--text-muted)]">
+        Zdjęcia (max {MAX_PHOTOS}) — wgraj plik z dysku, zostanie zapisany w
+        Directus
+      </label>
+      <div className="grid grid-cols-3 gap-2">
+        {photos.map((url, idx) => (
+          <div
+            key={idx}
+            className="relative aspect-square rounded-lg overflow-hidden border border-[var(--border-subtle)] bg-[var(--bg-surface)]"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={url}
+              alt={`Zdjęcie ${idx + 1}`}
+              className="w-full h-full object-cover"
+            />
+            <button
+              type="button"
+              onClick={() => onChange(photos.filter((_, i) => i !== idx))}
+              className="absolute top-1 right-1 p-1 rounded bg-black/60 text-white hover:bg-red-500/80 transition"
+              aria-label="Usuń zdjęcie"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </div>
+        ))}
+        {remaining > 0 && (
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+            className="aspect-square rounded-lg border-2 border-dashed border-[var(--border-subtle)] hover:border-[var(--accent)]/50 flex flex-col items-center justify-center text-[var(--text-muted)] hover:text-[var(--accent)] transition disabled:opacity-50"
+          >
+            {uploading ? (
+              <>
+                <Activity className="w-5 h-5 animate-spin" />
+                <span className="text-[10px] mt-1">Wgrywanie…</span>
+              </>
+            ) : (
+              <>
+                <Plus className="w-6 h-6" />
+                <span className="text-[10px] mt-1">Wgraj zdjęcie</span>
+              </>
+            )}
+          </button>
+        )}
+      </div>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) void onFile(f);
+        }}
+      />
+      {error && (
+        <p className="text-[11px] text-red-400 mt-1.5">{error}</p>
+      )}
+    </div>
   );
 }
 

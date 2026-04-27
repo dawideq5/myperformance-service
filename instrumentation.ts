@@ -437,6 +437,42 @@ export async function register(): Promise<void> {
         }
       }
 
+      // Seed grup targetowych — 8 wstępnych kategorii. Idempotent: tylko
+      // gdy collection pusta (admin może później edytować/dodawać własne).
+      try {
+        const existingGroups = await listItems<{ id: string }>(
+          "mp_target_groups",
+          { limit: 1 },
+        ).catch(() => []);
+        if (existingGroups.length === 0) {
+          const seedGroups = [
+            { code: "UCH_SAM", label: "Uchwyty samochodowe", unit: "szt", sort: 10 },
+            { code: "GWA_SZK", label: "Gwarancja na szkło", unit: "szt", sort: 20 },
+            { code: "STA_LAD", label: "Stacje ładujące", unit: "szt", sort: 30 },
+            { code: "PAS_SEL", label: "Paski i selfiesticki", unit: "szt", sort: 40 },
+            { code: "PWR_IND", label: "Powerbanki indukcyjne", unit: "szt", sort: 50 },
+            { code: "ZAB_OBJ", label: "Zabezpieczenia obiektywów", unit: "szt", sort: 60 },
+            { code: "CZY_TEL", label: "Czyszczenie telefonu", unit: "szt", sort: 70 },
+            { code: "PRZ_SER", label: "Przyjęcia serwisowe", unit: "szt", sort: 80 },
+          ];
+          for (const g of seedGroups) {
+            await upsertItem("mp_target_groups", g.code, {
+              code: g.code,
+              label: g.label,
+              unit: g.unit,
+              sort: g.sort,
+              enabled: true,
+            }).catch(() => undefined);
+          }
+          // eslint-disable-next-line no-console
+          console.log(
+            `[instrumentation] seeded ${seedGroups.length} target groups`,
+          );
+        }
+      } catch {
+        // Directus może być chwilowo niedostępny — następny start spróbuje
+      }
+
       let panelsPushed = 0;
       for (const p of PANELS) {
         const existing = existingPanelMap.get(p.slug);
