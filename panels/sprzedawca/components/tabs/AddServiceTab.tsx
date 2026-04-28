@@ -371,7 +371,7 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
                       color: "#fff",
                     }}
                   >
-                    Pobierz PDF potwierdzenia
+                    Otwórz potwierdzenie w nowej karcie
                   </button>
                   <button
                     type="button"
