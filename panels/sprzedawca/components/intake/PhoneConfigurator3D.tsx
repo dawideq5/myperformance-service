@@ -477,11 +477,8 @@ export function PhoneConfigurator3D({
         </div>
 
         {/* Main canvas */}
-        <div className="flex-1 grid grid-cols-1 lg:grid-cols-[1fr,minmax(340px,440px)] gap-0 min-h-0">
-          <div
-            className="relative w-full h-full"
-            style={{ minHeight: "min(60vh, 500px)" }}
-          >
+        <div className="flex-1 flex flex-col lg:flex-row min-h-0 overflow-hidden">
+          <div className="relative h-[55vh] lg:h-auto lg:flex-1 lg:min-h-0 min-w-0">
             <Canvas
               shadows
               camera={{ position: [4.5, 0, 0], fov: 45 }}
@@ -567,8 +564,8 @@ export function PhoneConfigurator3D({
             )}
           </div>
 
-          {/* Step controls panel — explicit min-h-0 + h-full + overflow scrollable */}
-          <div className="bg-white/5 backdrop-blur-md border-l border-white/10 p-4 overflow-y-auto min-h-0 h-full">
+          {/* Step controls panel — flex-1 na mobile + lg:fixed-width na desktop, overflow-y-auto */}
+          <div className="flex-1 lg:flex-none lg:w-[420px] min-h-0 lg:h-full bg-white/5 backdrop-blur-md border-t lg:border-t-0 lg:border-l border-white/10 p-4 overflow-y-auto">
             <StepInputs
               step={step}
               state={state}

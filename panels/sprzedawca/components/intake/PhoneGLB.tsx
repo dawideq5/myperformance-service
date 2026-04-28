@@ -79,6 +79,19 @@ export function PhoneGLB({
         } else if (obj.material) {
           obj.material = obj.material.clone();
         }
+        // Cienie + wymuszenie sRGB na color/emissive maps (klon materiału
+        // nie zachowuje colorSpace na niektórych urządzeniach — bez tego
+        // textury wyglądają wyblakłe/niewczytane na kolejnych sesjach).
+        obj.castShadow = true;
+        obj.receiveShadow = true;
+        const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+        for (const m of mats) {
+          if (!m) continue;
+          const sm = m as THREE.MeshStandardMaterial;
+          if (sm.map) sm.map.colorSpace = THREE.SRGBColorSpace;
+          if (sm.emissiveMap) sm.emissiveMap.colorSpace = THREE.SRGBColorSpace;
+          sm.needsUpdate = true;
+        }
       }
     });
     // Compute bounding box → auto-center + scale to fit ~3.5 unit max dim.
@@ -119,7 +132,10 @@ export function PhoneGLB({
     return map;
   }, [clonedScene]);
 
-  // Aktualizuje kolor body materiałów gdy brandColor się zmienił.
+  // Aktualizuje kolor body materiałów gdy brandColor się zmienił. Zerujemy
+  // .map (baseColorMap) na body żeby kolor był wyraźnie widoczny — w GLB
+  // body ma teksturę szarej obudowy, która tłumi color tinting. Zachowujemy
+  // normal/roughness/metalness — surface details pozostają.
   useEffect(() => {
     if (!clonedScene) return;
     const bodyColor = new THREE.Color(brandColor || "#1f2937");
@@ -138,9 +154,13 @@ export function PhoneGLB({
         ? obj.material
         : [obj.material];
       for (const m of mats) {
-        if (m && "color" in m) {
-          (m as THREE.MeshStandardMaterial).color = bodyColor.clone();
-        }
+        if (!m || !("color" in m)) continue;
+        const sm = m as THREE.MeshStandardMaterial;
+        sm.color = bodyColor.clone();
+        sm.map = null;
+        sm.metalness = 0.55;
+        sm.roughness = 0.35;
+        sm.needsUpdate = true;
       }
     });
   }, [clonedScene, brandColor]);
