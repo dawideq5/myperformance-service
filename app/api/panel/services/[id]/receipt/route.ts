@@ -85,15 +85,16 @@ export async function GET(
     console.log(
       `[receipt] PDF generated, size=${pdfBuffer.length} bytes for ${service.ticketNumber}`,
     );
-    // Stream Buffer directly via ReadableStream — Blob/Uint8Array konwersja
-    // może w niektórych Next.js + Node combos zwracać empty body.
-    const stream = new ReadableStream({
-      start(controller) {
-        controller.enqueue(new Uint8Array(pdfBuffer));
-        controller.close();
-      },
-    });
-    return new NextResponse(stream, {
+    // Diag: zapisz ostatni PDF do /tmp żeby porównać z tym co browser dostaje.
+    try {
+      const fsLocal = await import("fs");
+      fsLocal.writeFileSync("/tmp/last-receipt.pdf", pdfBuffer);
+    } catch {
+      /* ignore */
+    }
+    // Pass Buffer directly. Node Buffer is Uint8Array subclass; Next.js
+    // Response w Node 22 obsługuje to natywnie bez Blob wrapper.
+    return new NextResponse(pdfBuffer as unknown as BodyInit, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
