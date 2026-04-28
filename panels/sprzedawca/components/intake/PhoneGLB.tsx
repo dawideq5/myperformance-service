@@ -295,17 +295,13 @@ export function PhoneGLB({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playDisassembly]);
 
-  // Floating + mixer update. Bardzo subtelne unoszenie (0.018 zamiast 0.04)
-  // żeby nie konkurowało z lerpem pozycji telefonu z PhoneScene podczas
-  // step transition (wcześniej dawało wrażenie "drgającego" telefonu).
+  // Mixer update tylko (do disassembly animation). Floating wyłączony —
+  // konkurował z lerpem pozycji telefonu w PhoneScene i pogłębiał wrażenie
+  // szarpnięć przy step transitions. Statyczny telefon = czystszy widok.
   useFrame((_, dt) => {
     mixer?.update(dt);
-    if (groupRef.current && floating && !damageMode && !playDisassembly) {
-      const t = (typeof performance !== "undefined" ? performance.now() : 0) / 1000;
-      const baseY = normalize.offset[1];
-      groupRef.current.position.y = baseY + Math.sin(t * 0.6) * 0.018;
-    }
   });
+  void floating;
   // Reference to suppress unused-var warning — keep prop for backward compat.
   void highlight;
   void materialMap;

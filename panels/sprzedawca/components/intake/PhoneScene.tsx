@@ -46,8 +46,6 @@ export default function PhoneScene({
   onModelClick?: (point: THREE.Vector3, candidates: string[]) => void;
 }) {
   const groupRef = useRef<THREE.Group>(null);
-  const keyLightRef = useRef<THREE.DirectionalLight>(null);
-  const fillLightRef = useRef<THREE.DirectionalLight>(null);
   const tgtPos = useRef(new THREE.Vector3(...phonePosition));
   // Frames step state — angle integrowany per frame (zawsze rośnie, nigdy
   // nie cofa). lastT do obliczenia dt. velocity ramps up smooth od 0.
@@ -83,19 +81,17 @@ export default function PhoneScene({
         groupRef.current.rotation.y = cur + delta * damp(2.8);
       }
     }
-    // Frames step: orbit kamery w płaszczyźnie YZ (X=0). Implementacja:
-    //   1. angle0 = atan2(cur.y/Y_SCALE, cur.z) — start point z aktualnej
-    //      pozycji kamery (kontynuacja, brak snap).
-    //   2. angularSpeed ramps up od 0 do MAX over RAMP_SECONDS — kamera
-    //      łagodnie przyspiesza zamiast nagle ruszyć.
-    //   3. angle integrowany per frame (e.angle += angularSpeed * dt) —
-    //      MONOTONICZNY, nigdy nie cofa, nigdy nie zmienia kierunku.
-    //   4. Camera lerps toward orbit target z exp damp — smooth follow,
-    //      bez teleportacji jeśli camera nie była na okręgu.
+    // Frames step: orbit kamery w płaszczyźnie YZ (X=0).
+    //   1. angle0 = atan2(cur.y/Y_SCALE, cur.z) — start z aktualnej kamery.
+    //   2. angularSpeed = MAX * (elapsed/RAMP)² — quadratic ramp, BARDZO
+    //      łagodny start (przez pierwsze 0.5s ledwo się rusza).
+    //   3. angle += speed * dt → monotonicznie rośnie, jeden kierunek.
+    //   4. Camera lerp z warmup-pochodnym lambda → płynne follow bez
+    //      teleportacji.
     const RADIUS = 6.0;
     const Y_SCALE = 0.55;
-    const MAX_ANGULAR_SPEED = 0.32; // rad/s
-    const RAMP_SECONDS = 1.8;
+    const MAX_ANGULAR_SPEED = 0.32;
+    const RAMP_SECONDS = 2.5;
     if (isFramesStep && !damageMode) {
       if (!framesEntry.current) {
         const cur = camera.position;
@@ -106,7 +102,8 @@ export default function PhoneScene({
       const dtInner = Math.max(0, t - e.lastT);
       e.elapsed += dtInner;
       e.lastT = t;
-      const speedRamp = Math.min(e.elapsed / RAMP_SECONDS, 1);
+      const w = Math.min(e.elapsed / RAMP_SECONDS, 1);
+      const speedRamp = w * w; // quadratic ramp
       const angularSpeed = MAX_ANGULAR_SPEED * speedRamp;
       e.angle += angularSpeed * dtInner;
       const tgt = new THREE.Vector3(
@@ -114,20 +111,13 @@ export default function PhoneScene({
         Math.sin(e.angle) * RADIUS * Y_SCALE,
         Math.cos(e.angle) * RADIUS,
       );
-      // Smooth follow — camera lerps z bieżącej pozycji do orbit target.
-      camera.position.lerp(tgt, damp(2.5));
+      // Lerp camera z lambdą też wymnożoną przez warmup — łagodny start
+      // followingu, nie tylko orbitalnej speed.
+      const followLambda = 2.5 * w;
+      camera.position.lerp(tgt, 1 - Math.exp(-followLambda * dtInner));
       camera.lookAt(0, 0, 0);
     } else if (framesEntry.current) {
       framesEntry.current = null;
-    }
-    // Animowane key + fill lights — bardzo subtelnie żeby nie powodowały
-    // wrażenia "flickeru". Mniejsza amplituda + niższa częstotliwość.
-    if (keyLightRef.current) {
-      keyLightRef.current.position.x = 5 + Math.sin(t * 0.1) * 0.3;
-      keyLightRef.current.position.y = 6 + Math.cos(t * 0.08) * 0.25;
-    }
-    if (fillLightRef.current) {
-      fillLightRef.current.position.x = -4 + Math.cos(t * 0.12) * 0.2;
     }
   });
 
@@ -151,31 +141,15 @@ export default function PhoneScene({
         />
       )}
 
-      {/* Symetryczne oświetlenie żeby panel tylny wyglądał tak samo jak
-          przedni gdy phone obróci się 180° między display a back step. */}
-      <ambientLight intensity={0.65} color="#aabbcc" />
-      <hemisphereLight args={["#bbccff", "#332211", 0.45]} />
-      <directionalLight
-        ref={keyLightRef}
-        position={[5, 6, 4]}
-        intensity={1.4}
-      />
-      {/* Mirror key light z drugiej strony żeby tylna strona phone'a też była
-          oświetlona po obrocie 180°. */}
+      {/* Domyślny zestaw świateł — neutralny, statyczny, bez animacji.
+          Symetria po obu stronach żeby model wyglądał tak samo z przodu
+          i z tyłu. */}
+      <ambientLight intensity={0.65} />
+      <directionalLight position={[5, 6, 4]} intensity={1.0} />
       <directionalLight
         position={[-5, 6, -4]}
-        intensity={1.2}
-        color="#ffeecc"
+        intensity={0.9}
       />
-      <directionalLight
-        ref={fillLightRef}
-        position={[-4, 2, 3]}
-        intensity={0.55}
-        color="#88aaff"
-      />
-      <directionalLight position={[4, 2, -3]} intensity={0.5} color="#88aaff" />
-      <pointLight position={[3, -3, 4]} intensity={0.45} color="#ffd9a0" />
-      <pointLight position={[-3, 3, 4]} intensity={0.4} color="#a0d0ff" />
 
       <group ref={groupRef}>
         <Suspense fallback={null}>
