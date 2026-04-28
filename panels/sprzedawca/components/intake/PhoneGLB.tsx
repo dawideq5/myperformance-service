@@ -164,31 +164,29 @@ export function PhoneGLB({
     return map;
   }, [clonedScene]);
 
-  // Body color override. UWAGA: w naszym GLB descriptive names są na
-  // GRUPACH-rodzicach (body_36, backplate_48, profile_housing_bottom_19),
-  // a same meshe mają nazwy "Object_115_1". Dlatego matchujemy po
-  // konkatenacji nazw wszystkich przodków + materiału.
+  // Body color override. W naszym GLB descriptive names są na grupach-rodzicach
+  // (body_36, backplate_48, back_cover_*, profile_housing_*); meshe mają
+  // nazwy Object_X. Matchujemy przez ancestryName (konkatenacja parents +
+  // material name).
   //
-  // Rozdzielamy: backplate ZAWSZE w stałym kolorze tytanowej bieli
-  // (niezależny od brandColor). Pozostałe body parts (chassis, ramki,
-  // pokrywa aparatów, anteny, przyciski) → brandColor.
+  // Trzy kategorie kolorów:
+  //  - fixedBackIncludes (titanium white) — back_cover/backplate
+  //  - darkFrameIncludes (ciemnoszare) — profile_housing (ramki) ZAWSZE
+  //  - brandIncludes (brandColor) — back_cam_cover, anteny, przyciski
+  //  - inne meshe (excludes lub bez matcha) zachowują oryginalne textury
   useEffect(() => {
     if (!clonedScene) return;
     const bodyColor = new THREE.Color(brandColor || "#1f2937");
     const TITANIUM_WHITE = new THREE.Color("#e8e7df");
+    const DARK_GRAY = new THREE.Color("#3a3a3a");
+    const fixedBackIncludes = ["backplate", "back_cover"];
+    const darkFrameIncludes = ["profile_housing"]; // ramki bottom/top/left/right
     const brandIncludes = [
-      "body",
-      "profile_housing", // ramki: bottom/top/left/right
-      "back_cam_cover", // pokrywa wyspy aparatów
+      "back_cam_cover",
       "antenn",
       "btn_off",
       "btn_volume",
-      "color_housing",
     ];
-    // back_cover = visible external back panel (mesh node back_cover_mat_color_body
-     // top-level w GLB, używa materiału mat_color_body). backplate_48 to wewnętrzna
-     // warstwa (rzadko widoczna). Oba muszą być titanium.
-    const fixedBackIncludes = ["backplate", "back_cover"];
     const excludes = [
       "inside",
       "dummies",
@@ -198,8 +196,8 @@ export function PhoneGLB({
       "screen",
       "cover_flex",
       "back_cam_mat",
-      "glass", // back_cam_glass — szkło aparatu
-      "hole", // back_cam_hole — otwory w wyspie aparatów
+      "glass",
+      "hole",
       "screw",
       "magnets",
       "motherboard",
@@ -218,12 +216,20 @@ export function PhoneGLB({
       if (mat?.name) names.push(mat.name.toLowerCase());
       return names.join("|");
     };
-    /** Zwraca docelowy kolor dla danego mesha: brand / titanium / null
-     * (gdy mesh nie ma być malowany). */
-    const targetColor = (n: string): THREE.Color | null => {
+    /** Zwraca docelowy kolor + material params dla mesha. null = pomijamy. */
+    const targetColor = (
+      n: string,
+    ): { color: THREE.Color; metalness: number; roughness: number } | null => {
       if (excludes.some((p) => n.includes(p))) return null;
-      if (fixedBackIncludes.some((p) => n.includes(p))) return TITANIUM_WHITE;
-      if (brandIncludes.some((p) => n.includes(p))) return bodyColor;
+      if (fixedBackIncludes.some((p) => n.includes(p))) {
+        return { color: TITANIUM_WHITE, metalness: 0.25, roughness: 0.5 };
+      }
+      if (darkFrameIncludes.some((p) => n.includes(p))) {
+        return { color: DARK_GRAY, metalness: 0.6, roughness: 0.4 };
+      }
+      if (brandIncludes.some((p) => n.includes(p))) {
+        return { color: bodyColor, metalness: 0.55, roughness: 0.35 };
+      }
       return null;
     };
 
@@ -237,13 +243,10 @@ export function PhoneGLB({
         if (!tgt) return m;
         const sm = m as THREE.MeshStandardMaterial;
         const newMat = sm.clone();
-        newMat.color = tgt.clone();
+        newMat.color = tgt.color.clone();
         newMat.map = null;
-        // Backplate (tytanowa biel) bardziej matowy, ramki/body bardziej
-        // metaliczne.
-        const isBackplate = tgt === TITANIUM_WHITE;
-        newMat.metalness = isBackplate ? 0.25 : 0.55;
-        newMat.roughness = isBackplate ? 0.5 : 0.35;
+        newMat.metalness = tgt.metalness;
+        newMat.roughness = tgt.roughness;
         newMat.needsUpdate = true;
         return newMat;
       });

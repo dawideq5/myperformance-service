@@ -49,9 +49,13 @@ export default function PhoneScene({
   const keyLightRef = useRef<THREE.DirectionalLight>(null);
   const fillLightRef = useRef<THREE.DirectionalLight>(null);
   const tgtPos = useRef(new THREE.Vector3(...phonePosition));
-  // Frames step entry state — żeby orbit zaczynał się płynnie z bieżącej
-  // pozycji kamery, bez "snap" do angle=0.
-  const framesEntry = useRef<{ angle0: number; t0: number } | null>(null);
+  // Frames step state — angle integrowany per frame (zawsze rośnie, nigdy
+  // nie cofa). lastT do obliczenia dt. velocity ramps up smooth od 0.
+  const framesEntry = useRef<{
+    angle: number;
+    lastT: number;
+    elapsed: number;
+  } | null>(null);
 
   if (
     tgtPos.current.x !== phonePosition[0] ||
@@ -79,27 +83,39 @@ export default function PhoneScene({
         groupRef.current.rotation.y = cur + delta * damp(2.8);
       }
     }
-    // Frames step: ciągły orbit kamery w płaszczyźnie YZ (X=0). angle0
-    // wyliczany z bieżącej pozycji kamery przy wejściu w step → orbit
-    // zaczyna się SEAMLESSLY od miejsca gdzie kamera już jest, bez snap
-    // i bez catch-up. Brak lerp — pozycja ustawiana bezpośrednio (skoro
-    // start = current pos, kolejne klatki są arbitralnie blisko).
+    // Frames step: orbit kamery w płaszczyźnie YZ (X=0). Implementacja:
+    //   1. angle0 = atan2(cur.y/Y_SCALE, cur.z) — start point z aktualnej
+    //      pozycji kamery (kontynuacja, brak snap).
+    //   2. angularSpeed ramps up od 0 do MAX over RAMP_SECONDS — kamera
+    //      łagodnie przyspiesza zamiast nagle ruszyć.
+    //   3. angle integrowany per frame (e.angle += angularSpeed * dt) —
+    //      MONOTONICZNY, nigdy nie cofa, nigdy nie zmienia kierunku.
+    //   4. Camera lerps toward orbit target z exp damp — smooth follow,
+    //      bez teleportacji jeśli camera nie była na okręgu.
     const RADIUS = 6.0;
     const Y_SCALE = 0.55;
+    const MAX_ANGULAR_SPEED = 0.32; // rad/s
+    const RAMP_SECONDS = 1.8;
     if (isFramesStep && !damageMode) {
       if (!framesEntry.current) {
         const cur = camera.position;
-        // Inverse: y = sin(a)*R*S, z = cos(a)*R → a = atan2(y/S, z)
         const angle0 = Math.atan2(cur.y / Y_SCALE, cur.z);
-        framesEntry.current = { angle0, t0: t };
+        framesEntry.current = { angle: angle0, lastT: t, elapsed: 0 };
       }
       const e = framesEntry.current;
-      const angle = e.angle0 + (t - e.t0) * 0.32;
-      camera.position.set(
+      const dtInner = Math.max(0, t - e.lastT);
+      e.elapsed += dtInner;
+      e.lastT = t;
+      const speedRamp = Math.min(e.elapsed / RAMP_SECONDS, 1);
+      const angularSpeed = MAX_ANGULAR_SPEED * speedRamp;
+      e.angle += angularSpeed * dtInner;
+      const tgt = new THREE.Vector3(
         0,
-        Math.sin(angle) * RADIUS * Y_SCALE,
-        Math.cos(angle) * RADIUS,
+        Math.sin(e.angle) * RADIUS * Y_SCALE,
+        Math.cos(e.angle) * RADIUS,
       );
+      // Smooth follow — camera lerps z bieżącej pozycji do orbit target.
+      camera.position.lerp(tgt, damp(2.5));
       camera.lookAt(0, 0, 0);
     } else if (framesEntry.current) {
       framesEntry.current = null;
@@ -131,7 +147,7 @@ export default function PhoneScene({
         <CameraRig
           position={cameraPos}
           lookAt={cameraLookAt ?? [0, 0, 0]}
-          duration={isCleaningStep ? 4.0 : 1.6}
+          lerpLambda={isCleaningStep ? 0.8 : 2.0}
         />
       )}
 
