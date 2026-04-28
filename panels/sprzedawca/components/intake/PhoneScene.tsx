@@ -1,6 +1,6 @@
 "use client";
 
-import { ContactShadows } from "@react-three/drei";
+import { ContactShadows, OrbitControls } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import { useRef } from "react";
 import * as THREE from "three";
@@ -38,31 +38,56 @@ export default function PhoneScene({
   onModelClick?: (point: THREE.Vector3, surface: string) => void;
 }) {
   const groupRef = useRef<THREE.Group>(null);
+  const keyLightRef = useRef<THREE.DirectionalLight>(null);
+  const fillLightRef = useRef<THREE.DirectionalLight>(null);
 
-  useFrame((_, dt) => {
-    if (!groupRef.current) return;
-    if (isFramesStep) {
-      groupRef.current.rotation.y += dt * 0.5;
-    } else {
-      const target = 0;
-      const cur = groupRef.current.rotation.y;
-      // Normalize cur to [-PI, PI]
-      const normalized = Math.atan2(Math.sin(cur), Math.cos(cur));
-      groupRef.current.rotation.y =
-        normalized + (target - normalized) * Math.min(dt * 2.5, 1);
+  useFrame(({ clock }, dt) => {
+    const t = clock.getElapsedTime();
+    if (groupRef.current) {
+      if (isFramesStep) {
+        groupRef.current.rotation.y += dt * 0.45;
+      } else {
+        const cur = groupRef.current.rotation.y;
+        const normalized = Math.atan2(Math.sin(cur), Math.cos(cur));
+        groupRef.current.rotation.y =
+          normalized + (-normalized) * Math.min(dt * 2.5, 1);
+      }
+    }
+    // Subtelny ruch key light dla zmiennych cieni przy prezentacji.
+    if (keyLightRef.current) {
+      keyLightRef.current.position.x = 5 + Math.sin(t * 0.15) * 0.6;
+      keyLightRef.current.position.y = 6 + Math.cos(t * 0.12) * 0.5;
+    }
+    if (fillLightRef.current) {
+      fillLightRef.current.position.x = -4 + Math.cos(t * 0.18) * 0.4;
     }
   });
 
   return (
     <>
-      <CameraRig position={cameraPos} lookAt={[0, 0, 0]} />
+      {/* W trybie damage user obraca telefon ręcznie — w innych krokach
+          kamera animowana przez CameraRig (zablokowane manual). */}
+      {damageMode ? (
+        <OrbitControls
+          enablePan={false}
+          enableZoom
+          enableRotate
+          minDistance={3.5}
+          maxDistance={7}
+          rotateSpeed={0.7}
+          zoomSpeed={0.7}
+        />
+      ) : (
+        <CameraRig position={cameraPos} lookAt={[0, 0, 0]} />
+      )}
 
-      {/* Tonemapping-style lighting setup (3-point + rim + fill) */}
-      <ambientLight intensity={0.35} color="#aabbcc" />
-      {/* Key light — biały, mocny */}
+      <ambientLight intensity={0.3} color="#aabbcc" />
+
+      {/* Key light — animowany dla zmiennych cieni */}
       <directionalLight
+        ref={keyLightRef}
         position={[5, 6, 4]}
-        intensity={1.6}
+        intensity={1.5}
         castShadow
         shadow-mapSize-width={2048}
         shadow-mapSize-height={2048}
@@ -72,16 +97,19 @@ export default function PhoneScene({
         shadow-camera-right={3}
         shadow-camera-top={3}
         shadow-camera-bottom={-3}
+        shadow-bias={-0.0005}
       />
-      {/* Fill light — chłodny, słabszy z drugiej strony */}
-      <directionalLight position={[-4, 2, 3]} intensity={0.6} color="#88aaff" />
-      {/* Rim light — z tyłu, ciepły, dla highlight krawędzi */}
-      <directionalLight position={[0, -2, -5]} intensity={0.7} color="#ffaa66" />
-      {/* Studio fill — punktowe światła nadające reflective bliki */}
-      <pointLight position={[3, -3, 4]} intensity={0.6} color="#ffd9a0" />
-      <pointLight position={[-3, 3, 4]} intensity={0.5} color="#a0d0ff" />
-      {/* Bottom uplight — lekki kontur podstawy */}
-      <pointLight position={[0, -4, 1]} intensity={0.3} color="#ffffff" />
+      <directionalLight
+        ref={fillLightRef}
+        position={[-4, 2, 3]}
+        intensity={0.55}
+        color="#88aaff"
+      />
+      <directionalLight position={[0, -2, -5]} intensity={0.6} color="#ffaa66" />
+
+      {/* Studio rim lights */}
+      <pointLight position={[3, -3, 4]} intensity={0.5} color="#ffd9a0" />
+      <pointLight position={[-3, 3, 4]} intensity={0.45} color="#a0d0ff" />
 
       <group ref={groupRef}>
         <PhoneModel
@@ -93,12 +121,11 @@ export default function PhoneScene({
         />
       </group>
 
-      {/* Mięka kontaktowa cień — daje grunt i osadza model w przestrzeni */}
       <ContactShadows
         position={[0, -1.7, 0]}
-        opacity={0.55}
+        opacity={0.5}
         scale={6}
-        blur={2.4}
+        blur={2.6}
         far={4}
         resolution={1024}
         color="#000000"

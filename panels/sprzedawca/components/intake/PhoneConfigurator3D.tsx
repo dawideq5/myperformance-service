@@ -98,19 +98,19 @@ const STEPS: Step[] = [
         pos: [0, 4.0, 1.6],
         highlight: "earpiece",
         caption: "Głośnik rozmów — pył przyczynia się do problemów ze słyszalnością",
-        durationMs: 2400,
+        durationMs: 7200,
       },
       {
         pos: [0, -4.0, 1.6],
         highlight: "speakers",
         caption: "Głośniczki dolne — kurz tłumi dźwięk multimedia",
-        durationMs: 2400,
+        durationMs: 7200,
       },
       {
         pos: [0, -4.5, 1.0],
         highlight: "port",
         caption: "Port ładowania — kurz blokuje połączenie z kablem",
-        durationMs: 2400,
+        durationMs: 7200,
       },
     ],
   },
@@ -258,7 +258,8 @@ export function PhoneConfigurator3D({
 
   const finish = () => {
     setClosing(true);
-    setTimeout(() => onComplete(state), 1500);
+    // Fade-out editora — bez box animation. Czas dopasowany do CSS transition.
+    setTimeout(() => onComplete(state), 700);
   };
 
   const StepIcon = STEP_ICONS[step.id];
@@ -277,15 +278,17 @@ export function PhoneConfigurator3D({
 
   return (
     <div
-      className="fixed inset-0 z-[2050] flex flex-col"
+      className={`fixed inset-0 z-[2050] flex flex-col transition-opacity duration-700 ${
+        closing ? "opacity-0" : "opacity-100"
+      }`}
       style={{
         background:
           "radial-gradient(circle at 50% 30%, #1a2138 0%, #0a0e1a 80%)",
       }}
     >
       <div
-        className={`flex-1 flex flex-col transition-all duration-1000 ${
-          closing ? "scale-50 opacity-0" : "scale-100 opacity-100"
+        className={`flex-1 flex flex-col transition-all duration-700 ${
+          closing ? "scale-95 opacity-0 blur-sm" : "scale-100 opacity-100"
         }`}
       >
         {/* Top bar */}
@@ -331,10 +334,7 @@ export function PhoneConfigurator3D({
 
         {/* Main canvas */}
         <div className="flex-1 grid grid-cols-1 lg:grid-cols-[1fr,minmax(340px,440px)] gap-0 min-h-0">
-          <div
-            className={`relative ${closing ? "phone-into-box" : ""}`}
-            style={{ minHeight: 360 }}
-          >
+          <div className="relative" style={{ minHeight: 360 }}>
             <Canvas
               shadows
               camera={{ position: [0, 0, 5.2], fov: 36 }}
@@ -462,20 +462,6 @@ export function PhoneConfigurator3D({
         </div>
       </div>
 
-      {closing && <ClosingBox />}
-
-      <style>{`
-        .phone-into-box {
-          animation: phoneIntoBox 1.5s cubic-bezier(0.45, 0, 0.2, 1) forwards;
-          transform-origin: 50% 70%;
-        }
-        @keyframes phoneIntoBox {
-          0%   { transform: scale(1) translateY(0) rotateX(0deg); opacity: 1; filter: brightness(1); }
-          30%  { transform: scale(0.92) translateY(8%) rotateX(-8deg); opacity: 1; filter: brightness(0.95); }
-          70%  { transform: scale(0.42) translateY(28%) rotateX(-15deg); opacity: 0.9; filter: brightness(0.7); }
-          100% { transform: scale(0.18) translateY(45%) rotateX(-20deg); opacity: 0; filter: brightness(0.4); }
-        }
-      `}</style>
     </div>
   );
 }
@@ -872,87 +858,3 @@ function SummaryOverlay({
   );
 }
 
-/** Lepsza animacja pudełka — actually drawn 3D box z pseudo-perspective. */
-function ClosingBox() {
-  return (
-    <div className="absolute inset-0 flex items-center justify-center pointer-events-none animate-fade-in">
-      <div
-        className="relative"
-        style={{
-          width: 320,
-          height: 240,
-          perspective: 1000,
-          transformStyle: "preserve-3d",
-        }}
-      >
-        {/* Box body (3 visible faces) */}
-        <div
-          className="absolute inset-0 rounded-lg"
-          style={{
-            background: "linear-gradient(160deg, #c89870, #8b6f47)",
-            boxShadow: "inset 0 -10px 30px rgba(0,0,0,0.5), 0 20px 60px rgba(0,0,0,0.7)",
-            transform: "rotateX(60deg) rotateZ(-5deg)",
-          }}
-        />
-        {/* Top flap (left) */}
-        <div
-          className="box-flap-left absolute"
-          style={{
-            top: "-50%",
-            left: "-2%",
-            width: "52%",
-            height: "100%",
-            background: "linear-gradient(135deg, #d4a574, #8b6f47)",
-            boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
-            transformOrigin: "100% 100%",
-            transform: "rotateX(-180deg) rotateZ(-5deg)",
-          }}
-        />
-        {/* Top flap (right) */}
-        <div
-          className="box-flap-right absolute"
-          style={{
-            top: "-50%",
-            right: "-2%",
-            width: "52%",
-            height: "100%",
-            background: "linear-gradient(225deg, #c89870, #7a5e3e)",
-            boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
-            transformOrigin: "0% 100%",
-            transform: "rotateX(-180deg) rotateZ(-5deg)",
-          }}
-        />
-        {/* Tape stripe */}
-        <div
-          className="box-tape absolute"
-          style={{
-            top: "calc(50% - 12px)",
-            left: "10%",
-            width: "80%",
-            height: 24,
-            background:
-              "repeating-linear-gradient(45deg, #f0e4c8, #f0e4c8 8px, #d4c094 8px, #d4c094 16px)",
-            opacity: 0,
-            boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
-            transform: "rotateX(60deg) rotateZ(-5deg)",
-          }}
-        />
-        <style>{`
-          .box-flap-left { animation: foldLeft 0.7s cubic-bezier(0.4,0,0.2,1) 0.6s forwards; }
-          .box-flap-right { animation: foldRight 0.7s cubic-bezier(0.4,0,0.2,1) 0.7s forwards; }
-          .box-tape { animation: tapeIn 0.4s ease 1.3s forwards; }
-          @keyframes foldLeft {
-            to { transform: rotateX(-90deg) rotateZ(-5deg); }
-          }
-          @keyframes foldRight {
-            to { transform: rotateX(-90deg) rotateZ(-5deg); }
-          }
-          @keyframes tapeIn {
-            from { opacity: 0; transform: scaleX(0.2) rotateX(60deg) rotateZ(-5deg); }
-            to { opacity: 0.85; transform: scaleX(1) rotateX(60deg) rotateZ(-5deg); }
-          }
-        `}</style>
-      </div>
-    </div>
-  );
-}

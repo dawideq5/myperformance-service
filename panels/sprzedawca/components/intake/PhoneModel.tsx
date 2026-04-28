@@ -5,17 +5,17 @@ import { useFrame, useThree } from "@react-three/fiber";
 import { useMemo, useRef } from "react";
 import * as THREE from "three";
 
-/** Hiperrealistyczny model telefonu w stylu nowoczesnego flagowca (proporcje
- * ~iPhone 15 Pro / Galaxy S24 Ultra). Wszystko z primitive geometry — brak
- * GLB. Materiały PBR (MeshPhysicalMaterial dla szkła, MeshStandardMaterial
- * z wysokim metalness dla ramek i szczotkowanej obudowy). */
+/** Smukły, czarny, hiperrealistyczny model telefonu — proporcje nowoczesnego
+ * flagowca. Wszystko z primitive geometry. Wyspa aparatów naturalna,
+ * niewielka. Highlight przez delikatny pulsing point light + subtelne
+ * emissive na materiale (0.05-0.18). */
 
 export const PHONE_DIMENSIONS = {
-  width: 1.5, // ~76 mm
-  height: 3.1, // ~158 mm
-  depth: 0.18, // ~9 mm
-  cornerRadius: 0.32,
-  bezel: 0.045,
+  width: 1.5,
+  height: 3.1,
+  depth: 0.12, // smukłe — było 0.18
+  cornerRadius: 0.42, // mniej kanciaste — było 0.32
+  bezel: 0.05,
 };
 
 export type HighlightId =
@@ -28,46 +28,68 @@ export type HighlightId =
   | "speakers"
   | "port";
 
+/** Pozycje punktowych źródeł światła dla każdego highlight component. */
+const HIGHLIGHT_POSITIONS: Record<Exclude<HighlightId, null>, [number, number, number]> = {
+  display: [0, 0, 0.4],
+  back: [0, 0, -0.4],
+  cameras: [-0.32, 0.85, -0.45],
+  frames: [0.85, 0, 0],
+  earpiece: [0, 1.45, 0.18],
+  speakers: [0, -1.5, 0.18],
+  port: [0, -1.53, 0.0],
+};
+
 interface PhoneModelProps {
   highlight?: HighlightId;
+  /** Akcent kolorystyczny — telefon zawsze czarny, brand wpływa tylko na
+   *  ledwo widoczny tint tylnej szyby (subtelne odbicie). */
   brandColor?: string;
-  /** Włącza świecący ekran z treścią (true = display ON, false = OFF/black). */
   screenOn?: boolean;
-  /** Treść do narysowania na "włączonym" ekranie (HTML overlay przez parent). */
-  screenChildren?: React.ReactNode;
-  /** Markery uszkodzeń. */
   damageMarkers?: { id: string; x: number; y: number; z: number; description?: string }[];
-  /** Klik w model (raycaster) — używane do dodawania markerów. */
   onPointerMissed?: () => void;
   onModelClick?: (point: THREE.Vector3, surface: string) => void;
 }
 
-function emissiveForId(target: HighlightId, current: HighlightId, t: number) {
-  if (target == null || current !== target) return new THREE.Color(0, 0, 0);
-  const pulse = (Math.sin(t * 4) + 1) / 2;
-  return new THREE.Color(0.3 + pulse * 0.6, 0, 0);
-}
-
 export function PhoneModel({
   highlight = null,
-  brandColor = "#1f2937",
+  brandColor = "#0a0a0a",
   screenOn = false,
   damageMarkers = [],
   onModelClick,
 }: PhoneModelProps) {
   const D = PHONE_DIMENSIONS;
   const matRefs = useRef<Record<string, THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial | null>>({});
+  const highlightLightRef = useRef<THREE.PointLight>(null);
 
+  // Delikatny pulse dla emissive + point light intensity.
   useFrame(({ clock }) => {
     const t = clock.getElapsedTime();
+    const pulse = (Math.sin(t * 2.2) + 1) / 2; // 0..1, ~0.35 Hz wolniejszy niż wcześniej
+    const intensityScale = 0.6 + pulse * 0.4; // 0.6..1.0
+
+    // Subtelne emissive na faktycznym materiale (max 0.15 intensity).
     for (const [id, mat] of Object.entries(matRefs.current)) {
       if (!mat) continue;
-      const color = emissiveForId(id as HighlightId, highlight, t);
-      mat.emissive = color;
-      // For physical material — boost emissive intensity when highlighted.
+      const isHighlighted = id === highlight;
+      const targetIntensity = isHighlighted ? 0.06 + pulse * 0.12 : 0;
       if ("emissiveIntensity" in mat) {
-        const m = mat as THREE.MeshPhysicalMaterial;
-        m.emissiveIntensity = highlight === id ? 1.4 : 1;
+        mat.emissiveIntensity = targetIntensity * 5;
+      }
+      if (isHighlighted) {
+        mat.emissive = new THREE.Color(0xff3030);
+      } else {
+        mat.emissive = new THREE.Color(0, 0, 0);
+      }
+    }
+
+    // Pulsujący punkt świetlny przy podświetlonym elemencie.
+    if (highlightLightRef.current) {
+      if (highlight) {
+        const [x, y, z] = HIGHLIGHT_POSITIONS[highlight];
+        highlightLightRef.current.position.set(x, y, z);
+        highlightLightRef.current.intensity = 2.2 * intensityScale;
+      } else {
+        highlightLightRef.current.intensity = 0;
       }
     }
   });
@@ -77,15 +99,28 @@ export function PhoneModel({
     onModelClick?.(e.point, surface);
   };
 
+  // Telefon zawsze w czerni — brandColor parametr ignorowany (pozostawiony
+  // dla backward compat, ale nie wpływa na wygląd).
+  const backColor = 0x0a0a0a;
+  void brandColor;
+
   return (
     <group>
-      {/* === Aluminiowa rama (titanium-like brushed metal) === */}
-      {/* Sub-surface frame: nieco mniejsze niż body, definiuje ramki boczne */}
+      {/* === Punktowe światło highlightu (porusza się do aktualnego elementu) === */}
+      <pointLight
+        ref={highlightLightRef}
+        color="#ff3030"
+        distance={0.9}
+        decay={1.6}
+        intensity={0}
+      />
+
+      {/* === Korpus (czarny tytan / mat aluminum) === */}
       <RoundedBox
         args={[D.width, D.height, D.depth]}
         radius={D.cornerRadius}
-        smoothness={8}
-        bevelSegments={6}
+        smoothness={12}
+        bevelSegments={12}
         creaseAngle={0.4}
         onClick={(e) => handleClick(e, "frame")}
       >
@@ -93,34 +128,17 @@ export function PhoneModel({
           ref={(m) => {
             matRefs.current.frames = m as THREE.MeshPhysicalMaterial;
           }}
-          color={brandColor}
-          metalness={0.95}
-          roughness={0.32}
-          clearcoat={0.4}
+          color="#0a0a0a"
+          metalness={0.85}
+          roughness={0.38}
+          clearcoat={0.5}
           clearcoatRoughness={0.18}
         />
       </RoundedBox>
 
-      {/* === Linie antenowe (subtelne ciemne paski na ramce — iPhone-style) === */}
-      {[D.height / 2 - 0.15, -D.height / 2 + 0.15].map((y, i) => (
-        <mesh key={i} position={[0, y, 0]}>
-          <torusGeometry
-            args={[
-              Math.sqrt(
-                (D.width / 2) ** 2 + (D.depth / 2) ** 2,
-              ),
-              0.005,
-              4,
-              64,
-            ]}
-          />
-          <meshStandardMaterial color="#0f0f0f" roughness={0.4} metalness={0.6} />
-        </mesh>
-      ))}
-
-      {/* === Display: czarne/ciemne szkło z subtelną odbijającą warstwą === */}
+      {/* === Display: ciemna szyba z mocnym clearcoat (lustrzane odbicie) === */}
       <mesh
-        position={[0, 0, D.depth / 2 + 0.001]}
+        position={[0, 0, D.depth / 2 + 0.0008]}
         onClick={(e) => handleClick(e, "front")}
       >
         <planeGeometry args={[D.width - D.bezel * 2, D.height - D.bezel * 2]} />
@@ -135,152 +153,138 @@ export function PhoneModel({
           clearcoatRoughness={0.02}
           emissive={screenOn ? new THREE.Color(0.05, 0.08, 0.15) : new THREE.Color(0, 0, 0)}
           emissiveIntensity={screenOn ? 1.4 : 0}
-          transparent
-          opacity={1}
         />
       </mesh>
 
-      {/* === Notch / Dynamic Island — subtelny czarny pillbox === */}
-      <mesh position={[0, D.height / 2 - 0.18, D.depth / 2 + 0.0035]}>
-        <RoundedBoxGeometry width={0.55} height={0.11} depth={0.005} radius={0.05} />
-        <meshStandardMaterial color="#000" roughness={0.2} metalness={0.1} />
+      {/* === Notch / Dynamic Island (mała pillbox) === */}
+      <mesh position={[0, D.height / 2 - 0.18, D.depth / 2 + 0.003]}>
+        <RoundedBoxGeometry width={0.5} height={0.1} depth={0.004} radius={0.05} />
+        <meshStandardMaterial color="#000" roughness={0.18} metalness={0.05} />
       </mesh>
-      {/* Sensor + selfie camera dots inside notch */}
-      <mesh position={[-0.18, D.height / 2 - 0.18, D.depth / 2 + 0.0045]}>
-        <cylinderGeometry args={[0.018, 0.018, 0.005, 16]} rotation-x={Math.PI / 2} />
-        <meshPhysicalMaterial color="#0a0a0a" roughness={0.05} metalness={0.5} clearcoat={1} />
+      {/* Sensor + selfie camera */}
+      <mesh position={[-0.16, D.height / 2 - 0.18, D.depth / 2 + 0.0042]}>
+        <cylinderGeometry args={[0.014, 0.014, 0.004, 16]} rotation-x={Math.PI / 2} />
+        <meshPhysicalMaterial color="#0a0a0a" roughness={0.05} metalness={0.4} clearcoat={1} />
       </mesh>
-      <mesh position={[0.18, D.height / 2 - 0.18, D.depth / 2 + 0.0045]}>
-        <cylinderGeometry args={[0.018, 0.018, 0.005, 16]} rotation-x={Math.PI / 2} />
-        <meshPhysicalMaterial color="#0a0a0a" roughness={0.05} metalness={0.5} clearcoat={1} />
+      <mesh position={[0.16, D.height / 2 - 0.18, D.depth / 2 + 0.0042]}>
+        <cylinderGeometry args={[0.014, 0.014, 0.004, 16]} rotation-x={Math.PI / 2} />
+        <meshPhysicalMaterial color="#0a0a0a" roughness={0.05} metalness={0.4} clearcoat={1} />
       </mesh>
 
-      {/* === Tylna szyba (matowe szkło z gradientowym kolorem) === */}
+      {/* === Tylna szyba (matowe szkło z subtelnym tintem) === */}
       <mesh
-        position={[0, 0, -D.depth / 2 - 0.001]}
+        position={[0, 0, -D.depth / 2 - 0.0008]}
         rotation={[0, Math.PI, 0]}
         onClick={(e) => handleClick(e, "back")}
       >
-        <planeGeometry args={[D.width - D.bezel * 0.5, D.height - D.bezel * 0.5]} />
+        <planeGeometry args={[D.width - D.bezel * 0.4, D.height - D.bezel * 0.4]} />
         <meshPhysicalMaterial
           ref={(m) => {
             matRefs.current.back = m as THREE.MeshPhysicalMaterial;
           }}
-          color={brandColor}
-          metalness={0.85}
-          roughness={0.42}
-          clearcoat={0.5}
-          clearcoatRoughness={0.2}
+          color={backColor}
+          metalness={0.7}
+          roughness={0.55}
+          clearcoat={0.7}
+          clearcoatRoughness={0.15}
         />
       </mesh>
 
-      {/* === Wyspa aparatów (camera island) — top-left róg, podniesiona === */}
+      {/* === Naturalna wyspa aparatów — kompaktowa, w stylu Pixel/iPhone === */}
+      {/* Mniejsza i niżej osadzona płytka */}
       <group
-        position={[-D.width / 2 + 0.42, D.height / 2 - 0.5, -D.depth / 2 - 0.07]}
+        position={[-D.width / 2 + 0.36, D.height / 2 - 0.5, -D.depth / 2 - 0.05]}
         onClick={(e) => handleClick(e, "cameras")}
       >
-        {/* Płytka wyspy — ciemne szczotkowane */}
-        <RoundedBox
-          args={[0.65, 0.65, 0.13]}
-          radius={0.16}
-          smoothness={6}
-        >
+        <RoundedBox args={[0.55, 0.55, 0.08]} radius={0.18} smoothness={8}>
           <meshPhysicalMaterial
             ref={(m) => {
               matRefs.current.cameras = m as THREE.MeshPhysicalMaterial;
             }}
-            color="#161616"
-            metalness={0.9}
-            roughness={0.28}
+            color="#0d0d0d"
+            metalness={0.85}
+            roughness={0.25}
             clearcoat={0.7}
-            clearcoatRoughness={0.12}
+            clearcoatRoughness={0.1}
           />
         </RoundedBox>
-        {/* 3 obiektywy + flash w układzie L */}
-        <Lens position={[-0.16, 0.16, -0.073]} radius={0.13} />
-        <Lens position={[0.16, 0.16, -0.073]} radius={0.13} />
-        <Lens position={[-0.16, -0.16, -0.073]} radius={0.13} />
-        {/* Flash + LiDAR */}
-        <FlashOrSensor position={[0.16, -0.16, -0.07]} color="#fef3c7" emissive />
-        {/* Mikrofon */}
-        <mesh position={[0, 0, -0.072]}>
-          <cylinderGeometry args={[0.012, 0.012, 0.007, 16]} />
+        {/* 3 obiektywy w układzie L — mniejsze i bardziej naturalne */}
+        <Lens position={[-0.135, 0.13, -0.045]} radius={0.105} />
+        <Lens position={[0.135, 0.13, -0.045]} radius={0.105} />
+        <Lens position={[-0.135, -0.13, -0.045]} radius={0.105} />
+        {/* Flash w 4. rogu */}
+        <FlashOrSensor position={[0.135, -0.13, -0.043]} color="#fef3c7" emissive />
+        {/* Mikrofon — mała kropka pomiędzy */}
+        <mesh position={[0, 0, -0.043]}>
+          <cylinderGeometry args={[0.011, 0.011, 0.005, 16]} />
           <meshStandardMaterial color="#000" roughness={0.3} />
         </mesh>
       </group>
 
-      {/* === Głośnik rozmów (earpiece) — wąska szczelina na górze ekranu === */}
+      {/* === Głośnik rozmów (cienka szczelina pod krawędzią ekranu) === */}
       <mesh
-        position={[0, D.height / 2 - 0.05, D.depth / 2 + 0.0005]}
+        position={[0, D.height / 2 - 0.045, D.depth / 2 + 0.0005]}
         onClick={(e) => handleClick(e, "earpiece")}
       >
-        <boxGeometry args={[0.42, 0.024, 0.003]} />
+        <RoundedBoxGeometry width={0.36} height={0.018} depth={0.003} radius={0.008} />
         <meshStandardMaterial
           ref={(m) => {
             matRefs.current.earpiece = m as THREE.MeshStandardMaterial;
           }}
-          color="#0a0a0a"
+          color="#080808"
           roughness={0.3}
-          metalness={0.5}
+          metalness={0.4}
         />
       </mesh>
 
-      {/* === Głośniczki dolne (lewy + prawy) — perforacja z 7 otworów === */}
+      {/* === Głośniczki dolne — 6 cylindrów na stronę, mniejsze otwory === */}
       {[-1, 1].map((side) => (
         <group
           key={side}
-          position={[side * 0.43, -D.height / 2 + 0.012, 0]}
+          position={[side * 0.42, -D.height / 2 + 0.012, 0]}
           onClick={(e) => handleClick(e, "speakers")}
         >
-          {[...Array(7)].map((_, i) => (
-            <mesh key={i} position={[(i - 3) * 0.038, 0, 0]}>
-              <cylinderGeometry args={[0.013, 0.013, D.depth + 0.002, 16]} />
+          {[...Array(6)].map((_, i) => (
+            <mesh key={i} position={[(i - 2.5) * 0.04, 0, 0]}>
+              <cylinderGeometry args={[0.011, 0.011, D.depth + 0.002, 16]} />
               <meshStandardMaterial
                 ref={(m) => {
                   if (side === -1 && i === 0)
                     matRefs.current.speakers = m as THREE.MeshStandardMaterial;
                 }}
                 color="#0a0a0a"
-                roughness={0.25}
-                metalness={0.6}
+                roughness={0.22}
+                metalness={0.55}
               />
             </mesh>
           ))}
         </group>
       ))}
 
-      {/* === USB-C / Lightning port (środek dolnej krawędzi) === */}
+      {/* === USB-C port — bardziej proporcjonalny, ze ściankami === */}
       <mesh
         position={[0, -D.height / 2 + 0.012, 0]}
         onClick={(e) => handleClick(e, "port")}
       >
-        <boxGeometry args={[0.34, 0.075, D.depth - 0.04]} />
+        <boxGeometry args={[0.32, 0.062, D.depth - 0.04]} />
         <meshStandardMaterial
           ref={(m) => {
             matRefs.current.port = m as THREE.MeshStandardMaterial;
           }}
-          color="#080808"
+          color="#070707"
           roughness={0.32}
           metalness={0.7}
         />
       </mesh>
-      {/* USB-C wewnętrzny "język" konektora */}
       <mesh position={[0, -D.height / 2 + 0.012, 0]}>
-        <boxGeometry args={[0.27, 0.022, 0.04]} />
-        <meshStandardMaterial color="#0d0d0d" roughness={0.6} metalness={0.4} />
+        <boxGeometry args={[0.25, 0.018, 0.04]} />
+        <meshStandardMaterial color="#0a0a0a" roughness={0.55} metalness={0.4} />
       </mesh>
 
-      {/* === Przyciski boczne (volume + power) === */}
-      <SideButton position={[D.width / 2 + 0.005, 0.55, 0]} length={0.5} side="right" />
-      <SideButton position={[-D.width / 2 - 0.005, 0.85, 0]} length={0.18} side="left" />
-      <SideButton position={[-D.width / 2 - 0.005, 0.6, 0]} length={0.3} side="left" />
-      <SideButton position={[-D.width / 2 - 0.005, 0.18, 0]} length={0.04} side="left" />
-
-      {/* === Action button slot (iPhone-15 style) — mała wnęka === */}
-      <mesh position={[-D.width / 2 - 0.001, 1.0, 0]}>
-        <boxGeometry args={[0.005, 0.18, 0.075]} />
-        <meshStandardMaterial color="#000" roughness={0.45} metalness={0.6} />
-      </mesh>
+      {/* === Subtelne przyciski boczne (bez antenna lines żeby było gładziej) === */}
+      <SideButton position={[D.width / 2 + 0.003, 0.55, 0]} length={0.46} />
+      <SideButton position={[-D.width / 2 - 0.003, 0.78, 0]} length={0.18} />
+      <SideButton position={[-D.width / 2 - 0.003, 0.52, 0]} length={0.26} />
 
       {/* === Damage markers === */}
       {damageMarkers.map((m) => (
@@ -290,7 +294,7 @@ export function PhoneModel({
   );
 }
 
-/** Soczewka aparatu — koncentryczne pierścienie z głębokością + szkiełko. */
+/** Soczewka aparatu — koncentryczne pierścienie, naturalniejszy rozmiar. */
 function Lens({
   position,
   radius,
@@ -300,46 +304,46 @@ function Lens({
 }) {
   return (
     <group position={position}>
-      {/* Zewnętrzny pierścień metalowy */}
+      {/* Zewnętrzny pierścień (nieco wystający) */}
       <mesh>
-        <torusGeometry args={[radius, radius * 0.18, 24, 48]} />
+        <torusGeometry args={[radius, radius * 0.16, 24, 48]} />
         <meshPhysicalMaterial
-          color="#2a2a2a"
-          metalness={0.95}
-          roughness={0.28}
-          clearcoat={0.8}
-          clearcoatRoughness={0.1}
+          color="#1a1a1a"
+          metalness={0.9}
+          roughness={0.32}
+          clearcoat={0.6}
+          clearcoatRoughness={0.12}
         />
       </mesh>
-      {/* Czarne wnętrze obudowy soczewki */}
+      {/* Czarne wnętrze */}
       <mesh position={[0, 0, -0.005]}>
-        <cylinderGeometry args={[radius * 0.85, radius * 0.85, 0.04, 32]} />
-        <meshStandardMaterial color="#020202" roughness={0.6} />
+        <cylinderGeometry args={[radius * 0.85, radius * 0.85, 0.025, 32]} />
+        <meshStandardMaterial color="#020202" roughness={0.8} />
       </mesh>
-      {/* Szkiełko obiektywu — głębokie z reflective pattern */}
+      {/* Szkiełko */}
       <mesh position={[0, 0, 0.012]}>
-        <cylinderGeometry args={[radius * 0.65, radius * 0.7, 0.02, 32]} />
+        <cylinderGeometry args={[radius * 0.65, radius * 0.7, 0.015, 32]} />
         <meshPhysicalMaterial
-          color="#0a0a0a"
+          color="#080808"
           metalness={0.0}
           roughness={0.04}
           clearcoat={1.0}
           clearcoatRoughness={0.02}
-          transmission={0.2}
+          transmission={0.15}
           ior={1.7}
-          emissive={new THREE.Color("#1a3a5e")}
-          emissiveIntensity={0.15}
+          emissive={new THREE.Color("#0a1530")}
+          emissiveIntensity={0.18}
         />
       </mesh>
-      {/* Mała aperture w środku — iris dot */}
+      {/* Aperture */}
       <mesh position={[0, 0, 0.022]}>
-        <cylinderGeometry args={[radius * 0.18, radius * 0.18, 0.003, 24]} />
+        <cylinderGeometry args={[radius * 0.16, radius * 0.16, 0.002, 24]} />
         <meshStandardMaterial color="#000" roughness={0.95} />
       </mesh>
-      {/* Highlight — sztuczny anaflektyczny "blik" */}
-      <mesh position={[radius * 0.25, radius * 0.25, 0.025]}>
-        <cylinderGeometry args={[radius * 0.1, radius * 0.1, 0.001, 16]} />
-        <meshBasicMaterial color="#88aaff" transparent opacity={0.45} />
+      {/* Subtelny refleks (mniejszy, mniej "kreskówkowy") */}
+      <mesh position={[radius * 0.28, radius * 0.28, 0.024]}>
+        <circleGeometry args={[radius * 0.12, 16]} />
+        <meshBasicMaterial color="#aaccee" transparent opacity={0.22} />
       </mesh>
     </group>
   );
@@ -356,13 +360,13 @@ function FlashOrSensor({
 }) {
   return (
     <mesh position={position}>
-      <cylinderGeometry args={[0.07, 0.07, 0.04, 24]} />
+      <cylinderGeometry args={[0.05, 0.05, 0.025, 24]} />
       <meshStandardMaterial
         color={color}
-        roughness={0.2}
+        roughness={0.18}
         metalness={0.4}
         emissive={emissive ? new THREE.Color(color) : new THREE.Color(0, 0, 0)}
-        emissiveIntensity={emissive ? 0.5 : 0}
+        emissiveIntensity={emissive ? 0.35 : 0}
       />
     </mesh>
   );
@@ -374,13 +378,12 @@ function SideButton({
 }: {
   position: [number, number, number];
   length: number;
-  side?: "left" | "right";
 }) {
   return (
     <mesh position={position}>
-      <boxGeometry args={[0.012, length, 0.075]} />
+      <boxGeometry args={[0.008, length, 0.05]} />
       <meshPhysicalMaterial
-        color="#1a1a1a"
+        color="#141414"
         metalness={0.92}
         roughness={0.3}
         clearcoat={0.5}
@@ -389,34 +392,86 @@ function SideButton({
   );
 }
 
+/** Promieniujący czerwony marker uszkodzenia — kropka + 2 koncentryczne ringi. */
 function DamagePin({ x, y, z }: { x: number; y: number; z: number }) {
-  const ref = useRef<THREE.Mesh>(null);
+  const dotRef = useRef<THREE.Mesh>(null);
+  const ring1Ref = useRef<THREE.Mesh>(null);
+  const ring2Ref = useRef<THREE.Mesh>(null);
+  const lightRef = useRef<THREE.PointLight>(null);
+
   useFrame(({ clock }) => {
-    if (!ref.current) return;
-    const s = 1 + Math.sin(clock.getElapsedTime() * 3) * 0.15;
-    ref.current.scale.setScalar(s);
+    const t = clock.getElapsedTime();
+    const pulse = (Math.sin(t * 2.4) + 1) / 2; // 0..1
+    if (dotRef.current) {
+      dotRef.current.scale.setScalar(0.95 + pulse * 0.15);
+    }
+    if (ring1Ref.current) {
+      const r1 = (t * 0.6) % 1; // 0..1 looping
+      ring1Ref.current.scale.setScalar(1 + r1 * 1.6);
+      const m = ring1Ref.current.material as THREE.MeshBasicMaterial;
+      m.opacity = (1 - r1) * 0.4;
+    }
+    if (ring2Ref.current) {
+      const r2 = ((t * 0.6) + 0.5) % 1;
+      ring2Ref.current.scale.setScalar(1 + r2 * 1.6);
+      const m = ring2Ref.current.material as THREE.MeshBasicMaterial;
+      m.opacity = (1 - r2) * 0.4;
+    }
+    if (lightRef.current) {
+      lightRef.current.intensity = 0.5 + pulse * 0.6;
+    }
   });
+
   return (
     <group position={[x, y, z]}>
-      <mesh ref={ref}>
-        <sphereGeometry args={[0.04, 16, 16]} />
+      {/* Punkt świetlny — promieniowanie wokół kropki */}
+      <pointLight
+        ref={lightRef}
+        color="#ff3030"
+        distance={0.5}
+        decay={1.8}
+        intensity={0.5}
+      />
+      {/* Centralna czerwona kropka */}
+      <mesh ref={dotRef}>
+        <sphereGeometry args={[0.025, 24, 24]} />
         <meshStandardMaterial
-          color="#ff3030"
+          color="#ff2020"
           emissive={new THREE.Color("#ff0000")}
-          emissiveIntensity={0.8}
+          emissiveIntensity={1.4}
           roughness={0.3}
         />
       </mesh>
+      {/* Ekspandujący pierścień #1 */}
+      <mesh ref={ring1Ref}>
+        <ringGeometry args={[0.035, 0.045, 32]} />
+        <meshBasicMaterial
+          color="#ff3030"
+          transparent
+          opacity={0.4}
+          side={THREE.DoubleSide}
+        />
+      </mesh>
+      {/* Ekspandujący pierścień #2 (offset fazowy) */}
+      <mesh ref={ring2Ref}>
+        <ringGeometry args={[0.035, 0.045, 32]} />
+        <meshBasicMaterial
+          color="#ff5050"
+          transparent
+          opacity={0.4}
+          side={THREE.DoubleSide}
+        />
+      </mesh>
+      {/* Glow halo — nieco większa kula z bardzo małym opacity */}
       <mesh>
-        <ringGeometry args={[0.05, 0.07, 32]} />
-        <meshBasicMaterial color="#ff3030" transparent opacity={0.45} side={THREE.DoubleSide} />
+        <sphereGeometry args={[0.06, 24, 24]} />
+        <meshBasicMaterial color="#ff3030" transparent opacity={0.12} />
       </mesh>
     </group>
   );
 }
 
-/** Mała procedural geometry helper dla notch-pillbox (drei RoundedBox jest 3D,
- * tu chcemy płaski pillbox). */
+/** Procedural rounded pillbox — używane dla notch i earpiece. */
 function RoundedBoxGeometry({
   width,
   height,
@@ -451,7 +506,7 @@ function RoundedBoxGeometry({
   return <primitive object={geom} attach="geometry" />;
 }
 
-/** Camera animator — interpolacja pozycji + lookAt. */
+/** Animowana kamera. */
 export function CameraRig({
   position,
   lookAt,
@@ -481,7 +536,8 @@ export function CameraRig({
   }
 
   useFrame((_, dt) => {
-    camera.position.lerp(tgtPos.current, Math.min(dt * 2.0, 1));
+    // Wolniejszy lerp dla bardziej cinematic odczucia.
+    camera.position.lerp(tgtPos.current, Math.min(dt * 1.2, 1));
     camera.lookAt(tgtLook.current);
   });
   return null;
