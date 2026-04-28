@@ -27,7 +27,7 @@ import {
   DescriptionPicker,
   serializeRepairTypes,
 } from "../intake/DescriptionPicker";
-import { openReceiptPdf, type ReceiptData } from "../../lib/receipt";
+import { openServiceReceipt } from "../../lib/receipt";
 
 export function AddServiceTab({ locationId }: { locationId: string }) {
   const [brand, setBrand] = useState("");
@@ -58,9 +58,12 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Snapshot ostatniego utworzonego zlecenia — używany przez drukowanie
-  // potwierdzenia. Reset po Wyczyść lub kolejnym utworzeniu.
-  const [lastCreated, setLastCreated] = useState<ReceiptData | null>(null);
+  // ID + handover snapshot ostatniego utworzonego zlecenia — używane do
+  // otwierania potwierdzenia po stworzeniu. Reset po Wyczyść.
+  const [lastCreated, setLastCreated] = useState<{
+    id: string;
+    handover: { choice: "none" | "items"; items: string };
+  } | null>(null);
   const [cleaningPrice, setCleaningPrice] = useState<number | null>(null);
 
   // Sekcje rozwijane — sekwencyjne gating: tylko pierwsza sekcja otwarta na
@@ -282,34 +285,14 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`);
       const ticketNumber = json.service.ticketNumber as string;
-      // Snapshot do drukowania — ZANIM zresetujemy form.
-      const snapshot: ReceiptData = {
-        ticketNumber,
-        createdAt: json.service.createdAt ?? new Date().toISOString(),
-        customer: {
-          firstName: customerFirstName.trim(),
-          lastName: customerLastName.trim(),
-          phone: contactPhone.trim(),
-          email: contactEmail.trim(),
-        },
-        device: {
-          brand: brand.trim(),
-          model: model.trim(),
-          imei: imei.trim(),
-          color: color.trim(),
-        },
-        lock: { type: lockType, code: lockCode.trim() },
-        description: body.description ?? "",
-        visualCondition,
-        estimate: amountEstimate ? Number(amountEstimate) : null,
-        cleaningPrice,
-        cleaningAccepted: !!visualCondition.cleaning_accepted,
+      const serviceId = json.service.id as string;
+      setLastCreated({
+        id: serviceId,
         handover: {
           choice: handoverChoice ?? "none",
           items: handoverItems.trim(),
         },
-      };
-      setLastCreated(snapshot);
+      });
       setSuccess(`Utworzono zlecenie ${ticketNumber}`);
       reset();
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -363,7 +346,7 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
                   <button
                     type="button"
                     onClick={() => {
-                      void openReceiptPdf(lastCreated);
+                      openServiceReceipt(lastCreated.id, lastCreated.handover);
                     }}
                     className="flex-1 px-4 py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 shadow-md transition-all hover:scale-[1.01]"
                     style={{

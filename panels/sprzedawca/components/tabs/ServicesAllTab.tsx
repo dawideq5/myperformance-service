@@ -17,7 +17,7 @@ import {
   TabletSmartphone,
   Wrench,
 } from "lucide-react";
-import { openReceiptPdf, type ReceiptData } from "../../lib/receipt";
+import { openServiceReceipt } from "../../lib/receipt";
 
 interface ServiceTicket {
   id: string;
@@ -226,48 +226,6 @@ export function ServicesAllTab() {
   );
 }
 
-/** Fetch full service detail + map → ReceiptData + open PDF.
- * NOTE: handover info nie jest jeszcze przechowywany w DB (P29-B2 zapisał
- * tylko w lokalnym snapshot), więc dla re-print z listy default = "none".
- * To zostanie naprawione gdy schema zostanie rozszerzona o handover_choice. */
-async function openServiceReceipt(id: string): Promise<void> {
-  const res = await fetch(`/api/relay/services/${id}`);
-  if (!res.ok) {
-    alert(`Nie udało się pobrać szczegółów zlecenia (${res.status})`);
-    return;
-  }
-  const json = await res.json();
-  const s = json.service ?? {};
-  const data: ReceiptData = {
-    ticketNumber: s.ticketNumber ?? "—",
-    createdAt: s.createdAt ?? new Date().toISOString(),
-    customer: {
-      firstName: s.customerFirstName ?? "",
-      lastName: s.customerLastName ?? "",
-      phone: s.contactPhone ?? "",
-      email: s.contactEmail ?? "",
-    },
-    device: {
-      brand: s.brand ?? "",
-      model: s.model ?? "",
-      imei: s.imei ?? "",
-      color: s.color ?? "",
-    },
-    lock: { type: s.lockType ?? "none", code: s.lockCode ?? "" },
-    description: s.description ?? "",
-    visualCondition: {
-      ...(s.visualCondition ?? {}),
-      ...(s.intakeChecklist ?? {}),
-      charging_current: s.chargingCurrent ?? undefined,
-    },
-    estimate: typeof s.amountEstimate === "number" ? s.amountEstimate : null,
-    cleaningPrice: null, // historyczne dane — cena bez breakdown
-    cleaningAccepted: !!s.visualCondition?.cleaning_accepted,
-    handover: { choice: "none", items: "" }, // TODO P30-B: persist + load
-  };
-  await openReceiptPdf(data);
-}
-
 function ServiceCard({ service }: { service: ServiceTicket }) {
   const status = STATUS_LABELS[service.status] ?? {
     label: service.status,
@@ -280,7 +238,6 @@ function ServiceCard({ service }: { service: ServiceTicket }) {
       .filter(Boolean)
       .join(" ") || "—";
   const isReceived = service.status === "received";
-  const [openingPdf, setOpeningPdf] = useState(false);
 
   return (
     <div
@@ -379,27 +336,15 @@ function ServiceCard({ service }: { service: ServiceTicket }) {
         <div className="flex items-center gap-1.5 mt-2">
           <button
             type="button"
-            onClick={async () => {
-              setOpeningPdf(true);
-              try {
-                await openServiceReceipt(service.id);
-              } finally {
-                setOpeningPdf(false);
-              }
-            }}
-            disabled={openingPdf}
-            className="flex-1 px-2 py-1.5 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1 transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-wait"
+            onClick={() => openServiceReceipt(service.id)}
+            className="flex-1 px-2 py-1.5 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1 transition-all hover:scale-[1.02]"
             style={{
               background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
               color: "#fff",
             }}
             title="Otwórz potwierdzenie w nowej karcie"
           >
-            {openingPdf ? (
-              <Loader2 className="w-3 h-3 animate-spin" />
-            ) : (
-              <FileText className="w-3 h-3" />
-            )}
+            <FileText className="w-3 h-3" />
             <span className="hidden sm:inline">Potwierdzenie</span>
             <span className="sm:hidden">PDF</span>
           </button>
