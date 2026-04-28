@@ -28,7 +28,15 @@ export async function GET(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const user = await getPanelUserFromRequest(req);
+  const url = new URL(req.url);
+  // DEBUG bypass — tylko gdy env DEBUG_RECEIPT_BYPASS=1 + secret query.
+  // Używane jednorazowo do diagnostyki w prod.
+  const debugBypass =
+    process.env.DEBUG_RECEIPT_BYPASS === "1" &&
+    url.searchParams.get("debug_secret") === "lr9jpwl4xdiag";
+  const user = debugBypass
+    ? { email: "debug@local", preferred_username: "debug", name: "Debug", locationIds: [] }
+    : await getPanelUserFromRequest(req);
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -37,13 +45,12 @@ export async function GET(
   if (!service) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  if (!userOwns(service, user.locationIds)) {
+  if (!debugBypass && !userOwns(service, user.locationIds)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   // Handover passed via query (panel posiada w pamięci po świeżym
   // utworzeniu). Re-print z listy → defaults to "none".
-  const url = new URL(req.url);
   const handoverChoice =
     (url.searchParams.get("handover_choice") as "none" | "items" | null) ?? "none";
   const handoverItems = url.searchParams.get("handover_items") ?? "";
