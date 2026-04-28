@@ -492,7 +492,6 @@ export function PhoneConfigurator3D({
         <div className="flex-1 relative min-h-0 overflow-hidden">
           <div className="absolute left-0 right-0 top-0 bottom-[45vh] lg:bottom-0 lg:right-[420px]">
             <Canvas
-              shadows
               camera={{ position: [4.5, 0, 0], fov: 45 }}
               dpr={[1, 2]}
               gl={{

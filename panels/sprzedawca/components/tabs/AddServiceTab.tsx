@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   AlertCircle,
   Box as BoxIcon,
@@ -168,50 +168,9 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
     setOpen((s) => ({ ...s, [k]: !s[k] }));
   };
 
-  // Auto-collapse sekcji po complete.
-  const prevCompletion = useRef({
-    device: false,
-    lock: false,
-    visual: false,
-    description: false,
-    customer: false,
-  });
-  useEffect(() => {
-    setOpen((curr) => {
-      const next = { ...curr };
-      if (deviceComplete && !prevCompletion.current.device && curr.device) {
-        next.device = false;
-      }
-      if (lockComplete && !prevCompletion.current.lock && curr.lock && lockType !== "none") {
-        next.lock = false;
-      }
-      if (visualComplete && !prevCompletion.current.visual && curr.visual) {
-        next.visual = false;
-      }
-      if (
-        descriptionComplete &&
-        !prevCompletion.current.description &&
-        curr.description
-      ) {
-        next.description = false;
-      }
-      prevCompletion.current = {
-        device: deviceComplete,
-        lock: lockComplete,
-        visual: visualComplete,
-        description: descriptionComplete,
-        customer: customerComplete,
-      };
-      return next;
-    });
-  }, [
-    deviceComplete,
-    lockComplete,
-    visualComplete,
-    descriptionComplete,
-    customerComplete,
-    lockType,
-  ]);
+  // Auto-collapse usunięty — user chce klikać "Kontynuuj" sam, bez
+  // automatycznego zwijania sekcji (czasem auto-collapse był za szybko
+  // i przerywał edycję).
 
   const reset = () => {
     setBrand("");

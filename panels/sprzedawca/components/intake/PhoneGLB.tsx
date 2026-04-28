@@ -78,8 +78,12 @@ export function PhoneGLB({
     const cloned = scene.clone(true);
     cloned.traverse((obj) => {
       if (obj instanceof THREE.Mesh) {
-        obj.castShadow = true;
-        obj.receiveShadow = true;
+        // Shadows wyłączone — hipoteza: shadow map sampling na niektórych
+        // GPU/browser combos (Windows Edge/Chrome) powodował efekt "missing
+        // textures" (model czarny/biały). ContactShadows + ambient/key
+        // light same w sobie zapewniają wystarczający volume look.
+        obj.castShadow = false;
+        obj.receiveShadow = false;
         // Frustum culling off — chroni przed dziwnym znikaniem meshy gdy
         // bounding sphere/box sceny jest źle policzony po klonie.
         obj.frustumCulled = false;

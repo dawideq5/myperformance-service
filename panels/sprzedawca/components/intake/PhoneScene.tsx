@@ -120,16 +120,6 @@ export default function PhoneScene({
         ref={keyLightRef}
         position={[5, 6, 4]}
         intensity={1.4}
-        castShadow
-        shadow-mapSize-width={2048}
-        shadow-mapSize-height={2048}
-        shadow-camera-near={0.1}
-        shadow-camera-far={20}
-        shadow-camera-left={-4}
-        shadow-camera-right={4}
-        shadow-camera-top={4}
-        shadow-camera-bottom={-4}
-        shadow-bias={-0.0005}
       />
       {/* Mirror key light z drugiej strony żeby tylna strona phone'a też była
           oświetlona po obrocie 180°. */}
