@@ -187,7 +187,7 @@ export function PhoneGLB({
           // Convert world point → local space (znormalizowane przez group transform).
           if (!groupRef.current) return;
           const local = groupRef.current.worldToLocal(e.point.clone());
-          onModelClick(local, inferSurface(e.object?.name ?? ""));
+          onModelClick(local, classifyDamageZone(local));
         }}
       />
       {/* Markery — TYLKO gdy nie disassembly (ukrywamy podczas rozkładania). */}
@@ -205,6 +205,49 @@ function inferSurface(name: string): string {
     if (prefixes.some((p) => n.includes(p))) return key;
   }
   return "frame";
+}
+
+/** Klasyfikuje punkt kliknięcia w lokalnej przestrzeni telefonu na konkretny
+ * obszar uszkodzenia. Telefon zorientowany:
+ *   +X = wyświetlacz, -X = panel tylny
+ *   +Y = góra (głośnik rozmów), -Y = dół (port)
+ *   ±Z = ramki boczne (lewa/prawa)
+ * Obszary mapowane wg empirycznych progów (po auto-skalowaniu max dim ~3.5).
+ */
+function classifyDamageZone(point: THREE.Vector3): string {
+  const { x, y, z } = point;
+  const isFront = x > 0;
+  const surface = isFront ? "Wyświetlacz" : "Panel tylny";
+
+  // Specyficzne strefy najpierw — port, wyspa aparatów.
+  if (y < -1.4) {
+    return "Port ładowania / głośniki";
+  }
+  if (!isFront && y > 0.7 && Math.abs(z) < 0.45) {
+    return "Wyspa aparatów";
+  }
+
+  // Krawędzie ramek — gdy klik na boku/górze/dole.
+  if (Math.abs(y) > 1.3 && Math.abs(x) < 0.06) {
+    return y > 0 ? "Górna krawędź (ramka)" : "Dolna krawędź (ramka)";
+  }
+  if (Math.abs(z) > 0.45 && Math.abs(x) < 0.06) {
+    return z > 0 ? "Ramka prawa" : "Ramka lewa";
+  }
+
+  // Klik na powierzchni front/back — podział na 9 stref (3×3 grid).
+  let vert = "środek";
+  if (y > 0.6) vert = "góra";
+  else if (y < -0.6) vert = "dół";
+
+  let horiz = "środek";
+  if (z > 0.18) horiz = "prawo";
+  else if (z < -0.18) horiz = "lewo";
+
+  if (vert === "środek" && horiz === "środek") return `${surface} — środek`;
+  if (vert === "środek") return `${surface} — ${horiz}`;
+  if (horiz === "środek") return `${surface} — ${vert}`;
+  return `${surface} — ${vert}-${horiz}`;
 }
 
 function DamagePin({ x, y, z }: { x: number; y: number; z: number }) {

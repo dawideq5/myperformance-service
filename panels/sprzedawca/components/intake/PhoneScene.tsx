@@ -68,14 +68,17 @@ export default function PhoneScene({
         groupRef.current.rotation.y = cur + delta * Math.min(dt * 2.0, 1);
       }
     }
-    // Frames step: kamera orbituje wokół osi Y, większy promień + Canvas FOV
-    // 45 → telefon nie jest obcięty.
+    // Frames step: kamera orbituje w PŁASZCZYŹNIE YZ (X=0). Idzie od +Z
+    // (prawa ramka) przez +Y (góra) do -Z (lewa ramka) i z powrotem
+    // — NIGDY nie pokazuje display (+X) ani back (-X). Tylko ramki + krawędź
+    // górna z głośnikiem rozmów. Oscylacja sin oszczędza ruch.
     if (isFramesStep && !damageMode) {
-      const angle = t * 0.25;
+      const arc = (Math.sin(t * 0.3) + 1) / 2; // 0..1, oscillating
+      const angle = arc * Math.PI; // 0..π
       const radius = 6.0;
       camera.position.set(
-        Math.sin(angle) * radius,
-        0.4,
+        0,
+        Math.sin(angle) * radius * 0.7, // height oscillation
         Math.cos(angle) * radius,
       );
       camera.lookAt(0, 0, 0);
@@ -106,11 +109,14 @@ export default function PhoneScene({
         <CameraRig position={cameraPos} lookAt={cameraLookAt ?? [0, 0, 0]} />
       )}
 
-      <ambientLight intensity={0.45} color="#aabbcc" />
+      {/* Symetryczne oświetlenie żeby panel tylny wyglądał tak samo jak
+          przedni gdy phone obróci się 180° między display a back step. */}
+      <ambientLight intensity={0.65} color="#aabbcc" />
+      <hemisphereLight args={["#bbccff", "#332211", 0.45]} />
       <directionalLight
         ref={keyLightRef}
         position={[5, 6, 4]}
-        intensity={1.6}
+        intensity={1.4}
         castShadow
         shadow-mapSize-width={2048}
         shadow-mapSize-height={2048}
@@ -122,15 +128,22 @@ export default function PhoneScene({
         shadow-camera-bottom={-4}
         shadow-bias={-0.0005}
       />
+      {/* Mirror key light z drugiej strony żeby tylna strona phone'a też była
+          oświetlona po obrocie 180°. */}
+      <directionalLight
+        position={[-5, 6, -4]}
+        intensity={1.2}
+        color="#ffeecc"
+      />
       <directionalLight
         ref={fillLightRef}
         position={[-4, 2, 3]}
-        intensity={0.6}
+        intensity={0.55}
         color="#88aaff"
       />
-      <directionalLight position={[0, -2, -5]} intensity={0.55} color="#ffaa66" />
-      <pointLight position={[3, -3, 4]} intensity={0.5} color="#ffd9a0" />
-      <pointLight position={[-3, 3, 4]} intensity={0.45} color="#a0d0ff" />
+      <directionalLight position={[4, 2, -3]} intensity={0.5} color="#88aaff" />
+      <pointLight position={[3, -3, 4]} intensity={0.45} color="#ffd9a0" />
+      <pointLight position={[-3, 3, 4]} intensity={0.4} color="#a0d0ff" />
 
       <group ref={groupRef}>
         <Suspense fallback={null}>

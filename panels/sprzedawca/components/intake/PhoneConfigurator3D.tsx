@@ -207,16 +207,6 @@ const SURFACE_LABELS: Record<string, string> = {
   frame: "Ramka",
 };
 
-const STEP_ICONS: Record<StepId, React.ComponentType<{ className?: string }>> = {
-  display: Smartphone,
-  back: Smartphone,
-  cameras: ScanFace,
-  frames: Cpu,
-  cleaning: Sparkles,
-  damage: Target,
-  summary: CheckCircle2,
-};
-
 export function PhoneConfigurator3D({
   brand,
   brandColorHex,
@@ -342,7 +332,6 @@ export function PhoneConfigurator3D({
     setTimeout(() => onComplete(state), 700);
   };
 
-  const StepIcon = STEP_ICONS[step.id];
   const update = (patch: Partial<VisualConditionState>) =>
     setState((s) => ({ ...s, ...patch }));
 
@@ -378,25 +367,11 @@ export function PhoneConfigurator3D({
           closing ? "scale-95 opacity-0 blur-sm" : "scale-100 opacity-100"
         }`}
       >
-        {/* Top bar */}
+        {/* Top bar — minimalist: tylko tytuł + close button */}
         <div className="flex items-center justify-between px-4 sm:px-6 py-3 bg-black/30 backdrop-blur-md border-b border-white/10">
-          <div className="flex items-center gap-3 min-w-0">
-            <div
-              className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-              style={{
-                background: "linear-gradient(135deg, #3B82F6, #A855F7)",
-                color: "#fff",
-              }}
-            >
-              <StepIcon className="w-4 h-4" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-white text-sm font-semibold truncate">
-                {step.title}
-              </p>
-              <p className="text-white/60 text-xs truncate">{step.subtitle}</p>
-            </div>
-          </div>
+          <p className="text-white text-base font-semibold truncate">
+            {step.title}
+          </p>
           <button
             type="button"
             onClick={onCancel}
@@ -476,18 +451,6 @@ export function PhoneConfigurator3D({
               </div>
             )}
 
-            {/* Summary step: caption nad rozkładającym się modelem */}
-            {step.id === "summary" && (
-              <div className="absolute bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-full bg-black/60 backdrop-blur-md border border-white/10 text-xs text-white/80 max-w-[60%] text-center animate-fade-in">
-                <Sparkles className="w-3 h-3 inline mr-1.5 text-amber-400" />
-                Telefon rozłożony na elementy. Podsumowanie po prawej.
-              </div>
-            )}
-
-            <div className="absolute top-4 left-4 px-3 py-1.5 rounded-full bg-black/40 backdrop-blur-sm border border-white/10 text-[10px] uppercase tracking-wider text-white/80 font-mono flex items-center gap-1.5">
-              <Sparkles className="w-3 h-3" />
-              {brand || "Telefon"} · krok {stepIdx + 1} z {STEPS.length}
-            </div>
           </div>
 
           {/* Step controls panel */}
@@ -560,7 +523,7 @@ export function PhoneConfigurator3D({
                 color: "#fff",
               }}
             >
-              Zapisz i zamknij
+              Kontynuuj
               <CheckCircle2 className="w-4 h-4" />
             </button>
           )}
