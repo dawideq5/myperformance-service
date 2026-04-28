@@ -24,6 +24,7 @@ export default function PhoneScene({
   damageMode = false,
   playDisassembly = false,
   phonePosition = [0, 0, 0],
+  phoneRotationY = 0,
   onModelClick,
 }: {
   highlight: HighlightId;
@@ -36,6 +37,8 @@ export default function PhoneScene({
   damageMode?: boolean;
   playDisassembly?: boolean;
   phonePosition?: [number, number, number];
+  /** Animowana rotacja telefonu wokół osi Y (np. flip display→back). */
+  phoneRotationY?: number;
   onModelClick?: (point: THREE.Vector3, surface: string) => void;
 }) {
   const groupRef = useRef<THREE.Group>(null);
@@ -55,21 +58,21 @@ export default function PhoneScene({
     const t = clock.getElapsedTime();
     if (groupRef.current) {
       groupRef.current.position.lerp(tgtPos.current, Math.min(dt * 1.4, 1));
-      // Brak Y-rotacji telefonu — kamera orbituje wokół ramek (frames step).
+      // Lerp rotacji Y telefonu do target (np. display=0, back=π). Krótsza
+      // droga kątowa — animowany płynny obrót między krokami.
       if (!damageMode) {
         const cur = groupRef.current.rotation.y;
-        const normalized = Math.atan2(Math.sin(cur), Math.cos(cur));
-        groupRef.current.rotation.y =
-          normalized + (-normalized) * Math.min(dt * 2.5, 1);
+        let delta = phoneRotationY - cur;
+        while (delta > Math.PI) delta -= 2 * Math.PI;
+        while (delta < -Math.PI) delta += 2 * Math.PI;
+        groupRef.current.rotation.y = cur + delta * Math.min(dt * 2.0, 1);
       }
     }
-    // Frames step: kamera orbituje wokół osi Y (długiej osi telefonu).
-    // Telefon zorientowany +Y góra / -Y dół, więc orbit X-Z plane wokół Y
-    // pokazuje kolejno display (+X) → ramka +Z → tył (-X) → ramka -Z. Większy
-    // promień (5.0) żeby telefon nie był obcięty na górze i dole.
+    // Frames step: kamera orbituje wokół osi Y, większy promień + Canvas FOV
+    // 45 → telefon nie jest obcięty.
     if (isFramesStep && !damageMode) {
       const angle = t * 0.25;
-      const radius = 5.0;
+      const radius = 6.0;
       camera.position.set(
         Math.sin(angle) * radius,
         0.4,

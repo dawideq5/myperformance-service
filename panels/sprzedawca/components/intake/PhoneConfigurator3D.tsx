@@ -60,12 +60,14 @@ interface Step {
   cameraPos: [number, number, number];
   cameraLookAt?: [number, number, number];
   cleaningTour?: CleaningTourPos[];
+  /** Target rotacja telefonu wokół osi Y (radiany). Domyślnie 0.
+   *  display=0, back=π → flip 180° między krokami. */
+  phoneRotationY?: number;
 }
 
-// Orientacja modelu w GLB (zdedukowana z opisu użytkownika, P17):
-//   +X = ekran (display)        −X = panel tylny (z wyspą aparatów)
-//   +Y = góra (głośnik rozmów)  −Y = dół (port + speakers)
-//   ±Z = ramki boczne (długie krawędzie)
+// Display → back przez OBRÓT telefonu (kamera stoi w +X, telefon flipuje się
+// 180° wokół osi Y między krokami). Pozostałe stepy mają phoneRotationY=0.
+// Cameras/speakers/port — przywrócone stare pozycje sprzed P17 (działały).
 const STEPS: Step[] = [
   {
     id: "display",
@@ -73,29 +75,33 @@ const STEPS: Step[] = [
     subtitle: "Oceń ekran w skali 1–10.",
     highlight: "display",
     cameraPos: [4.5, 0, 0],
+    phoneRotationY: 0,
   },
   {
     id: "back",
     title: "Panel tylny",
     subtitle: "Oceń stan plecka — pęknięcia, rysy, odkształcenia.",
     highlight: "back",
-    cameraPos: [-4.5, 0, 0],
+    // Ta sama pozycja kamery co display — telefon obraca się 180° (flip).
+    cameraPos: [4.5, 0, 0],
+    phoneRotationY: Math.PI,
   },
   {
     id: "frames",
     title: "Ramki boczne",
-    subtitle: "Kamera orbituje wokół ramek — obejrzyj wszystkie krawędzie.",
+    subtitle: "Kamera orbituje wokół telefonu — obejrzyj wszystkie krawędzie.",
     highlight: "frames",
-    cameraPos: [0, 0, 5.5],
+    // Initial pos — orbit handle'owany w PhoneScene.
+    cameraPos: [0, 0, 6.0],
   },
   {
     id: "cameras",
     title: "Wyspa aparatów",
     subtitle: "Stan szkiełek obiektywów, ramki wyspy.",
     highlight: "cameras",
-    // Z tyłu (-X) z lekkim kątem od góry (+Y) — wyspa jest w górno-tylnej części.
-    cameraPos: [-3.0, 1.5, 0],
-    cameraLookAt: [-0.3, 0.5, 0],
+    // STARA pozycja sprzed P17 — działała.
+    cameraPos: [-1.4, 1.3, -2.8],
+    cameraLookAt: [-0.5, 0.8, 0],
   },
   {
     id: "cleaning",
@@ -114,16 +120,15 @@ const STEPS: Step[] = [
         durationMs: 7200,
       },
       {
-        // Głośniczki dolne — dół (-Y) z lekkim front (+X).
-        pos: [2.0, -3.0, 0],
+        // STARE pozycje — działały.
+        pos: [0, -3.0, 1.4],
         lookAt: [0, -1.4, 0],
         highlight: "speakers",
         caption: "Głośniczki dolne — kurz tłumi dźwięk multimedia",
         durationMs: 7200,
       },
       {
-        // Port — bardziej z dołu, pokazuje gniazdo USB-C/Lightning.
-        pos: [1.0, -3.5, 0],
+        pos: [0, -3.5, 0.6],
         lookAt: [0, -1.6, 0],
         highlight: "port",
         caption: "Port ładowania — kurz blokuje połączenie z kablem",
@@ -137,8 +142,10 @@ const STEPS: Step[] = [
     subtitle:
       "Obróć telefon i kliknij w miejscu uszkodzenia. Marker pojawi się natychmiast.",
     highlight: null,
-    // Z PRZODU (+X), oddalone — cały ekran w kadrze.
-    cameraPos: [6.0, 0, 0],
+    // Z PRZODU (+X) — wyświetlacz do kamery — z FOV 45 i dist 5.5 telefon się
+    // mieści w kadrze.
+    cameraPos: [5.5, 0, 0],
+    phoneRotationY: 0,
   },
   {
     id: "summary",
@@ -414,10 +421,13 @@ export function PhoneConfigurator3D({
 
         {/* Main canvas */}
         <div className="flex-1 grid grid-cols-1 lg:grid-cols-[1fr,minmax(340px,440px)] gap-0 min-h-0">
-          <div className="relative" style={{ minHeight: 360 }}>
+          <div
+            className="relative w-full h-full"
+            style={{ minHeight: "min(60vh, 500px)" }}
+          >
             <Canvas
               shadows
-              camera={{ position: [0, 0, 5.2], fov: 36 }}
+              camera={{ position: [4.5, 0, 0], fov: 45 }}
               dpr={[1, 2]}
               gl={{
                 antialias: true,
@@ -437,6 +447,7 @@ export function PhoneConfigurator3D({
                 damageMode={step.id === "damage"}
                 playDisassembly={playDisassembly}
                 phonePosition={phonePosition}
+                phoneRotationY={step.phoneRotationY ?? 0}
                 onModelClick={onModelClick}
               />
             </Canvas>
