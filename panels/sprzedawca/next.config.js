@@ -52,7 +52,10 @@ const securityHeaders = [
     key: "Content-Security-Policy",
     value: [
       "default-src 'self'",
-      `connect-src 'self'${kc}${dash}${directus} ${mapTilesSrc}`,
+      // blob: wymagane przez GLTFLoader — embedded PNG textury w .glb są
+      // wyodrębniane jako blob: URL i ładowane via fetch. Bez tego CSP
+      // blokuje texture loading na ścisłych browserach (Windows Edge/Chrome).
+      `connect-src 'self' blob: data:${kc}${dash}${directus} ${mapTilesSrc}`,
       `script-src ${scriptSrc}`,
       "style-src 'self' 'unsafe-inline'",
       `img-src 'self' data: blob: ${mapTilesSrc} ${leafletAssetsSrc}${dash}${directus}`,
