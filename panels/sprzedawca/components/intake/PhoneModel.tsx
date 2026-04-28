@@ -510,55 +510,39 @@ function RoundedBoxGeometry({
 export function CameraRig({
   position,
   lookAt,
-  lerpLambda = 2.0,
+  lerpLambda = 1.5,
 }: {
   position: [number, number, number];
   lookAt?: [number, number, number];
-  /** Maksymalna szybkość lerp (1/sekunda). W praktyce kamera używa
-   * effective_lambda = lerpLambda * warmup², gdzie warmup ramps up od 0
-   * do 1 nad WARMUP_DURATION sekund po każdej zmianie target. Daje to
-   * BARDZO płynny start (kamera prawie nie rusza w pierwszej chwili,
-   * potem stopniowo przyspiesza). */
+  /** Szybkość lerp (1/sekunda). Wzór: 1 - exp(-λ·dt). Kamera ZAWSZE startuje
+   * od bieżącej position, lerpuje do target. Brak warm-up, brak fixed
+   * duration, brak captured startPos — tylko czysty damp z aktualnego
+   * miejsca do celu. */
   lerpLambda?: number;
 }) {
   const { camera } = useThree();
   const tgtPos = useRef(new THREE.Vector3(...position));
   const tgtLook = useRef(new THREE.Vector3(...(lookAt ?? [0, 0, 0])));
-  const warmupT0 = useRef<number | null>(null);
-  const prevTarget = useRef<[number, number, number]>([
-    position[0],
-    position[1],
-    position[2],
-  ]);
 
-  // Wykryj zmianę target → restart warmup. Sprawdzane podczas render.
-  const targetChanged =
-    prevTarget.current[0] !== position[0] ||
-    prevTarget.current[1] !== position[1] ||
-    prevTarget.current[2] !== position[2];
-
-  if (targetChanged) {
+  if (
+    tgtPos.current.x !== position[0] ||
+    tgtPos.current.y !== position[1] ||
+    tgtPos.current.z !== position[2]
+  ) {
     tgtPos.current.set(...position);
-    prevTarget.current = [position[0], position[1], position[2]];
-    warmupT0.current = null; // useFrame ustawi w następnej klatce
   }
   if (lookAt) {
-    tgtLook.current.set(...lookAt);
+    if (
+      tgtLook.current.x !== lookAt[0] ||
+      tgtLook.current.y !== lookAt[1] ||
+      tgtLook.current.z !== lookAt[2]
+    ) {
+      tgtLook.current.set(...lookAt);
+    }
   }
 
-  useFrame(({ clock }, dt) => {
-    if (warmupT0.current === null) {
-      warmupT0.current = clock.getElapsedTime();
-    }
-    const elapsed = clock.getElapsedTime() - warmupT0.current;
-    // Quadratic warm-up: w² → bardzo łagodny start. Po WARMUP_DURATION
-    // s effective_lambda osiąga lerpLambda. Wcześniej kamera ledwo się
-    // rusza — brak "rzucenia" w stronę celu.
-    const WARMUP_DURATION = 1.5;
-    const w = Math.min(elapsed / WARMUP_DURATION, 1);
-    const warmup = w * w;
-    const effectiveLambda = lerpLambda * warmup;
-    const k = 1 - Math.exp(-effectiveLambda * dt);
+  useFrame((_, dt) => {
+    const k = 1 - Math.exp(-lerpLambda * dt);
     camera.position.lerp(tgtPos.current, k);
     camera.lookAt(tgtLook.current);
   });

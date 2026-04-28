@@ -164,45 +164,19 @@ export function PhoneGLB({
     return map;
   }, [clonedScene]);
 
-  // Body color override. W naszym GLB descriptive names są na grupach-rodzicach
-  // (body_36, backplate_48, back_cover_*, profile_housing_*); meshe mają
-  // nazwy Object_X. Matchujemy przez ancestryName (konkatenacja parents +
-  // material name).
-  //
-  // Trzy kategorie kolorów:
+  // Body color override — TYLKO 2 kategorie. Reszta meshy (przyciski,
+  // anteny, wyspa aparatów, SIM tray, części wewnętrzne) zachowuje
+  // oryginalne textury z GLB. brandColor obecnie używany wyłącznie jako
+  // metadata (zapisywany w DB) — nie zmienia wyglądu modelu 3D.
   //  - fixedBackIncludes (titanium white) — back_cover/backplate
-  //  - darkFrameIncludes (ciemnoszare) — profile_housing (ramki) ZAWSZE
-  //  - brandIncludes (brandColor) — back_cam_cover, anteny, przyciski
-  //  - inne meshe (excludes lub bez matcha) zachowują oryginalne textury
+  //  - darkFrameIncludes (ciemny szary) — profile_housing (ramki boczne)
   useEffect(() => {
     if (!clonedScene) return;
-    const bodyColor = new THREE.Color(brandColor || "#1f2937");
+    void brandColor; // metadata only — model nie reaguje na brandColor
     const TITANIUM_WHITE = new THREE.Color("#e8e7df");
     const DARK_GRAY = new THREE.Color("#3a3a3a");
     const fixedBackIncludes = ["backplate", "back_cover"];
-    const darkFrameIncludes = ["profile_housing"]; // ramki bottom/top/left/right
-    const brandIncludes = [
-      "back_cam_cover",
-      "antenn",
-      "btn_off",
-      "btn_volume",
-    ];
-    const excludes = [
-      "inside",
-      "dummies",
-      "glue",
-      "grid",
-      "battery",
-      "screen",
-      "cover_flex",
-      "back_cam_mat",
-      "glass",
-      "hole",
-      "screw",
-      "magnets",
-      "motherboard",
-      "wires",
-    ];
+    const darkFrameIncludes = ["profile_housing"];
     /** Konkatenuje nazwy wszystkich rodziców + materiału — używane do
      * dopasowania body części niezależnie od tego gdzie nazwa jest
      * w hierarchii GLB. */
@@ -216,19 +190,20 @@ export function PhoneGLB({
       if (mat?.name) names.push(mat.name.toLowerCase());
       return names.join("|");
     };
-    /** Zwraca docelowy kolor + material params dla mesha. null = pomijamy. */
+    /** Zwraca docelowy kolor + material params dla mesha. null = oryginał. */
     const targetColor = (
       n: string,
     ): { color: THREE.Color; metalness: number; roughness: number } | null => {
-      if (excludes.some((p) => n.includes(p))) return null;
+      // Wykluczenie wewnętrznych części które są w naszej hierarchii też
+      // pod backplate (np. backplate_mat_parts to plastikowe akcesoria).
+      // Tylko czysta klapka tylna + ramki — reszta original.
+      if (n.includes("inside") || n.includes("flex")) return null;
       if (fixedBackIncludes.some((p) => n.includes(p))) {
         return { color: TITANIUM_WHITE, metalness: 0.25, roughness: 0.5 };
       }
       if (darkFrameIncludes.some((p) => n.includes(p))) {
+        if (n.includes("dummies")) return null; // wewnętrzny placeholder
         return { color: DARK_GRAY, metalness: 0.6, roughness: 0.4 };
-      }
-      if (brandIncludes.some((p) => n.includes(p))) {
-        return { color: bodyColor, metalness: 0.55, roughness: 0.35 };
       }
       return null;
     };
