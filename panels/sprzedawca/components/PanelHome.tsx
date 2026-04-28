@@ -3,19 +3,92 @@
 import { useCallback, useEffect, useState } from "react";
 import { signOut } from "next-auth/react";
 import {
+  AlertTriangle,
   ArrowLeft,
   Briefcase,
   Building2,
+  ClipboardList,
+  ListChecks,
   LogOut,
+  Mail,
   MapPin,
   Phone,
+  PlusCircle,
   RotateCcw,
-  Mail,
+  Shield,
+  Tags,
+  Truck,
   User as UserIcon,
 } from "lucide-react";
 import { PanelLocationMap, type PanelLocation } from "./PanelLocationMap";
 
 const STORAGE_KEY = "panel-sprzedawca:selected-location";
+const TAB_STORAGE_KEY = "panel-sprzedawca:active-tab";
+
+type SprzedawcaTab =
+  | "services-all"
+  | "services-add"
+  | "protection"
+  | "claims"
+  | "delivery"
+  | "pricelist";
+
+const TABS: {
+  id: SprzedawcaTab;
+  label: string;
+  icon: React.ReactNode;
+  description: string;
+  status: "soon" | "draft";
+}[] = [
+  {
+    id: "services-add",
+    label: "Dodaj serwis",
+    icon: <PlusCircle className="w-4 h-4" />,
+    description:
+      "Formularz przyjęcia urządzenia do serwisu (IMEI, marka, model, opis usterki, kod blokady, zdjęcia).",
+    status: "soon",
+  },
+  {
+    id: "services-all",
+    label: "Wszystkie serwisy",
+    icon: <ListChecks className="w-4 h-4" />,
+    description:
+      "Lista wszystkich zleceń z filtrami i wyszukiwarką. Statusy: przyjęty, diagnoza, naprawa, gotowy do odbioru, wydany.",
+    status: "soon",
+  },
+  {
+    id: "protection",
+    label: "Pakiet ochronny",
+    icon: <Shield className="w-4 h-4" />,
+    description:
+      "Sprzedaż pakietu ochronnego (szkło hartowane, gwarancja rozszerzona). Powiązanie z urządzeniem (IMEI).",
+    status: "soon",
+  },
+  {
+    id: "claims",
+    label: "Reklamacje",
+    icon: <AlertTriangle className="w-4 h-4" />,
+    description:
+      "Przyjmowanie reklamacji (dane klienta, paragon, opis usterki, żądanie klienta). Załączniki + zdjęcia.",
+    status: "soon",
+  },
+  {
+    id: "delivery",
+    label: "Dostawa",
+    icon: <Truck className="w-4 h-4" />,
+    description:
+      "Status transportu urządzeń serwisowych — kierowcy odbierają i dostarczają urządzenia. Live tracking + planowane terminy.",
+    status: "soon",
+  },
+  {
+    id: "pricelist",
+    label: "Cennik",
+    icon: <Tags className="w-4 h-4" />,
+    description:
+      "Cennik usług i pakietów (tylko do odczytu, edytowany w panelu admin / Directus).",
+    status: "soon",
+  },
+];
 
 export function PanelHome({
   locations,
@@ -27,6 +100,27 @@ export function PanelHome({
   userEmail: string;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<SprzedawcaTab>("services-all");
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(TAB_STORAGE_KEY) as SprzedawcaTab | null;
+      if (saved && TABS.some((t) => t.id === saved)) {
+        setActiveTab(saved);
+      }
+    } catch {
+      /* localStorage may be disabled */
+    }
+  }, []);
+
+  const onTabChange = useCallback((tab: SprzedawcaTab) => {
+    setActiveTab(tab);
+    try {
+      localStorage.setItem(TAB_STORAGE_KEY, tab);
+    } catch {
+      /* noop */
+    }
+  }, []);
 
   // Auto-select gdy 1 punkt; przywróć z localStorage gdy >1 i user już
   // wcześniej wybrał (zapamiętujemy żeby nie pytać przy każdym odświeżeniu).
@@ -340,94 +434,175 @@ export function PanelHome({
         </div>
       </header>
 
+      {/* Pasek z zakładkami — 6 sekcji modułu sprzedaży */}
+      <nav
+        className="border-b sticky top-14 sm:top-16 z-[5] backdrop-blur-md"
+        style={{
+          background: "var(--bg-header)",
+          borderColor: "var(--border-subtle)",
+        }}
+      >
+        <div className="mx-auto max-w-7xl px-4 sm:px-6">
+          <div className="flex gap-1 overflow-x-auto py-2 scrollbar-thin">
+            {TABS.map((t) => {
+              const isActive = activeTab === t.id;
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => onTabChange(t.id)}
+                  className="flex-shrink-0 px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors"
+                  style={{
+                    background: isActive ? "var(--bg-surface)" : "transparent",
+                    color: isActive ? "var(--accent)" : "var(--text-muted)",
+                    border: isActive
+                      ? "1px solid var(--border-subtle)"
+                      : "1px solid transparent",
+                  }}
+                >
+                  {t.icon}
+                  <span className="whitespace-nowrap">{t.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </nav>
+
       <main
         className="flex-1 mx-auto max-w-7xl w-full px-4 sm:px-6 py-6 sm:py-8 space-y-4 animate-fade-in"
       >
-        {/* Hero z punktem */}
+        {/* Kompaktowy hero z punktem (bez mapy — user prosił żeby nie pokazywać mapy po wyborze) */}
         <div
-          className="p-6 rounded-2xl border"
+          className="p-4 sm:p-5 rounded-2xl border flex items-center gap-4"
           style={{
             background: "var(--bg-card)",
             borderColor: "var(--border-subtle)",
             color: "var(--text-main)",
           }}
         >
-          <div className="flex items-start gap-4">
-            <div
-              className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
-              style={{
-                background: selected.type === "service" ? "rgba(244, 63, 94, 0.1)" : "rgba(14, 165, 233, 0.1)",
-                color: selected.type === "service" ? "#f43f5e" : "#0ea5e9",
-              }}
-            >
-              {selected.type === "service" ? (
-                <Building2 className="w-6 h-6" />
-              ) : (
-                <Briefcase className="w-6 h-6" />
-              )}
-            </div>
-            <div className="flex-1 min-w-0">
-              <h1 className="text-xl sm:text-2xl font-bold mb-1">
+          <div
+            className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+            style={{
+              background:
+                selected.type === "service"
+                  ? "rgba(244, 63, 94, 0.1)"
+                  : "rgba(14, 165, 233, 0.1)",
+              color: selected.type === "service" ? "#f43f5e" : "#0ea5e9",
+            }}
+          >
+            {selected.type === "service" ? (
+              <Building2 className="w-5 h-5" />
+            ) : (
+              <Briefcase className="w-5 h-5" />
+            )}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex flex-wrap items-center gap-2 mb-0.5">
+              <h1 className="text-base sm:text-lg font-semibold truncate">
                 {selected.name}
               </h1>
-              <div className="flex flex-wrap gap-3 text-sm" style={{ color: "var(--text-muted)" }}>
-                {selected.warehouseCode && (
-                  <span className="font-mono text-xs">{selected.warehouseCode}</span>
-                )}
-                {selected.address && (
-                  <span className="flex items-center gap-1.5">
-                    <MapPin className="w-3.5 h-3.5" />
-                    {selected.address}
-                  </span>
-                )}
-                {selected.phone && (
-                  <span className="flex items-center gap-1.5">
-                    <Phone className="w-3.5 h-3.5" />
-                    {selected.phone}
-                  </span>
-                )}
-                {selected.email && (
-                  <span className="flex items-center gap-1.5">
-                    <Mail className="w-3.5 h-3.5" />
-                    {selected.email}
-                  </span>
-                )}
-              </div>
-              {selected.description && (
-                <p className="mt-3 text-sm" style={{ color: "var(--text-muted)" }}>
-                  {selected.description}
-                </p>
+              {selected.warehouseCode && (
+                <span
+                  className="text-[10px] uppercase font-mono px-2 py-0.5 rounded"
+                  style={{
+                    background: "var(--bg-surface)",
+                    color: "var(--text-muted)",
+                  }}
+                >
+                  {selected.warehouseCode}
+                </span>
+              )}
+            </div>
+            <div
+              className="flex flex-wrap gap-x-3 gap-y-1 text-xs"
+              style={{ color: "var(--text-muted)" }}
+            >
+              {selected.address && (
+                <span className="flex items-center gap-1">
+                  <MapPin className="w-3 h-3" />
+                  {selected.address}
+                </span>
+              )}
+              {selected.phone && (
+                <span className="flex items-center gap-1">
+                  <Phone className="w-3 h-3" />
+                  {selected.phone}
+                </span>
+              )}
+              {selected.email && (
+                <span className="flex items-center gap-1">
+                  <Mail className="w-3 h-3" />
+                  {selected.email}
+                </span>
               )}
             </div>
           </div>
         </div>
 
-        {/* Mapa pojedynczego punktu — orientacja */}
-        <div style={{ height: 320 }}>
-          <PanelLocationMap
-            locations={[selected]}
-            selectedId={selected.id}
-            className="h-full"
-          />
-        </div>
+        {/* Treść aktywnej zakładki — placeholdery do uzupełnienia w kolejnych fazach */}
+        <TabContent
+          tab={TABS.find((t) => t.id === activeTab) ?? TABS[0]}
+          userEmail={userEmail}
+        />
+      </main>
+    </div>
+  );
+}
 
-        {/* Placeholder na widgety panelu — kolejne fazy dodadzą tu zamówienia,
-            klienci, oferty itd. */}
+function TabContent({
+  tab,
+  userEmail,
+}: {
+  tab: (typeof TABS)[number];
+  userEmail: string;
+}) {
+  return (
+    <div
+      className="p-6 sm:p-8 rounded-2xl border"
+      style={{
+        background: "var(--bg-card)",
+        borderColor: "var(--border-subtle)",
+        color: "var(--text-main)",
+      }}
+    >
+      <div className="flex items-start gap-4">
         <div
-          className="p-6 rounded-2xl border text-center"
-          style={{
-            background: "var(--bg-surface)",
-            borderColor: "var(--border-subtle)",
-            color: "var(--text-muted)",
-          }}
+          className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
+          style={{ background: "var(--bg-surface)", color: "var(--accent)" }}
         >
-          <p className="text-sm">
-            Kolejne widgety (oferty, klienci, zamówienia) zostaną dodane w
-            kolejnych fazach rozbudowy. Zalogowany jako:{" "}
-            <strong style={{ color: "var(--text-main)" }}>{userEmail}</strong>
+          <ClipboardList className="w-6 h-6" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            <h2 className="text-lg sm:text-xl font-semibold">{tab.label}</h2>
+            <span
+              className="text-[10px] uppercase font-mono px-2 py-0.5 rounded"
+              style={{
+                background: "rgba(251, 191, 36, 0.12)",
+                color: "#fbbf24",
+              }}
+            >
+              wkrótce
+            </span>
+          </div>
+          <p
+            className="text-sm mb-4"
+            style={{ color: "var(--text-muted)" }}
+          >
+            {tab.description}
+          </p>
+          <p
+            className="text-xs"
+            style={{ color: "var(--text-muted)" }}
+          >
+            Funkcjonalność jest w trakcie projektowania w oparciu o Directus
+            (mp_services, mp_claims, mp_protections), Chatwoot (powiadomienia
+            klienta) i moduł kierowcy (transport). Zalogowany jako:{" "}
+            <strong style={{ color: "var(--text-main)" }}>{userEmail}</strong>.
           </p>
         </div>
-      </main>
+      </div>
     </div>
   );
 }

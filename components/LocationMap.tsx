@@ -53,6 +53,31 @@ const FlyTo = dynamic(
   { ssr: false },
 );
 
+// invalidateSize fix — białe kafelki gdy container miał 0px wysokości
+// w momencie inicjalizacji (modal, hidden tab, lazy load).
+const ResizeFix = dynamic(
+  () =>
+    import("react-leaflet").then((m) => {
+      function Comp() {
+        const map = m.useMap();
+        useEffect(() => {
+          const t1 = setTimeout(() => map.invalidateSize(), 100);
+          const t2 = setTimeout(() => map.invalidateSize(), 600);
+          const onResize = () => map.invalidateSize();
+          window.addEventListener("resize", onResize);
+          return () => {
+            clearTimeout(t1);
+            clearTimeout(t2);
+            window.removeEventListener("resize", onResize);
+          };
+        }, [map]);
+        return null;
+      }
+      return Comp;
+    }),
+  { ssr: false },
+);
+
 // Ciemny motyw — CartoDB Dark Matter (free, OSM-based, retina-ready).
 // Atrybucja CartoDB + OSM wymagana licensowo.
 const DARK_TILE_URL =
@@ -149,7 +174,14 @@ export function LocationMap({
         style={{ minHeight: 360 }}
         scrollWheelZoom
       >
-        <TileLayer attribution={DARK_TILE_ATTRIBUTION} url={DARK_TILE_URL} />
+        <TileLayer
+          attribution={DARK_TILE_ATTRIBUTION}
+          url={DARK_TILE_URL}
+          keepBuffer={4}
+          updateWhenIdle={false}
+          maxNativeZoom={19}
+        />
+        <ResizeFix />
         {/* FlyTo: gdy editPin albo selected location się zmieni — animowany
             zoom na nowe współrzędne. Bez tego mapa zostawała na initial. */}
         <FlyTo

@@ -34,6 +34,29 @@ const FlyTo = dynamic(
   { ssr: false },
 );
 
+const ResizeFix = dynamic(
+  () =>
+    import("react-leaflet").then((m) => {
+      function Comp() {
+        const map = m.useMap();
+        useEffect(() => {
+          const t1 = setTimeout(() => map.invalidateSize(), 100);
+          const t2 = setTimeout(() => map.invalidateSize(), 600);
+          const onResize = () => map.invalidateSize();
+          window.addEventListener("resize", onResize);
+          return () => {
+            clearTimeout(t1);
+            clearTimeout(t2);
+            window.removeEventListener("resize", onResize);
+          };
+        }, [map]);
+        return null;
+      }
+      return Comp;
+    }),
+  { ssr: false },
+);
+
 const DARK_TILE_URL = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
 const DARK_TILE_ATTRIBUTION =
   '<a href="https://carto.com/attributions">CARTO</a> · <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
@@ -120,7 +143,14 @@ export function PanelLocationMap({
         style={{ minHeight: 360 }}
         scrollWheelZoom
       >
-        <TileLayer attribution={DARK_TILE_ATTRIBUTION} url={DARK_TILE_URL} />
+        <TileLayer
+          attribution={DARK_TILE_ATTRIBUTION}
+          url={DARK_TILE_URL}
+          keepBuffer={4}
+          updateWhenIdle={false}
+          maxNativeZoom={19}
+        />
+        <ResizeFix />
         <FlyTo lat={center[0]} lng={center[1]} zoom={selectedId ? 15 : 6} />
         {locations
           .filter((l) => l.lat != null && l.lng != null)

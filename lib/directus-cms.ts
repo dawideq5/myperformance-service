@@ -1978,4 +1978,678 @@ export const COLLECTION_SPECS: CollectionSpec[] = [
       },
     ],
   },
+
+  // ==========================================================================
+  // === MODUŁ SERWISOWY (mp_services / mp_claims / mp_protections + transport)
+  // ==========================================================================
+  // Wzorowany na schemacie referencyjnym (mperformance-master), rozszerzony o:
+  //   - location m2o → mp_locations (powiązanie z punktem przyjęcia)
+  //   - photos[] → URL-e zdjęć urządzenia (Directus folder "services")
+  //   - transport_status → integracja z mp_transport_jobs (panel kierowcy)
+  //   - chatwoot_conversation_id → link do rozmowy z klientem (auto-tworzona)
+  //   - assigned_technician → email serwisanta (z Keycloak)
+  // ==========================================================================
+  {
+    collection: "mp_services",
+    meta: {
+      icon: "build",
+      note: "Zlecenia serwisowe — przyjęcia urządzeń. Cykl: przyjęty → diagnoza → naprawa → testy → gotowy → wydany. Klient kontaktowany przez Chatwoot.",
+      display_template: "{{brand}} {{model}} ({{imei}}) — {{status}}",
+      sort_field: "-created_at",
+      archive_field: "status",
+      archive_value: "archived",
+      unarchive_value: "received",
+    },
+    fields: [
+      {
+        field: "id",
+        type: "uuid",
+        schema: { is_primary_key: true },
+        meta: { hidden: true, readonly: true, special: ["uuid"] },
+      },
+      {
+        field: "ticket_number",
+        type: "string",
+        schema: { is_nullable: false, is_unique: true },
+        meta: {
+          interface: "input",
+          required: true,
+          readonly: true,
+          width: "half",
+          options: { iconLeft: "tag", font: "monospace" },
+          note: "Auto-generowany numer zgłoszenia (np. SVC-2026-04-0001).",
+        },
+      },
+      {
+        field: "status",
+        type: "string",
+        schema: { is_nullable: false, default_value: "received" },
+        meta: {
+          interface: "select-dropdown",
+          required: true,
+          width: "half",
+          display: "labels",
+          display_options: {
+            showAsDot: true,
+            choices: [
+              { text: "Przyjęty", value: "received", foreground: "#fff", background: "#64748B" },
+              { text: "Diagnoza", value: "diagnosing", foreground: "#fff", background: "#0EA5E9" },
+              { text: "Wycena u klienta", value: "awaiting_quote", foreground: "#fff", background: "#F59E0B" },
+              { text: "Naprawa", value: "repairing", foreground: "#fff", background: "#A855F7" },
+              { text: "Testy", value: "testing", foreground: "#fff", background: "#06B6D4" },
+              { text: "Gotowy do odbioru", value: "ready", foreground: "#fff", background: "#22C55E" },
+              { text: "Wydany", value: "delivered", foreground: "#fff", background: "#16A34A" },
+              { text: "Anulowany", value: "cancelled", foreground: "#fff", background: "#EF4444" },
+              { text: "Archiwum", value: "archived", foreground: "#fff", background: "#1F2937" },
+            ],
+          },
+          options: {
+            choices: [
+              { text: "Przyjęty", value: "received" },
+              { text: "Diagnoza", value: "diagnosing" },
+              { text: "Wycena u klienta", value: "awaiting_quote" },
+              { text: "Naprawa", value: "repairing" },
+              { text: "Testy", value: "testing" },
+              { text: "Gotowy do odbioru", value: "ready" },
+              { text: "Wydany", value: "delivered" },
+              { text: "Anulowany", value: "cancelled" },
+              { text: "Archiwum", value: "archived" },
+            ],
+          },
+        },
+      },
+      {
+        field: "location",
+        type: "uuid",
+        meta: {
+          interface: "select-dropdown-m2o",
+          width: "half",
+          options: { template: "{{name}} ({{warehouse_code}})" },
+          special: ["m2o"],
+          note: "Punkt sprzedaży, w którym przyjęto urządzenie.",
+        },
+      },
+      {
+        field: "service_location",
+        type: "uuid",
+        meta: {
+          interface: "select-dropdown-m2o",
+          width: "half",
+          options: { template: "{{name}} ({{warehouse_code}})" },
+          special: ["m2o"],
+          note: "Docelowy punkt serwisowy (jeśli inny niż punkt przyjęcia).",
+        },
+      },
+      {
+        field: "type",
+        type: "string",
+        meta: {
+          interface: "select-dropdown",
+          width: "half",
+          options: {
+            choices: [
+              { text: "Telefon", value: "phone" },
+              { text: "Tablet", value: "tablet" },
+              { text: "Laptop", value: "laptop" },
+              { text: "Smartwatch", value: "smartwatch" },
+              { text: "Słuchawki", value: "headphones" },
+              { text: "Inne", value: "other" },
+            ],
+            allowOther: true,
+          },
+        },
+      },
+      { field: "brand", type: "string", meta: { interface: "input", width: "half" } },
+      { field: "model", type: "string", meta: { interface: "input", width: "half" } },
+      {
+        field: "imei",
+        type: "string",
+        meta: {
+          interface: "input",
+          width: "half",
+          options: { iconLeft: "qr_code", font: "monospace" },
+          note: "IMEI 15 cyfr (telefony) lub serial number.",
+        },
+      },
+      { field: "color", type: "string", meta: { interface: "input", width: "half" } },
+      {
+        field: "lock_code",
+        type: "string",
+        meta: {
+          interface: "input",
+          width: "half",
+          options: { iconLeft: "lock", masked: true },
+          note: "Kod blokady ekranu (jeśli klient go podał).",
+        },
+      },
+      {
+        field: "description",
+        type: "text",
+        meta: {
+          interface: "input-multiline",
+          width: "full",
+          options: { placeholder: "Opis usterki podany przez klienta" },
+        },
+      },
+      {
+        field: "diagnosis",
+        type: "text",
+        meta: {
+          interface: "input-multiline",
+          width: "full",
+          options: { placeholder: "Diagnoza technika" },
+        },
+      },
+      {
+        field: "amount_estimate",
+        type: "decimal",
+        schema: { numeric_precision: 10, numeric_scale: 2 },
+        meta: {
+          interface: "input",
+          width: "half",
+          options: { iconLeft: "payments" },
+          note: "Wycena wstępna (PLN).",
+        },
+      },
+      {
+        field: "amount_final",
+        type: "decimal",
+        schema: { numeric_precision: 10, numeric_scale: 2 },
+        meta: {
+          interface: "input",
+          width: "half",
+          options: { iconLeft: "payments" },
+          note: "Kwota końcowa (PLN).",
+        },
+      },
+      { field: "contact_phone", type: "string", meta: { interface: "input", width: "half", options: { iconLeft: "phone" } } },
+      { field: "contact_email", type: "string", meta: { interface: "input", width: "half", options: { iconLeft: "mail" } } },
+      { field: "customer_first_name", type: "string", meta: { interface: "input", width: "half" } },
+      { field: "customer_last_name", type: "string", meta: { interface: "input", width: "half" } },
+      {
+        field: "photos",
+        type: "json",
+        meta: {
+          interface: "list",
+          width: "full",
+          note: "URL-e zdjęć urządzenia (proxy /api/public/photos/{id}).",
+        },
+      },
+      {
+        field: "received_by",
+        type: "string",
+        meta: {
+          interface: "input",
+          width: "half",
+          options: { iconLeft: "person", font: "monospace" },
+          note: "Email pracownika który przyjął zlecenie (z Keycloak).",
+        },
+      },
+      {
+        field: "assigned_technician",
+        type: "string",
+        meta: {
+          interface: "input",
+          width: "half",
+          options: { iconLeft: "engineering", font: "monospace" },
+          note: "Email serwisanta przypisanego do zlecenia.",
+        },
+      },
+      {
+        field: "transport_status",
+        type: "string",
+        schema: { default_value: "none" },
+        meta: {
+          interface: "select-dropdown",
+          width: "half",
+          display: "labels",
+          options: {
+            choices: [
+              { text: "Brak transportu", value: "none" },
+              { text: "Do odbioru", value: "pickup_pending" },
+              { text: "W drodze do serwisu", value: "in_transit_to_service" },
+              { text: "Dostarczony do serwisu", value: "delivered_to_service" },
+              { text: "Do zwrotu klientowi", value: "return_pending" },
+              { text: "W drodze do klienta", value: "in_transit_to_customer" },
+              { text: "Dostarczony klientowi", value: "delivered_to_customer" },
+            ],
+          },
+        },
+      },
+      {
+        field: "chatwoot_conversation_id",
+        type: "integer",
+        meta: {
+          interface: "input",
+          width: "half",
+          options: { iconLeft: "chat", font: "monospace" },
+          note: "ID rozmowy Chatwoot — auto-link do supportu klienta.",
+        },
+      },
+      {
+        field: "warranty_until",
+        type: "date",
+        meta: {
+          interface: "datetime",
+          width: "half",
+          options: { iconLeft: "verified" },
+          note: "Data końca gwarancji (jeśli serwis gwarancyjny).",
+        },
+      },
+      {
+        field: "promised_at",
+        type: "timestamp",
+        meta: {
+          interface: "datetime",
+          width: "half",
+          options: { iconLeft: "schedule" },
+          note: "Obiecany termin gotowości.",
+        },
+      },
+      {
+        field: "created_at",
+        type: "timestamp",
+        meta: {
+          interface: "datetime",
+          readonly: true,
+          width: "half",
+          display: "datetime",
+          display_options: { relative: true },
+        },
+      },
+      {
+        field: "updated_at",
+        type: "timestamp",
+        meta: {
+          interface: "datetime",
+          readonly: true,
+          width: "half",
+          display: "datetime",
+          display_options: { relative: true },
+        },
+      },
+    ],
+  },
+
+  // === Reklamacje ===
+  {
+    collection: "mp_claims",
+    meta: {
+      icon: "report_problem",
+      note: "Reklamacje klientów — produkt + paragon + opis usterki + żądanie. Powiązane z mp_locations (gdzie zgłoszono).",
+      display_template: "{{customer_last_name}}, {{product_name}} — {{status}}",
+      sort_field: "-created_at",
+    },
+    fields: [
+      {
+        field: "id",
+        type: "uuid",
+        schema: { is_primary_key: true },
+        meta: { hidden: true, readonly: true, special: ["uuid"] },
+      },
+      {
+        field: "claim_number",
+        type: "string",
+        schema: { is_nullable: false, is_unique: true },
+        meta: {
+          interface: "input",
+          required: true,
+          readonly: true,
+          width: "half",
+          options: { iconLeft: "tag", font: "monospace" },
+        },
+      },
+      {
+        field: "status",
+        type: "string",
+        schema: { default_value: "new" },
+        meta: {
+          interface: "select-dropdown",
+          width: "half",
+          display: "labels",
+          options: {
+            choices: [
+              { text: "Nowa", value: "new" },
+              { text: "W rozpatrywaniu", value: "review" },
+              { text: "Zaakceptowana", value: "accepted" },
+              { text: "Odrzucona", value: "rejected" },
+              { text: "Zakończona", value: "closed" },
+            ],
+          },
+        },
+      },
+      {
+        field: "location",
+        type: "uuid",
+        meta: {
+          interface: "select-dropdown-m2o",
+          width: "full",
+          options: { template: "{{name}} ({{warehouse_code}})" },
+          special: ["m2o"],
+        },
+      },
+      { field: "customer_first_name", type: "string", meta: { interface: "input", width: "half" } },
+      { field: "customer_last_name", type: "string", meta: { interface: "input", width: "half" } },
+      { field: "phone", type: "string", meta: { interface: "input", width: "half", options: { iconLeft: "phone" } } },
+      { field: "email", type: "string", meta: { interface: "input", width: "half", options: { iconLeft: "mail" } } },
+      { field: "product_name", type: "string", meta: { interface: "input", width: "full" } },
+      { field: "purchase_date", type: "date", meta: { interface: "datetime", width: "half" } },
+      { field: "receipt_number", type: "string", meta: { interface: "input", width: "half", options: { font: "monospace" } } },
+      {
+        field: "product_value",
+        type: "decimal",
+        schema: { numeric_precision: 10, numeric_scale: 2 },
+        meta: { interface: "input", width: "half", options: { iconLeft: "payments" } },
+      },
+      {
+        field: "defect_description",
+        type: "text",
+        meta: { interface: "input-multiline", width: "full" },
+      },
+      {
+        field: "customer_demand",
+        type: "string",
+        meta: {
+          interface: "select-dropdown",
+          width: "full",
+          options: {
+            choices: [
+              { text: "Naprawa", value: "repair" },
+              { text: "Wymiana", value: "exchange" },
+              { text: "Zwrot pieniędzy", value: "refund" },
+              { text: "Obniżenie ceny", value: "discount" },
+            ],
+            allowOther: true,
+          },
+        },
+      },
+      { field: "received_by", type: "string", meta: { interface: "input", width: "full", options: { iconLeft: "person" } } },
+      {
+        field: "photos",
+        type: "json",
+        meta: { interface: "list", width: "full" },
+      },
+      {
+        field: "created_at",
+        type: "timestamp",
+        meta: { interface: "datetime", readonly: true, width: "half", display: "datetime", display_options: { relative: true } },
+      },
+      {
+        field: "updated_at",
+        type: "timestamp",
+        meta: { interface: "datetime", readonly: true, width: "half", display: "datetime", display_options: { relative: true } },
+      },
+    ],
+  },
+
+  // === Pakiet ochronny ===
+  {
+    collection: "mp_protections",
+    meta: {
+      icon: "shield",
+      note: "Pakiety ochronne (szkło hartowane, gwarancja rozszerzona) sprzedane do urządzeń. Powiązane z punktem sprzedaży.",
+      display_template: "{{brand}} {{model}} ({{imei}})",
+      sort_field: "-created_at",
+    },
+    fields: [
+      {
+        field: "id",
+        type: "uuid",
+        schema: { is_primary_key: true },
+        meta: { hidden: true, readonly: true, special: ["uuid"] },
+      },
+      {
+        field: "location",
+        type: "uuid",
+        meta: {
+          interface: "select-dropdown-m2o",
+          width: "full",
+          options: { template: "{{name}} ({{warehouse_code}})" },
+          special: ["m2o"],
+        },
+      },
+      { field: "brand", type: "string", meta: { interface: "input", width: "half" } },
+      { field: "model", type: "string", meta: { interface: "input", width: "half" } },
+      {
+        field: "imei",
+        type: "string",
+        meta: { interface: "input", width: "half", options: { font: "monospace" } },
+      },
+      {
+        field: "glass_type",
+        type: "string",
+        meta: {
+          interface: "select-dropdown",
+          width: "half",
+          options: {
+            choices: [
+              { text: "Bez szkła", value: "none" },
+              { text: "Standard 2.5D", value: "standard" },
+              { text: "Szkło UV", value: "uv" },
+              { text: "Szkło prywatyzujące", value: "privacy" },
+              { text: "Szkło 3D pełne", value: "full_3d" },
+            ],
+            allowOther: true,
+          },
+        },
+      },
+      {
+        field: "extended_warranty",
+        type: "boolean",
+        schema: { default_value: false },
+        meta: { interface: "boolean", width: "half", options: { label: "Gwarancja rozszerzona" } },
+      },
+      {
+        field: "warranty_months",
+        type: "integer",
+        meta: {
+          interface: "input",
+          width: "half",
+          options: { iconLeft: "schedule", min: 0, max: 60 },
+          note: "Długość gwarancji rozszerzonej (miesiące).",
+        },
+      },
+      {
+        field: "amount",
+        type: "decimal",
+        schema: { numeric_precision: 10, numeric_scale: 2 },
+        meta: { interface: "input", width: "half", options: { iconLeft: "payments" } },
+      },
+      { field: "customer_first_name", type: "string", meta: { interface: "input", width: "half" } },
+      { field: "customer_last_name", type: "string", meta: { interface: "input", width: "half" } },
+      { field: "phone", type: "string", meta: { interface: "input", width: "half", options: { iconLeft: "phone" } } },
+      { field: "email", type: "string", meta: { interface: "input", width: "half", options: { iconLeft: "mail" } } },
+      { field: "sold_by", type: "string", meta: { interface: "input", width: "full", options: { iconLeft: "person" } } },
+      {
+        field: "created_at",
+        type: "timestamp",
+        meta: { interface: "datetime", readonly: true, width: "half", display: "datetime", display_options: { relative: true } },
+      },
+      {
+        field: "updated_at",
+        type: "timestamp",
+        meta: { interface: "datetime", readonly: true, width: "half", display: "datetime", display_options: { relative: true } },
+      },
+    ],
+  },
+
+  // === Cennik ===
+  // Pozycje cennika edytowane przez admin /admin/config (read-only w panelach).
+  {
+    collection: "mp_pricelist",
+    meta: {
+      icon: "sell",
+      note: "Cennik usług serwisowych i pakietów. Pozycje grupowane po category. Edytowany przez admina.",
+      display_template: "{{name}} ({{category}}) — {{price}} PLN",
+      sort_field: "sort",
+      archive_field: "enabled",
+      archive_value: "false",
+      unarchive_value: "true",
+    },
+    fields: [
+      {
+        field: "id",
+        type: "uuid",
+        schema: { is_primary_key: true },
+        meta: { hidden: true, readonly: true, special: ["uuid"] },
+      },
+      {
+        field: "code",
+        type: "string",
+        schema: { is_nullable: false, is_unique: true },
+        meta: {
+          interface: "input",
+          required: true,
+          width: "half",
+          options: { iconLeft: "tag", font: "monospace" },
+          note: "Krótki kod pozycji (np. ECR_IPH_15).",
+        },
+      },
+      { field: "name", type: "string", schema: { is_nullable: false }, meta: { interface: "input", required: true, width: "half" } },
+      {
+        field: "category",
+        type: "string",
+        meta: {
+          interface: "select-dropdown",
+          width: "half",
+          options: {
+            choices: [
+              { text: "Wymiana ekranu", value: "screen" },
+              { text: "Wymiana baterii", value: "battery" },
+              { text: "Naprawa wody", value: "water_damage" },
+              { text: "Naprawa płyty głównej", value: "logic_board" },
+              { text: "Wymiana złącza", value: "port" },
+              { text: "Pakiet ochronny", value: "protection" },
+              { text: "Diagnostyka", value: "diagnostic" },
+              { text: "Inne", value: "other" },
+            ],
+            allowOther: true,
+          },
+        },
+      },
+      {
+        field: "price",
+        type: "decimal",
+        schema: { numeric_precision: 10, numeric_scale: 2, is_nullable: false },
+        meta: { interface: "input", required: true, width: "half", options: { iconLeft: "payments" } },
+      },
+      { field: "description", type: "text", meta: { interface: "input-multiline", width: "full" } },
+      { field: "warranty_months", type: "integer", meta: { interface: "input", width: "half" } },
+      { field: "duration_minutes", type: "integer", meta: { interface: "input", width: "half", note: "Szacowany czas wykonania (min)." } },
+      { field: "sort", type: "integer", schema: { default_value: 0 }, meta: { interface: "input", width: "half" } },
+      { field: "enabled", type: "boolean", schema: { default_value: true }, meta: { interface: "boolean", width: "half", options: { label: "Pozycja aktywna" } } },
+    ],
+  },
+
+  // === Transport / dostawa (panel kierowcy) ===
+  // Każde zlecenie transportu ma source + destination location, status, kierowcę,
+  // ETA, podpis odbioru. Powiązany m2o z mp_services (które urządzenie wozimy).
+  {
+    collection: "mp_transport_jobs",
+    meta: {
+      icon: "local_shipping",
+      note: "Zlecenia transportowe między punktami (odbiór do serwisu, zwrot do klienta). Panel kierowcy zarządza tymi zleceniami.",
+      display_template: "{{job_number}} — {{status}}",
+      sort_field: "-created_at",
+    },
+    fields: [
+      {
+        field: "id",
+        type: "uuid",
+        schema: { is_primary_key: true },
+        meta: { hidden: true, readonly: true, special: ["uuid"] },
+      },
+      {
+        field: "job_number",
+        type: "string",
+        schema: { is_nullable: false, is_unique: true },
+        meta: { interface: "input", required: true, readonly: true, width: "half", options: { font: "monospace" } },
+      },
+      {
+        field: "status",
+        type: "string",
+        schema: { default_value: "queued" },
+        meta: {
+          interface: "select-dropdown",
+          width: "half",
+          display: "labels",
+          options: {
+            choices: [
+              { text: "W kolejce", value: "queued" },
+              { text: "Przypisany kierowca", value: "assigned" },
+              { text: "W drodze", value: "in_transit" },
+              { text: "Dostarczony", value: "delivered" },
+              { text: "Anulowany", value: "cancelled" },
+            ],
+          },
+        },
+      },
+      {
+        field: "kind",
+        type: "string",
+        meta: {
+          interface: "select-dropdown",
+          width: "half",
+          options: {
+            choices: [
+              { text: "Odbiór do serwisu", value: "pickup_to_service" },
+              { text: "Zwrot do klienta", value: "return_to_customer" },
+              { text: "Między magazynami", value: "warehouse_transfer" },
+            ],
+          },
+        },
+      },
+      {
+        field: "service",
+        type: "uuid",
+        meta: {
+          interface: "select-dropdown-m2o",
+          width: "full",
+          options: { template: "{{ticket_number}} — {{brand}} {{model}}" },
+          special: ["m2o"],
+          note: "Powiązany serwis (mp_services).",
+        },
+      },
+      {
+        field: "source_location",
+        type: "uuid",
+        meta: {
+          interface: "select-dropdown-m2o",
+          width: "half",
+          options: { template: "{{name}} ({{warehouse_code}})" },
+          special: ["m2o"],
+        },
+      },
+      {
+        field: "destination_location",
+        type: "uuid",
+        meta: {
+          interface: "select-dropdown-m2o",
+          width: "half",
+          options: { template: "{{name}} ({{warehouse_code}})" },
+          special: ["m2o"],
+        },
+      },
+      {
+        field: "destination_address",
+        type: "string",
+        meta: {
+          interface: "input",
+          width: "full",
+          options: { iconLeft: "place" },
+          note: "Adres ad-hoc (gdy zwrot do klienta — bez naszego punktu).",
+        },
+      },
+      { field: "destination_lat", type: "decimal", schema: { numeric_precision: 9, numeric_scale: 6 }, meta: { interface: "input", width: "half" } },
+      { field: "destination_lng", type: "decimal", schema: { numeric_precision: 9, numeric_scale: 6 }, meta: { interface: "input", width: "half" } },
+      { field: "assigned_driver", type: "string", meta: { interface: "input", width: "full", options: { iconLeft: "person", font: "monospace" }, note: "Email kierowcy (z Keycloak)." } },
+      { field: "scheduled_at", type: "timestamp", meta: { interface: "datetime", width: "half" } },
+      { field: "picked_up_at", type: "timestamp", meta: { interface: "datetime", width: "half", readonly: true } },
+      { field: "delivered_at", type: "timestamp", meta: { interface: "datetime", width: "half", readonly: true } },
+      { field: "recipient_signature", type: "text", meta: { interface: "input-multiline", width: "full", note: "Base64 podpisu odbioru." } },
+      { field: "notes", type: "text", meta: { interface: "input-multiline", width: "full" } },
+      { field: "created_at", type: "timestamp", meta: { interface: "datetime", readonly: true, width: "half", display: "datetime", display_options: { relative: true } } },
+      { field: "updated_at", type: "timestamp", meta: { interface: "datetime", readonly: true, width: "half", display: "datetime", display_options: { relative: true } } },
+    ],
+  },
 ];
