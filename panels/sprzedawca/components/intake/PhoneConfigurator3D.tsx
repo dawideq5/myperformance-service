@@ -38,8 +38,9 @@ const ModelLoadingOverlay = dynamic(
 type StepId =
   | "display"
   | "back"
-  | "cameras"
   | "frames"
+  | "cameras"
+  | "liquid"
   | "cleaning"
   | "damage"
   | "summary";
@@ -102,6 +103,15 @@ const STEPS: Step[] = [
     // STARA pozycja sprzed P17 — działała.
     cameraPos: [-1.4, 1.3, -2.8],
     cameraLookAt: [-0.5, 0.8, 0],
+  },
+  {
+    id: "liquid",
+    title: "Test funkcjonalny",
+    subtitle: "Zalanie, ładowanie",
+    highlight: null,
+    // Widok dolnej krawędzi z portem ładowania.
+    cameraPos: [0, -3.5, 0.6],
+    cameraLookAt: [0, -1.6, 0],
   },
   {
     id: "cleaning",
@@ -167,6 +177,7 @@ export interface DamageMarker {
 }
 
 export interface VisualConditionState {
+  // Visual ratings
   display_rating?: number;
   display_notes?: string;
   back_rating?: number;
@@ -175,9 +186,25 @@ export interface VisualConditionState {
   camera_notes?: string;
   frames_rating?: number;
   frames_notes?: string;
+  // Cleaning + markers + final notes
   cleaning_accepted?: boolean;
   damage_markers?: DamageMarker[];
   additional_notes?: string;
+  // === Checklist questions (przeniesione z osobnej sekcji) ===
+  /** Czy urządzenie się włącza? — display step. */
+  powers_on?: "yes" | "no" | "vibrates";
+  /** Czy ekran pęknięty? — display step. */
+  cracked_front?: boolean;
+  /** Czy panel tylny pęknięty? — back step. */
+  cracked_back?: boolean;
+  /** Czy obudowa wygięta? — frames step. */
+  bent?: boolean;
+  /** Apple-only: czy Face ID/Touch ID działa? — display step. */
+  face_touch_id?: boolean;
+  /** Czy zalany? — liquid step. */
+  water_damage?: "yes" | "no" | "unknown";
+  /** Prąd ładowania w amperach — liquid step (gdy water_damage = "no"). */
+  charging_current?: number;
 }
 
 /** Detekcja platformy + zwrot profesjonalnej instrukcji obracania modelem. */
@@ -302,13 +329,34 @@ export function PhoneConfigurator3D({
   const isStepComplete = (s: Step): boolean => {
     switch (s.id) {
       case "display":
-        return state.display_rating != null;
+        if (state.display_rating == null) return false;
+        if (state.powers_on == null) return false;
+        if (state.cracked_front == null) return false;
+        // Face/Touch ID tylko dla Apple.
+        if (
+          brand.toLowerCase() === "apple" &&
+          state.face_touch_id == null
+        ) {
+          return false;
+        }
+        return true;
       case "back":
-        return state.back_rating != null;
+        if (state.back_rating == null) return false;
+        if (state.cracked_back == null) return false;
+        return true;
       case "frames":
-        return state.frames_rating != null;
+        if (state.frames_rating == null) return false;
+        if (state.bent == null) return false;
+        return true;
       case "cameras":
         return state.camera_rating != null;
+      case "liquid":
+        if (state.water_damage == null) return false;
+        // Prąd ładowania wymagany tylko gdy water_damage = "no".
+        if (state.water_damage === "no" && state.charging_current == null) {
+          return false;
+        }
+        return true;
       case "cleaning":
         return state.cleaning_accepted != null;
       case "damage":
@@ -458,6 +506,7 @@ export function PhoneConfigurator3D({
             <StepInputs
               step={step}
               state={state}
+              brand={brand}
               cleaningPrice={cleaningPrice}
               editingMarkerId={editingMarkerId}
               onChange={update}
@@ -537,6 +586,7 @@ export function PhoneConfigurator3D({
 function StepInputs({
   step,
   state,
+  brand,
   cleaningPrice,
   editingMarkerId,
   onChange,
@@ -546,6 +596,7 @@ function StepInputs({
 }: {
   step: Step;
   state: VisualConditionState;
+  brand: string;
   cleaningPrice: number | null;
   editingMarkerId: string | null;
   onChange: (patch: Partial<VisualConditionState>) => void;
@@ -555,38 +606,140 @@ function StepInputs({
 }) {
   if (step.id === "display") {
     return (
-      <RatingScale
-        value={state.display_rating}
-        onChange={(v) => onChange({ display_rating: v })}
-        descriptions={DISPLAY_DESCRIPTIONS}
-      />
+      <div className="space-y-4">
+        <SectionHeader>Ocena ekranu</SectionHeader>
+        <RatingScale
+          value={state.display_rating}
+          onChange={(v) => onChange({ display_rating: v })}
+          descriptions={DISPLAY_DESCRIPTIONS}
+        />
+        <SectionHeader>Test funkcjonalny</SectionHeader>
+        <ChoicePicker
+          label="Czy urządzenie się włącza?"
+          value={state.powers_on}
+          options={[
+            { value: "yes", label: "Tak", color: "#22C55E" },
+            { value: "no", label: "Nie", color: "#EF4444" },
+            {
+              value: "vibrates",
+              label: "Wibruje / dźwięk, ale ekran nie reaguje",
+              color: "#F59E0B",
+            },
+          ]}
+          onChange={(v) =>
+            onChange({ powers_on: v as "yes" | "no" | "vibrates" })
+          }
+        />
+        <BoolPicker
+          label="Czy ekran jest pęknięty?"
+          value={state.cracked_front}
+          onChange={(v) => onChange({ cracked_front: v })}
+        />
+        {brand.toLowerCase() === "apple" && (
+          <BoolPicker
+            label="Czy Face ID / Touch ID działa?"
+            value={state.face_touch_id}
+            onChange={(v) => onChange({ face_touch_id: v })}
+            invertColors
+          />
+        )}
+      </div>
     );
   }
   if (step.id === "back") {
     return (
-      <RatingScale
-        value={state.back_rating}
-        onChange={(v) => onChange({ back_rating: v })}
-        descriptions={BACK_DESCRIPTIONS}
-      />
+      <div className="space-y-4">
+        <SectionHeader>Ocena panelu tylnego</SectionHeader>
+        <RatingScale
+          value={state.back_rating}
+          onChange={(v) => onChange({ back_rating: v })}
+          descriptions={BACK_DESCRIPTIONS}
+        />
+        <SectionHeader>Test funkcjonalny</SectionHeader>
+        <BoolPicker
+          label="Czy panel tylny jest pęknięty?"
+          value={state.cracked_back}
+          onChange={(v) => onChange({ cracked_back: v })}
+        />
+      </div>
     );
   }
   if (step.id === "cameras") {
     return (
-      <RatingScale
-        value={state.camera_rating}
-        onChange={(v) => onChange({ camera_rating: v })}
-        descriptions={CAMERA_DESCRIPTIONS}
-      />
+      <div className="space-y-4">
+        <SectionHeader>Ocena wyspy aparatów</SectionHeader>
+        <RatingScale
+          value={state.camera_rating}
+          onChange={(v) => onChange({ camera_rating: v })}
+          descriptions={CAMERA_DESCRIPTIONS}
+        />
+      </div>
     );
   }
   if (step.id === "frames") {
     return (
-      <RatingScale
-        value={state.frames_rating}
-        onChange={(v) => onChange({ frames_rating: v })}
-        descriptions={FRAMES_DESCRIPTIONS}
-      />
+      <div className="space-y-4">
+        <SectionHeader>Ocena ramek</SectionHeader>
+        <RatingScale
+          value={state.frames_rating}
+          onChange={(v) => onChange({ frames_rating: v })}
+          descriptions={FRAMES_DESCRIPTIONS}
+        />
+        <SectionHeader>Test funkcjonalny</SectionHeader>
+        <BoolPicker
+          label="Czy obudowa jest wygięta?"
+          value={state.bent}
+          onChange={(v) => onChange({ bent: v })}
+        />
+      </div>
+    );
+  }
+  if (step.id === "liquid") {
+    const showCharging =
+      state.water_damage === undefined || state.water_damage === "no";
+    return (
+      <div className="space-y-4">
+        <SectionHeader>Test funkcjonalny</SectionHeader>
+        <ChoicePicker
+          label="Czy urządzenie było zalane?"
+          value={state.water_damage}
+          options={[
+            { value: "no", label: "Nie", color: "#22C55E" },
+            { value: "yes", label: "Tak", color: "#EF4444" },
+            { value: "unknown", label: "Nie wiadomo", color: "#F59E0B" },
+          ]}
+          onChange={(v) =>
+            onChange({ water_damage: v as "yes" | "no" | "unknown" })
+          }
+        />
+        {showCharging ? (
+          <ChargingCurrentInput
+            value={state.charging_current}
+            onChange={(v) => onChange({ charging_current: v })}
+          />
+        ) : (
+          <div
+            className="rounded-xl p-3 border text-xs animate-fade-in"
+            style={{
+              background: "rgba(245, 158, 11, 0.1)",
+              borderColor: "rgba(245, 158, 11, 0.3)",
+              color: "rgba(255, 255, 255, 0.85)",
+            }}
+          >
+            <p
+              className="font-semibold mb-0.5"
+              style={{ color: "#F59E0B" }}
+            >
+              Pomiar prądu pominięty
+            </p>
+            <p className="text-white/70">
+              Z uwagi na potencjalny kontakt z cieczą podłączenie ładowania
+              do diagnostyki może być ryzykowne. Pominięcie tego kroku jest
+              zalecane.
+            </p>
+          </div>
+        )}
+      </div>
     );
   }
   if (step.id === "cleaning") {
@@ -707,6 +860,156 @@ function StepInputs({
     );
   }
   return null;
+}
+
+function SectionHeader({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="text-[10px] uppercase tracking-widest text-white/50 font-semibold pt-1">
+      {children}
+    </p>
+  );
+}
+
+/** Toggle Tak/Nie z opcjonalną zamianą kolorów (np. dla "Face ID działa"
+ * gdzie Tak = zielone). Domyślnie Tak = czerwone (dla negative questions
+ * jak "Czy pęknięty"). */
+function BoolPicker({
+  label,
+  value,
+  onChange,
+  invertColors = false,
+}: {
+  label: string;
+  value: boolean | undefined;
+  onChange: (v: boolean) => void;
+  invertColors?: boolean;
+}) {
+  const yesColor = invertColors ? "#22C55E" : "#EF4444";
+  const noColor = invertColors ? "#EF4444" : "#22C55E";
+  return (
+    <div>
+      <p className="text-sm font-medium text-white/85 mb-2">{label}</p>
+      <div className="flex gap-2">
+        <PickerOption
+          active={value === false}
+          color={noColor}
+          onClick={() => onChange(false)}
+          label="Nie"
+          fullWidth
+        />
+        <PickerOption
+          active={value === true}
+          color={yesColor}
+          onClick={() => onChange(true)}
+          label="Tak"
+          fullWidth
+        />
+      </div>
+    </div>
+  );
+}
+
+/** Wybór z 2-3 opcji w formie pełnowątkowych przycisków pod pytaniem. */
+function ChoicePicker({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string | undefined;
+  onChange: (v: string) => void;
+  options: { value: string; label: string; color: string }[];
+}) {
+  return (
+    <div>
+      <p className="text-sm font-medium text-white/85 mb-2">{label}</p>
+      <div className="flex flex-col gap-1.5">
+        {options.map((o) => (
+          <PickerOption
+            key={o.value}
+            active={value === o.value}
+            color={o.color}
+            onClick={() => onChange(o.value)}
+            label={o.label}
+            fullWidth
+            stack
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PickerOption({
+  active,
+  color,
+  onClick,
+  label,
+  fullWidth,
+  stack,
+}: {
+  active: boolean;
+  color: string;
+  onClick: () => void;
+  label: string;
+  fullWidth?: boolean;
+  stack?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`px-3 py-2 rounded-xl border text-xs font-semibold transition-all duration-200 hover:scale-[1.01] ${fullWidth ? "flex-1" : ""} ${stack ? "text-left" : "text-center"}`}
+      style={{
+        background: active
+          ? `linear-gradient(90deg, ${color}33, transparent 70%)`
+          : "rgba(255,255,255,0.04)",
+        borderColor: active ? color : "rgba(255,255,255,0.1)",
+        color: active ? "#fff" : "rgba(255,255,255,0.7)",
+        boxShadow: active ? `inset 4px 0 0 ${color}` : "none",
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
+function ChargingCurrentInput({
+  value,
+  onChange,
+}: {
+  value: number | undefined;
+  onChange: (v: number | undefined) => void;
+}) {
+  return (
+    <div className="rounded-xl p-3 border border-white/10 bg-white/5">
+      <p className="text-sm font-medium text-white/85 mb-1">Prąd ładowania</p>
+      <p className="text-[11px] text-white/55 mb-2">
+        Zmierz przy podłączeniu ładowarki.
+      </p>
+      <div className="flex items-center gap-2">
+        <input
+          type="number"
+          step="0.01"
+          min="0"
+          max="9.99"
+          value={value ?? ""}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v === "") onChange(undefined);
+            else {
+              const n = Number(v);
+              onChange(Number.isFinite(n) ? n : undefined);
+            }
+          }}
+          placeholder="0.00"
+          className="w-24 px-3 py-2 rounded-lg border border-white/10 bg-black/30 text-sm text-white outline-none text-right font-mono focus:border-white/30 placeholder:text-white/30"
+        />
+        <span className="text-sm text-white/65 font-mono">A</span>
+      </div>
+    </div>
+  );
 }
 
 function NotesField({

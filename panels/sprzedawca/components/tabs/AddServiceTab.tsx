@@ -19,10 +19,7 @@ import { BrandPicker, BRANDS } from "../intake/BrandPicker";
 import { ImeiField } from "../intake/ImeiField";
 import { ColorPicker } from "../intake/ColorPicker";
 import { LockSection } from "../intake/LockSection";
-import {
-  ChecklistSection,
-  type ChecklistState,
-} from "../intake/ChecklistSection";
+// ChecklistSection — pytania przeniesione do konfiguratora 3D (P21).
 import {
   PhoneConfigurator3D,
   type VisualConditionState,
@@ -39,8 +36,8 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
   const [color, setColor] = useState("");
   const [lockType, setLockType] = useState("none");
   const [lockCode, setLockCode] = useState("");
-  const [checklist, setChecklist] = useState<ChecklistState>({});
-  const [chargingCurrent, setChargingCurrent] = useState("");
+  // Checklist + charging są teraz częścią VisualConditionState — pytania
+  // zadawane wewnątrz konfiguratora 3D, nie w osobnej sekcji formularza.
   const [visualCondition, setVisualCondition] = useState<VisualConditionState>({});
   const [visualCompleted, setVisualCompleted] = useState(false);
   const [showConfigurator, setShowConfigurator] = useState(false);
@@ -56,18 +53,16 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [cleaningPrice, setCleaningPrice] = useState<number | null>(null);
 
-  // Sekcje rozwijane.
+  // Sekcje rozwijane (bez checklist — przeniesiona do configuratora).
   const [open, setOpen] = useState<Record<string, boolean>>({
     device: true,
     lock: true,
-    checklist: true,
     visual: true,
     customer: true,
   });
   const toggle = (k: string) => setOpen((s) => ({ ...s, [k]: !s[k] }));
 
-  // Sequence sekcji — używana do continueToNext.
-  const SECTION_ORDER = ["device", "lock", "checklist", "visual", "customer"] as const;
+  const SECTION_ORDER = ["device", "lock", "visual", "customer"] as const;
   const continueToNext = (current: string) => {
     const idx = SECTION_ORDER.indexOf(current as (typeof SECTION_ORDER)[number]);
     if (idx === -1) return;
@@ -111,18 +106,6 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
   const deviceComplete = !!(brand.trim() && model.trim() && imei.trim() && color.trim());
   const lockComplete =
     lockType === "none" || (lockType !== "none" && !!lockCode.trim());
-  const checklistComplete = (() => {
-    if (!checklist.powers_on) return false;
-    if (checklist.bent === undefined) return false;
-    if (checklist.cracked_front === undefined) return false;
-    if (checklist.cracked_back === undefined) return false;
-    if (brand.toLowerCase() === "apple" && checklist.face_touch_id === undefined)
-      return false;
-    if (!checklist.water_damage) return false;
-    // Prąd ładowania wymagany tylko gdy zalanie = no.
-    if (checklist.water_damage === "no" && !chargingCurrent.trim()) return false;
-    return true;
-  })();
   const visualComplete = visualCompleted;
   const customerComplete = !!(
     repairTypes.length > 0 &&
@@ -133,16 +116,13 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
   const allComplete =
     deviceComplete &&
     lockComplete &&
-    checklistComplete &&
     visualComplete &&
     customerComplete;
 
-  // Auto-collapse sekcji po complete (jeśli była otwarta — zwiń, oszczędność miejsca).
-  // Jednorazowo per section, by user mógł ją otworzyć ręcznie potem.
+  // Auto-collapse sekcji po complete.
   const prevCompletion = useRef({
     device: false,
     lock: false,
-    checklist: false,
     visual: false,
     customer: false,
   });
@@ -155,22 +135,18 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
       if (lockComplete && !prevCompletion.current.lock && curr.lock && lockType !== "none") {
         next.lock = false;
       }
-      if (checklistComplete && !prevCompletion.current.checklist && curr.checklist) {
-        next.checklist = false;
-      }
       if (visualComplete && !prevCompletion.current.visual && curr.visual) {
         next.visual = false;
       }
       prevCompletion.current = {
         device: deviceComplete,
         lock: lockComplete,
-        checklist: checklistComplete,
         visual: visualComplete,
         customer: customerComplete,
       };
       return next;
     });
-  }, [deviceComplete, lockComplete, checklistComplete, visualComplete, customerComplete, lockType]);
+  }, [deviceComplete, lockComplete, visualComplete, customerComplete, lockType]);
 
   const reset = () => {
     setBrand("");
@@ -179,8 +155,6 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
     setColor("");
     setLockType("none");
     setLockCode("");
-    setChecklist({});
-    setChargingCurrent("");
     setVisualCondition({});
     setVisualCompleted(false);
     setRepairTypes([]);
@@ -198,6 +172,36 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
     setError(null);
     setSuccess(null);
     try {
+      // Split visualCondition na pola DB:
+      //   visualCondition (DB column visual_condition) — pola wizualne + cleaning
+      //   intakeChecklist (DB column intake_checklist) — pytania funkcjonalne
+      //   chargingCurrent (DB column charging_current) — osobna kolumna
+      const v = visualCondition;
+      const intakeChecklist = visualCompleted
+        ? {
+            powers_on: v.powers_on,
+            cracked_front: v.cracked_front,
+            cracked_back: v.cracked_back,
+            bent: v.bent,
+            face_touch_id: v.face_touch_id,
+            water_damage: v.water_damage,
+          }
+        : {};
+      const visualOnly = visualCompleted
+        ? {
+            display_rating: v.display_rating,
+            display_notes: v.display_notes,
+            back_rating: v.back_rating,
+            back_notes: v.back_notes,
+            camera_rating: v.camera_rating,
+            camera_notes: v.camera_notes,
+            frames_rating: v.frames_rating,
+            frames_notes: v.frames_notes,
+            cleaning_accepted: v.cleaning_accepted,
+            damage_markers: v.damage_markers,
+            additional_notes: v.additional_notes,
+          }
+        : {};
       const body = {
         locationId,
         type: "phone",
@@ -207,9 +211,9 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
         color: color.trim() || null,
         lockType,
         lockCode: lockCode.trim() || null,
-        intakeChecklist: checklist,
-        chargingCurrent: chargingCurrent ? Number(chargingCurrent) : null,
-        visualCondition: visualCompleted ? visualCondition : {},
+        intakeChecklist,
+        chargingCurrent: v.charging_current ?? null,
+        visualCondition: visualOnly,
         description: serializeRepairTypes(repairTypes, customDescription) || null,
         amountEstimate: amountEstimate ? Number(amountEstimate) : null,
         customerFirstName: customerFirstName.trim() || null,
@@ -321,27 +325,6 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
             lockCode={lockCode}
             onChangeType={setLockType}
             onChangeCode={setLockCode}
-          />
-        </Section>
-        </div>
-
-        <div data-section="checklist">
-        <Section
-          icon={<CheckCircle2 className="w-5 h-5" />}
-          title="Checklista przyjęcia"
-          subtitle="Stan i funkcjonalność urządzenia"
-          accent="#F59E0B"
-          complete={checklistComplete}
-          open={open.checklist}
-          onToggle={() => toggle("checklist")}
-          onContinue={() => continueToNext("checklist")}
-        >
-          <ChecklistSection
-            brand={brand}
-            checklist={checklist}
-            chargingCurrent={chargingCurrent}
-            onChangeChecklist={setChecklist}
-            onChangeChargingCurrent={setChargingCurrent}
           />
         </Section>
         </div>
