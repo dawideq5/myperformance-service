@@ -30,6 +30,10 @@ const Canvas = dynamic(
   { ssr: false },
 );
 const PhoneScene = dynamic(() => import("./PhoneScene"), { ssr: false });
+const ModelLoadingOverlay = dynamic(
+  () => import("./ModelLoadingOverlay"),
+  { ssr: false },
+);
 
 type StepId =
   | "display"
@@ -357,6 +361,7 @@ export function PhoneConfigurator3D({
                 onModelClick={onModelClick}
               />
             </Canvas>
+            <ModelLoadingOverlay />
 
             {/* Cleaning tour caption overlay */}
             {step.id === "cleaning" && step.cleaningTour && (

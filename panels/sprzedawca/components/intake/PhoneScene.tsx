@@ -2,13 +2,10 @@
 
 import { ContactShadows, OrbitControls } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
-import { useRef } from "react";
+import { Suspense, useRef } from "react";
 import * as THREE from "three";
-import {
-  CameraRig,
-  PhoneModel,
-  type HighlightId,
-} from "./PhoneModel";
+import { CameraRig } from "./PhoneModel";
+import { PhoneGLB, type HighlightId } from "./PhoneGLB";
 
 interface DamageMarker {
   id: string;
@@ -21,16 +18,14 @@ interface DamageMarker {
 export default function PhoneScene({
   highlight,
   cameraPos,
-  brandColor,
   isFramesStep,
-  screenOn = false,
   damageMarkers = [],
   damageMode = false,
   onModelClick,
 }: {
   highlight: HighlightId;
   cameraPos: [number, number, number];
-  brandColor: string;
+  brandColor?: string;
   isFramesStep: boolean;
   screenOn?: boolean;
   damageMarkers?: DamageMarker[];
@@ -43,7 +38,9 @@ export default function PhoneScene({
 
   useFrame(({ clock }, dt) => {
     const t = clock.getElapsedTime();
-    if (groupRef.current) {
+    if (groupRef.current && !damageMode) {
+      // Auto-rotacja tylko w kroku ramek (i nie w trybie damage gdzie user
+      // obraca ręcznie).
       if (isFramesStep) {
         groupRef.current.rotation.y += dt * 0.45;
       } else {
@@ -53,7 +50,7 @@ export default function PhoneScene({
           normalized + (-normalized) * Math.min(dt * 2.5, 1);
       }
     }
-    // Subtelny ruch key light dla zmiennych cieni przy prezentacji.
+    // Subtelne ruchy świateł — zmienne cienie podczas prezentacji.
     if (keyLightRef.current) {
       keyLightRef.current.position.x = 5 + Math.sin(t * 0.15) * 0.6;
       keyLightRef.current.position.y = 6 + Math.cos(t * 0.12) * 0.5;
@@ -65,15 +62,13 @@ export default function PhoneScene({
 
   return (
     <>
-      {/* W trybie damage user obraca telefon ręcznie — w innych krokach
-          kamera animowana przez CameraRig (zablokowane manual). */}
       {damageMode ? (
         <OrbitControls
           enablePan={false}
           enableZoom
           enableRotate
           minDistance={3.5}
-          maxDistance={7}
+          maxDistance={9}
           rotateSpeed={0.7}
           zoomSpeed={0.7}
         />
@@ -81,13 +76,11 @@ export default function PhoneScene({
         <CameraRig position={cameraPos} lookAt={[0, 0, 0]} />
       )}
 
-      <ambientLight intensity={0.3} color="#aabbcc" />
-
-      {/* Key light — animowany dla zmiennych cieni */}
+      <ambientLight intensity={0.45} color="#aabbcc" />
       <directionalLight
         ref={keyLightRef}
         position={[5, 6, 4]}
-        intensity={1.5}
+        intensity={1.6}
         castShadow
         shadow-mapSize-width={2048}
         shadow-mapSize-height={2048}
@@ -102,23 +95,22 @@ export default function PhoneScene({
       <directionalLight
         ref={fillLightRef}
         position={[-4, 2, 3]}
-        intensity={0.55}
+        intensity={0.6}
         color="#88aaff"
       />
-      <directionalLight position={[0, -2, -5]} intensity={0.6} color="#ffaa66" />
-
-      {/* Studio rim lights */}
+      <directionalLight position={[0, -2, -5]} intensity={0.55} color="#ffaa66" />
       <pointLight position={[3, -3, 4]} intensity={0.5} color="#ffd9a0" />
       <pointLight position={[-3, 3, 4]} intensity={0.45} color="#a0d0ff" />
 
       <group ref={groupRef}>
-        <PhoneModel
-          highlight={highlight}
-          brandColor={brandColor}
-          screenOn={screenOn}
-          damageMarkers={damageMarkers}
-          onModelClick={damageMode ? onModelClick : undefined}
-        />
+        <Suspense fallback={null}>
+          <PhoneGLB
+            highlight={highlight}
+            damageMarkers={damageMarkers}
+            damageMode={damageMode}
+            onModelClick={onModelClick}
+          />
+        </Suspense>
       </group>
 
       <ContactShadows

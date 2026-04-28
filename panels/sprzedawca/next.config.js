@@ -24,7 +24,12 @@ const mapTilesSrc =
   "https://*.basemaps.cartocdn.com https://*.tile.openstreetmap.org https://tile.openstreetmap.org";
 const leafletAssetsSrc = "https://unpkg.com";
 
-const scriptSrc = isDev ? "'self' 'unsafe-inline' 'unsafe-eval'" : "'self' 'unsafe-inline'";
+// 'wasm-unsafe-eval' wymagane dla Draco/WebAssembly przy ładowaniu modelu 3D
+// w konfiguratorze stanu wizualnego (panel-sprzedawca → Dodaj serwis →
+// Stan wizualny → 3D walkthrough). Bez tego ładowanie GLB rzuca CSP error.
+const scriptSrc = isDev
+  ? "'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'"
+  : "'self' 'unsafe-inline' 'wasm-unsafe-eval'";
 
 const securityHeaders = [
   { key: "X-Frame-Options", value: "DENY" },
@@ -57,6 +62,7 @@ const securityHeaders = [
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "object-src 'none'",
+      "worker-src 'self' blob:",
     ].join("; "),
   },
   ...(!isDev
