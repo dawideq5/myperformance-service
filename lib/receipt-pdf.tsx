@@ -2,6 +2,7 @@
 import {
   Document,
   Font,
+  G,
   Image,
   Page,
   StyleSheet,
@@ -10,10 +11,9 @@ import {
   Rect,
   Text,
   View,
-  pdf,
+  renderToBuffer,
 } from "@react-pdf/renderer";
 import path from "path";
-import fs from "fs";
 
 // Roboto z Polish glyph support — załadowane z public/fonts/ (offline,
 // nie zależy od zewnętrznych URL na serwerze).
@@ -364,6 +364,11 @@ function PhoneOutlineSvg({
 }) {
   const W = 70;
   const H = 130;
+  // Filter + map z indeksami przed render — żeby nie rendrować null'i
+  // wewnątrz Svg (które w niektórych konfigach @react-pdf crashują).
+  const visible = markers
+    .map((m, i) => ({ m, i, p: projectMarker(m) }))
+    .filter((it) => it.p.view === view);
   return (
     <View>
       <Svg width={W} height={H + 14} viewBox={`0 0 ${W} ${H + 14}`}>
@@ -390,28 +395,37 @@ function PhoneOutlineSvg({
           strokeWidth={0.5}
         />
         <Circle cx={W / 2} cy={9} r={1.5} fill="#444" />
-        {markers.map((m, i) => {
-          const p = projectMarker(m);
-          if (p.view !== view) return null;
+        {visible.map(({ m, i, p }) => {
           const cx = (p.px / 100) * W;
           const cy = (p.py / 100) * H;
           return (
-            <Svg key={m.id}>
-              <Circle cx={cx} cy={cy} r={4} fill="#1a1a1a" stroke="#fff" strokeWidth={0.8} />
+            <G key={m.id}>
+              <Circle
+                cx={cx}
+                cy={cy}
+                r={4}
+                fill="#1a1a1a"
+                stroke="#fff"
+                strokeWidth={0.8}
+              />
               <Text
                 x={cx}
                 y={cy + 1.5}
-                style={{ fontSize: 5, fontWeight: 700, fill: "#fff", textAnchor: "middle" }}
+                fill="#fff"
+                textAnchor="middle"
+                style={{ fontSize: 5, fontWeight: 700 }}
               >
                 {String(i + 1)}
               </Text>
-            </Svg>
+            </G>
           );
         })}
         <Text
           x={W / 2}
           y={H + 8}
-          style={{ fontSize: 6, fontWeight: 700, fill: "#333", textAnchor: "middle" }}
+          fill="#333"
+          textAnchor="middle"
+          style={{ fontSize: 6, fontWeight: 700 }}
         >
           {label}
         </Text>
@@ -479,10 +493,10 @@ function ReceiptDocument({ data }: { data: ReceiptInput }) {
             <Text style={styles.fieldLabel}>Telefon</Text>
             <Text style={styles.fieldValue}>{data.customer.phone || "—"}</Text>
             {data.customer.email ? (
-              <>
+              <View>
                 <Text style={styles.fieldLabel}>Email</Text>
                 <Text style={styles.fieldValue}>{data.customer.email}</Text>
-              </>
+              </View>
             ) : null}
           </View>
           <View style={styles.col}>
@@ -513,7 +527,7 @@ function ReceiptDocument({ data }: { data: ReceiptInput }) {
         </View>
 
         {markers.length > 0 ? (
-          <>
+          <View>
             <Text style={styles.h2}>Lokalizacja uszkodzeń</Text>
             <View style={styles.techRow}>
               <PhoneOutlineSvg markers={markers} view="front" label="PRZÓD" />
@@ -534,11 +548,11 @@ function ReceiptDocument({ data }: { data: ReceiptInput }) {
                 ))}
               </View>
             </View>
-          </>
+          </View>
         ) : null}
 
         {ratings.some((r) => r.value != null) || checklist.length > 0 ? (
-          <>
+          <View>
             <Text style={styles.h2}>Stan techniczny</Text>
             <View style={styles.ratingsTable}>
               {ratings
@@ -556,7 +570,7 @@ function ReceiptDocument({ data }: { data: ReceiptInput }) {
                 </View>
               ))}
             </View>
-          </>
+          </View>
         ) : null}
 
         <Text style={styles.h2}>Wycena orientacyjna</Text>
@@ -585,12 +599,12 @@ function ReceiptDocument({ data }: { data: ReceiptInput }) {
               karty pamięci SD ani nie posiadało etui przy przyjęciu.
             </Text>
           ) : (
-            <>
+            <View>
               <Text style={{ fontWeight: 700, marginBottom: 2 }}>
                 Pobrane od klienta dodatkowe przedmioty:
               </Text>
               <Text>{data.handover.items}</Text>
-            </>
+            </View>
           )}
         </View>
 
@@ -638,7 +652,5 @@ function ReceiptDocument({ data }: { data: ReceiptInput }) {
 /** Renderuje PDF do Buffer. Server-side use only. */
 export async function renderReceiptPdf(data: ReceiptInput): Promise<Buffer> {
   ensureFontRegistered();
-  const blob = await pdf(<ReceiptDocument data={data} />).toBlob();
-  const arrayBuffer = await blob.arrayBuffer();
-  return Buffer.from(arrayBuffer);
+  return await renderToBuffer(<ReceiptDocument data={data} />);
 }
