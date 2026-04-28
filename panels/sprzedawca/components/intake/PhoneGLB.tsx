@@ -185,7 +185,10 @@ export function PhoneGLB({
       "btn_volume",
       "color_housing",
     ];
-    const fixedBackIncludes = ["backplate"];
+    // back_cover = visible external back panel (mesh node back_cover_mat_color_body
+     // top-level w GLB, używa materiału mat_color_body). backplate_48 to wewnętrzna
+     // warstwa (rzadko widoczna). Oba muszą być titanium.
+    const fixedBackIncludes = ["backplate", "back_cover"];
     const excludes = [
       "inside",
       "dummies",
@@ -195,6 +198,12 @@ export function PhoneGLB({
       "screen",
       "cover_flex",
       "back_cam_mat",
+      "glass", // back_cam_glass — szkło aparatu
+      "hole", // back_cam_hole — otwory w wyspie aparatów
+      "screw",
+      "magnets",
+      "motherboard",
+      "wires",
     ];
     /** Konkatenuje nazwy wszystkich rodziców + materiału — używane do
      * dopasowania body części niezależnie od tego gdzie nazwa jest

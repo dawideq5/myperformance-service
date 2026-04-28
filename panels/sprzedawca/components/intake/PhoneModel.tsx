@@ -507,42 +507,59 @@ function RoundedBoxGeometry({
 }
 
 /** Animowana kamera. */
+/** Cubic ease-in-out: slow start → fast middle → slow end. */
+function easeInOutCubic(t: number): number {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
 export function CameraRig({
   position,
   lookAt,
-  lerpLambda = 2.0,
+  duration = 1.5,
 }: {
   position: [number, number, number];
   lookAt?: [number, number, number];
-  /** Szybkość lerp w jednostkach 1/sekunda. Większy = szybszy.
-   * Default 2.0 (~500ms do 63%). Cleaning step używa 0.7 (~1.4s do 63%)
-   * dla bardziej cinematic feel. */
-  lerpLambda?: number;
+  /** Czas trwania pełnego tween w sekundach. Cleaning step używa ~4s
+   * dla cinematic feel; default 1.5s. */
+  duration?: number;
 }) {
   const { camera } = useThree();
   const tgtPos = useRef(new THREE.Vector3(...position));
   const tgtLook = useRef(new THREE.Vector3(...(lookAt ?? [0, 0, 0])));
+  const startPos = useRef(new THREE.Vector3(...position));
+  const tweenT0 = useRef<number | null>(null);
+  const prevTarget = useRef<[number, number, number]>([
+    position[0],
+    position[1],
+    position[2],
+  ]);
 
-  if (
-    tgtPos.current.x !== position[0] ||
-    tgtPos.current.y !== position[1] ||
-    tgtPos.current.z !== position[2]
-  ) {
+  // Wykryj zmianę target → zacznij nowy tween. Wykonujemy podczas render,
+  // ale startPos czytamy z camera w useFrame (camera.position ma już aktualną
+  // wartość po ostatnim frame).
+  const targetChanged =
+    prevTarget.current[0] !== position[0] ||
+    prevTarget.current[1] !== position[1] ||
+    prevTarget.current[2] !== position[2];
+
+  if (targetChanged) {
     tgtPos.current.set(...position);
+    prevTarget.current = [position[0], position[1], position[2]];
+    tweenT0.current = null; // useFrame capture startPos + t0 next tick
   }
   if (lookAt) {
-    if (
-      tgtLook.current.x !== lookAt[0] ||
-      tgtLook.current.y !== lookAt[1] ||
-      tgtLook.current.z !== lookAt[2]
-    ) {
-      tgtLook.current.set(...lookAt);
-    }
+    tgtLook.current.set(...lookAt);
   }
 
-  useFrame((_, dt) => {
-    const k = 1 - Math.exp(-lerpLambda * dt);
-    camera.position.lerp(tgtPos.current, k);
+  useFrame(({ clock }) => {
+    if (tweenT0.current === null) {
+      // Złap aktualną pozycję kamery jako start tween; restart timera.
+      startPos.current.copy(camera.position);
+      tweenT0.current = clock.getElapsedTime();
+    }
+    const t = (clock.getElapsedTime() - tweenT0.current) / duration;
+    const eased = easeInOutCubic(Math.min(t, 1));
+    camera.position.lerpVectors(startPos.current, tgtPos.current, eased);
     camera.lookAt(tgtLook.current);
   });
   return null;

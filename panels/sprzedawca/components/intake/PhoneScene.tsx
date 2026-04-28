@@ -49,6 +49,9 @@ export default function PhoneScene({
   const keyLightRef = useRef<THREE.DirectionalLight>(null);
   const fillLightRef = useRef<THREE.DirectionalLight>(null);
   const tgtPos = useRef(new THREE.Vector3(...phonePosition));
+  // Frames step entry state — żeby orbit zaczynał się płynnie z bieżącej
+  // pozycji kamery, bez "snap" do angle=0.
+  const framesEntry = useRef<{ angle0: number; t0: number } | null>(null);
 
   if (
     tgtPos.current.x !== phonePosition[0] ||
@@ -76,21 +79,30 @@ export default function PhoneScene({
         groupRef.current.rotation.y = cur + delta * damp(2.8);
       }
     }
-    // Frames step: ciągły orbit kamery w płaszczyźnie YZ (X=0). Wcześniej
-    // używaliśmy oscylacji sin → smoothstep → angle, ale to dawało reversal
-    // na końcach (gwałtowne zatrzymanie + zmiana kierunku). Continuous
-    // angle = czas * speed, modulo 2π — kamera leci jednostajnie 360°
-    // dookoła telefonu, nigdy nie cofa.
+    // Frames step: ciągły orbit kamery w płaszczyźnie YZ (X=0). angle0
+    // wyliczany z bieżącej pozycji kamery przy wejściu w step → orbit
+    // zaczyna się SEAMLESSLY od miejsca gdzie kamera już jest, bez snap
+    // i bez catch-up. Brak lerp — pozycja ustawiana bezpośrednio (skoro
+    // start = current pos, kolejne klatki są arbitralnie blisko).
+    const RADIUS = 6.0;
+    const Y_SCALE = 0.55;
     if (isFramesStep && !damageMode) {
-      const angle = (t * 0.32) % (2 * Math.PI);
-      const radius = 6.0;
-      const tgt = new THREE.Vector3(
+      if (!framesEntry.current) {
+        const cur = camera.position;
+        // Inverse: y = sin(a)*R*S, z = cos(a)*R → a = atan2(y/S, z)
+        const angle0 = Math.atan2(cur.y / Y_SCALE, cur.z);
+        framesEntry.current = { angle0, t0: t };
+      }
+      const e = framesEntry.current;
+      const angle = e.angle0 + (t - e.t0) * 0.32;
+      camera.position.set(
         0,
-        Math.sin(angle) * radius * 0.55,
-        Math.cos(angle) * radius,
+        Math.sin(angle) * RADIUS * Y_SCALE,
+        Math.cos(angle) * RADIUS,
       );
-      camera.position.lerp(tgt, damp(3.5));
       camera.lookAt(0, 0, 0);
+    } else if (framesEntry.current) {
+      framesEntry.current = null;
     }
     // Animowane key + fill lights — bardzo subtelnie żeby nie powodowały
     // wrażenia "flickeru". Mniejsza amplituda + niższa częstotliwość.
@@ -119,7 +131,7 @@ export default function PhoneScene({
         <CameraRig
           position={cameraPos}
           lookAt={cameraLookAt ?? [0, 0, 0]}
-          lerpLambda={isCleaningStep ? 0.8 : 2.0}
+          duration={isCleaningStep ? 4.0 : 1.6}
         />
       )}
 
