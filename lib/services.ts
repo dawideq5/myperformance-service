@@ -6,6 +6,10 @@ import {
   updateItem,
 } from "@/lib/directus-cms";
 import { log } from "@/lib/logger";
+import {
+  createServiceConversation,
+  notifyServiceStatusChange,
+} from "@/lib/chatwoot-customer";
 
 const logger = log.child({ module: "services" });
 
@@ -302,6 +306,35 @@ export async function createService(
     created_at: now,
     updated_at: now,
   });
+
+  // Best-effort: utwórz konwersację Chatwoot (no-op gdy CHATWOOT_SERVICE_INBOX_ID
+  // nie ustawione). Łapiemy errory żeby nie blokować creation.
+  if (input.contactPhone || input.contactEmail) {
+    try {
+      const conversationId = await createServiceConversation({
+        ticketNumber,
+        customerName:
+          [input.customerFirstName, input.customerLastName]
+            .filter(Boolean)
+            .join(" ") || "Klient",
+        customerPhone: input.contactPhone ?? null,
+        customerEmail: input.contactEmail ?? null,
+        brand: input.brand ?? null,
+        model: input.model ?? null,
+        description: input.description ?? null,
+      });
+      if (conversationId && created.id) {
+        await updateItem<ServiceRow>("mp_services", created.id, {
+          chatwoot_conversation_id: conversationId,
+          updated_at: new Date().toISOString(),
+        });
+        created.chatwoot_conversation_id = conversationId;
+      }
+    } catch (err) {
+      logger.warn("Chatwoot conversation create failed", { err: String(err) });
+    }
+  }
+
   return mapRow(created);
 }
 
@@ -327,6 +360,8 @@ export async function updateService(
   id: string,
   input: UpdateServiceInput,
 ): Promise<ServiceTicket> {
+  // Pre-fetch — potrzebny do detekcji zmiany statusu i conversation_id.
+  const before = input.status !== undefined ? await getService(id) : null;
   const patch: Record<string, unknown> = {
     updated_at: new Date().toISOString(),
   };
@@ -354,7 +389,27 @@ export async function updateService(
   if (input.serviceLocationId !== undefined)
     patch.service_location = input.serviceLocationId;
   const updated = await updateItem<ServiceRow>("mp_services", id, patch);
-  return mapRow(updated);
+  const mapped = mapRow(updated);
+
+  // Powiadom klienta o zmianie statusu (best-effort, no-op gdy Chatwoot
+  // nieconfigurowany albo brak conversation_id).
+  if (
+    before &&
+    input.status !== undefined &&
+    before.status !== input.status
+  ) {
+    try {
+      await notifyServiceStatusChange({
+        conversationId: mapped.chatwootConversationId,
+        ticketNumber: mapped.ticketNumber,
+        newStatus: input.status,
+      });
+    } catch (err) {
+      logger.warn("Chatwoot notify failed", { err: String(err) });
+    }
+  }
+
+  return mapped;
 }
 
 export async function deleteService(id: string): Promise<void> {
