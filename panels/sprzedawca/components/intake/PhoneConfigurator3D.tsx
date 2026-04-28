@@ -357,8 +357,10 @@ export function PhoneConfigurator3D({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
+    // canGoNext + state zawarte w deps — bez tego next() captured był ze
+    // stale canGoNext (po pierwszym renderze), co pozwalało skipować kroki.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stepIdx]);
+  }, [stepIdx, state, brand]);
 
   const isStepComplete = (s: Step): boolean => {
     switch (s.id) {
@@ -434,6 +436,12 @@ export function PhoneConfigurator3D({
     step.id === "summary" ? [-1.8, 0, 0] : [0, 0, 0];
   const playDisassembly = step.id === "summary";
 
+  // Inconsistencies (sprzeczne dane). Blokujemy "Kontynuuj" gdy są errors;
+  // warns nie blokują, tylko ostrzegają.
+  const summaryIssues =
+    step.id === "summary" ? getInconsistencies(state, brand) : [];
+  const hasBlockingErrors = summaryIssues.some((i) => i.kind === "error");
+
   return (
     <div
       className={`fixed inset-0 z-[2050] flex flex-col transition-opacity duration-700 ${
@@ -476,9 +484,10 @@ export function PhoneConfigurator3D({
           />
         </div>
 
-        {/* Main canvas */}
-        <div className="flex-1 flex flex-col lg:flex-row min-h-0 overflow-hidden">
-          <div className="relative h-[55vh] lg:h-auto lg:flex-1 lg:min-h-0 min-w-0">
+        {/* Main canvas — grid z eksplicytnym row/col split. Każda komórka ma
+            konkretną wysokość (%) → overflow-y-auto na panelu działa zawsze. */}
+        <div className="flex-1 grid grid-rows-[60%_40%] lg:grid-rows-1 lg:grid-cols-[1fr_420px] min-h-0 overflow-hidden">
+          <div className="relative min-h-0 min-w-0 overflow-hidden">
             <Canvas
               shadows
               camera={{ position: [4.5, 0, 0], fov: 45 }}
@@ -564,8 +573,11 @@ export function PhoneConfigurator3D({
             )}
           </div>
 
-          {/* Step controls panel — flex-1 na mobile + lg:fixed-width na desktop, overflow-y-auto */}
-          <div className="flex-1 lg:flex-none lg:w-[420px] min-h-0 lg:h-full bg-white/5 backdrop-blur-md border-t lg:border-t-0 lg:border-l border-white/10 p-4 overflow-y-auto">
+          {/* Step controls panel — grid cell z own min-h-0 + overflow-y-auto. */}
+          <aside
+            className="overflow-y-auto bg-white/5 backdrop-blur-md border-t lg:border-t-0 lg:border-l border-white/10 p-4"
+            style={{ minHeight: 0, overscrollBehavior: "contain" }}
+          >
             <StepInputs
               step={step}
               state={state}
@@ -577,7 +589,7 @@ export function PhoneConfigurator3D({
               onSelectMarker={setEditingMarkerId}
               onRemoveMarker={removeMarker}
             />
-          </div>
+          </aside>
         </div>
 
         {/* Bottom bar */}
@@ -629,9 +641,17 @@ export function PhoneConfigurator3D({
             <button
               type="button"
               onClick={finish}
-              className="px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-1.5 shadow-lg"
+              disabled={hasBlockingErrors}
+              title={
+                hasBlockingErrors
+                  ? "Uzupełnij wymagane dane oznaczone na czerwono"
+                  : undefined
+              }
+              className="px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-1.5 shadow-lg disabled:opacity-40 disabled:cursor-not-allowed"
               style={{
-                background: "linear-gradient(135deg, #22C55E, #16A34A)",
+                background: hasBlockingErrors
+                  ? "rgba(100,100,120,0.5)"
+                  : "linear-gradient(135deg, #22C55E, #16A34A)",
                 color: "#fff",
               }}
             >
@@ -917,6 +937,7 @@ function StepInputs({
     return (
       <SummaryPanel
         state={state}
+        brand={brand}
         cleaningPrice={cleaningPrice}
         onChange={onChange}
       />
@@ -1249,17 +1270,131 @@ function _UnusedPendingMarkerEditorPlaceholder() {
   return null;
 }
 
+/** Wykrywa logiczne sprzeczności w stanie. Zwraca listę ostrzeżeń —
+ * warn (sprzeczne dane, do weryfikacji) lub error (brak wymaganej info).
+ * UX: lepiej zatrzymać sprzedawcę przed nielogiczną wyceną niż wpuścić
+ * urządzenie z 10/10 + wygięta obudowa. */
+function getInconsistencies(
+  state: VisualConditionState,
+  brand: string,
+): { kind: "warn" | "error"; message: string }[] {
+  const issues: { kind: "warn" | "error"; message: string }[] = [];
+
+  // Apple bez Face/Touch ID.
+  if (brand.toLowerCase() === "apple" && state.face_touch_id == null) {
+    issues.push({
+      kind: "error",
+      message:
+        "Brak informacji o Face ID / Touch ID — wymagane dla urządzeń Apple.",
+    });
+  }
+
+  // Wysokie oceny vs uszkodzenia mechaniczne.
+  if (
+    state.display_rating != null &&
+    state.display_rating >= 8 &&
+    state.cracked_front === true
+  ) {
+    issues.push({
+      kind: "warn",
+      message: `Pęknięty ekran a ocena wyświetlacza ${state.display_rating}/10 — to się wzajemnie wyklucza, sprawdź ocenę.`,
+    });
+  }
+  if (
+    state.back_rating != null &&
+    state.back_rating >= 8 &&
+    state.cracked_back === true
+  ) {
+    issues.push({
+      kind: "warn",
+      message: `Pęknięty panel tylny a ocena ${state.back_rating}/10 — sprawdź ocenę.`,
+    });
+  }
+  if (
+    state.frames_rating != null &&
+    state.frames_rating >= 8 &&
+    state.bent === true
+  ) {
+    issues.push({
+      kind: "warn",
+      message: `Wygięta obudowa a ocena ramek ${state.frames_rating}/10 — sprawdź ocenę.`,
+    });
+  }
+
+  // Niskie oceny bez markera uszkodzeń ani notki.
+  const lowRatedNoEvidence =
+    [
+      ["display_rating", "Wyświetlacz", state.display_rating],
+      ["back_rating", "Panel tylny", state.back_rating],
+      ["frames_rating", "Ramki boczne", state.frames_rating],
+      ["camera_rating", "Wyspa aparatów", state.camera_rating],
+    ] as const;
+  const hasMarkers = (state.damage_markers ?? []).length > 0;
+  for (const [, label, val] of lowRatedNoEvidence) {
+    if (val != null && val <= 4 && !hasMarkers && !state.additional_notes?.trim()) {
+      issues.push({
+        kind: "warn",
+        message: `${label} oceniony ${val}/10 ale brak markerów ani notatki — opisz uszkodzenia.`,
+      });
+      break; // pojedyncze ostrzeżenie wystarczy
+    }
+  }
+
+  // Powers_on = no — pełna ocena niemożliwa.
+  if (state.powers_on === "no") {
+    issues.push({
+      kind: "warn",
+      message:
+        "Urządzenie się nie włącza — pełna diagnostyka ekranu/aparatów wymaga uruchomienia po naprawie.",
+    });
+  }
+
+  // Zalanie — zwiększone ryzyko ukrytych awarii.
+  if (state.water_damage === "yes") {
+    issues.push({
+      kind: "warn",
+      message:
+        "Urządzenie było zalane — możliwe ukryte uszkodzenia, wycena ma charakter orientacyjny.",
+    });
+  }
+
+  // Markery bez opisu.
+  const emptyDescCount = (state.damage_markers ?? []).filter(
+    (m) => !m.description?.trim(),
+  ).length;
+  if (emptyDescCount > 0) {
+    issues.push({
+      kind: "warn",
+      message: `${emptyDescCount} marker(ów) uszkodzeń bez opisu — uzupełnij szczegóły.`,
+    });
+  }
+
+  // Ekran pęknięty + ocena bardzo wysoka.
+  if (state.cracked_front === true && (state.display_rating ?? 0) >= 9) {
+    issues.push({
+      kind: "warn",
+      message: "Pęknięty ekran nie może mieć oceny 9-10/10.",
+    });
+  }
+
+  return issues;
+}
+
 /** Pełen panel podsumowania w prawej kolumnie summary step. Pokazuje
- * średnią, oceny per element, markery + treść notatek + cleaning total. */
+ * średnią, oceny per element, markery + treść notatek + cleaning total +
+ * banner ostrzeżeń o logicznych sprzecznościach. */
 function SummaryPanel({
   state,
+  brand,
   cleaningPrice,
   onChange,
 }: {
   state: VisualConditionState;
+  brand: string;
   cleaningPrice: number | null;
   onChange: (patch: Partial<VisualConditionState>) => void;
 }) {
+  const inconsistencies = getInconsistencies(state, brand);
   const totalCleaning =
     state.cleaning_accepted && cleaningPrice ? cleaningPrice : 0;
   const ratings: {
@@ -1296,6 +1431,50 @@ function SummaryPanel({
 
   return (
     <div className="space-y-3 animate-fade-in">
+      {/* Banner ostrzeżeń o logicznych sprzecznościach. */}
+      {inconsistencies.length > 0 && (
+        <div
+          className="rounded-xl p-3 border space-y-1.5"
+          style={{
+            background:
+              inconsistencies.some((i) => i.kind === "error")
+                ? "rgba(239, 68, 68, 0.12)"
+                : "rgba(245, 158, 11, 0.12)",
+            borderColor: inconsistencies.some((i) => i.kind === "error")
+              ? "rgba(239, 68, 68, 0.4)"
+              : "rgba(245, 158, 11, 0.4)",
+          }}
+        >
+          <p
+            className="text-[10px] uppercase tracking-wide font-semibold"
+            style={{
+              color: inconsistencies.some((i) => i.kind === "error")
+                ? "#FCA5A5"
+                : "#FCD34D",
+            }}
+          >
+            {inconsistencies.some((i) => i.kind === "error")
+              ? "Wymagane uzupełnienie"
+              : "Sprawdź spójność danych"}
+          </p>
+          <ul className="space-y-1 text-[11px] text-white/85 leading-snug">
+            {inconsistencies.map((it, idx) => (
+              <li key={idx} className="flex gap-1.5">
+                <span
+                  className="flex-shrink-0 mt-0.5"
+                  style={{
+                    color: it.kind === "error" ? "#EF4444" : "#F59E0B",
+                  }}
+                >
+                  •
+                </span>
+                <span>{it.message}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div className="space-y-2">
         {ratings.map((r) => (
           <div

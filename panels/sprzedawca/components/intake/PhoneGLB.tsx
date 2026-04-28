@@ -68,22 +68,19 @@ export function PhoneGLB({
   const { scene, animations } = useGLTF("/models/smartphone.glb", "/draco/");
   const { actions, mixer } = useAnimations(animations, groupRef);
 
-  // Klonowanie + auto-center + auto-skala. Robimy raz na model. Koloryzacja
-  // body wykonywana w osobnym useEffect (zależnym od brandColor).
+  // Klonowanie sceny BEZ klonowania materiałów — zachowujemy oryginalne
+  // referencje materiałów (i tym samym tekstur). Klonowanie materiałów
+  // gubiło textury na Windows/innych urządzeniach. Body color override
+  // klonuje materiały on-demand tylko dla body parts (useEffect niżej).
   const { clonedScene, normalize } = useMemo(() => {
     const cloned = scene.clone(true);
     cloned.traverse((obj) => {
       if (obj instanceof THREE.Mesh) {
-        if (Array.isArray(obj.material)) {
-          obj.material = obj.material.map((m) => m.clone());
-        } else if (obj.material) {
-          obj.material = obj.material.clone();
-        }
-        // Cienie + wymuszenie sRGB na color/emissive maps (klon materiału
-        // nie zachowuje colorSpace na niektórych urządzeniach — bez tego
-        // textury wyglądają wyblakłe/niewczytane na kolejnych sesjach).
         obj.castShadow = true;
         obj.receiveShadow = true;
+        // Wymuszenie sRGB na color/emissive maps oryginalnych materiałów —
+        // niektóre eksporty GLB nie ustawiają colorSpace, co daje wygląd
+        // "tekstury się nie wczytały" (wyblakłe/białe).
         const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
         for (const m of mats) {
           if (!m) continue;
@@ -132,10 +129,11 @@ export function PhoneGLB({
     return map;
   }, [clonedScene]);
 
-  // Aktualizuje kolor body materiałów gdy brandColor się zmienił. Zerujemy
-  // .map (baseColorMap) na body żeby kolor był wyraźnie widoczny — w GLB
-  // body ma teksturę szarej obudowy, która tłumi color tinting. Zachowujemy
-  // normal/roughness/metalness — surface details pozostają.
+  // Body color override: per-mesh klon materiału tylko dla body parts.
+  // Cachujemy oryginalny materiał w userData.origMat — dzięki temu kolejne
+  // zmiany brandColor zawsze klonują "od zera" (nie kumulują mutacji), a
+  // pozostałe meshe (display/screen/cameras/etc) zachowują oryginalne
+  // materiały z nietkniętymi referencjami do tekstur.
   useEffect(() => {
     if (!clonedScene) return;
     const bodyColor = new THREE.Color(brandColor || "#1f2937");
@@ -150,18 +148,22 @@ export function PhoneGLB({
       if (!(obj instanceof THREE.Mesh)) return;
       const n = (obj.name || "").toLowerCase();
       if (!bodyPrefixes.some((p) => n.includes(p))) return;
-      const mats = Array.isArray(obj.material)
-        ? obj.material
-        : [obj.material];
-      for (const m of mats) {
-        if (!m || !("color" in m)) continue;
-        const sm = m as THREE.MeshStandardMaterial;
-        sm.color = bodyColor.clone();
-        sm.map = null;
-        sm.metalness = 0.55;
-        sm.roughness = 0.35;
-        sm.needsUpdate = true;
+      // Cachuj oryginalny materiał raz, na pierwszy run.
+      if (!obj.userData.origMat) {
+        obj.userData.origMat = Array.isArray(obj.material)
+          ? obj.material[0]
+          : obj.material;
       }
+      const orig = obj.userData.origMat as THREE.MeshStandardMaterial;
+      const newMat = orig.clone();
+      newMat.color = bodyColor.clone();
+      // Zerujemy baseColorMap żeby brandColor był wyraźnie widoczny —
+      // tekstura szarej obudowy tłumiłaby tinting.
+      newMat.map = null;
+      newMat.metalness = 0.55;
+      newMat.roughness = 0.35;
+      newMat.needsUpdate = true;
+      obj.material = newMat;
     });
   }, [clonedScene, brandColor]);
 

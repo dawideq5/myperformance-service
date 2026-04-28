@@ -78,7 +78,26 @@ const nextConfig = {
     optimizePackageImports: ["lucide-react"],
   },
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    return [
+      { source: "/:path*", headers: securityHeaders },
+      // GLB/draco files — wymuszony binary content-type + długi cache.
+      // Bez tego niektóre browsery (Windows Edge/Chrome) nie dekodują
+      // osadzonych PNG tekstur poprawnie.
+      {
+        source: "/models/:path*.glb",
+        headers: [
+          { key: "Content-Type", value: "model/gltf-binary" },
+          { key: "Cache-Control", value: "public, max-age=31536000, immutable" },
+        ],
+      },
+      {
+        source: "/draco/:path*.wasm",
+        headers: [
+          { key: "Content-Type", value: "application/wasm" },
+          { key: "Cache-Control", value: "public, max-age=31536000, immutable" },
+        ],
+      },
+    ];
   },
 };
 module.exports = nextConfig;
