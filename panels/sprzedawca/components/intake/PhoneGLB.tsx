@@ -154,39 +154,18 @@ export function PhoneGLB({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playDisassembly]);
 
-  // Pulsing emissive na wybranych meshach + idle floating.
-  useFrame(({ clock }, dt) => {
+  // Floating + mixer update. Bez highlight emissive — user prefers no glow.
+  useFrame((_, dt) => {
     mixer?.update(dt);
-    const t = clock.getElapsedTime();
-    const pulse = (Math.sin(t * 2.2) + 1) / 2;
-    const intensity = 0.25 + pulse * 0.55;
-    const red = new THREE.Color(0xff3030);
-    const black = new THREE.Color(0, 0, 0);
-
-    for (const [key, mats] of Object.entries(materialMap)) {
-      const isActive = key === highlight;
-      for (const mat of mats) {
-        if (!("emissive" in mat)) continue;
-        if (isActive) {
-          mat.emissive = red;
-          if ("emissiveIntensity" in mat) {
-            (mat as THREE.MeshStandardMaterial).emissiveIntensity = intensity * 0.6;
-          }
-        } else {
-          mat.emissive = black;
-          if ("emissiveIntensity" in mat) {
-            (mat as THREE.MeshStandardMaterial).emissiveIntensity = 0;
-          }
-        }
-      }
-    }
-
-    // Subtelny floating effect (oddychanie). Wyłączony w damage mode (user obraca).
     if (groupRef.current && floating && !damageMode && !playDisassembly) {
+      const t = (typeof performance !== "undefined" ? performance.now() : 0) / 1000;
       const baseY = normalize.offset[1];
       groupRef.current.position.y = baseY + Math.sin(t * 0.8) * 0.04;
     }
   });
+  // Reference to suppress unused-var warning — keep prop for backward compat.
+  void highlight;
+  void materialMap;
 
   return (
     <group
@@ -211,10 +190,11 @@ export function PhoneGLB({
           onModelClick(local, inferSurface(e.object?.name ?? ""));
         }}
       />
-      {/* Markery to dzieci grupy phone — pozycje w LOKALNYCH koordynatach. */}
-      {damageMarkers.map((m) => (
-        <DamagePin key={m.id} x={m.x} y={m.y} z={m.z} />
-      ))}
+      {/* Markery — TYLKO gdy nie disassembly (ukrywamy podczas rozkładania). */}
+      {!playDisassembly &&
+        damageMarkers.map((m) => (
+          <DamagePin key={m.id} x={m.x} y={m.y} z={m.z} />
+        ))}
     </group>
   );
 }
@@ -259,15 +239,16 @@ function DamagePin({ x, y, z }: { x: number; y: number; z: number }) {
 
   return (
     <group ref={groupRef} position={[x, y, z]}>
+      {/* Markery 3× mniejsze: 0.018 → 0.006, ringi 0.026/0.032 → ~0.009/0.011 */}
       <pointLight
         ref={lightRef}
         color="#ff2828"
-        distance={0.18}
+        distance={0.06}
         decay={1.6}
-        intensity={0.4}
+        intensity={0.35}
       />
       <mesh ref={dotRef}>
-        <sphereGeometry args={[0.018, 24, 24]} />
+        <sphereGeometry args={[0.006, 16, 16]} />
         <meshStandardMaterial
           color="#ff2020"
           emissive={new THREE.Color("#ff0000")}
@@ -276,31 +257,31 @@ function DamagePin({ x, y, z }: { x: number; y: number; z: number }) {
         />
       </mesh>
       <mesh ref={ring1Ref}>
-        <ringGeometry args={[0.026, 0.032, 32]} />
+        <ringGeometry args={[0.0085, 0.0107, 32]} />
         <meshBasicMaterial
           color="#ff3030"
           transparent
-          opacity={0.45}
+          opacity={0.55}
           side={THREE.DoubleSide}
           depthWrite={false}
         />
       </mesh>
       <mesh ref={ring2Ref}>
-        <ringGeometry args={[0.026, 0.032, 32]} />
+        <ringGeometry args={[0.0085, 0.0107, 32]} />
         <meshBasicMaterial
           color="#ff5050"
           transparent
-          opacity={0.45}
+          opacity={0.55}
           side={THREE.DoubleSide}
           depthWrite={false}
         />
       </mesh>
       <mesh>
-        <sphereGeometry args={[0.04, 24, 24]} />
+        <sphereGeometry args={[0.013, 16, 16]} />
         <meshBasicMaterial
           color="#ff3030"
           transparent
-          opacity={0.14}
+          opacity={0.18}
           depthWrite={false}
         />
       </mesh>

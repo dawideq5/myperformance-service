@@ -233,13 +233,13 @@ function BoolRow({
 }) {
   return (
     <div
-      className="p-3 rounded-xl border flex items-center justify-between gap-3"
+      className="p-3 rounded-xl border"
       style={{
         background: "var(--bg-surface)",
         borderColor: "var(--border-subtle)",
       }}
     >
-      <div className="flex items-center gap-2 flex-1 min-w-0">
+      <div className="flex items-center gap-2 mb-2">
         <span style={{ color: "var(--text-muted)" }}>{icon}</span>
         <span
           className="text-sm font-medium"
@@ -248,7 +248,7 @@ function BoolRow({
           {label}
         </span>
       </div>
-      <div className="flex gap-1 flex-shrink-0">
+      <div className="flex gap-1.5">
         <Pill
           active={value === false}
           color={positiveBad ? "#22C55E" : "#EF4444"}

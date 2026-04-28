@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AlertCircle,
   Box as BoxIcon,
@@ -27,6 +27,10 @@ import {
   PhoneConfigurator3D,
   type VisualConditionState,
 } from "../intake/PhoneConfigurator3D";
+import {
+  DescriptionPicker,
+  serializeRepairTypes,
+} from "../intake/DescriptionPicker";
 
 export function AddServiceTab({ locationId }: { locationId: string }) {
   const [brand, setBrand] = useState("");
@@ -40,7 +44,8 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
   const [visualCondition, setVisualCondition] = useState<VisualConditionState>({});
   const [visualCompleted, setVisualCompleted] = useState(false);
   const [showConfigurator, setShowConfigurator] = useState(false);
-  const [description, setDescription] = useState("");
+  const [repairTypes, setRepairTypes] = useState<string[]>([]);
+  const [customDescription, setCustomDescription] = useState("");
   const [amountEstimate, setAmountEstimate] = useState("");
   const [customerFirstName, setCustomerFirstName] = useState("");
   const [customerLastName, setCustomerLastName] = useState("");
@@ -82,6 +87,71 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
     BRANDS.find((b) => b.value.toLowerCase() === brand.toLowerCase())?.color ??
     "#1f2937";
 
+  // Per-section completion (wszystkie wymagane pola wypełnione).
+  const deviceComplete = !!(brand.trim() && model.trim() && imei.trim() && color.trim());
+  const lockComplete =
+    lockType === "none" || (lockType !== "none" && !!lockCode.trim());
+  const checklistComplete = (() => {
+    if (!checklist.powers_on) return false;
+    if (checklist.bent === undefined) return false;
+    if (checklist.cracked_front === undefined) return false;
+    if (checklist.cracked_back === undefined) return false;
+    if (brand.toLowerCase() === "apple" && checklist.face_touch_id === undefined)
+      return false;
+    if (!checklist.water_damage) return false;
+    // Prąd ładowania wymagany tylko gdy zalanie = no.
+    if (checklist.water_damage === "no" && !chargingCurrent.trim()) return false;
+    return true;
+  })();
+  const visualComplete = visualCompleted;
+  const customerComplete = !!(
+    repairTypes.length > 0 &&
+    customerFirstName.trim() &&
+    customerLastName.trim() &&
+    contactPhone.trim()
+  );
+  const allComplete =
+    deviceComplete &&
+    lockComplete &&
+    checklistComplete &&
+    visualComplete &&
+    customerComplete;
+
+  // Auto-collapse sekcji po complete (jeśli była otwarta — zwiń, oszczędność miejsca).
+  // Jednorazowo per section, by user mógł ją otworzyć ręcznie potem.
+  const prevCompletion = useRef({
+    device: false,
+    lock: false,
+    checklist: false,
+    visual: false,
+    customer: false,
+  });
+  useEffect(() => {
+    setOpen((curr) => {
+      const next = { ...curr };
+      if (deviceComplete && !prevCompletion.current.device && curr.device) {
+        next.device = false;
+      }
+      if (lockComplete && !prevCompletion.current.lock && curr.lock && lockType !== "none") {
+        next.lock = false;
+      }
+      if (checklistComplete && !prevCompletion.current.checklist && curr.checklist) {
+        next.checklist = false;
+      }
+      if (visualComplete && !prevCompletion.current.visual && curr.visual) {
+        next.visual = false;
+      }
+      prevCompletion.current = {
+        device: deviceComplete,
+        lock: lockComplete,
+        checklist: checklistComplete,
+        visual: visualComplete,
+        customer: customerComplete,
+      };
+      return next;
+    });
+  }, [deviceComplete, lockComplete, checklistComplete, visualComplete, customerComplete, lockType]);
+
   const reset = () => {
     setBrand("");
     setModel("");
@@ -93,7 +163,8 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
     setChargingCurrent("");
     setVisualCondition({});
     setVisualCompleted(false);
-    setDescription("");
+    setRepairTypes([]);
+    setCustomDescription("");
     setAmountEstimate("");
     setCustomerFirstName("");
     setCustomerLastName("");
@@ -119,7 +190,7 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
         intakeChecklist: checklist,
         chargingCurrent: chargingCurrent ? Number(chargingCurrent) : null,
         visualCondition: visualCompleted ? visualCondition : {},
-        description: description.trim() || null,
+        description: serializeRepairTypes(repairTypes, customDescription) || null,
         amountEstimate: amountEstimate ? Number(amountEstimate) : null,
         customerFirstName: customerFirstName.trim() || null,
         customerLastName: customerLastName.trim() || null,
@@ -187,6 +258,7 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
           title="Urządzenie"
           subtitle="Marka, model, IMEI, kolor"
           accent="#0EA5E9"
+          complete={deviceComplete}
           open={open.device}
           onToggle={() => toggle("device")}
         >
@@ -215,6 +287,7 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
                 : "Wzór"
           }
           accent="#A855F7"
+          complete={lockComplete}
           open={open.lock}
           onToggle={() => toggle("lock")}
         >
@@ -231,6 +304,7 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
           title="Checklista przyjęcia"
           subtitle="Stan i funkcjonalność urządzenia"
           accent="#F59E0B"
+          complete={checklistComplete}
           open={open.checklist}
           onToggle={() => toggle("checklist")}
         >
@@ -252,6 +326,7 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
               : "3D walkthrough — kliknij aby rozpocząć"
           }
           accent="#EC4899"
+          complete={visualComplete}
           open={open.visual}
           onToggle={() => toggle("visual")}
         >
@@ -265,33 +340,20 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
 
         <Section
           icon={<Wrench className="w-5 h-5" />}
-          title="Opis usterki + wycena"
-          subtitle="Co zgłasza klient"
+          title="Opis usterki + dane klienta"
+          subtitle="Wybierz typy napraw i wpisz dane klienta"
           accent="#06B6D4"
+          complete={customerComplete}
           open={open.customer}
           onToggle={() => toggle("customer")}
         >
           <div className="space-y-3">
-            <label className="block">
-              <span
-                className="block text-xs font-medium mb-1.5"
-                style={{ color: "var(--text-muted)" }}
-              >
-                Opis usterki
-              </span>
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Co przestało działać? Kiedy się zaczęło? Czy klient próbował naprawić sam?"
-                rows={3}
-                className="w-full px-3 py-2 rounded-xl border text-sm outline-none resize-none focus:border-[var(--accent)]"
-                style={{
-                  background: "var(--bg-surface)",
-                  borderColor: "var(--border-subtle)",
-                  color: "var(--text-main)",
-                }}
-              />
-            </label>
+            <DescriptionPicker
+              selected={repairTypes}
+              customDescription={customDescription}
+              onChange={setRepairTypes}
+              onChangeCustom={setCustomDescription}
+            />
             <Input
               icon={<Palette className="w-4 h-4" />}
               label="Wycena orientacyjna (PLN)"
@@ -353,10 +415,17 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
           </button>
           <button
             type="submit"
-            disabled={saving}
-            className="flex-1 sm:flex-initial px-6 py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 shadow-lg transition-all hover:scale-[1.02]"
+            disabled={saving || !allComplete}
+            title={
+              !allComplete
+                ? "Uzupełnij wszystkie wymagane pola we wszystkich sekcjach"
+                : undefined
+            }
+            className="flex-1 sm:flex-initial px-6 py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 shadow-lg transition-all hover:scale-[1.02] disabled:cursor-not-allowed disabled:hover:scale-100"
             style={{
-              background: "linear-gradient(135deg, var(--accent), #2563eb)",
+              background: allComplete
+                ? "linear-gradient(135deg, var(--accent), #2563eb)"
+                : "rgba(120, 130, 150, 0.5)",
               color: "#fff",
             }}
           >
@@ -395,6 +464,7 @@ function Section({
   open,
   onToggle,
   accent,
+  complete,
   children,
 }: {
   icon: React.ReactNode;
@@ -403,6 +473,7 @@ function Section({
   open: boolean;
   onToggle: () => void;
   accent: string;
+  complete?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -410,7 +481,7 @@ function Section({
       className="rounded-2xl border overflow-hidden transition-all"
       style={{
         background: "var(--bg-card)",
-        borderColor: "var(--border-subtle)",
+        borderColor: complete ? "rgba(34,197,94,0.4)" : "var(--border-subtle)",
       }}
     >
       <button
@@ -437,10 +508,16 @@ function Section({
             </p>
           )}
         </div>
+        {complete && (
+          <CheckCircle2
+            className="w-4 h-4 flex-shrink-0"
+            style={{ color: "#22C55E" }}
+          />
+        )}
         {open ? (
-          <ChevronDown className="w-4 h-4" style={{ color: "var(--text-muted)" }} />
+          <ChevronDown className="w-4 h-4 ml-1" style={{ color: "var(--text-muted)" }} />
         ) : (
-          <ChevronRight className="w-4 h-4" style={{ color: "var(--text-muted)" }} />
+          <ChevronRight className="w-4 h-4 ml-1" style={{ color: "var(--text-muted)" }} />
         )}
       </button>
       {open && <div className="px-4 pb-4 pt-1 animate-fade-in">{children}</div>}

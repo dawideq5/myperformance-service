@@ -69,23 +69,26 @@ const STEPS: Step[] = [
   {
     id: "display",
     title: "Stan wyświetlacza",
-    subtitle: "Oceń ekran w skali 1–10. Każda ocena ma opis.",
+    subtitle: "Oceń ekran w skali 1–10.",
     highlight: "display",
     cameraPos: [0, 0, 4.0],
   },
   {
     id: "back",
     title: "Tylna szybka",
+    // Bardziej zbliżone + lekko od dołu żeby pokazać tylny panel a nie ramki.
     subtitle: "Oceń stan plecka — pęknięcia, rysy, odkształcenia.",
     highlight: "back",
-    cameraPos: [0, 0, -4.0],
+    cameraPos: [0, -0.4, -3.5],
   },
   {
     id: "frames",
     title: "Ramki boczne",
-    subtitle: "Otarcia, wgniecenia, deformacje krawędzi (model się obraca).",
+    // Frames step: kamera orbituje wokół telefonu (PhoneScene.useFrame manual)
+    // — telefon stoi nieruchomo, widzimy kolejno wszystkie krawędzie.
+    subtitle: "Kamera orbituje wokół ramek — obejrzyj wszystkie krawędzie.",
     highlight: "frames",
-    cameraPos: [3.6, 0.5, 1.5],
+    cameraPos: [3.8, 0.6, 0],
   },
   {
     id: "cameras",
@@ -104,8 +107,9 @@ const STEPS: Step[] = [
     cameraPos: [0, 0, 4.0],
     cleaningTour: [
       {
-        pos: [0, 3.0, 1.4],
-        lookAt: [0, 1.4, 0],
+        // Earpiece — top edge view z lekkim kątem od przodu, NIE side frames.
+        pos: [0, 2.8, 2.6],
+        lookAt: [0, 1.4, 0.3],
         highlight: "earpiece",
         caption: "Głośnik rozmów — pył przyczynia się do problemów ze słyszalnością",
         durationMs: 7200,
@@ -129,7 +133,7 @@ const STEPS: Step[] = [
   {
     id: "damage",
     title: "Zaznacz uszkodzenia",
-    subtitle: "Obróć telefon i kliknij w miejscu uszkodzenia. Marker pojawi się na powierzchni.",
+    subtitle: "Obróć telefon i kliknij w miejscu uszkodzenia. Marker pojawi się natychmiast.",
     highlight: null,
     cameraPos: [0, 0, 4.0],
   },
@@ -165,6 +169,18 @@ export interface VisualConditionState {
   damage_markers?: DamageMarker[];
   additional_notes?: string;
 }
+
+/** Polskie etykiety nazw powierzchni dla markerów. */
+const SURFACE_LABELS: Record<string, string> = {
+  display: "Wyświetlacz",
+  back: "Tylna szybka",
+  cameras: "Wyspa aparatów",
+  frames: "Ramki boczne",
+  earpiece: "Głośnik rozmów",
+  speakers: "Głośniczki dolne",
+  port: "Port ładowania",
+  frame: "Ramka",
+};
 
 const STEP_ICONS: Record<StepId, React.ComponentType<{ className?: string }>> = {
   display: Smartphone,
@@ -207,45 +223,46 @@ export function PhoneConfigurator3D({
       setTourIdx(0);
       return;
     }
-    if (tourIdx < step.cleaningTour.length - 1) {
-      tourTimerRef.current = setTimeout(
-        () => setTourIdx((i) => i + 1),
-        step.cleaningTour[tourIdx].durationMs,
-      );
-    }
+    // Loop infinity — port → earpiece → speakers → port → earpiece → ...
+    const len = step.cleaningTour.length;
+    tourTimerRef.current = setTimeout(
+      () => setTourIdx((i) => (i + 1) % len),
+      step.cleaningTour[tourIdx].durationMs,
+    );
     return () => {
       if (tourTimerRef.current) clearTimeout(tourTimerRef.current);
     };
   }, [stepIdx, tourIdx, step]);
 
-  // Damage markers — kliknięcie w model przy step=damage dodaje marker.
-  const [pendingMarker, setPendingMarker] = useState<{
-    x: number;
-    y: number;
-    z: number;
-    surface: string;
-  } | null>(null);
+  // Damage markers — kliknięcie w model NATYCHMIAST tworzy marker (bez
+  // dodatkowego "Zapisz" buttona). User może potem edytować opis w panelu
+  // bocznym albo usunąć krzyżykiem.
+  const [editingMarkerId, setEditingMarkerId] = useState<string | null>(null);
 
   const onModelClick = (point: THREE.Vector3, surface: string) => {
     if (step.id !== "damage") return;
-    setPendingMarker({ x: point.x, y: point.y, z: point.z, surface });
-  };
-
-  const confirmMarker = (description: string) => {
-    if (!pendingMarker) return;
     const m: DamageMarker = {
-      id: `m-${Date.now()}`,
-      x: pendingMarker.x,
-      y: pendingMarker.y,
-      z: pendingMarker.z,
-      surface: pendingMarker.surface,
-      description: description.trim() || undefined,
+      id: `m-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      x: point.x,
+      y: point.y,
+      z: point.z,
+      surface,
+      description: "",
     };
     setState((s) => ({
       ...s,
       damage_markers: [...(s.damage_markers ?? []), m],
     }));
-    setPendingMarker(null);
+    setEditingMarkerId(m.id);
+  };
+
+  const updateMarkerDescription = (id: string, description: string) => {
+    setState((s) => ({
+      ...s,
+      damage_markers: (s.damage_markers ?? []).map((m) =>
+        m.id === id ? { ...m, description } : m,
+      ),
+    }));
   };
 
   const removeMarker = (id: string) => {
@@ -253,6 +270,7 @@ export function PhoneConfigurator3D({
       ...s,
       damage_markers: (s.damage_markers ?? []).filter((m) => m.id !== id),
     }));
+    if (editingMarkerId === id) setEditingMarkerId(null);
   };
 
   useEffect(() => {
@@ -266,7 +284,31 @@ export function PhoneConfigurator3D({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepIdx]);
 
-  const next = () => setStepIdx((i) => Math.min(i + 1, STEPS.length - 1));
+  const isStepComplete = (s: Step): boolean => {
+    switch (s.id) {
+      case "display":
+        return state.display_rating != null;
+      case "back":
+        return state.back_rating != null;
+      case "frames":
+        return state.frames_rating != null;
+      case "cameras":
+        return state.camera_rating != null;
+      case "cleaning":
+        return state.cleaning_accepted != null;
+      case "damage":
+        return true; // markery opcjonalne
+      case "summary":
+        return true;
+      default:
+        return false;
+    }
+  };
+  const canGoNext = isStepComplete(step);
+  const next = () => {
+    if (!canGoNext) return;
+    setStepIdx((i) => Math.min(i + 1, STEPS.length - 1));
+  };
   const prev = () => setStepIdx((i) => Math.max(i - 1, 0));
 
   const finish = () => {
@@ -364,7 +406,7 @@ export function PhoneConfigurator3D({
                 toneMapping: THREE.ACESFilmicToneMapping,
                 outputColorSpace: THREE.SRGBColorSpace,
               }}
-              onPointerMissed={() => setPendingMarker(null)}
+              onPointerMissed={() => setEditingMarkerId(null)}
             >
               <PhoneScene
                 highlight={currentHighlight}
@@ -418,10 +460,10 @@ export function PhoneConfigurator3D({
               step={step}
               state={state}
               cleaningPrice={cleaningPrice}
-              pendingMarker={pendingMarker}
+              editingMarkerId={editingMarkerId}
               onChange={update}
-              onConfirmMarker={confirmMarker}
-              onCancelMarker={() => setPendingMarker(null)}
+              onUpdateMarkerDescription={updateMarkerDescription}
+              onSelectMarker={setEditingMarkerId}
               onRemoveMarker={removeMarker}
             />
           </div>
@@ -459,9 +501,13 @@ export function PhoneConfigurator3D({
             <button
               type="button"
               onClick={next}
-              className="px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-1.5 shadow-lg"
+              disabled={!canGoNext}
+              title={!canGoNext ? "Uzupełnij wymagane pole tego kroku" : undefined}
+              className="px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-1.5 shadow-lg disabled:opacity-40 disabled:cursor-not-allowed"
               style={{
-                background: "linear-gradient(135deg, #3B82F6, #A855F7)",
+                background: canGoNext
+                  ? "linear-gradient(135deg, #3B82F6, #A855F7)"
+                  : "rgba(100,100,120,0.5)",
                 color: "#fff",
               }}
             >
@@ -493,19 +539,19 @@ function StepInputs({
   step,
   state,
   cleaningPrice,
-  pendingMarker,
+  editingMarkerId,
   onChange,
-  onConfirmMarker,
-  onCancelMarker,
+  onUpdateMarkerDescription,
+  onSelectMarker,
   onRemoveMarker,
 }: {
   step: Step;
   state: VisualConditionState;
   cleaningPrice: number | null;
-  pendingMarker: { x: number; y: number; z: number; surface: string } | null;
+  editingMarkerId: string | null;
   onChange: (patch: Partial<VisualConditionState>) => void;
-  onConfirmMarker: (description: string) => void;
-  onCancelMarker: () => void;
+  onUpdateMarkerDescription: (id: string, description: string) => void;
+  onSelectMarker: (id: string | null) => void;
   onRemoveMarker: (id: string) => void;
 }) {
   if (step.id === "display") {
@@ -615,53 +661,72 @@ function StepInputs({
     );
   }
   if (step.id === "damage") {
+    const markers = state.damage_markers ?? [];
     return (
       <div className="space-y-3">
         <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
           <p className="text-xs uppercase tracking-wider text-white/60 font-semibold mb-1">
-            Markery uszkodzeń
+            Markery uszkodzeń ({markers.length})
           </p>
           <p className="text-xs text-white/60 mb-2">
-            {(state.damage_markers ?? []).length === 0
+            {markers.length === 0
               ? "Brak — kliknij na modelu w miejscu uszkodzenia."
-              : `${(state.damage_markers ?? []).length} marker(ów)`}
+              : "Kliknij marker żeby edytować opis. Markery są opcjonalne."}
           </p>
           <div className="space-y-1.5">
-            {(state.damage_markers ?? []).map((m, idx) => (
+            {markers.map((m, idx) => (
               <div
                 key={m.id}
-                className="flex items-start gap-2 p-2 rounded-lg bg-white/5"
+                className="rounded-lg bg-white/5 overflow-hidden"
               >
-                <span className="flex-shrink-0 w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
-                  {idx + 1}
-                </span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[10px] uppercase text-white/50 mb-0.5">
-                    {m.surface ?? "powierzchnia"}
-                  </p>
-                  <p className="text-xs text-white/80 truncate">
-                    {m.description ?? "(brak opisu)"}
-                  </p>
-                </div>
                 <button
                   type="button"
-                  onClick={() => onRemoveMarker(m.id)}
-                  className="p-1 rounded hover:bg-white/10 text-white/60"
-                  aria-label="Usuń marker"
+                  onClick={() =>
+                    onSelectMarker(editingMarkerId === m.id ? null : m.id)
+                  }
+                  className="w-full flex items-start gap-2 p-2 hover:bg-white/5 transition-colors text-left"
                 >
-                  <X className="w-3.5 h-3.5" />
+                  <span className="flex-shrink-0 w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+                    {idx + 1}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] uppercase text-white/50 mb-0.5">
+                      {SURFACE_LABELS[m.surface ?? ""] ?? m.surface ?? "powierzchnia"}
+                    </p>
+                    <p className="text-xs text-white/80 truncate">
+                      {m.description?.trim() || "(kliknij aby dodać opis)"}
+                    </p>
+                  </div>
+                  <span
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onRemoveMarker(m.id);
+                    }}
+                    className="p-1 rounded hover:bg-white/10 text-white/60"
+                    role="button"
+                    aria-label="Usuń marker"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </span>
                 </button>
+                {editingMarkerId === m.id && (
+                  <div className="p-2 border-t border-white/10 animate-fade-in">
+                    <textarea
+                      value={m.description ?? ""}
+                      onChange={(e) =>
+                        onUpdateMarkerDescription(m.id, e.target.value)
+                      }
+                      placeholder="Opisz uszkodzenie (np. głębokie pęknięcie 3 cm)"
+                      rows={2}
+                      autoFocus
+                      className="w-full px-2 py-1.5 rounded-lg border border-white/10 bg-black/30 text-xs text-white outline-none resize-none focus:border-amber-400 placeholder:text-white/30"
+                    />
+                  </div>
+                )}
               </div>
             ))}
           </div>
         </div>
-        {pendingMarker && (
-          <PendingMarkerEditor
-            surface={pendingMarker.surface}
-            onConfirm={onConfirmMarker}
-            onCancel={onCancelMarker}
-          />
-        )}
       </div>
     );
   }
@@ -736,54 +801,10 @@ function CleaningPill({
   );
 }
 
-function PendingMarkerEditor({
-  surface,
-  onConfirm,
-  onCancel,
-}: {
-  surface: string;
-  onConfirm: (description: string) => void;
-  onCancel: () => void;
-}) {
-  const [description, setDescription] = useState("");
-  return (
-    <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3 animate-fade-in">
-      <div className="flex items-center gap-2 mb-2">
-        <MapPin className="w-4 h-4 text-amber-400" />
-        <p className="text-xs uppercase tracking-wider text-amber-300 font-semibold">
-          Nowy marker · {surface}
-        </p>
-      </div>
-      <textarea
-        value={description}
-        onChange={(e) => setDescription(e.target.value)}
-        placeholder="Opisz uszkodzenie (np. głębokie pęknięcie 3 cm, wgniecenie)"
-        rows={2}
-        autoFocus
-        className="w-full px-3 py-2 rounded-xl border border-amber-500/30 bg-black/30 text-sm text-white outline-none resize-none focus:border-amber-400 placeholder:text-white/30"
-      />
-      <div className="flex gap-2 mt-2">
-        <button
-          type="button"
-          onClick={onCancel}
-          className="flex-1 py-1.5 rounded-lg text-xs font-medium border border-white/15 text-white/70 hover:bg-white/5"
-        >
-          Anuluj
-        </button>
-        <button
-          type="button"
-          onClick={() => onConfirm(description)}
-          className="flex-1 py-1.5 rounded-lg text-xs font-bold"
-          style={{
-            background: "linear-gradient(135deg, #F59E0B, #D97706)",
-            color: "#fff",
-          }}
-        >
-          Zapisz marker
-        </button>
-      </div>
-    </div>
-  );
+// PendingMarkerEditor usunięte — markery dodają się natychmiast po kliknięciu
+// w model, edycja opisu jest inline na liście markerów w panelu prawym.
+function _UnusedPendingMarkerEditorPlaceholder() {
+  return null;
 }
 
 /** Pełen panel podsumowania w prawej kolumnie summary step. Pokazuje
@@ -799,54 +820,52 @@ function SummaryPanel({
 }) {
   const totalCleaning =
     state.cleaning_accepted && cleaningPrice ? cleaningPrice : 0;
-  const ratings: { label: string; value: number | undefined; notes?: string }[] = [
-    { label: "Ekran", value: state.display_rating, notes: state.display_notes },
-    { label: "Tył", value: state.back_rating, notes: state.back_notes },
-    { label: "Aparaty", value: state.camera_rating, notes: state.camera_notes },
-    { label: "Ramki", value: state.frames_rating, notes: state.frames_notes },
+  const ratings: {
+    label: string;
+    value: number | undefined;
+    notes?: string;
+    descriptions: Record<number, string>;
+  }[] = [
+    {
+      label: "Wyświetlacz",
+      value: state.display_rating,
+      notes: state.display_notes,
+      descriptions: DISPLAY_DESCRIPTIONS,
+    },
+    {
+      label: "Tylna szybka",
+      value: state.back_rating,
+      notes: state.back_notes,
+      descriptions: BACK_DESCRIPTIONS,
+    },
+    {
+      label: "Wyspa aparatów",
+      value: state.camera_rating,
+      notes: state.camera_notes,
+      descriptions: CAMERA_DESCRIPTIONS,
+    },
+    {
+      label: "Ramki boczne",
+      value: state.frames_rating,
+      notes: state.frames_notes,
+      descriptions: FRAMES_DESCRIPTIONS,
+    },
   ];
-  const filled = ratings.filter((r) => r.value != null);
-  const avg =
-    filled.length > 0
-      ? Math.round(
-          (filled.reduce((a, b) => a + (b.value as number), 0) / filled.length) *
-            10,
-        ) / 10
-      : null;
 
   return (
     <div className="space-y-3 animate-fade-in">
-      {avg != null && (
-        <div
-          className="rounded-2xl p-4 text-center"
-          style={{
-            background:
-              "linear-gradient(135deg, rgba(34,197,94,0.18), rgba(34,197,94,0.03))",
-            border: "1px solid rgba(34,197,94,0.3)",
-          }}
-        >
-          <p className="text-[10px] uppercase tracking-widest text-white/60 font-semibold">
-            Średnia ocena
-          </p>
-          <p className="text-4xl font-bold text-emerald-400 mt-1">
-            {avg}
-            <span className="text-base text-white/40">/10</span>
-          </p>
-        </div>
-      )}
-
       <div className="space-y-2">
         {ratings.map((r) => (
           <div
             key={r.label}
-            className="rounded-xl p-2.5 border border-white/10 bg-white/5"
+            className="rounded-xl p-3 border border-white/10 bg-white/5"
           >
-            <div className="flex items-center justify-between mb-0.5">
+            <div className="flex items-center justify-between mb-1">
               <span className="text-xs uppercase tracking-wide text-white/70 font-semibold">
                 {r.label}
               </span>
               <span
-                className="font-mono text-sm font-bold"
+                className="font-mono text-base font-bold"
                 style={{
                   color:
                     r.value == null
@@ -861,8 +880,13 @@ function SummaryPanel({
                 {r.value != null ? `${r.value}/10` : "—"}
               </span>
             </div>
+            {r.value != null && r.descriptions[r.value] && (
+              <p className="text-[11px] text-white/65 leading-snug">
+                {r.descriptions[r.value]}
+              </p>
+            )}
             {r.notes && (
-              <p className="text-[11px] text-white/60 mt-0.5 line-clamp-2">
+              <p className="text-[11px] text-white/55 mt-1 italic">
                 {r.notes}
               </p>
             )}
@@ -872,21 +896,28 @@ function SummaryPanel({
 
       {(state.damage_markers ?? []).length > 0 && (
         <div className="rounded-xl p-3 border border-amber-500/30 bg-amber-500/10">
-          <p className="text-[10px] uppercase tracking-wide text-amber-300 font-semibold mb-1">
+          <p className="text-[10px] uppercase tracking-wide text-amber-300 font-semibold mb-2">
             Markery uszkodzeń ({(state.damage_markers ?? []).length})
           </p>
-          <div className="space-y-1">
-            {(state.damage_markers ?? []).slice(0, 3).map((m, i) => (
-              <p key={m.id} className="text-[11px] text-white/70">
-                {i + 1}. {m.surface ?? "powierzchnia"}
-                {m.description ? ` — ${m.description}` : ""}
-              </p>
+          <div className="space-y-1.5">
+            {(state.damage_markers ?? []).map((m, i) => (
+              <div
+                key={m.id}
+                className="text-xs text-white/80 flex items-start gap-2"
+              >
+                <span className="flex-shrink-0 w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+                  {i + 1}
+                </span>
+                <div className="min-w-0">
+                  <p className="text-[10px] uppercase text-white/50">
+                    {SURFACE_LABELS[m.surface ?? ""] ?? m.surface ?? "powierzchnia"}
+                  </p>
+                  <p className="text-[11px]">
+                    {m.description?.trim() || "(brak opisu)"}
+                  </p>
+                </div>
+              </div>
             ))}
-            {(state.damage_markers ?? []).length > 3 && (
-              <p className="text-[10px] text-white/50">
-                + {(state.damage_markers ?? []).length - 3} więcej
-              </p>
-            )}
           </div>
         </div>
       )}
@@ -902,12 +933,18 @@ function SummaryPanel({
         </div>
       )}
 
-      <NotesField
-        label="Dodatkowe uwagi (opcjonalnie)"
-        value={state.additional_notes ?? ""}
-        onChange={(v) => onChange({ additional_notes: v })}
-        rows={4}
-      />
+      <div className="rounded-xl p-3 border border-white/10 bg-white/5">
+        <p className="text-[10px] uppercase tracking-wide text-white/60 font-semibold mb-2">
+          Dodatkowe uwagi
+        </p>
+        <textarea
+          value={state.additional_notes ?? ""}
+          onChange={(e) => onChange({ additional_notes: e.target.value })}
+          rows={3}
+          placeholder="(opcjonalnie)"
+          className="w-full px-2 py-1.5 rounded-lg border border-white/10 bg-black/30 text-xs text-white outline-none resize-none focus:border-white/30 placeholder:text-white/30"
+        />
+      </div>
     </div>
   );
 }

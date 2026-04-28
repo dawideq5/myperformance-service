@@ -35,7 +35,6 @@ export default function PhoneScene({
   damageMarkers?: DamageMarker[];
   damageMode?: boolean;
   playDisassembly?: boolean;
-  /** Animowana pozycja całej grupy phone (np. -2 dla summary step). */
   phonePosition?: [number, number, number];
   onModelClick?: (point: THREE.Vector3, surface: string) => void;
 }) {
@@ -44,7 +43,6 @@ export default function PhoneScene({
   const fillLightRef = useRef<THREE.DirectionalLight>(null);
   const tgtPos = useRef(new THREE.Vector3(...phonePosition));
 
-  // Update target jeśli prop się zmienił.
   if (
     tgtPos.current.x !== phonePosition[0] ||
     tgtPos.current.y !== phonePosition[1] ||
@@ -53,24 +51,30 @@ export default function PhoneScene({
     tgtPos.current.set(...phonePosition);
   }
 
-  useFrame(({ clock }, dt) => {
+  useFrame(({ clock, camera }, dt) => {
     const t = clock.getElapsedTime();
     if (groupRef.current) {
-      // Lerp position do target (animacja przesunięcia phone w lewo dla summary).
       groupRef.current.position.lerp(tgtPos.current, Math.min(dt * 1.4, 1));
+      // Brak Y-rotacji telefonu — kamera orbituje wokół ramek (frames step).
       if (!damageMode) {
-        if (isFramesStep) {
-          groupRef.current.rotation.y += dt * 0.4;
-        } else if (!playDisassembly) {
-          // Smooth back to neutral rotation gdy nie frames i nie damage.
-          const cur = groupRef.current.rotation.y;
-          const normalized = Math.atan2(Math.sin(cur), Math.cos(cur));
-          groupRef.current.rotation.y =
-            normalized + (-normalized) * Math.min(dt * 2.5, 1);
-        }
+        const cur = groupRef.current.rotation.y;
+        const normalized = Math.atan2(Math.sin(cur), Math.cos(cur));
+        groupRef.current.rotation.y =
+          normalized + (-normalized) * Math.min(dt * 2.5, 1);
       }
     }
-    // Subtelne ruchy świateł — żywe cienie.
+    // Frames step: orbit camera wokół phone (phone static, camera leci po okręgu).
+    if (isFramesStep && !damageMode) {
+      const angle = t * 0.5;
+      const radius = 3.8;
+      camera.position.set(
+        Math.sin(angle) * radius,
+        0.6,
+        Math.cos(angle) * radius,
+      );
+      camera.lookAt(0, 0, 0);
+    }
+    // Animowane key + fill lights.
     if (keyLightRef.current) {
       keyLightRef.current.position.x = 5 + Math.sin(t * 0.15) * 0.6;
       keyLightRef.current.position.y = 6 + Math.cos(t * 0.12) * 0.5;
@@ -92,7 +96,7 @@ export default function PhoneScene({
           rotateSpeed={0.7}
           zoomSpeed={0.7}
         />
-      ) : (
+      ) : isFramesStep ? null /* frames step manual orbit, brak CameraRig */ : (
         <CameraRig position={cameraPos} lookAt={cameraLookAt ?? [0, 0, 0]} />
       )}
 
