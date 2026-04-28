@@ -681,7 +681,7 @@ function VisualConditionSummary({
 
   const ratings: { label: string; value: number | undefined }[] = [
     { label: "Wyświetlacz", value: condition.display_rating },
-    { label: "Tylna szybka", value: condition.back_rating },
+    { label: "Panel tylny", value: condition.back_rating },
     { label: "Wyspa aparatów", value: condition.camera_rating },
     { label: "Ramki boczne", value: condition.frames_rating },
   ];

@@ -31,7 +31,7 @@ export const DISPLAY_DESCRIPTIONS: Record<number, string> = {
 };
 
 export const BACK_DESCRIPTIONS: Record<number, string> = {
-  1: "Roztrzaskana tylna szyba",
+  1: "Roztrzaskany panel tylny",
   2: "Liczne pęknięcia, plecek wymaga wymiany",
   3: "Pęknięcia + głębokie rysy",
   4: "Pojedyncze pęknięcie",

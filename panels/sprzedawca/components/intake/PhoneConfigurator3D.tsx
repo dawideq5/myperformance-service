@@ -62,43 +62,40 @@ interface Step {
   cleaningTour?: CleaningTourPos[];
 }
 
-// Pozycje kamery dopasowane do auto-skalowanego modelu (max dim ~3.5 jednostek).
-// Telefon zorientowany: ekran → +Z, tył → -Z, góra (głośnik rozmów) → +Y,
-// dół (port + speakers) → -Y, ramki boczne → ±X.
+// Orientacja modelu w GLB (zdedukowana z opisu użytkownika, P17):
+//   +X = ekran (display)        −X = panel tylny (z wyspą aparatów)
+//   +Y = góra (głośnik rozmów)  −Y = dół (port + speakers)
+//   ±Z = ramki boczne (długie krawędzie)
 const STEPS: Step[] = [
   {
     id: "display",
     title: "Stan wyświetlacza",
     subtitle: "Oceń ekran w skali 1–10.",
     highlight: "display",
-    cameraPos: [0, 0, 4.0],
+    cameraPos: [4.5, 0, 0],
   },
   {
     id: "back",
-    title: "Tylna szybka",
-    // Bardziej dramatyczny back-down angle — pokazuje plecek + lekki kąt do dołu
-    // żeby uniknąć view zdominowanego przez ramki.
+    title: "Panel tylny",
     subtitle: "Oceń stan plecka — pęknięcia, rysy, odkształcenia.",
     highlight: "back",
-    cameraPos: [0.3, -0.6, -3.0],
-    cameraLookAt: [0, 0.2, 0],
+    cameraPos: [-4.5, 0, 0],
   },
   {
     id: "frames",
     title: "Ramki boczne",
-    // Frames step: kamera orbituje wokół telefonu (PhoneScene.useFrame manual)
-    // — telefon stoi nieruchomo, widzimy kolejno wszystkie krawędzie.
     subtitle: "Kamera orbituje wokół ramek — obejrzyj wszystkie krawędzie.",
     highlight: "frames",
-    cameraPos: [3.8, 0.6, 0],
+    cameraPos: [0, 0, 5.5],
   },
   {
     id: "cameras",
     title: "Wyspa aparatów",
     subtitle: "Stan szkiełek obiektywów, ramki wyspy.",
     highlight: "cameras",
-    cameraPos: [-1.4, 1.3, -2.8],
-    cameraLookAt: [-0.5, 0.8, 0],
+    // Z tyłu (-X) z lekkim kątem od góry (+Y) — wyspa jest w górno-tylnej części.
+    cameraPos: [-3.0, 1.5, 0],
+    cameraLookAt: [-0.3, 0.5, 0],
   },
   {
     id: "cleaning",
@@ -106,27 +103,27 @@ const STEPS: Step[] = [
     subtitle:
       "Kurz w głośnikach i porcie powoduje problemy. Jedna usługa — pokażemy gdzie czyścimy.",
     highlight: null,
-    cameraPos: [0, 0, 4.0],
+    cameraPos: [4.0, 0, 0],
     cleaningTour: [
       {
-        // Earpiece — front-top view, kamera blisko górnej części ekranu od
-        // przodu (tam gdzie jest głośnik rozmów). NIE z góry żeby uniknąć
-        // widoku samych ramek.
-        pos: [0, 1.3, 3.0],
-        lookAt: [0, 1.4, 0.5],
+        // Earpiece — góra telefonu (+Y) z lekkim przesunięciem do przodu (+X).
+        pos: [2.5, 2.8, 0],
+        lookAt: [0.5, 1.4, 0],
         highlight: "earpiece",
         caption: "Głośnik rozmów — pył przyczynia się do problemów ze słyszalnością",
         durationMs: 7200,
       },
       {
-        pos: [0, -3.0, 1.4],
+        // Głośniczki dolne — dół (-Y) z lekkim front (+X).
+        pos: [2.0, -3.0, 0],
         lookAt: [0, -1.4, 0],
         highlight: "speakers",
         caption: "Głośniczki dolne — kurz tłumi dźwięk multimedia",
         durationMs: 7200,
       },
       {
-        pos: [0, -3.5, 0.6],
+        // Port — bardziej z dołu, pokazuje gniazdo USB-C/Lightning.
+        pos: [1.0, -3.5, 0],
         lookAt: [0, -1.6, 0],
         highlight: "port",
         caption: "Port ładowania — kurz blokuje połączenie z kablem",
@@ -140,15 +137,15 @@ const STEPS: Step[] = [
     subtitle:
       "Obróć telefon i kliknij w miejscu uszkodzenia. Marker pojawi się natychmiast.",
     highlight: null,
-    // Zoom out żeby było widać cały telefon — łatwiej trafić w cel.
-    cameraPos: [0, 0, 5.5],
+    // Z PRZODU (+X), oddalone — cały ekran w kadrze.
+    cameraPos: [6.0, 0, 0],
   },
   {
     id: "summary",
     title: "Podsumowanie",
-    subtitle: "Telefon rozkładany na elementy — sprawdź podsumowanie po prawej.",
+    subtitle: "Sprawdź zapisane oceny i dodaj uwagi końcowe.",
     highlight: null,
-    cameraPos: [3.5, 1, 5.5],
+    cameraPos: [5.5, 1.5, 4.0],
     cameraLookAt: [-1.8, 0, 0],
   },
 ];
@@ -194,7 +191,7 @@ function getRotationInstruction(): string {
 /** Polskie etykiety nazw powierzchni dla markerów. */
 const SURFACE_LABELS: Record<string, string> = {
   display: "Wyświetlacz",
-  back: "Tylna szybka",
+  back: "Panel tylny",
   cameras: "Wyspa aparatów",
   frames: "Ramki boczne",
   earpiece: "Głośnik rozmów",
@@ -603,7 +600,7 @@ function StepInputs({
     return (
       <div className="space-y-3">
         <RatingScale
-          label="Ocena tylnej szybki"
+          label="Ocena panelu tylnego"
           value={state.back_rating}
           onChange={(v) => onChange({ back_rating: v })}
           descriptions={BACK_DESCRIPTIONS}
@@ -861,7 +858,7 @@ function SummaryPanel({
       descriptions: DISPLAY_DESCRIPTIONS,
     },
     {
-      label: "Tylna szybka",
+      label: "Panel tylny",
       value: state.back_rating,
       notes: state.back_notes,
       descriptions: BACK_DESCRIPTIONS,

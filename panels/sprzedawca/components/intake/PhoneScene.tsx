@@ -63,14 +63,16 @@ export default function PhoneScene({
           normalized + (-normalized) * Math.min(dt * 2.5, 1);
       }
     }
-    // Frames step: orbit camera wokół phone (phone static, camera leci po
-    // okręgu wolniej dla cinematic feel).
+    // Frames step: kamera orbituje wokół osi Y (długiej osi telefonu).
+    // Telefon zorientowany +Y góra / -Y dół, więc orbit X-Z plane wokół Y
+    // pokazuje kolejno display (+X) → ramka +Z → tył (-X) → ramka -Z. Większy
+    // promień (5.0) żeby telefon nie był obcięty na górze i dole.
     if (isFramesStep && !damageMode) {
       const angle = t * 0.25;
-      const radius = 3.8;
+      const radius = 5.0;
       camera.position.set(
         Math.sin(angle) * radius,
-        0.5,
+        0.4,
         Math.cos(angle) * radius,
       );
       camera.lookAt(0, 0, 0);
