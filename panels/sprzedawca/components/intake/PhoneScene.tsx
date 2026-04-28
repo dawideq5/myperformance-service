@@ -63,13 +63,14 @@ export default function PhoneScene({
           normalized + (-normalized) * Math.min(dt * 2.5, 1);
       }
     }
-    // Frames step: orbit camera wokół phone (phone static, camera leci po okręgu).
+    // Frames step: orbit camera wokół phone (phone static, camera leci po
+    // okręgu wolniej dla cinematic feel).
     if (isFramesStep && !damageMode) {
-      const angle = t * 0.5;
+      const angle = t * 0.25;
       const radius = 3.8;
       camera.position.set(
         Math.sin(angle) * radius,
-        0.6,
+        0.5,
         Math.cos(angle) * radius,
       );
       camera.lookAt(0, 0, 0);

@@ -66,6 +66,26 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
   });
   const toggle = (k: string) => setOpen((s) => ({ ...s, [k]: !s[k] }));
 
+  // Sequence sekcji — używana do continueToNext.
+  const SECTION_ORDER = ["device", "lock", "checklist", "visual", "customer"] as const;
+  const continueToNext = (current: string) => {
+    const idx = SECTION_ORDER.indexOf(current as (typeof SECTION_ORDER)[number]);
+    if (idx === -1) return;
+    const nextKey = SECTION_ORDER[idx + 1];
+    setOpen((s) => ({
+      ...s,
+      [current]: false,
+      ...(nextKey ? { [nextKey]: true } : {}),
+    }));
+    // Smooth scroll do następnej sekcji.
+    if (nextKey && typeof window !== "undefined") {
+      setTimeout(() => {
+        const el = document.querySelector(`[data-section="${nextKey}"]`);
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 320);
+    }
+  };
+
   // Pobierz cenę czyszczenia z cennika (mp_pricelist code=CLEANING_INTAKE).
   useEffect(() => {
     void (async () => {
@@ -253,6 +273,7 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
           </div>
         )}
 
+        <div data-section="device">
         <Section
           icon={<Smartphone className="w-5 h-5" />}
           title="Urządzenie"
@@ -261,6 +282,7 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
           complete={deviceComplete}
           open={open.device}
           onToggle={() => toggle("device")}
+          onContinue={() => continueToNext("device")}
         >
           <div className="space-y-4">
             <BrandPicker value={brand} onChange={setBrand} />
@@ -275,7 +297,9 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
             <ColorPicker value={color} onChange={setColor} />
           </div>
         </Section>
+        </div>
 
+        <div data-section="lock">
         <Section
           icon={<Lock className="w-5 h-5" />}
           title="Blokada urządzenia"
@@ -290,6 +314,7 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
           complete={lockComplete}
           open={open.lock}
           onToggle={() => toggle("lock")}
+          onContinue={() => continueToNext("lock")}
         >
           <LockSection
             lockType={lockType}
@@ -298,7 +323,9 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
             onChangeCode={setLockCode}
           />
         </Section>
+        </div>
 
+        <div data-section="checklist">
         <Section
           icon={<CheckCircle2 className="w-5 h-5" />}
           title="Checklista przyjęcia"
@@ -307,6 +334,7 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
           complete={checklistComplete}
           open={open.checklist}
           onToggle={() => toggle("checklist")}
+          onContinue={() => continueToNext("checklist")}
         >
           <ChecklistSection
             brand={brand}
@@ -316,7 +344,9 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
             onChangeChargingCurrent={setChargingCurrent}
           />
         </Section>
+        </div>
 
+        <div data-section="visual">
         <Section
           icon={<Sparkles className="w-5 h-5" />}
           title="Stan wizualny urządzenia"
@@ -329,6 +359,7 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
           complete={visualComplete}
           open={open.visual}
           onToggle={() => toggle("visual")}
+          onContinue={() => continueToNext("visual")}
         >
           <VisualConditionSummary
             completed={visualCompleted}
@@ -337,7 +368,9 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
             onOpen={() => setShowConfigurator(true)}
           />
         </Section>
+        </div>
 
+        <div data-section="customer">
         <Section
           icon={<Wrench className="w-5 h-5" />}
           title="Opis usterki + dane klienta"
@@ -392,6 +425,7 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
             </div>
           </div>
         </Section>
+        </div>
 
         <div
           className="sticky bottom-0 -mx-4 sm:-mx-6 px-4 sm:px-6 py-3 border-t backdrop-blur-md flex justify-between items-center gap-2"
@@ -465,6 +499,7 @@ function Section({
   onToggle,
   accent,
   complete,
+  onContinue,
   children,
 }: {
   icon: React.ReactNode;
@@ -474,6 +509,8 @@ function Section({
   onToggle: () => void;
   accent: string;
   complete?: boolean;
+  /** Show "Kontynuuj" button when section complete + collapse + open next. */
+  onContinue?: () => void;
   children: React.ReactNode;
 }) {
   return (
@@ -520,7 +557,33 @@ function Section({
           <ChevronRight className="w-4 h-4 ml-1" style={{ color: "var(--text-muted)" }} />
         )}
       </button>
-      {open && <div className="px-4 pb-4 pt-1 animate-fade-in">{children}</div>}
+      <div
+        className="overflow-hidden transition-all duration-500 ease-in-out"
+        style={{
+          maxHeight: open ? "5000px" : "0px",
+          opacity: open ? 1 : 0,
+        }}
+      >
+        <div className="px-4 pb-4 pt-1">
+          {children}
+          {onContinue && complete && (
+            <div className="flex justify-end mt-3 pt-3 border-t border-[var(--border-subtle)] animate-fade-in">
+              <button
+                type="button"
+                onClick={onContinue}
+                className="px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-1.5 shadow-md transition-all hover:scale-[1.02]"
+                style={{
+                  background: `linear-gradient(135deg, ${accent}, ${accent}cc)`,
+                  color: "#fff",
+                }}
+              >
+                Kontynuuj
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -616,80 +679,108 @@ function VisualConditionSummary({
     );
   }
 
+  const ratings: { label: string; value: number | undefined }[] = [
+    { label: "Wyświetlacz", value: condition.display_rating },
+    { label: "Tylna szybka", value: condition.back_rating },
+    { label: "Wyspa aparatów", value: condition.camera_rating },
+    { label: "Ramki boczne", value: condition.frames_rating },
+  ];
+  const markerCount = (condition.damage_markers ?? []).length;
   const cleaningSelected = condition.cleaning_accepted ? 1 : 0;
-  const ratings = [
-    condition.display_rating,
-    condition.back_rating,
-    condition.camera_rating,
-    condition.frames_rating,
-  ].filter((v): v is number => v != null);
-  const avgRating =
-    ratings.length > 0
-      ? Math.round((ratings.reduce((a, b) => a + b, 0) / ratings.length) * 10) /
-        10
-      : null;
 
   return (
     <div className="space-y-2">
       <div
-        className="p-4 rounded-2xl border flex items-start gap-3 animate-fade-in"
+        className="p-4 rounded-2xl border space-y-3 animate-fade-in"
         style={{
           background:
-            "linear-gradient(135deg, rgba(34, 197, 94, 0.08), rgba(34, 197, 94, 0.02))",
+            "linear-gradient(135deg, rgba(34, 197, 94, 0.06), rgba(34, 197, 94, 0.02))",
           borderColor: "rgba(34, 197, 94, 0.3)",
         }}
       >
-        <div
-          className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-          style={{
-            background: "rgba(34, 197, 94, 0.18)",
-            color: "#22c55e",
-          }}
-        >
-          <BoxIcon className="w-5 h-5" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold" style={{ color: "#22c55e" }}>
+        <div className="flex items-start gap-3">
+          <div
+            className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+            style={{
+              background: "rgba(34, 197, 94, 0.18)",
+              color: "#22c55e",
+            }}
+          >
+            <BoxIcon className="w-5 h-5" />
+          </div>
+          <p className="text-sm font-semibold flex-1" style={{ color: "#22c55e" }}>
             Stan wizualny zapisany
           </p>
-          <div
-            className="text-xs mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5"
-            style={{ color: "var(--text-muted)" }}
-          >
-            {avgRating != null && (
-              <span>
-                Średnia: <strong>{avgRating}/10</strong>
-              </span>
-            )}
-            {(condition.damage_markers ?? []).length > 0 && (
-              <span>
-                Markery: <strong>{(condition.damage_markers ?? []).length}</strong>
-              </span>
-            )}
-            {cleaningSelected > 0 && cleaningPrice != null && (
-              <span className="col-span-2">
-                ✓ Czyszczenie: <strong>+{cleaningPrice} PLN</strong>
-              </span>
-            )}
-            {condition.additional_notes && (
-              <span className="col-span-2 truncate">
-                💬 {condition.additional_notes}
-              </span>
-            )}
-          </div>
         </div>
-        <button
-          type="button"
-          onClick={onOpen}
-          className="px-2.5 py-1 rounded-lg text-[11px] font-medium border flex-shrink-0"
-          style={{
-            background: "var(--bg-surface)",
-            borderColor: "var(--border-subtle)",
-            color: "var(--text-main)",
-          }}
-        >
-          Edytuj
-        </button>
+        <div className="grid grid-cols-2 gap-1.5">
+          {ratings.map((r) => (
+            <div
+              key={r.label}
+              className="rounded-lg p-2 flex items-center justify-between"
+              style={{ background: "var(--bg-surface)" }}
+            >
+              <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+                {r.label}
+              </span>
+              <span
+                className="font-mono text-xs font-bold"
+                style={{
+                  color:
+                    r.value == null
+                      ? "var(--text-muted)"
+                      : r.value >= 7
+                        ? "#22C55E"
+                        : r.value >= 5
+                          ? "#F59E0B"
+                          : "#EF4444",
+                }}
+              >
+                {r.value != null ? `${r.value}/10` : "—"}
+              </span>
+            </div>
+          ))}
+        </div>
+        {markerCount > 0 && (
+          <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+            Markery uszkodzeń:{" "}
+            <strong style={{ color: "var(--text-main)" }}>{markerCount}</strong>
+          </div>
+        )}
+        {cleaningSelected > 0 && cleaningPrice != null && (
+          <div className="text-xs" style={{ color: "#22c55e" }}>
+            ✓ Czyszczenie: <strong>+{cleaningPrice} PLN</strong>
+          </div>
+        )}
+        {condition.additional_notes && (
+          <div
+            className="text-xs pt-2 border-t"
+            style={{ borderColor: "var(--border-subtle)", color: "var(--text-muted)" }}
+          >
+            <p
+              className="text-[10px] uppercase tracking-wide mb-0.5"
+              style={{ color: "var(--text-muted)" }}
+            >
+              Dodatkowe uwagi
+            </p>
+            <p style={{ color: "var(--text-main)" }}>
+              {condition.additional_notes}
+            </p>
+          </div>
+        )}
+        <div className="flex justify-end pt-1">
+          <button
+            type="button"
+            onClick={onOpen}
+            className="px-2.5 py-1 rounded-lg text-[11px] font-medium border"
+            style={{
+              background: "var(--bg-surface)",
+              borderColor: "var(--border-subtle)",
+              color: "var(--text-main)",
+            }}
+          >
+            Edytuj
+          </button>
+        </div>
       </div>
     </div>
   );

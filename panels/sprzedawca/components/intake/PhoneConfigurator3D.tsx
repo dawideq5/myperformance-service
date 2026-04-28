@@ -76,10 +76,12 @@ const STEPS: Step[] = [
   {
     id: "back",
     title: "Tylna szybka",
-    // Bardziej zbliżone + lekko od dołu żeby pokazać tylny panel a nie ramki.
+    // Bardziej dramatyczny back-down angle — pokazuje plecek + lekki kąt do dołu
+    // żeby uniknąć view zdominowanego przez ramki.
     subtitle: "Oceń stan plecka — pęknięcia, rysy, odkształcenia.",
     highlight: "back",
-    cameraPos: [0, -0.4, -3.5],
+    cameraPos: [0.3, -0.6, -3.0],
+    cameraLookAt: [0, 0.2, 0],
   },
   {
     id: "frames",
@@ -107,9 +109,11 @@ const STEPS: Step[] = [
     cameraPos: [0, 0, 4.0],
     cleaningTour: [
       {
-        // Earpiece — top edge view z lekkim kątem od przodu, NIE side frames.
-        pos: [0, 2.8, 2.6],
-        lookAt: [0, 1.4, 0.3],
+        // Earpiece — front-top view, kamera blisko górnej części ekranu od
+        // przodu (tam gdzie jest głośnik rozmów). NIE z góry żeby uniknąć
+        // widoku samych ramek.
+        pos: [0, 1.3, 3.0],
+        lookAt: [0, 1.4, 0.5],
         highlight: "earpiece",
         caption: "Głośnik rozmów — pył przyczynia się do problemów ze słyszalnością",
         durationMs: 7200,
@@ -133,9 +137,11 @@ const STEPS: Step[] = [
   {
     id: "damage",
     title: "Zaznacz uszkodzenia",
-    subtitle: "Obróć telefon i kliknij w miejscu uszkodzenia. Marker pojawi się natychmiast.",
+    subtitle:
+      "Obróć telefon i kliknij w miejscu uszkodzenia. Marker pojawi się natychmiast.",
     highlight: null,
-    cameraPos: [0, 0, 4.0],
+    // Zoom out żeby było widać cały telefon — łatwiej trafić w cel.
+    cameraPos: [0, 0, 5.5],
   },
   {
     id: "summary",
@@ -168,6 +174,21 @@ export interface VisualConditionState {
   cleaning_accepted?: boolean;
   damage_markers?: DamageMarker[];
   additional_notes?: string;
+}
+
+/** Detekcja platformy + zwrot odpowiedniej instrukcji obracania modelem 3D. */
+function getRotationInstruction(): string {
+  if (typeof navigator === "undefined") return "";
+  const ua = navigator.userAgent;
+  const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(ua);
+  if (isMobile) {
+    return "👆 1 palec — obrót · 2 palce (rozsuń) — przybliżenie";
+  }
+  const isMac = /Mac|Macintosh/i.test(ua);
+  if (isMac) {
+    return "🖱️ Trackpad: 1 palec — obrót · ścisk 2 palcami — przybliżenie · Cmd+scroll = zoom";
+  }
+  return "🖱️ Lewy przycisk myszy + przeciągnij — obrót · scroll — przybliżenie";
 }
 
 /** Polskie etykiety nazw powierzchni dla markerów. */
@@ -432,11 +453,18 @@ export function PhoneConfigurator3D({
               </div>
             )}
 
-            {/* Damage mode hint */}
+            {/* Damage mode hint — instrukcje zależne od platformy. */}
             {step.id === "damage" && (
-              <div className="absolute bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-full bg-black/60 backdrop-blur-md border border-amber-500/40 text-xs text-amber-300 animate-fade-in">
-                <CircleDot className="w-3 h-3 inline mr-1.5" />
-                Kliknij w model w miejscu uszkodzenia, aby dodać marker
+              <div className="absolute bottom-6 left-1/2 -translate-x-1/2 px-4 py-2.5 rounded-2xl bg-black/70 backdrop-blur-md border border-amber-500/40 text-xs text-amber-200 animate-fade-in max-w-[90%] text-center space-y-1">
+                <div className="flex items-center justify-center gap-1.5">
+                  <CircleDot className="w-3 h-3 text-amber-400" />
+                  <span className="font-semibold">
+                    Kliknij w model w miejscu uszkodzenia
+                  </span>
+                </div>
+                <div className="text-[11px] text-white/70">
+                  {getRotationInstruction()}
+                </div>
               </div>
             )}
 
