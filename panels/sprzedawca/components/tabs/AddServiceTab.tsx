@@ -27,7 +27,7 @@ import {
   DescriptionPicker,
   serializeRepairTypes,
 } from "../intake/DescriptionPicker";
-import { openReceiptPrint, type ReceiptData } from "../../lib/receipt";
+import { openReceiptPdf, type ReceiptData } from "../../lib/receipt";
 
 export function AddServiceTab({ locationId }: { locationId: string }) {
   const [brand, setBrand] = useState("");
@@ -362,14 +362,16 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
                 <div className="flex flex-col sm:flex-row gap-2">
                   <button
                     type="button"
-                    onClick={() => openReceiptPrint(lastCreated)}
+                    onClick={() => {
+                      void openReceiptPdf(lastCreated);
+                    }}
                     className="flex-1 px-4 py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 shadow-md transition-all hover:scale-[1.01]"
                     style={{
                       background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
                       color: "#fff",
                     }}
                   >
-                    Drukuj papierowe potwierdzenie
+                    Pobierz PDF potwierdzenia
                   </button>
                   <button
                     type="button"

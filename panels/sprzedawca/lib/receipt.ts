@@ -1,4 +1,10 @@
 import type { VisualConditionState } from "../components/intake/PhoneConfigurator3D";
+import {
+  BACK_DESCRIPTIONS,
+  CAMERA_DESCRIPTIONS,
+  DISPLAY_DESCRIPTIONS,
+  FRAMES_DESCRIPTIONS,
+} from "../components/intake/RatingScale";
 
 export interface ReceiptData {
   ticketNumber: string;
@@ -16,7 +22,7 @@ export interface ReceiptData {
     color: string;
   };
   lock: {
-    type: string; // none / pin / pattern
+    type: string;
     code: string;
   };
   description: string;
@@ -25,8 +31,6 @@ export interface ReceiptData {
   cleaningPrice: number | null;
   cleaningAccepted: boolean;
   handover: {
-    /** "none" = potwierdzam brak SD/SIM/etui; "items" = wpisane dodatkowe
-     * przedmioty pobrane od klienta (np. kabel, kopia danych). */
     choice: "none" | "items";
     items: string;
   };
@@ -58,278 +62,381 @@ function formatDateTimePL(iso: string): string {
   });
 }
 
-/** Buduje HTML potwierdzenia odbioru — full inline CSS dla print
- * (window.open w nowej karcie). Zawiera oba loga (serwis nagłówek,
- * caseownia stopka), wszystkie dane zlecenia, miejsce na podpisy. */
+/** Pełen tekst regulaminu — statyczny dla P30-A. W P30-B będzie ładowany
+ * z Directus (z możliwością edycji w admin panelu). */
+const REGULATIONS_TEXT = `
+1.1. Właścicielem punktów "Serwis Telefonów Caseownia" oraz strony www.serwis.caseownia.com jest UNIKOM S.C. Krzysztof Rojek, ul. Towarowa 2c, 43-100 Tychy, NIP: 646-283-18-04, REGON: 240976330.
+1.2. Regulamin określa zasady świadczenia usług serwisowych oraz sprzedaży produktów w sklepach Caseownia i Smart Connect.
+1.5. Klient, przekazując urządzenie do Serwisu, akceptuje warunki niniejszego regulaminu.
+
+2. Przyjęcie urządzenia
+2.1. Przyjęcie potwierdzane jest protokołem zawierającym dane Klienta, opis usterki, stan wizualny oraz akcesoria.
+
+3. Wykonywanie usług
+3.3. Klient musi zaakceptować kosztorys przed naprawą. Brak akceptacji w ciągu 14 dni może skutkować zwrotem urządzenia bez naprawy.
+3.5. Serwis nie ponosi odpowiedzialności za dane w urządzeniu. Klient jest zobowiązany wykonać kopię zapasową.
+
+4. Gwarancja i odpowiedzialność
+4.1. Na wykonane naprawy Serwis udziela gwarancji na okres 3 miesięcy, o ile nie uzgodniono inaczej.
+4.2. Gwarancja obejmuje jedynie zakres naprawy i użyte części. Nie obejmuje uszkodzeń mechanicznych i zalania.
+4.4. Serwis nie gwarantuje zachowania fabrycznej wodoszczelności urządzenia (klasa IP67/IP68 i inne) po dokonanej naprawie.
+4.5. Serwis nie bierze odpowiedzialności za uszkodzenie lub konieczność odklejenia szkieł hartowanych oraz folii ochronnych podczas procesu serwisowego.
+
+5. Odbiór urządzenia
+5.1. Klient zobowiązany jest odebrać urządzenie w ciągu 21 dni od powiadomienia.
+5.3. Jeśli urządzenie nie zostanie odebrane w ciągu 90 dni, Serwis może uznać je za porzucone (art. 180 KC).
+
+6. Reklamacje
+6.1. Reklamacje należy zgłaszać pisemnie lub na adres biuro@caseownia.com. Serwis rozpatruje je w ciągu 14 dni.
+
+7. RODO — Ochrona danych osobowych
+7.1. Administratorem danych jest UNIKOM S.C. Dane przetwarzane są wyłącznie w celu realizacji zlecenia. Klient ma prawo do wglądu i poprawiania swoich danych.
+`.trim();
+
+/** Surface → który widok (front/back/side) i przybliżona pozycja na phone
+ * outline (procenty względem viewbox). Pomocne dla rozmieszczenia markerów
+ * na technicznym rysunku. */
+function projectMarker(
+  surface: string,
+  m: { x: number; y: number; z: number },
+): { view: "front" | "back"; px: number; py: number } {
+  // Phone: X axis = depth (display +X / back -X), Y = wysokość, Z = szerokość.
+  // Mapowanie do 2D outline: cx (horizontal) ← z, cy (vertical) ← -y (góra=mniej Y).
+  const Z_RANGE = 0.85;
+  const Y_RANGE = 1.7;
+  const cx = ((m.z + Z_RANGE) / (2 * Z_RANGE)) * 100; // 0..100
+  const cy = ((Y_RANGE - m.y) / (2 * Y_RANGE)) * 100; // 0..100
+  const s = surface.toLowerCase();
+  const view: "front" | "back" =
+    s.includes("tylny") || s.includes("aparat") || m.x < 0 ? "back" : "front";
+  return {
+    view,
+    px: Math.max(8, Math.min(92, cx)),
+    py: Math.max(6, Math.min(94, cy)),
+  };
+}
+
+/** SVG technical view — front + back outline iPhone-style + numbered markery. */
+function buildTechnicalSvg(
+  markers: { id: string; x: number; y: number; z: number; surface?: string }[],
+): string {
+  if (markers.length === 0) return "";
+  const PHONE_W = 100;
+  const PHONE_H = 200;
+  const phoneOutline = (label: string) => `
+    <g>
+      <rect x="6" y="6" width="${PHONE_W - 12}" height="${PHONE_H - 12}" rx="14" ry="14" fill="#fafafa" stroke="#222" stroke-width="1.5"/>
+      <rect x="14" y="22" width="${PHONE_W - 28}" height="${PHONE_H - 44}" rx="6" ry="6" fill="#fff" stroke="#888" stroke-width="0.7"/>
+      <circle cx="${PHONE_W / 2}" cy="14" r="2.5" fill="#444"/>
+      <text x="${PHONE_W / 2}" y="${PHONE_H + 12}" font-size="8" font-weight="600" text-anchor="middle" fill="#333" font-family="Inter, sans-serif" letter-spacing="0.5">${label}</text>
+    </g>
+  `;
+  const renderMarkersOn = (view: "front" | "back") =>
+    markers
+      .map((m, i) => {
+        const p = projectMarker(m.surface ?? "", m);
+        if (p.view !== view) return "";
+        const cx = (p.px / 100) * PHONE_W;
+        const cy = (p.py / 100) * PHONE_H;
+        return `<g>
+          <circle cx="${cx}" cy="${cy}" r="6" fill="#222" stroke="#fff" stroke-width="1.2"/>
+          <text x="${cx}" y="${cy + 2.2}" font-size="6" font-weight="700" text-anchor="middle" fill="#fff" font-family="Inter, sans-serif">${i + 1}</text>
+        </g>`;
+      })
+      .join("");
+  return `
+    <svg viewBox="0 0 ${PHONE_W * 2 + 40} ${PHONE_H + 22}" xmlns="http://www.w3.org/2000/svg" style="width: 220px; height: auto; display: block;">
+      <g transform="translate(0,0)">
+        ${phoneOutline("PRZÓD")}
+        ${renderMarkersOn("front")}
+      </g>
+      <g transform="translate(${PHONE_W + 40},0)">
+        ${phoneOutline("TYŁ")}
+        ${renderMarkersOn("back")}
+      </g>
+    </svg>
+  `;
+}
+
+/** Mapuje rating value (1-10) na pełny opis z config. */
+function ratingDescription(
+  category: "display" | "back" | "camera" | "frames",
+  value: number | undefined,
+): string {
+  if (value == null) return "";
+  const tables = {
+    display: DISPLAY_DESCRIPTIONS,
+    back: BACK_DESCRIPTIONS,
+    camera: CAMERA_DESCRIPTIONS,
+    frames: FRAMES_DESCRIPTIONS,
+  };
+  return tables[category][value] ?? "";
+}
+
+/** Buduje HTML potwierdzenia — grayscale, kompaktowo na A4. Konwertowany
+ * na PDF przez html2pdf po stronie klienta. */
 export function buildReceiptHTML(data: ReceiptData): string {
   const v = data.visualCondition;
-  const ratings: { label: string; value: number | undefined }[] = [
-    { label: "Wyświetlacz", value: v.display_rating },
-    { label: "Panel tylny", value: v.back_rating },
-    { label: "Wyspa aparatów", value: v.camera_rating },
-    { label: "Ramki boczne", value: v.frames_rating },
+  const markers = v.damage_markers ?? [];
+  const techSvg = buildTechnicalSvg(markers);
+
+  const ratingsRows: { cat: "display" | "back" | "camera" | "frames"; label: string; value: number | undefined }[] = [
+    { cat: "display", label: "Wyświetlacz", value: v.display_rating },
+    { cat: "back", label: "Panel tylny", value: v.back_rating },
+    { cat: "camera", label: "Wyspa aparatów", value: v.camera_rating },
+    { cat: "frames", label: "Ramki boczne", value: v.frames_rating },
   ];
-  const ratingsHtml = ratings
+  const ratingsHtml = ratingsRows
     .filter((r) => r.value != null)
     .map(
       (r) => `<tr>
-        <td style="padding:4px 8px; border-bottom:1px solid #eee;">${escapeHtml(r.label)}</td>
-        <td style="padding:4px 8px; border-bottom:1px solid #eee; text-align:right; font-family: Georgia, serif; font-weight:bold;">${r.value}/10</td>
+        <td style="padding:3px 6px; vertical-align:top; border-bottom:1px solid #ddd; width:90px; font-weight:600; color:#222; font-size:9pt;">${escapeHtml(r.label)}</td>
+        <td style="padding:3px 6px; border-bottom:1px solid #ddd; font-size:9pt; color:#444;">${escapeHtml(ratingDescription(r.cat, r.value))}</td>
       </tr>`,
     )
     .join("");
 
-  const markers = v.damage_markers ?? [];
-  const markersHtml = markers.length
-    ? `<table style="width:100%; border-collapse:collapse; margin-top:8px;">
-        <thead>
-          <tr style="background:#f5f5f5;">
-            <th style="padding:6px 8px; text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">#</th>
-            <th style="padding:6px 8px; text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">Powierzchnia</th>
-            <th style="padding:6px 8px; text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">Opis</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${markers
-            .map(
-              (m, i) => `<tr>
-                <td style="padding:4px 8px; border-bottom:1px solid #eee; vertical-align:top;">${i + 1}</td>
-                <td style="padding:4px 8px; border-bottom:1px solid #eee; vertical-align:top;">${escapeHtml(m.surface ?? "powierzchnia")}</td>
-                <td style="padding:4px 8px; border-bottom:1px solid #eee;">${escapeHtml(m.description?.trim() || "(brak opisu)")}</td>
-              </tr>`,
-            )
-            .join("")}
-        </tbody>
-      </table>`
+  const markersListHtml = markers.length
+    ? markers
+        .map(
+          (m, i) => `<div style="display:flex; gap:6px; margin-bottom:3px; font-size:8.5pt;">
+            <span style="display:inline-block; width:14px; height:14px; line-height:14px; text-align:center; background:#222; color:#fff; border-radius:50%; font-size:7pt; font-weight:700; flex-shrink:0;">${i + 1}</span>
+            <span><strong style="font-size:7.5pt; text-transform:uppercase; letter-spacing:0.4px; color:#666;">${escapeHtml(m.surface ?? "powierzchnia")}</strong> — ${escapeHtml(m.description?.trim() || "(brak opisu)")}</span>
+          </div>`,
+        )
+        .join("")
     : "";
 
   const checklistRows: { label: string; value: string }[] = [];
   if (v.powers_on) {
     const lab: Record<string, string> = {
-      yes: "Tak",
-      no: "Nie",
+      yes: "Włącza się",
+      no: "NIE WŁĄCZA się",
       vibrates: "Wibruje, ekran nie reaguje",
     };
-    checklistRows.push({ label: "Włącza się", value: lab[v.powers_on] });
+    checklistRows.push({ label: "Status zasilania", value: lab[v.powers_on] });
   }
-  if (v.cracked_front != null) {
-    checklistRows.push({
-      label: "Pęknięty z przodu",
-      value: v.cracked_front ? "Tak" : "Nie",
-    });
-  }
-  if (v.cracked_back != null) {
-    checklistRows.push({
-      label: "Pęknięty z tyłu",
-      value: v.cracked_back ? "Tak" : "Nie",
-    });
-  }
-  if (v.bent != null) {
-    checklistRows.push({ label: "Wygięty", value: v.bent ? "Tak" : "Nie" });
-  }
-  if (v.face_touch_id != null) {
-    checklistRows.push({
-      label: "Face ID / Touch ID działa",
-      value: v.face_touch_id ? "Tak" : "Nie",
-    });
-  }
-  if (v.water_damage) {
-    const lab: Record<string, string> = {
-      yes: "Tak",
-      no: "Nie",
-      unknown: "Nie wiadomo",
-    };
-    checklistRows.push({ label: "Zalany", value: lab[v.water_damage] });
-  }
+  if (v.cracked_front) checklistRows.push({ label: "Pęknięcia", value: "Pęknięty z przodu" });
+  if (v.cracked_back) checklistRows.push({ label: "Pęknięcia", value: "Pęknięty z tyłu" });
+  if (v.bent) checklistRows.push({ label: "Geometria", value: "Wygięty" });
+  if (v.face_touch_id === false) checklistRows.push({ label: "Face/Touch ID", value: "Nie działa" });
+  if (v.water_damage === "yes") checklistRows.push({ label: "Zalanie", value: "Tak" });
+  if (v.water_damage === "unknown") checklistRows.push({ label: "Zalanie", value: "Nie ustalono" });
   if (v.charging_current != null) {
     checklistRows.push({
       label: "Prąd ładowania",
       value: `${v.charging_current.toFixed(2)} A`,
     });
   }
-  const checklistHtml = checklistRows.length
-    ? checklistRows
-        .map(
-          (r) => `<tr>
-            <td style="padding:4px 8px; border-bottom:1px solid #eee;">${escapeHtml(r.label)}</td>
-            <td style="padding:4px 8px; border-bottom:1px solid #eee; text-align:right; font-weight:600;">${escapeHtml(r.value)}</td>
-          </tr>`,
-        )
-        .join("")
-    : "";
+  const checklistHtml = checklistRows
+    .map(
+      (r) => `<tr>
+        <td style="padding:3px 6px; vertical-align:top; border-bottom:1px solid #ddd; width:90px; font-weight:600; color:#222; font-size:9pt;">${escapeHtml(r.label)}</td>
+        <td style="padding:3px 6px; border-bottom:1px solid #ddd; font-size:9pt; color:#444;">${escapeHtml(r.value)}</td>
+      </tr>`,
+    )
+    .join("");
 
-  const repairTotal = data.estimate ?? 0;
-  const cleaningTotal =
+  const repair = data.estimate ?? 0;
+  const cleaning =
     data.cleaningAccepted && data.cleaningPrice ? data.cleaningPrice : 0;
-  const total = repairTotal + cleaningTotal;
+  const total = repair + cleaning;
+
+  const regulationsHtml = REGULATIONS_TEXT.split("\n\n")
+    .map(
+      (block) =>
+        `<p style="margin:0 0 4pt 0;">${escapeHtml(block).replace(/\n/g, "<br>")}</p>`,
+    )
+    .join("");
 
   return `<!DOCTYPE html>
 <html lang="pl">
 <head>
-  <meta charset="UTF-8">
-  <title>Potwierdzenie przyjęcia ${escapeHtml(data.ticketNumber)}</title>
-  <style>
-    @page { size: A4; margin: 12mm 14mm; }
-    body {
-      font-family: Inter, "Helvetica Neue", Arial, sans-serif;
-      color: #111;
-      font-size: 11pt;
-      line-height: 1.45;
-      margin: 0;
-      padding: 12pt 16pt;
-    }
-    h1, h2, h3 { margin: 0; font-weight: 600; }
-    h2 {
-      font-size: 12pt;
-      text-transform: uppercase;
-      letter-spacing: 0.6px;
-      color: #444;
-      border-bottom: 2px solid #111;
-      padding-bottom: 4px;
-      margin: 18pt 0 8pt 0;
-    }
-    .header {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      gap: 24px;
-      padding-bottom: 16pt;
-      border-bottom: 2px solid #111;
-    }
-    .header img.logo-main { max-height: 80px; max-width: 380px; object-fit: contain; }
-    .ticket-block {
-      text-align: right;
-      font-family: Georgia, serif;
-    }
-    .ticket-no {
-      font-size: 22pt;
-      font-weight: bold;
-      letter-spacing: 1px;
-    }
-    .ticket-date { color: #666; font-size: 10pt; margin-top: 4px; }
-    table { width: 100%; border-collapse: collapse; }
-    .info-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 16pt 24pt;
-      margin: 6pt 0;
-    }
-    .field-label { font-size: 9pt; text-transform: uppercase; letter-spacing: 0.5px; color: #666; }
-    .field-value { font-size: 11pt; font-weight: 500; }
-    .lock-block {
-      background: #fff8e1;
-      border: 1px solid #ffd54f;
-      border-radius: 4px;
-      padding: 8pt 12pt;
-      margin: 6pt 0;
-    }
-    .lock-label { font-size: 9pt; text-transform: uppercase; color: #b58900; }
-    .lock-code { font-family: "Courier New", monospace; font-size: 13pt; font-weight: bold; letter-spacing: 1px; }
-    .description-block {
-      background: #f9f9f9;
-      border-left: 3px solid #06b6d4;
-      padding: 8pt 12pt;
-      margin: 6pt 0;
-      white-space: pre-wrap;
-    }
-    .total-block {
-      background: linear-gradient(135deg, #e0f2fe, #f0f9ff);
-      border: 1px solid #0ea5e9;
-      border-radius: 4px;
-      padding: 10pt 14pt;
-      margin: 8pt 0;
-    }
-    .total-row { display:flex; justify-content:space-between; font-size: 11pt; padding: 2pt 0; }
-    .total-final {
-      border-top: 2px solid #0ea5e9;
-      margin-top: 6pt;
-      padding-top: 6pt;
-      font-size: 14pt;
-      font-weight: bold;
-      color: #0369a1;
-      font-family: Georgia, serif;
-    }
-    .handover-table { width: 100%; margin: 6pt 0; }
-    .handover-table th { text-align: left; padding: 6pt 8pt; background: #f5f5f5; font-size: 9pt; text-transform: uppercase; letter-spacing: 0.5px; }
-    .handover-table td { padding: 6pt 8pt; border-bottom: 1px solid #eee; }
-    .signatures {
-      margin-top: 28pt;
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 32pt;
-    }
-    .sig-box {
-      border-top: 1px solid #111;
-      padding-top: 6pt;
-      text-align: center;
-      font-size: 10pt;
-      color: #666;
-      min-height: 60pt;
-    }
-    .footer {
-      margin-top: 32pt;
-      padding-top: 12pt;
-      border-top: 1px solid #ddd;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-size: 9pt;
-      color: #888;
-    }
-    .footer img { max-height: 30pt; max-width: 120pt; object-fit: contain; }
-    .legal {
-      margin-top: 18pt;
-      font-size: 8.5pt;
-      color: #666;
-      line-height: 1.4;
-      padding: 8pt 12pt;
-      background: #fafafa;
-      border-radius: 4px;
-    }
-  </style>
+<meta charset="UTF-8">
+<title>Potwierdzenie ${escapeHtml(data.ticketNumber)}</title>
+<style>
+  * { box-sizing: border-box; }
+  @page { size: A4; margin: 8mm 10mm; }
+  body {
+    font-family: Inter, "Helvetica Neue", Arial, sans-serif;
+    color: #111;
+    font-size: 9pt;
+    line-height: 1.35;
+    margin: 0;
+    padding: 0;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    filter: grayscale(100%);
+  }
+  h2 {
+    font-size: 9pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: #111;
+    margin: 8pt 0 4pt 0;
+    padding-bottom: 2pt;
+    border-bottom: 1.5px solid #111;
+  }
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding-bottom: 8pt;
+    border-bottom: 2px solid #111;
+    margin-bottom: 8pt;
+  }
+  .header img { max-height: 50px; max-width: 220px; object-fit: contain; }
+  .ticket-block { text-align: right; }
+  .ticket-no {
+    font-family: Georgia, serif;
+    font-size: 16pt;
+    font-weight: bold;
+    letter-spacing: 1px;
+    color: #111;
+  }
+  .ticket-meta {
+    font-size: 7.5pt;
+    color: #555;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-top: 1pt;
+  }
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8pt 14pt;
+  }
+  .field-label {
+    font-size: 7pt;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: #666;
+    margin-bottom: 1pt;
+  }
+  .field-value { font-size: 9pt; font-weight: 500; color: #111; }
+  table { width: 100%; border-collapse: collapse; }
+  .lock-block {
+    border: 1px solid #888;
+    border-left: 3px solid #111;
+    padding: 4pt 8pt;
+    margin: 4pt 0;
+    background: #f5f5f5;
+  }
+  .lock-label { font-size: 7pt; text-transform: uppercase; letter-spacing: 0.6px; color: #555; }
+  .lock-code { font-family: "Courier New", monospace; font-size: 11pt; font-weight: bold; color: #111; }
+  .description-block {
+    background: #f5f5f5;
+    border-left: 3px solid #111;
+    padding: 5pt 8pt;
+    font-size: 8.5pt;
+    white-space: pre-wrap;
+    margin: 3pt 0;
+    color: #222;
+  }
+  .total-block {
+    border: 1.5px solid #111;
+    padding: 5pt 10pt;
+    margin: 4pt 0;
+    background: #fafafa;
+  }
+  .total-row { display: flex; justify-content: space-between; padding: 1pt 0; font-size: 9pt; }
+  .total-final {
+    border-top: 1.5px solid #111;
+    margin-top: 3pt;
+    padding-top: 3pt;
+    font-size: 11pt;
+    font-weight: bold;
+    font-family: Georgia, serif;
+  }
+  .handover-block {
+    border-left: 3px solid #111;
+    background: #f5f5f5;
+    padding: 5pt 8pt;
+    margin: 4pt 0;
+    font-size: 8.5pt;
+  }
+  .signatures {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16pt;
+    margin-top: 12pt;
+  }
+  .sig-box {
+    border-top: 1px solid #111;
+    padding-top: 3pt;
+    text-align: center;
+    font-size: 7.5pt;
+    color: #444;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    min-height: 28pt;
+  }
+  .footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-top: 1px solid #aaa;
+    padding-top: 4pt;
+    margin-top: 8pt;
+    font-size: 7pt;
+    color: #666;
+  }
+  .footer img { max-height: 22pt; max-width: 90pt; object-fit: contain; }
+  .regulations {
+    page-break-before: always;
+    font-size: 7.5pt;
+    line-height: 1.45;
+    color: #333;
+    column-count: 2;
+    column-gap: 14pt;
+  }
+  .regulations h2 {
+    column-span: all;
+    text-align: center;
+    margin-bottom: 6pt;
+  }
+  .tech-row {
+    display: flex;
+    gap: 12pt;
+    align-items: flex-start;
+    margin: 4pt 0;
+  }
+  .tech-svg-wrap { flex-shrink: 0; }
+  .tech-list { flex: 1; min-width: 0; }
+</style>
 </head>
 <body>
   <div class="header">
-    <img class="logo-main" src="${window.location.origin}/logos/serwis-by-caseownia.png" alt="Serwis by Caseownia">
+    <img src="${window.location.origin}/logos/serwis-by-caseownia.png" alt="Serwis by Caseownia">
     <div class="ticket-block">
-      <div class="field-label">Nr zlecenia</div>
       <div class="ticket-no">${escapeHtml(data.ticketNumber)}</div>
-      <div class="ticket-date">${escapeHtml(formatDateTimePL(data.createdAt))}</div>
+      <div class="ticket-meta">${escapeHtml(formatDateTimePL(data.createdAt))}</div>
     </div>
   </div>
 
-  <h2>Klient</h2>
-  <div class="info-grid">
+  <div class="grid-2">
     <div>
+      <h2 style="margin-top:0;">Klient</h2>
       <div class="field-label">Imię i nazwisko</div>
       <div class="field-value">${escapeHtml(data.customer.firstName)} ${escapeHtml(data.customer.lastName)}</div>
-    </div>
-    <div>
-      <div class="field-label">Telefon</div>
+      <div class="field-label" style="margin-top:3pt;">Telefon</div>
       <div class="field-value" style="font-family: Georgia, serif;">${escapeHtml(data.customer.phone)}</div>
+      ${
+        data.customer.email
+          ? `<div class="field-label" style="margin-top:3pt;">Email</div>
+             <div class="field-value">${escapeHtml(data.customer.email)}</div>`
+          : ""
+      }
     </div>
-    ${
-      data.customer.email
-        ? `<div style="grid-column: 1 / -1;">
-            <div class="field-label">Email</div>
-            <div class="field-value">${escapeHtml(data.customer.email)}</div>
-          </div>`
-        : ""
-    }
-  </div>
-
-  <h2>Urządzenie</h2>
-  <div class="info-grid">
     <div>
-      <div class="field-label">Marka i model</div>
+      <h2 style="margin-top:0;">Urządzenie</h2>
+      <div class="field-label">Model</div>
       <div class="field-value">${escapeHtml(data.device.brand)} ${escapeHtml(data.device.model)}</div>
-    </div>
-    <div>
-      <div class="field-label">Kolor</div>
+      <div class="field-label" style="margin-top:3pt;">Kolor</div>
       <div class="field-value">${escapeHtml(data.device.color)}</div>
-    </div>
-    <div>
-      <div class="field-label">IMEI</div>
+      <div class="field-label" style="margin-top:3pt;">IMEI</div>
       <div class="field-value" style="font-family: 'Courier New', monospace;">${escapeHtml(data.device.imei)}</div>
     </div>
   </div>
@@ -347,23 +454,19 @@ export function buildReceiptHTML(data: ReceiptData): string {
   <div class="description-block">${escapeHtml(data.description || "(brak opisu)")}</div>
 
   ${
-    ratingsHtml
-      ? `<h2>Stan wizualny</h2>
-        <table>${ratingsHtml}</table>`
+    techSvg
+      ? `<h2>Lokalizacja uszkodzeń</h2>
+         <div class="tech-row">
+           <div class="tech-svg-wrap">${techSvg}</div>
+           <div class="tech-list">${markersListHtml}</div>
+         </div>`
       : ""
   }
 
   ${
-    markersHtml
-      ? `<h3 style="margin-top:8pt; font-size:10pt; text-transform:uppercase; letter-spacing:0.5px; color:#444;">Markery uszkodzeń</h3>
-         ${markersHtml}`
-      : ""
-  }
-
-  ${
-    checklistHtml
-      ? `<h3 style="margin-top:12pt; font-size:10pt; text-transform:uppercase; letter-spacing:0.5px; color:#444;">Test funkcjonalny</h3>
-         <table>${checklistHtml}</table>`
+    ratingsHtml || checklistHtml
+      ? `<h2>Stan techniczny</h2>
+         <table>${ratingsHtml}${checklistHtml}</table>`
       : ""
   }
 
@@ -371,7 +474,7 @@ export function buildReceiptHTML(data: ReceiptData): string {
   <div class="total-block">
     <div class="total-row">
       <span>Naprawa</span>
-      <span style="font-family: Georgia, serif;">${repairTotal.toFixed(2)} PLN</span>
+      <span style="font-family: Georgia, serif;">${repair.toFixed(2)} PLN</span>
     </div>
     ${
       data.cleaningAccepted && data.cleaningPrice != null
@@ -390,23 +493,14 @@ export function buildReceiptHTML(data: ReceiptData): string {
   <h2>Potwierdzenie odbioru</h2>
   ${
     data.handover.choice === "none"
-      ? `<div style="background:#f0fdf4; border-left:3px solid #22c55e; padding:10pt 14pt; font-size:11pt; line-height:1.5;">
-          Potwierdzam, że przyjmowane urządzenie nie posiada karty SIM,
-          karty pamięci SD ani nie posiadało etui przy przyjęciu.
+      ? `<div class="handover-block">
+          <strong>Potwierdzam</strong>, że przyjmowane urządzenie nie posiada karty SIM, karty pamięci SD ani nie posiadało etui przy przyjęciu.
         </div>`
-      : `<div style="background:#fff7ed; border-left:3px solid #f59e0b; padding:10pt 14pt; font-size:11pt;">
-          <p style="font-weight:600; margin:0 0 4pt 0;">Pobrane od klienta dodatkowe przedmioty:</p>
-          <p style="margin:0; white-space:pre-wrap;">${escapeHtml(data.handover.items)}</p>
+      : `<div class="handover-block">
+          <strong>Pobrane od klienta dodatkowe przedmioty:</strong><br>
+          ${escapeHtml(data.handover.items).replace(/\n/g, "<br>")}
         </div>`
   }
-
-  <div class="legal">
-    Powyższe potwierdzenie stanowi pokwitowanie przyjęcia urządzenia do
-    serwisu. Wycena ma charakter orientacyjny — ostateczna kwota zostanie
-    ustalona po diagnostyce. Klient zobowiązuje się do odbioru urządzenia
-    w terminie do 30 dni od powiadomienia o gotowości. Po tym czasie
-    serwis może naliczyć opłatę za przechowywanie.
-  </div>
 
   <div class="signatures">
     <div class="sig-box">Podpis pracownika</div>
@@ -414,29 +508,72 @@ export function buildReceiptHTML(data: ReceiptData): string {
   </div>
 
   <div class="footer">
-    <span>Serwis Telefonów by Caseownia</span>
+    <span>Serwis Telefonów by Caseownia · UNIKOM S.C.</span>
     <img src="${window.location.origin}/logos/caseownia.jpeg" alt="Caseownia">
   </div>
 
-  <script>
-    // Auto-print po załadowaniu wszystkich obrazów. Setlik ułatwia
-    // user wciśnięcie Anuluj jeśli chce tylko podejrzeć.
-    window.addEventListener('load', function() {
-      setTimeout(function() { window.print(); }, 350);
-    });
-  </script>
+  <div class="regulations">
+    <h2>Regulamin świadczenia usług serwisowych</h2>
+    ${regulationsHtml}
+  </div>
 </body>
 </html>`;
 }
 
-/** Otwiera nowe okno z potwierdzeniem do druku. Zwraca true jeśli się
- * udało, false gdy popup blocker zatrzymał. */
-export function openReceiptPrint(data: ReceiptData): boolean {
+/** Generuje PDF z receipt HTML i otwiera w nowej karcie (PDF viewer). */
+export async function openReceiptPdf(data: ReceiptData): Promise<boolean> {
+  // Dynamic import — html2pdf jest ciężki (~150KB), ładujemy tylko gdy
+  // user generuje PDF.
+  const html2pdfModule = await import("html2pdf.js");
+  const html2pdf = (html2pdfModule.default ?? html2pdfModule) as (
+    el: HTMLElement,
+  ) => {
+    set: (opts: Record<string, unknown>) => {
+      from: (el: HTMLElement) => {
+        outputPdf: (type: "blob") => Promise<Blob>;
+      };
+    };
+  };
+
   const html = buildReceiptHTML(data);
-  const win = window.open("", "_blank", "width=900,height=1200");
-  if (!win) return false;
-  win.document.open();
-  win.document.write(html);
-  win.document.close();
-  return true;
+  const container = document.createElement("div");
+  container.innerHTML = html;
+  const body = container.querySelector("body")!;
+  const wrapper = document.createElement("div");
+  wrapper.style.cssText = "position:absolute;left:-9999px;top:0;width:210mm;";
+  while (body.firstChild) wrapper.appendChild(body.firstChild);
+  // Style ze <style> taga musimy wstrzyknąć do dokumentu — html2canvas
+  // odczyta computed styles z DOM żywego.
+  const styleEl = container.querySelector("style");
+  const tempStyle = document.createElement("style");
+  if (styleEl) tempStyle.textContent = styleEl.textContent ?? "";
+  document.head.appendChild(tempStyle);
+  document.body.appendChild(wrapper);
+
+  try {
+    const blob = await html2pdf(wrapper)
+      .set({
+        margin: [8, 10, 8, 10],
+        filename: `Potwierdzenie-${data.ticketNumber}.pdf`,
+        image: { type: "jpeg", quality: 0.95 },
+        html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
+        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+        pagebreak: { mode: ["css", "legacy"] },
+      })
+      .from(wrapper)
+      .outputPdf("blob");
+    const url = URL.createObjectURL(blob);
+    const win = window.open(url, "_blank");
+    if (!win) {
+      // Popup blocker — fallback download.
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Potwierdzenie-${data.ticketNumber}.pdf`;
+      a.click();
+    }
+    return true;
+  } finally {
+    document.body.removeChild(wrapper);
+    document.head.removeChild(tempStyle);
+  }
 }
