@@ -80,16 +80,28 @@ export async function GET(
     handover: { choice: handoverChoice, items: handoverItems },
   };
 
-  const pdfBuffer = await renderReceiptPdf(data);
-  // NextResponse expects BodyInit; opakowujemy Buffer w Blob z poprawnym
-  // MIME — browser otrzymuje stream PDF i renderuje inline.
-  const blob = new Blob([new Uint8Array(pdfBuffer)], { type: "application/pdf" });
-  return new NextResponse(blob, {
-    status: 200,
-    headers: {
-      "Content-Type": "application/pdf",
-      "Content-Disposition": `inline; filename="Potwierdzenie-${service.ticketNumber}.pdf"`,
-      "Cache-Control": "no-store",
-    },
-  });
+  try {
+    const pdfBuffer = await renderReceiptPdf(data);
+    const blob = new Blob([new Uint8Array(pdfBuffer)], { type: "application/pdf" });
+    return new NextResponse(blob, {
+      status: 200,
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `inline; filename="Potwierdzenie-${service.ticketNumber}.pdf"`,
+        "Cache-Control": "no-store",
+      },
+    });
+  } catch (err) {
+    console.error("[receipt] PDF render failed:", err);
+    if (err instanceof Error) {
+      console.error("[receipt] stack:", err.stack);
+    }
+    return NextResponse.json(
+      {
+        error: "PDF render failed",
+        detail: err instanceof Error ? err.message : String(err),
+      },
+      { status: 500 },
+    );
+  }
 }
