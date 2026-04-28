@@ -2,15 +2,30 @@
 
 import { useEffect, useState } from "react";
 import {
+  Battery,
   CheckCircle2,
+  ChevronRight,
+  Droplets,
+  Eye,
+  EyeOff,
+  Fingerprint,
+  Hash,
+  KeyRound,
   Loader2,
+  Lock,
+  Mail,
   Package,
   Phone,
-  Mail,
+  ScanLine,
+  Shield,
+  Smartphone,
+  TouchpadOff,
+  User as UserIcon,
+  Wrench,
   X,
-  ChevronRight,
+  Zap,
 } from "lucide-react";
-import type { ServiceTicket } from "./ServicesBoard";
+import type { IntakeChecklist, ServiceTicket } from "./ServicesBoard";
 
 const STATUS_FLOW = [
   { from: "received", to: "diagnosing", label: "Rozpocznij diagnozę" },
@@ -44,6 +59,7 @@ export function ServiceDetailDialog({
   onClose: () => void;
   onUpdated: () => void;
 }) {
+  const [showLockCode, setShowLockCode] = useState(false);
   const [diagnosis, setDiagnosis] = useState(service.diagnosis ?? "");
   const [amountFinal, setAmountFinal] = useState(
     service.amountFinal != null ? String(service.amountFinal) : "",
@@ -351,6 +367,88 @@ export function ServiceDetailDialog({
             )}
           </Section>
 
+          {/* Blokada + konto */}
+          {(service.lockType !== "none" || service.signedInAccount) && (
+            <Section title="🔒 Blokada / konto">
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <LockTypeIcon lockType={service.lockType} />
+                  <span className="text-sm font-medium">
+                    {LOCK_LABELS[service.lockType] ?? service.lockType}
+                  </span>
+                </div>
+                {service.lockCode && (
+                  <div
+                    className="p-2 rounded-lg flex items-center justify-between gap-2"
+                    style={{ background: "var(--bg-surface)" }}
+                  >
+                    <code className="text-sm font-mono">
+                      {showLockCode ? service.lockCode : "••••••••"}
+                    </code>
+                    <button
+                      type="button"
+                      onClick={() => setShowLockCode(!showLockCode)}
+                      className="p-1 rounded hover:bg-[var(--bg-card)] transition-colors"
+                      style={{ color: "var(--text-muted)" }}
+                      title={showLockCode ? "Ukryj" : "Pokaż"}
+                    >
+                      {showLockCode ? (
+                        <EyeOff className="w-4 h-4" />
+                      ) : (
+                        <Eye className="w-4 h-4" />
+                      )}
+                    </button>
+                  </div>
+                )}
+                {service.signedInAccount && (
+                  <div
+                    className="text-xs p-2 rounded-lg flex items-center gap-1.5"
+                    style={{
+                      background: "var(--bg-surface)",
+                      color: "var(--text-main)",
+                    }}
+                  >
+                    <UserIcon className="w-3 h-3" style={{ color: "var(--text-muted)" }} />
+                    {service.signedInAccount}
+                  </div>
+                )}
+              </div>
+            </Section>
+          )}
+
+          {/* Akcesoria */}
+          {service.accessories && service.accessories.length > 0 && (
+            <Section title="📦 Akcesoria do zwrotu">
+              <div className="flex flex-wrap gap-1.5">
+                {service.accessories.map((a) => (
+                  <span
+                    key={a}
+                    className="px-2.5 py-1 rounded-full text-xs font-medium border flex items-center gap-1"
+                    style={{
+                      background: "var(--bg-surface)",
+                      borderColor: "var(--border-subtle)",
+                      color: "var(--text-main)",
+                    }}
+                  >
+                    <CheckCircle2
+                      className="w-3 h-3"
+                      style={{ color: "#22C55E" }}
+                    />
+                    {ACCESSORY_LABELS[a] ?? a}
+                  </span>
+                ))}
+              </div>
+            </Section>
+          )}
+
+          {/* Checklista przyjęcia */}
+          {service.intakeChecklist &&
+            Object.keys(service.intakeChecklist).length > 0 && (
+              <Section title="✅ Checklista przyjęcia">
+                <ChecklistDisplay checklist={service.intakeChecklist} />
+              </Section>
+            )}
+
           {/* Diagnoza + wycena */}
           <Section title="Praca technika">
             <div className="space-y-2">
@@ -514,6 +612,225 @@ export function ServiceDetailDialog({
         </div>
       </div>
     </div>
+  );
+}
+
+const LOCK_LABELS: Record<string, string> = {
+  none: "Brak blokady",
+  pin: "PIN",
+  pattern: "Wzór",
+  password: "Hasło",
+  face: "Face ID",
+  fingerprint: "Odcisk palca",
+  multi: "Kombinowana",
+};
+
+const LOCK_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+  pin: Hash,
+  pattern: KeyRound,
+  password: Lock,
+  face: ScanLine,
+  fingerprint: Fingerprint,
+  multi: Shield,
+};
+
+function LockTypeIcon({ lockType }: { lockType: string }) {
+  const Icon = LOCK_ICONS[lockType] ?? Lock;
+  return (
+    <div
+      className="w-7 h-7 rounded-lg flex items-center justify-center"
+      style={{
+        background: "linear-gradient(135deg, #A855F722, #A855F711)",
+        color: "#A855F7",
+      }}
+    >
+      <Icon className="w-4 h-4" />
+    </div>
+  );
+}
+
+const ACCESSORY_LABELS: Record<string, string> = {
+  kabel: "Kabel",
+  ladowarka: "Ładowarka",
+  etui: "Etui",
+  szklo: "Szkło",
+  sluchawki: "Słuchawki",
+  pudelko: "Pudełko",
+  instrukcja: "Instrukcja",
+  tacka_sim: "Tacka SIM",
+  rysik: "Rysik",
+};
+
+const SCREEN_LABELS: Record<string, { label: string; color: string }> = {
+  perfect: { label: "Idealny", color: "#22C55E" },
+  minor_scratches: { label: "Lekkie rysy", color: "#F59E0B" },
+  cracked: { label: "Pęknięty", color: "#EF4444" },
+  shattered: { label: "Roztrzaskany", color: "#991B1B" },
+};
+
+const BODY_LABELS: Record<string, { label: string; color: string }> = {
+  perfect: { label: "Idealna", color: "#22C55E" },
+  minor_wear: { label: "Drobne otarcia", color: "#F59E0B" },
+  dents: { label: "Wgniecenia", color: "#EF4444" },
+  damaged: { label: "Uszkodzona", color: "#991B1B" },
+};
+
+const BATTERY_LABELS: Record<string, { label: string; color: string }> = {
+  good: { label: "Dobra", color: "#22C55E" },
+  moderate: { label: "Średnia", color: "#F59E0B" },
+  poor: { label: "Słaba", color: "#EF4444" },
+  swollen: { label: "Spuchnięta", color: "#991B1B" },
+  unknown: { label: "Nieznany", color: "#64748B" },
+};
+
+const PORT_LABELS: Record<string, { label: string; color: string }> = {
+  all_working: { label: "Wszystkie OK", color: "#22C55E" },
+  some_loose: { label: "Luźne", color: "#F59E0B" },
+  broken: { label: "Uszkodzone", color: "#EF4444" },
+  unknown: { label: "Nieznany", color: "#64748B" },
+};
+
+function ChecklistDisplay({ checklist }: { checklist: IntakeChecklist }) {
+  const rows: { icon: React.ReactNode; label: string; value: React.ReactNode }[] = [];
+  if (checklist.screen) {
+    const m = SCREEN_LABELS[checklist.screen];
+    rows.push({
+      icon: <Smartphone className="w-3.5 h-3.5" />,
+      label: "Ekran",
+      value: m ? <Badge text={m.label} color={m.color} /> : checklist.screen,
+    });
+  }
+  if (checklist.body) {
+    const m = BODY_LABELS[checklist.body];
+    rows.push({
+      icon: <Wrench className="w-3.5 h-3.5" />,
+      label: "Obudowa",
+      value: m ? <Badge text={m.label} color={m.color} /> : checklist.body,
+    });
+  }
+  if (checklist.battery_health) {
+    const m = BATTERY_LABELS[checklist.battery_health];
+    rows.push({
+      icon: <Battery className="w-3.5 h-3.5" />,
+      label: "Bateria",
+      value: m ? <Badge text={m.label} color={m.color} /> : checklist.battery_health,
+    });
+  }
+  if (checklist.ports) {
+    const m = PORT_LABELS[checklist.ports];
+    rows.push({
+      icon: <Wrench className="w-3.5 h-3.5" />,
+      label: "Porty",
+      value: m ? <Badge text={m.label} color={m.color} /> : checklist.ports,
+    });
+  }
+  if (checklist.powers_on != null) {
+    rows.push({
+      icon: <Zap className="w-3.5 h-3.5" />,
+      label: "Włącza się",
+      value: <BoolBadge value={checklist.powers_on} />,
+    });
+  }
+  if (checklist.screen_responds != null) {
+    rows.push({
+      icon: <TouchpadOff className="w-3.5 h-3.5" />,
+      label: "Ekran reaguje",
+      value: <BoolBadge value={checklist.screen_responds} />,
+    });
+  }
+  if (checklist.water_damage != null) {
+    rows.push({
+      icon: <Droplets className="w-3.5 h-3.5" />,
+      label: "Ślady wody",
+      value: <BoolBadge value={checklist.water_damage} invert />,
+    });
+  }
+  if (checklist.customer_backup != null) {
+    rows.push({
+      icon: <Shield className="w-3.5 h-3.5" />,
+      label: "Backup klienta",
+      value: <BoolBadge value={checklist.customer_backup} />,
+    });
+  }
+  if (checklist.reset_consent != null) {
+    rows.push({
+      icon: <CheckCircle2 className="w-3.5 h-3.5" />,
+      label: "Zgoda na reset",
+      value: <BoolBadge value={checklist.reset_consent} />,
+    });
+  }
+
+  if (rows.length === 0) {
+    return (
+      <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+        Brak danych z checklisty.
+      </p>
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+      {rows.map((r, i) => (
+        <div
+          key={i}
+          className="flex items-center justify-between gap-2 p-2 rounded-lg"
+          style={{ background: "var(--bg-surface)" }}
+        >
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span style={{ color: "var(--text-muted)" }}>{r.icon}</span>
+            <span
+              className="text-xs truncate"
+              style={{ color: "var(--text-muted)" }}
+            >
+              {r.label}
+            </span>
+          </div>
+          <div className="flex-shrink-0">{r.value}</div>
+        </div>
+      ))}
+      {checklist.notes && (
+        <div
+          className="col-span-full text-xs p-2 rounded-lg"
+          style={{
+            background: "var(--bg-surface)",
+            color: "var(--text-main)",
+          }}
+        >
+          <span
+            className="text-[10px] uppercase font-semibold mr-1"
+            style={{ color: "var(--text-muted)" }}
+          >
+            Notatki:
+          </span>
+          {checklist.notes}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Badge({ text, color }: { text: string; color: string }) {
+  return (
+    <span
+      className="px-2 py-0.5 rounded-full text-[10px] font-bold"
+      style={{ background: `${color}22`, color }}
+    >
+      {text}
+    </span>
+  );
+}
+
+function BoolBadge({ value, invert }: { value: boolean; invert?: boolean }) {
+  // invert=true → "true" jest negatywne (np. water_damage=true to źle)
+  const isPositive = invert ? !value : value;
+  const color = isPositive ? "#22C55E" : "#EF4444";
+  return (
+    <span
+      className="px-2 py-0.5 rounded-full text-[10px] font-bold"
+      style={{ background: `${color}22`, color }}
+    >
+      {value ? "TAK" : "NIE"}
+    </span>
   );
 }
 

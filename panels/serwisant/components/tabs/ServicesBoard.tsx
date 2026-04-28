@@ -4,13 +4,33 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, RefreshCw, Search, User } from "lucide-react";
 import { ServiceDetailDialog } from "./ServiceDetailDialog";
 
+export interface IntakeChecklist {
+  screen?: string;
+  body?: string;
+  battery_health?: string;
+  ports?: string;
+  water_damage?: boolean;
+  powers_on?: boolean;
+  screen_responds?: boolean;
+  customer_backup?: boolean;
+  reset_consent?: boolean;
+  notes?: string;
+}
+
 export interface ServiceTicket {
   id: string;
   ticketNumber: string;
   status: string;
+  type: string | null;
   brand: string | null;
   model: string | null;
   imei: string | null;
+  color: string | null;
+  lockType: string;
+  lockCode: string | null;
+  signedInAccount: string | null;
+  accessories: string[];
+  intakeChecklist: IntakeChecklist;
   description: string | null;
   diagnosis: string | null;
   amountEstimate: number | null;

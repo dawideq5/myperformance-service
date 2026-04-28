@@ -41,6 +41,39 @@ export type TransportStatus =
   | "in_transit_to_customer"
   | "delivered_to_customer";
 
+export type LockType =
+  | "none"
+  | "pin"
+  | "pattern"
+  | "password"
+  | "face"
+  | "fingerprint"
+  | "multi";
+
+/** Checklista przyjęcia urządzenia — stan + funkcjonalności. JSON w DB. */
+export interface IntakeChecklist {
+  /** "perfect" | "minor_scratches" | "cracked" | "shattered" */
+  screen?: string;
+  /** "perfect" | "minor_wear" | "dents" | "damaged" */
+  body?: string;
+  /** "good" | "moderate" | "poor" | "swollen" | "unknown" */
+  battery_health?: string;
+  /** "all_working" | "some_loose" | "broken" | "unknown" */
+  ports?: string;
+  /** Czy są ślady wody (LDI / korozja). */
+  water_damage?: boolean;
+  /** Czy urządzenie się włącza. */
+  powers_on?: boolean;
+  /** Czy ekran reaguje na dotyk. */
+  screen_responds?: boolean;
+  /** Czy klient zrobił backup. */
+  customer_backup?: boolean;
+  /** Czy klient zgadza się na reset do ustawień fabrycznych jeśli niezbędny. */
+  reset_consent?: boolean;
+  /** Dodatkowe notatki technika. */
+  notes?: string;
+}
+
 export interface ServiceTicket {
   id: string;
   ticketNumber: string;
@@ -52,7 +85,11 @@ export interface ServiceTicket {
   model: string | null;
   imei: string | null;
   color: string | null;
+  lockType: LockType;
   lockCode: string | null;
+  signedInAccount: string | null;
+  accessories: string[];
+  intakeChecklist: IntakeChecklist;
   description: string | null;
   diagnosis: string | null;
   amountEstimate: number | null;
@@ -83,7 +120,11 @@ interface ServiceRow {
   model: string | null;
   imei: string | null;
   color: string | null;
+  lock_type: string | null;
   lock_code: string | null;
+  signed_in_account: string | null;
+  accessories: string[] | string | null;
+  intake_checklist: IntakeChecklist | string | null;
   description: string | null;
   diagnosis: string | null;
   amount_estimate: number | string | null;
@@ -122,6 +163,21 @@ function parseStringArray(v: string[] | string | null): string[] {
   return [];
 }
 
+function parseChecklist(
+  v: IntakeChecklist | string | null,
+): IntakeChecklist {
+  if (!v) return {};
+  if (typeof v === "string") {
+    try {
+      const p = JSON.parse(v);
+      return typeof p === "object" && p ? (p as IntakeChecklist) : {};
+    } catch {
+      return {};
+    }
+  }
+  return v;
+}
+
 function mapRow(r: ServiceRow): ServiceTicket {
   return {
     id: r.id,
@@ -134,7 +190,11 @@ function mapRow(r: ServiceRow): ServiceTicket {
     model: r.model ?? null,
     imei: r.imei ?? null,
     color: r.color ?? null,
+    lockType: (r.lock_type ?? "none") as LockType,
     lockCode: r.lock_code ?? null,
+    signedInAccount: r.signed_in_account ?? null,
+    accessories: parseStringArray(r.accessories),
+    intakeChecklist: parseChecklist(r.intake_checklist),
     description: r.description ?? null,
     diagnosis: r.diagnosis ?? null,
     amountEstimate: num(r.amount_estimate),
@@ -240,7 +300,11 @@ export interface CreateServiceInput {
   model?: string | null;
   imei?: string | null;
   color?: string | null;
+  lockType?: LockType;
   lockCode?: string | null;
+  signedInAccount?: string | null;
+  accessories?: string[];
+  intakeChecklist?: IntakeChecklist;
   description?: string | null;
   amountEstimate?: number | null;
   contactPhone?: string | null;
@@ -292,7 +356,11 @@ export async function createService(
     model: input.model ?? null,
     imei: input.imei ? input.imei.toUpperCase() : null,
     color: input.color ?? null,
+    lock_type: input.lockType ?? "none",
     lock_code: input.lockCode ?? null,
+    signed_in_account: input.signedInAccount ?? null,
+    accessories: input.accessories ?? [],
+    intake_checklist: input.intakeChecklist ?? {},
     description: input.description ?? null,
     amount_estimate: input.amountEstimate ?? null,
     contact_phone: input.contactPhone ?? null,
@@ -354,6 +422,11 @@ export interface UpdateServiceInput {
   contactEmail?: string | null;
   photos?: string[];
   serviceLocationId?: string | null;
+  lockType?: LockType;
+  lockCode?: string | null;
+  signedInAccount?: string | null;
+  accessories?: string[];
+  intakeChecklist?: IntakeChecklist;
 }
 
 export async function updateService(
@@ -388,6 +461,13 @@ export async function updateService(
   if (input.photos !== undefined) patch.photos = input.photos.slice(0, 10);
   if (input.serviceLocationId !== undefined)
     patch.service_location = input.serviceLocationId;
+  if (input.lockType !== undefined) patch.lock_type = input.lockType;
+  if (input.lockCode !== undefined) patch.lock_code = input.lockCode;
+  if (input.signedInAccount !== undefined)
+    patch.signed_in_account = input.signedInAccount;
+  if (input.accessories !== undefined) patch.accessories = input.accessories;
+  if (input.intakeChecklist !== undefined)
+    patch.intake_checklist = input.intakeChecklist;
   const updated = await updateItem<ServiceRow>("mp_services", id, patch);
   const mapped = mapRow(updated);
 

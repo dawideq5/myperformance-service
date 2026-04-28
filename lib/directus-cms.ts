@@ -2113,13 +2113,76 @@ export const COLLECTION_SPECS: CollectionSpec[] = [
       },
       { field: "color", type: "string", meta: { interface: "input", width: "half" } },
       {
+        field: "lock_type",
+        type: "string",
+        schema: { default_value: "none" },
+        meta: {
+          interface: "select-dropdown",
+          width: "half",
+          options: {
+            choices: [
+              { text: "Brak blokady", value: "none" },
+              { text: "PIN", value: "pin" },
+              { text: "Wzór", value: "pattern" },
+              { text: "Hasło", value: "password" },
+              { text: "Face ID", value: "face" },
+              { text: "Odcisk palca", value: "fingerprint" },
+              { text: "Kombinowana", value: "multi" },
+            ],
+          },
+        },
+      },
+      {
         field: "lock_code",
         type: "string",
         meta: {
           interface: "input",
           width: "half",
           options: { iconLeft: "lock", masked: true },
-          note: "Kod blokady ekranu (jeśli klient go podał).",
+          note: "Kod / wzór blokady (PIN, wzór, hasło). Trzymane bezpiecznie — pole readable tylko dla serwisantów.",
+        },
+      },
+      {
+        field: "signed_in_account",
+        type: "string",
+        meta: {
+          interface: "input",
+          width: "full",
+          options: { iconLeft: "account_circle", placeholder: "np. iCloud apple@... lub Google account" },
+          note: "Konto na które urządzenie jest zalogowane (apple ID, google account itp.) — kluczowe dla diagnozy.",
+        },
+      },
+      {
+        field: "accessories",
+        type: "json",
+        meta: {
+          interface: "tags",
+          width: "full",
+          options: {
+            placeholder: "kabel, ładowarka, etui, słuchawki, sim_tray, pudełko, instrukcja",
+            presets: [
+              "kabel",
+              "ładowarka",
+              "etui",
+              "szkło",
+              "słuchawki",
+              "pudełko",
+              "instrukcja",
+              "tacka_sim",
+              "rysik",
+            ],
+          },
+          note: "Akcesoria dostarczone razem z urządzeniem (do zwrotu).",
+        },
+      },
+      {
+        field: "intake_checklist",
+        type: "json",
+        meta: {
+          interface: "input-code",
+          width: "full",
+          options: { language: "JSON" },
+          note: "Checklista przyjęcia (stan ekranu/obudowy/baterii/portów, sprawdzenia funkcjonalne, ślady wody itd). JSON: {screen, body, battery_health, ports, water_damage, powers_on, screen_responds, customer_backup, reset_consent}.",
         },
       },
       {

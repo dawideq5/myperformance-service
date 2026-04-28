@@ -1,12 +1,26 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, RefreshCw, Search } from "lucide-react";
+import {
+  AlertCircle,
+  Clock,
+  Cpu,
+  Loader2,
+  Package,
+  Phone,
+  RefreshCw,
+  Search,
+  Smartphone,
+  Tablet,
+  TabletSmartphone,
+  Wrench,
+} from "lucide-react";
 
 interface ServiceTicket {
   id: string;
   ticketNumber: string;
   status: string;
+  type: string | null;
   brand: string | null;
   model: string | null;
   imei: string | null;
@@ -18,18 +32,23 @@ interface ServiceTicket {
   amountFinal: number | null;
   promisedAt: string | null;
   createdAt: string | null;
+  photos: string[];
+  accessories: string[];
 }
 
-const STATUS_LABELS: Record<string, { label: string; color: string }> = {
-  received: { label: "Przyjęty", color: "#64748B" },
-  diagnosing: { label: "Diagnoza", color: "#0EA5E9" },
-  awaiting_quote: { label: "Wycena", color: "#F59E0B" },
-  repairing: { label: "Naprawa", color: "#A855F7" },
-  testing: { label: "Testy", color: "#06B6D4" },
-  ready: { label: "Gotowy", color: "#22C55E" },
-  delivered: { label: "Wydany", color: "#16A34A" },
-  cancelled: { label: "Anulowany", color: "#EF4444" },
-  archived: { label: "Archiwum", color: "#1F2937" },
+const STATUS_LABELS: Record<
+  string,
+  { label: string; color: string; bg: string }
+> = {
+  received: { label: "Przyjęty", color: "#64748B", bg: "#64748B22" },
+  diagnosing: { label: "Diagnoza", color: "#0EA5E9", bg: "#0EA5E922" },
+  awaiting_quote: { label: "Wycena", color: "#F59E0B", bg: "#F59E0B22" },
+  repairing: { label: "Naprawa", color: "#A855F7", bg: "#A855F722" },
+  testing: { label: "Testy", color: "#06B6D4", bg: "#06B6D422" },
+  ready: { label: "Gotowy", color: "#22C55E", bg: "#22C55E22" },
+  delivered: { label: "Wydany", color: "#16A34A", bg: "#16A34A22" },
+  cancelled: { label: "Anulowany", color: "#EF4444", bg: "#EF444422" },
+  archived: { label: "Archiwum", color: "#1F2937", bg: "#1F293722" },
 };
 
 const STATUS_FILTERS: { value: string; label: string }[] = [
@@ -40,6 +59,14 @@ const STATUS_FILTERS: { value: string; label: string }[] = [
   { value: "ready", label: "Gotowe" },
   { value: "delivered", label: "Wydane" },
 ];
+
+const DEVICE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+  phone: Smartphone,
+  tablet: Tablet,
+  laptop: Cpu,
+  smartwatch: TabletSmartphone,
+  headphones: TabletSmartphone,
+};
 
 export function ServicesAllTab() {
   const [services, setServices] = useState<ServiceTicket[]>([]);
@@ -77,10 +104,10 @@ export function ServicesAllTab() {
   }, [services]);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         <div
-          className="flex items-center gap-2 flex-1 min-w-[240px] px-3 py-2 rounded-lg border"
+          className="flex items-center gap-2 flex-1 min-w-[240px] px-3 py-2 rounded-xl border transition-colors focus-within:border-[var(--accent)]"
           style={{
             background: "var(--bg-surface)",
             borderColor: "var(--border-subtle)",
@@ -90,7 +117,7 @@ export function ServicesAllTab() {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Szukaj po IMEI, marce, modelu, kliencie…"
+            placeholder="Szukaj IMEI, marka, model, klient…"
             className="bg-transparent outline-none text-sm flex-1"
             style={{ color: "var(--text-main)" }}
           />
@@ -98,7 +125,7 @@ export function ServicesAllTab() {
         <button
           type="button"
           onClick={() => void refresh()}
-          className="p-2 rounded-lg border"
+          className="p-2.5 rounded-xl border transition-all hover:scale-105"
           style={{
             background: "var(--bg-surface)",
             borderColor: "var(--border-subtle)",
@@ -110,7 +137,7 @@ export function ServicesAllTab() {
         </button>
       </div>
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-1.5 overflow-x-auto pb-1">
         {STATUS_FILTERS.map((f) => {
           const active = statusFilter === f.value;
           const cnt = f.value
@@ -121,14 +148,24 @@ export function ServicesAllTab() {
               key={f.value}
               type="button"
               onClick={() => setStatusFilter(f.value)}
-              className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+              className="px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-200 hover:scale-105 flex items-center gap-1.5 whitespace-nowrap"
               style={{
-                background: active ? "var(--accent)" : "var(--bg-surface)",
+                background: active
+                  ? "linear-gradient(135deg, var(--accent), #2563eb)"
+                  : "var(--bg-surface)",
                 color: active ? "#fff" : "var(--text-muted)",
                 border: "1px solid var(--border-subtle)",
               }}
             >
-              {f.label} ({cnt})
+              <span>{f.label}</span>
+              <span
+                className="px-1.5 py-0.5 rounded-full text-[10px] font-bold"
+                style={{
+                  background: active ? "rgba(255,255,255,0.2)" : "var(--bg-card)",
+                }}
+              >
+                {cnt}
+              </span>
             </button>
           );
         })}
@@ -136,13 +173,14 @@ export function ServicesAllTab() {
 
       {error && (
         <div
-          className="p-3 rounded-lg border text-sm"
+          className="p-3 rounded-xl border flex items-center gap-2 text-sm animate-fade-in"
           style={{
             background: "rgba(239, 68, 68, 0.08)",
             borderColor: "rgba(239, 68, 68, 0.3)",
             color: "#ef4444",
           }}
         >
+          <AlertCircle className="w-4 h-4" />
           {error}
         </div>
       )}
@@ -163,16 +201,21 @@ export function ServicesAllTab() {
             color: "var(--text-muted)",
           }}
         >
+          <Wrench
+            className="w-10 h-10 mx-auto mb-2 opacity-50"
+            style={{ color: "var(--text-muted)" }}
+          />
           <p className="text-sm">
-            Brak zleceń serwisowych
-            {statusFilter ? ` w statusie „${STATUS_LABELS[statusFilter]?.label ?? statusFilter}\u201d` : ""}
-            . Dodaj pierwsze w zakładce „Dodaj serwis&rdquo;.
+            Brak zleceń{statusFilter ? " w tym statusie" : ""}.
+          </p>
+          <p className="text-xs mt-1">
+            Dodaj pierwsze w zakładce „Dodaj serwis&rdquo;.
           </p>
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
           {services.map((s) => (
-            <ServiceRow key={s.id} service={s} />
+            <ServiceCard key={s.id} service={s} />
           ))}
         </div>
       )}
@@ -180,51 +223,70 @@ export function ServicesAllTab() {
   );
 }
 
-function ServiceRow({ service }: { service: ServiceTicket }) {
+function ServiceCard({ service }: { service: ServiceTicket }) {
   const status = STATUS_LABELS[service.status] ?? {
     label: service.status,
     color: "#64748B",
+    bg: "#64748B22",
   };
+  const DeviceIcon = DEVICE_ICONS[service.type ?? ""] ?? Smartphone;
+  const customerName =
+    [service.customerFirstName, service.customerLastName]
+      .filter(Boolean)
+      .join(" ") || "—";
+
   return (
     <div
-      className="p-4 rounded-xl border flex items-start gap-3"
+      className="p-3 rounded-2xl border transition-all duration-200 hover:scale-[1.01] hover:shadow-lg flex gap-3"
       style={{
         background: "var(--bg-card)",
         borderColor: "var(--border-subtle)",
         color: "var(--text-main)",
       }}
     >
+      <div
+        className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+        style={{
+          background: `linear-gradient(135deg, ${status.color}33, ${status.color}11)`,
+          color: status.color,
+        }}
+      >
+        <DeviceIcon className="w-5 h-5" />
+      </div>
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-1 flex-wrap">
-          <span className="font-mono text-xs font-semibold">
+        <div className="flex items-start justify-between gap-2 mb-1">
+          <span className="font-mono text-[10px] font-bold opacity-70">
             {service.ticketNumber}
           </span>
           <span
-            className="text-[10px] uppercase font-mono px-2 py-0.5 rounded"
-            style={{ background: status.color, color: "#fff" }}
+            className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full flex items-center gap-1"
+            style={{ background: status.bg, color: status.color }}
           >
+            <span
+              className="w-1.5 h-1.5 rounded-full inline-block"
+              style={{ background: status.color }}
+            />
             {status.label}
           </span>
         </div>
-        <div className="text-sm font-medium truncate">
-          {[service.brand, service.model].filter(Boolean).join(" ")}{" "}
-          {service.imei && (
-            <span
-              className="text-xs font-mono ml-1"
-              style={{ color: "var(--text-muted)" }}
-            >
-              IMEI: {service.imei}
-            </span>
-          )}
+        <div className="text-sm font-semibold truncate">
+          {[service.brand, service.model].filter(Boolean).join(" ") || "Brak danych"}
         </div>
+        {service.imei && (
+          <div
+            className="text-[10px] font-mono mt-0.5 truncate"
+            style={{ color: "var(--text-muted)" }}
+          >
+            IMEI: {service.imei}
+          </div>
+        )}
         <div
-          className="text-xs mt-0.5 truncate"
+          className="text-xs mt-1 flex items-center gap-1 truncate"
           style={{ color: "var(--text-muted)" }}
         >
-          {[service.customerFirstName, service.customerLastName]
-            .filter(Boolean)
-            .join(" ")}
-          {service.contactPhone ? ` · ${service.contactPhone}` : ""}
+          <Phone className="w-3 h-3" />
+          {customerName}
+          {service.contactPhone && ` · ${service.contactPhone}`}
         </div>
         {service.description && (
           <p
@@ -234,20 +296,39 @@ function ServiceRow({ service }: { service: ServiceTicket }) {
             {service.description}
           </p>
         )}
-      </div>
-      <div className="text-right text-xs flex-shrink-0">
-        {service.amountFinal != null ? (
-          <div className="font-semibold">{service.amountFinal} PLN</div>
-        ) : service.amountEstimate != null ? (
-          <div style={{ color: "var(--text-muted)" }}>
-            ~{service.amountEstimate} PLN
+        <div className="flex items-center justify-between mt-2 pt-2 border-t" style={{ borderColor: "var(--border-subtle)" }}>
+          <div className="flex items-center gap-2 text-[10px]" style={{ color: "var(--text-muted)" }}>
+            {service.photos.length > 0 && (
+              <span className="flex items-center gap-0.5">
+                📷 {service.photos.length}
+              </span>
+            )}
+            {service.accessories.length > 0 && (
+              <span className="flex items-center gap-0.5">
+                <Package className="w-3 h-3" />
+                {service.accessories.length}
+              </span>
+            )}
+            {service.createdAt && (
+              <span className="flex items-center gap-0.5">
+                <Clock className="w-3 h-3" />
+                {new Date(service.createdAt).toLocaleDateString("pl", {
+                  day: "numeric",
+                  month: "short",
+                })}
+              </span>
+            )}
           </div>
-        ) : null}
-        {service.createdAt && (
-          <div style={{ color: "var(--text-muted)" }}>
-            {new Date(service.createdAt).toLocaleDateString("pl")}
+          <div className="text-xs font-semibold">
+            {service.amountFinal != null ? (
+              <span style={{ color: "#22C55E" }}>{service.amountFinal} PLN</span>
+            ) : service.amountEstimate != null ? (
+              <span style={{ color: "var(--text-muted)" }}>
+                ~{service.amountEstimate} PLN
+              </span>
+            ) : null}
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
