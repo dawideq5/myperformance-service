@@ -43,43 +43,43 @@ export interface ReceiptInput {
 }
 
 const DISPLAY_DESCRIPTIONS: Record<number, string> = {
-  10: "Stan idealny — bez śladów użytkowania, ekran nieuszkodzony.",
-  9: "Bardzo lekkie ślady — ledwo widoczne pod kątem.",
+  10: "Stan idealny — bez śladów użytkowania.",
+  9: "Lekkie ślady — ledwo widoczne pod kątem.",
   8: "Drobne rysy widoczne pod światłem.",
   7: "Widoczne rysy, ekran w pełni czytelny.",
   6: "Liczne rysy, drobne uszkodzenia powłoki.",
-  5: "Wyraźne rysy, czasem widoczne podczas użytkowania.",
-  4: "Pęknięty narożnik lub krawędź, ekran działa.",
-  3: "Pęknięty ekran, ale działa i reaguje na dotyk.",
-  2: "Mocno popękany ekran, dotyk częściowo zaburzony.",
-  1: "Zniszczony ekran — ciężko czytelny lub uszkodzony dotyk.",
+  5: "Wyraźne rysy, czasem widoczne.",
+  4: "Pęknięty narożnik, ekran działa.",
+  3: "Pęknięty ekran, dotyk reaguje.",
+  2: "Mocno popękany, dotyk zaburzony.",
+  1: "Zniszczony — uszkodzony dotyk.",
 };
 const BACK_DESCRIPTIONS: Record<number, string> = {
-  10: "Stan idealny — bez śladów użytkowania.",
-  9: "Bardzo lekkie ślady — ledwo widoczne.",
+  10: "Stan idealny.",
+  9: "Lekkie ślady — ledwo widoczne.",
   8: "Drobne rysy lub mikropęknięcia.",
   7: "Widoczne rysy, brak pęknięć.",
   6: "Drobne pęknięcia, panel cały.",
-  5: "Pęknięcia, ale panel trzyma się solidnie.",
-  4: "Pęknięty panel tylny, fragmenty na miejscu.",
-  3: "Pęknięty z ubytkami szkła.",
+  5: "Pęknięcia, panel solidny.",
+  4: "Pęknięty, fragmenty na miejscu.",
+  3: "Pęknięty z ubytkami.",
   2: "Mocno zniszczony, brakujące fragmenty.",
   1: "Brak panelu lub całkowicie rozbity.",
 };
 const CAMERA_DESCRIPTIONS: Record<number, string> = {
-  10: "Stan idealny obiektywów i wyspy aparatów.",
+  10: "Idealne obiektywy i wyspa aparatów.",
   9: "Lekkie ślady na ramce wyspy.",
-  8: "Drobne rysy na obudowie wyspy.",
+  8: "Drobne rysy na obudowie.",
   7: "Widoczne rysy ramki, szkła całe.",
   6: "Mikrorysy szkieł obiektywów.",
-  5: "Wyraźne rysy szkieł, fotografia OK.",
+  5: "Rysy szkieł, fotografia OK.",
   4: "Pęknięte jedno z obiektywów.",
-  3: "Pęknięte szkiełka, plamy widoczne na zdjęciach.",
-  2: "Wiele pęknięć, fotografia z artefaktami.",
-  1: "Zniszczone aparaty — fotografia niemożliwa.",
+  3: "Pęknięte szkiełka, plamy na zdjęciach.",
+  2: "Wiele pęknięć, artefakty.",
+  1: "Zniszczone — fotografia niemożliwa.",
 };
 const FRAMES_DESCRIPTIONS: Record<number, string> = {
-  10: "Ramki idealne — bez śladów.",
+  10: "Ramki idealne.",
   9: "Mikrorysy widoczne pod kątem.",
   8: "Drobne otarcia na rogach.",
   7: "Widoczne otarcia, brak deformacji.",
@@ -88,7 +88,7 @@ const FRAMES_DESCRIPTIONS: Record<number, string> = {
   4: "Wyraźne wgniecenia, lekkie odkształcenie.",
   3: "Odkształcenia narożników.",
   2: "Mocno wygięte ramki.",
-  1: "Ramki zniszczone — wpływa na działanie.",
+  1: "Zniszczone — wpływa na działanie.",
 };
 function ratingDesc(
   cat: "display" | "back" | "camera" | "frames",
@@ -104,36 +104,21 @@ function ratingDesc(
   return tables[cat][v] ?? "";
 }
 
-const REGULATIONS: { title: string; body: string }[] = [
-  {
-    title: "1. Postanowienia ogólne",
-    body: '1.1. Właścicielem punktów "Serwis Telefonów Caseownia" oraz strony www.serwis.caseownia.com jest UNIKOM S.C. Krzysztof Rojek, ul. Towarowa 2c, 43-100 Tychy, NIP: 646-283-18-04, REGON: 240976330.\n1.2. Regulamin określa zasady świadczenia usług serwisowych oraz sprzedaży produktów w sklepach Caseownia i Smart Connect.\n1.5. Klient, przekazując urządzenie do Serwisu, akceptuje warunki niniejszego regulaminu.',
-  },
-  {
-    title: "2. Przyjęcie urządzenia",
-    body: "2.1. Przyjęcie potwierdzane jest protokołem zawierającym dane Klienta, opis usterki, stan wizualny oraz akcesoria.",
-  },
-  {
-    title: "3. Wykonywanie usług",
-    body: "3.3. Klient musi zaakceptować kosztorys przed naprawą. Brak akceptacji w ciągu 14 dni może skutkować zwrotem urządzenia bez naprawy.\n3.5. Serwis nie ponosi odpowiedzialności za dane w urządzeniu. Klient jest zobowiązany wykonać kopię zapasową.",
-  },
-  {
-    title: "4. Gwarancja i odpowiedzialność",
-    body: "4.1. Na wykonane naprawy Serwis udziela gwarancji na okres 3 miesięcy, o ile nie uzgodniono inaczej.\n4.2. Gwarancja obejmuje jedynie zakres naprawy i użyte części. Nie obejmuje uszkodzeń mechanicznych i zalania.\n4.4. Serwis nie gwarantuje zachowania fabrycznej wodoszczelności urządzenia (klasa IP67/IP68 i inne) po dokonanej naprawie.\n4.5. Serwis nie bierze odpowiedzialności za uszkodzenie lub konieczność odklejenia szkieł hartowanych oraz folii ochronnych podczas procesu serwisowego.",
-  },
-  {
-    title: "5. Odbiór urządzenia",
-    body: "5.1. Klient zobowiązany jest odebrać urządzenie w ciągu 21 dni od powiadomienia.\n5.3. Jeśli urządzenie nie zostanie odebrane w ciągu 90 dni, Serwis może uznać je za porzucone (art. 180 KC).",
-  },
-  {
-    title: "6. Reklamacje",
-    body: "6.1. Reklamacje należy zgłaszać pisemnie lub na adres biuro@caseownia.com. Serwis rozpatruje je w ciągu 14 dni.",
-  },
-  {
-    title: "7. RODO — Ochrona danych osobowych",
-    body: "7.1. Administratorem danych jest UNIKOM S.C. Dane przetwarzane są wyłącznie w celu realizacji zlecenia. Klient ma prawo do wglądu i poprawiania swoich danych.",
-  },
-];
+const REGULATIONS_TEXT =
+  "1.1. Właścicielem punktów Serwis Telefonów Caseownia oraz strony www.serwis.caseownia.com jest UNIKOM S.C. Krzysztof Rojek, ul. Towarowa 2c, 43-100 Tychy, NIP: 646-283-18-04, REGON: 240976330. " +
+  "1.2. Regulamin określa zasady świadczenia usług serwisowych. " +
+  "1.5. Klient, przekazując urządzenie do Serwisu, akceptuje warunki niniejszego regulaminu. " +
+  "2.1. Przyjęcie potwierdzane jest protokołem zawierającym dane Klienta, opis usterki, stan wizualny oraz akcesoria. " +
+  "3.3. Klient musi zaakceptować kosztorys przed naprawą. Brak akceptacji w ciągu 14 dni może skutkować zwrotem urządzenia bez naprawy. " +
+  "3.5. Serwis nie ponosi odpowiedzialności za dane w urządzeniu. Klient jest zobowiązany wykonać kopię zapasową. " +
+  "4.1. Na wykonane naprawy Serwis udziela gwarancji na okres 3 miesięcy, o ile nie uzgodniono inaczej. " +
+  "4.2. Gwarancja obejmuje jedynie zakres naprawy i użyte części. Nie obejmuje uszkodzeń mechanicznych i zalania. " +
+  "4.4. Serwis nie gwarantuje zachowania fabrycznej wodoszczelności urządzenia (IP67/IP68 i inne) po dokonanej naprawie. " +
+  "4.5. Serwis nie bierze odpowiedzialności za uszkodzenie/odklejenie szkieł hartowanych oraz folii ochronnych. " +
+  "5.1. Klient zobowiązany jest odebrać urządzenie w ciągu 21 dni od powiadomienia. " +
+  "5.3. Jeśli urządzenie nie zostanie odebrane w ciągu 90 dni, Serwis może uznać je za porzucone (art. 180 KC). " +
+  "6.1. Reklamacje należy zgłaszać pisemnie lub na adres biuro@caseownia.com. Serwis rozpatruje je w ciągu 14 dni. " +
+  "7.1. Administratorem danych jest UNIKOM S.C. Dane przetwarzane są wyłącznie w celu realizacji zlecenia. Klient ma prawo do wglądu i poprawiania swoich danych.";
 
 const LOCK_LABELS: Record<string, string> = {
   none: "Brak blokady",
@@ -172,71 +157,40 @@ function projectMarker(m: {
   };
 }
 
-const FONT_REGULAR = path.join(
-  process.cwd(),
-  "public",
-  "fonts",
-  "Roboto-Regular.ttf",
-);
-const FONT_BOLD = path.join(
-  process.cwd(),
-  "public",
-  "fonts",
-  "Roboto-Bold.ttf",
-);
-const LOGO_SERWIS = path.join(
-  process.cwd(),
-  "public",
-  "logos",
-  "serwis-by-caseownia.png",
-);
-const LOGO_CASEOWNIA = path.join(
-  process.cwd(),
-  "public",
-  "logos",
-  "caseownia.jpeg",
-);
+const FONT_REGULAR = path.join(process.cwd(), "public", "fonts", "Roboto-Regular.ttf");
+const FONT_BOLD = path.join(process.cwd(), "public", "fonts", "Roboto-Bold.ttf");
+const LOGO_SERWIS = path.join(process.cwd(), "public", "logos", "serwis-by-caseownia.png");
+const LOGO_CASEOWNIA = path.join(process.cwd(), "public", "logos", "caseownia.jpeg");
 
-const COLOR = {
-  text: "#1a1a1a",
-  muted: "#666666",
-  light: "#aaaaaa",
-  bgLight: "#f5f5f5",
-  border: "#888888",
-};
+const TEXT = "#1a1a1a";
+const MUTED = "#666666";
+const LIGHT = "#aaaaaa";
+const BG_LIGHT = "#f0f0f0";
 
-/** Renderuje PDF do Buffer. Server-side use only. PDFKit programmatic
- * — nie używa React reconciler, kompatybilny z Node + React 19. */
+/** Render PDF do Buffer. PDFKit programmatic, JEDNA strona A4. */
 export async function renderReceiptPdf(data: ReceiptInput): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     try {
       const doc = new PDFDocument({
         size: "A4",
-        margin: 28,
+        margin: 0, // ręczne pozycjonowanie
         autoFirstPage: false,
+        bufferPages: true,
         info: {
           Title: `Potwierdzenie ${data.ticketNumber}`,
           Author: "Serwis Telefonów by Caseownia",
         },
       });
-      // Kolektowanie chunks → Buffer.
       const chunks: Buffer[] = [];
       doc.on("data", (c: Buffer) => chunks.push(c));
       doc.on("end", () => resolve(Buffer.concat(chunks)));
       doc.on("error", reject);
 
-      // Rejestracja czcionek z Polish glyphs.
-      doc.registerFont("Regular", FONT_REGULAR);
-      doc.registerFont("Bold", FONT_BOLD);
+      doc.registerFont("R", FONT_REGULAR);
+      doc.registerFont("B", FONT_BOLD);
 
-      // PAGE 1 — receipt
-      doc.addPage({ size: "A4", margin: 28 });
-      drawReceipt(doc, data);
-
-      // PAGE 2 — regulamin
-      doc.addPage({ size: "A4", margin: 28 });
-      drawRegulations(doc);
-
+      doc.addPage({ size: "A4", margin: 0 });
+      drawSinglePage(doc, data);
       doc.end();
     } catch (e) {
       reject(e);
@@ -244,65 +198,124 @@ export async function renderReceiptPdf(data: ReceiptInput): Promise<Buffer> {
   });
 }
 
-function drawReceipt(doc: PDFKit.PDFDocument, data: ReceiptInput): void {
-  const PAGE_W = doc.page.width;
-  const PAGE_H = doc.page.height;
-  const M = 28;
-  const W = PAGE_W - 2 * M;
+function drawSinglePage(doc: PDFKit.PDFDocument, data: ReceiptInput): void {
+  const PW = doc.page.width; // 595.28
+  const PH = doc.page.height; // 841.89
+  const M = 24; // margins
+  const W = PW - 2 * M;
 
-  // Header: logo + ticket number
+  // ===== HEADER =====
   if (fs.existsSync(LOGO_SERWIS)) {
-    doc.image(LOGO_SERWIS, M, M, { fit: [180, 50] });
+    doc.image(LOGO_SERWIS, M, M, { fit: [160, 42] });
   }
+  doc.font("B").fontSize(18).fillColor(TEXT);
+  doc.text(data.ticketNumber, M, M + 8, { width: W, align: "right" });
+  doc.font("R").fontSize(7).fillColor(MUTED);
+  doc.text(formatDate(data.createdAt), M, M + 28, { width: W, align: "right" });
   doc
-    .font("Bold")
-    .fontSize(20)
-    .fillColor(COLOR.text)
-    .text(data.ticketNumber, M + 200, M + 6, { width: W - 200, align: "right" });
-  doc
-    .font("Regular")
-    .fontSize(8)
-    .fillColor(COLOR.muted)
-    .text(formatDate(data.createdAt), M + 200, M + 30, {
-      width: W - 200,
-      align: "right",
-    });
-  // separator line
-  doc
-    .moveTo(M, M + 60)
-    .lineTo(M + W, M + 60)
-    .lineWidth(1.5)
-    .strokeColor(COLOR.text)
+    .moveTo(M, M + 50)
+    .lineTo(M + W, M + 50)
+    .lineWidth(1.2)
+    .strokeColor(TEXT)
     .stroke();
 
-  let y = M + 70;
+  let y = M + 56;
 
-  // Klient + Urządzenie 2-kolumny
-  const colW = (W - 16) / 2;
-  y = drawTwoColumnInfo(doc, M, y, colW, data);
+  // ===== KLIENT + URZĄDZENIE 2-col =====
+  const colW = (W - 12) / 2;
+  drawColumn(doc, M, y, colW, "KLIENT", [
+    ["Imię i nazwisko", `${data.customer.firstName} ${data.customer.lastName}`],
+    ["Telefon", data.customer.phone || "—"],
+    ...(data.customer.email ? [["Email", data.customer.email]] as [string, string][] : []),
+  ]);
+  drawColumn(doc, M + colW + 12, y, colW, "URZĄDZENIE", [
+    ["Marka i model", `${data.device.brand} ${data.device.model}`],
+    ["Kolor", data.device.color || "—"],
+    ["IMEI", data.device.imei || "—"],
+  ]);
+  y += 80;
 
-  // Lock block
+  // ===== LOCK BLOCK =====
   if (data.lock.type !== "none") {
-    y += 6;
-    y = drawLockBlock(doc, M, y, W, data.lock);
+    drawBlock(doc, M, y, W, 22, BG_LIGHT, TEXT);
+    doc
+      .font("R")
+      .fontSize(6.5)
+      .fillColor(MUTED)
+      .text((LOCK_LABELS[data.lock.type] ?? data.lock.type).toUpperCase(), M + 8, y + 4, {
+        characterSpacing: 0.5,
+      });
+    doc.font("B").fontSize(10).fillColor(TEXT).text(data.lock.code || "—", M + 8, y + 12);
+    y += 26;
   }
 
-  // Opis usterki
-  y += 6;
-  drawSectionHeader(doc, M, y, W, "Opis usterki");
-  y += 14;
-  y = drawDescriptionBlock(doc, M, y, W, data.description || "(brak opisu)");
+  // ===== OPIS USTERKI =====
+  y = drawSection(doc, M, y, W, "OPIS USTERKI");
+  doc.font("R").fontSize(8.5).fillColor(TEXT);
+  const descTxt = data.description || "(brak opisu)";
+  const descH = Math.min(doc.heightOfString(descTxt, { width: W - 12 }), 44);
+  drawBlock(doc, M, y, W, descH + 8, BG_LIGHT, TEXT);
+  doc.text(descTxt, M + 8, y + 4, {
+    width: W - 12,
+    height: descH,
+    ellipsis: true,
+  });
+  y += descH + 12;
 
-  // Lokalizacja uszkodzeń (jeśli markery)
+  // ===== TECHNICAL VIEW (if markers) =====
   const markers = data.visualCondition.damage_markers ?? [];
   if (markers.length > 0) {
-    y += 8;
-    drawSectionHeader(doc, M, y, W, "Lokalizacja uszkodzeń");
-    y += 14;
-    y = drawTechnicalView(doc, M, y, W, markers);
+    y = drawSection(doc, M, y, W, "LOKALIZACJA USZKODZEŃ");
+    const phoneW = 50;
+    const phoneH = 90;
+    drawPhoneOutline(doc, M, y, phoneW, phoneH, "PRZÓD", "front", markers);
+    drawPhoneOutline(
+      doc,
+      M + phoneW + 8,
+      y,
+      phoneW,
+      phoneH,
+      "TYŁ",
+      "back",
+      markers,
+    );
+    // Lista markerów obok
+    const lx = M + phoneW * 2 + 24;
+    const lw = W - (phoneW * 2 + 24);
+    let ly = y;
+    const maxMarkers = Math.min(markers.length, 6);
+    markers.slice(0, maxMarkers).forEach((m, i) => {
+      doc.circle(lx + 4, ly + 4, 4).fill(TEXT);
+      doc
+        .font("B")
+        .fontSize(5.5)
+        .fillColor("#fff")
+        .text(String(i + 1), lx, ly + 1.5, { width: 8, align: "center" });
+      doc
+        .font("B")
+        .fontSize(6.5)
+        .fillColor(MUTED)
+        .text((m.surface ?? "powierzchnia").toUpperCase(), lx + 12, ly, {
+          width: lw - 12,
+          characterSpacing: 0.4,
+          height: 8,
+          ellipsis: true,
+        });
+      doc
+        .font("R")
+        .fontSize(7.5)
+        .fillColor(TEXT)
+        .text(m.description?.trim() || "(brak opisu)", lx + 12, ly + 8, {
+          width: lw - 12,
+          height: 8,
+          ellipsis: true,
+        });
+      ly += 18;
+    });
+    y += phoneH + 16;
   }
 
-  // Stan techniczny
+  // ===== STAN TECHNICZNY =====
   const ratings = (
     [
       { cat: "display", label: "Wyświetlacz", value: data.visualCondition.display_rating },
@@ -312,7 +325,7 @@ function drawReceipt(doc: PDFKit.PDFDocument, data: ReceiptInput): void {
     ] as const
   ).filter((r) => r.value != null);
 
-  const checklistRows: { label: string; value: string }[] = [];
+  const checklist: { label: string; value: string }[] = [];
   const v = data.visualCondition;
   if (v.powers_on) {
     const lab: Record<string, string> = {
@@ -320,237 +333,236 @@ function drawReceipt(doc: PDFKit.PDFDocument, data: ReceiptInput): void {
       no: "NIE włącza się",
       vibrates: "Wibruje, ekran nie reaguje",
     };
-    checklistRows.push({ label: "Zasilanie", value: lab[v.powers_on] ?? v.powers_on });
+    checklist.push({ label: "Zasilanie", value: lab[v.powers_on] ?? v.powers_on });
   }
-  if (v.cracked_front) checklistRows.push({ label: "Pęknięcia", value: "Pęknięty z przodu" });
-  if (v.cracked_back) checklistRows.push({ label: "Pęknięcia", value: "Pęknięty z tyłu" });
-  if (v.bent) checklistRows.push({ label: "Geometria", value: "Wygięty" });
-  if (v.face_touch_id === false) checklistRows.push({ label: "Face/Touch ID", value: "Nie działa" });
-  if (v.water_damage === "yes") checklistRows.push({ label: "Zalanie", value: "Tak" });
-  if (v.water_damage === "unknown") checklistRows.push({ label: "Zalanie", value: "Nie ustalono" });
+  if (v.cracked_front) checklist.push({ label: "Pęknięcia", value: "Pęknięty z przodu" });
+  if (v.cracked_back) checklist.push({ label: "Pęknięcia", value: "Pęknięty z tyłu" });
+  if (v.bent) checklist.push({ label: "Geometria", value: "Wygięty" });
+  if (v.face_touch_id === false) checklist.push({ label: "Face/Touch ID", value: "Nie działa" });
+  if (v.water_damage === "yes") checklist.push({ label: "Zalanie", value: "Tak" });
+  if (v.water_damage === "unknown") checklist.push({ label: "Zalanie", value: "Nie ustalono" });
   if (v.charging_current != null) {
-    checklistRows.push({
+    checklist.push({
       label: "Prąd ładowania",
       value: `${v.charging_current.toFixed(2)} A`,
     });
   }
 
-  if (ratings.length > 0 || checklistRows.length > 0) {
-    y += 8;
-    drawSectionHeader(doc, M, y, W, "Stan techniczny");
-    y += 14;
+  if (ratings.length > 0 || checklist.length > 0) {
+    y = drawSection(doc, M, y, W, "STAN TECHNICZNY");
     for (const r of ratings) {
       y = drawTwoColRow(doc, M, y, W, r.label, ratingDesc(r.cat, r.value));
     }
-    for (const r of checklistRows) {
+    for (const r of checklist) {
       y = drawTwoColRow(doc, M, y, W, r.label, r.value);
     }
+    y += 4;
   }
 
-  // Wycena
-  y += 8;
-  drawSectionHeader(doc, M, y, W, "Wycena orientacyjna");
-  y += 14;
-  y = drawTotalBlock(doc, M, y, W, data);
+  // ===== WYCENA =====
+  y = drawSection(doc, M, y, W, "WYCENA ORIENTACYJNA");
+  const repair = data.estimate ?? 0;
+  const cleaning =
+    data.cleaningAccepted && data.cleaningPrice ? data.cleaningPrice : 0;
+  const total = repair + cleaning;
+  const totH = cleaning > 0 ? 38 : 30;
+  drawBlock(doc, M, y, W, totH, "#fafafa", TEXT, 1);
+  doc.font("R").fontSize(8.5).fillColor(TEXT).text("Naprawa", M + 8, y + 5);
+  doc
+    .font("R")
+    .fontSize(8.5)
+    .text(`${repair.toFixed(2)} PLN`, M, y + 5, { width: W - 8, align: "right" });
+  let cy = y + 16;
+  if (cleaning > 0) {
+    doc
+      .font("R")
+      .fontSize(8.5)
+      .fillColor(TEXT)
+      .text("Czyszczenie urządzenia", M + 8, cy);
+    doc
+      .font("R")
+      .fontSize(8.5)
+      .text(`${cleaning.toFixed(2)} PLN`, M, cy, { width: W - 8, align: "right" });
+    cy += 11;
+  }
+  doc
+    .moveTo(M + 8, cy)
+    .lineTo(M + W - 8, cy)
+    .lineWidth(0.8)
+    .strokeColor(TEXT)
+    .stroke();
+  doc.font("B").fontSize(10).fillColor(TEXT).text("Razem", M + 8, cy + 3);
+  doc
+    .font("B")
+    .fontSize(10)
+    .text(`${total.toFixed(2)} PLN`, M, cy + 3, { width: W - 8, align: "right" });
+  y += totH + 4;
 
-  // Potwierdzenie odbioru
-  y += 8;
-  drawSectionHeader(doc, M, y, W, "Potwierdzenie odbioru");
-  y += 14;
-  y = drawHandoverBlock(doc, M, y, W, data.handover);
+  // ===== HANDOVER =====
+  y = drawSection(doc, M, y, W, "POTWIERDZENIE ODBIORU");
+  const handTxt =
+    data.handover.choice === "none"
+      ? "Potwierdzam, że przyjmowane urządzenie nie posiada karty SIM, karty pamięci SD ani nie posiadało etui przy przyjęciu."
+      : `Pobrane od klienta dodatkowe przedmioty: ${data.handover.items}`;
+  doc.font("R").fontSize(8.5).fillColor(TEXT);
+  const handH = Math.min(doc.heightOfString(handTxt, { width: W - 12 }), 30);
+  drawBlock(doc, M, y, W, handH + 8, BG_LIGHT, TEXT);
+  doc.text(handTxt, M + 8, y + 4, { width: W - 12, height: handH, ellipsis: true });
+  y += handH + 12;
 
-  // Signatures (anchored near bottom)
-  const sigY = Math.max(y + 16, PAGE_H - 80);
-  drawSignatures(doc, M, sigY, W);
+  // ===== SIGNATURES =====
+  const sigW = (W - 16) / 2;
+  doc
+    .moveTo(M, y + 24)
+    .lineTo(M + sigW, y + 24)
+    .lineWidth(0.8)
+    .strokeColor(TEXT)
+    .stroke();
+  doc
+    .font("R")
+    .fontSize(7)
+    .fillColor(MUTED)
+    .text("PODPIS PRACOWNIKA", M, y + 28, {
+      width: sigW,
+      align: "center",
+      characterSpacing: 0.5,
+    });
+  doc
+    .moveTo(M + sigW + 16, y + 24)
+    .lineTo(M + W, y + 24)
+    .lineWidth(0.8)
+    .stroke();
+  doc.text("PODPIS KLIENTA", M + sigW + 16, y + 28, {
+    width: sigW,
+    align: "center",
+    characterSpacing: 0.5,
+  });
+  y += 42;
 
-  // Footer
-  drawFooter(doc, M, PAGE_H - 36, W);
+  // ===== REGULAMIN (compact) =====
+  // Reszta strony do końca minus footer.
+  const FOOTER_H = 24;
+  const regY = y;
+  const regH = PH - regY - M - FOOTER_H - 4;
+  doc
+    .font("B")
+    .fontSize(7)
+    .fillColor(TEXT)
+    .text("REGULAMIN ŚWIADCZENIA USŁUG SERWISOWYCH", M, regY, {
+      width: W,
+      characterSpacing: 0.5,
+    });
+  // 2-column small print
+  const colGap = 8;
+  const regColW = (W - colGap) / 2;
+  doc.font("R").fontSize(5.7).fillColor("#333").text(REGULATIONS_TEXT, M, regY + 10, {
+    width: regColW,
+    height: regH - 10,
+    columns: 2,
+    columnGap: colGap,
+    lineGap: 0.3,
+    align: "justify",
+    ellipsis: true,
+  });
+
+  // ===== FOOTER =====
+  const fy = PH - M - FOOTER_H;
+  doc
+    .moveTo(M, fy)
+    .lineTo(M + W, fy)
+    .lineWidth(0.4)
+    .strokeColor(LIGHT)
+    .stroke();
+  doc
+    .font("R")
+    .fontSize(6.5)
+    .fillColor(MUTED)
+    .text("Serwis Telefonów by Caseownia · UNIKOM S.C., ul. Towarowa 2c, 43-100 Tychy", M, fy + 6, {
+      width: W - 80,
+    });
+  if (fs.existsSync(LOGO_CASEOWNIA)) {
+    doc.image(LOGO_CASEOWNIA, M + W - 60, fy + 2, { fit: [60, 14] });
+  }
 }
 
-function drawSectionHeader(
+function drawColumn(
   doc: PDFKit.PDFDocument,
   x: number,
   y: number,
   w: number,
   title: string,
+  rows: [string, string][],
 ): void {
-  doc
-    .font("Bold")
-    .fontSize(9)
-    .fillColor(COLOR.text)
-    .text(title.toUpperCase(), x, y, { characterSpacing: 0.6 });
-  doc
-    .moveTo(x, y + 11)
-    .lineTo(x + w, y + 11)
-    .lineWidth(1)
-    .strokeColor(COLOR.text)
-    .stroke();
-}
-
-function drawTwoColumnInfo(
-  doc: PDFKit.PDFDocument,
-  x: number,
-  y: number,
-  colW: number,
-  data: ReceiptInput,
-): number {
-  const yStart = y;
-  // KLIENT
-  doc.font("Bold").fontSize(9).fillColor(COLOR.text).text("KLIENT", x, y);
-  doc
-    .moveTo(x, y + 11)
-    .lineTo(x + colW, y + 11)
-    .lineWidth(1)
-    .strokeColor(COLOR.text)
-    .stroke();
-  let yL = y + 14;
-  yL = drawField(doc, x, yL, colW, "Imię i nazwisko", `${data.customer.firstName} ${data.customer.lastName}`);
-  yL = drawField(doc, x, yL, colW, "Telefon", data.customer.phone || "—");
-  if (data.customer.email) {
-    yL = drawField(doc, x, yL, colW, "Email", data.customer.email);
-  }
-
-  // URZĄDZENIE
-  const xR = x + colW + 16;
-  doc.font("Bold").fontSize(9).fillColor(COLOR.text).text("URZĄDZENIE", xR, yStart);
-  doc
-    .moveTo(xR, yStart + 11)
-    .lineTo(xR + colW, yStart + 11)
-    .lineWidth(1)
-    .strokeColor(COLOR.text)
-    .stroke();
-  let yR = yStart + 14;
-  yR = drawField(doc, xR, yR, colW, "Marka i model", `${data.device.brand} ${data.device.model}`);
-  yR = drawField(doc, xR, yR, colW, "Kolor", data.device.color || "—");
-  yR = drawField(doc, xR, yR, colW, "IMEI", data.device.imei || "—");
-  return Math.max(yL, yR);
-}
-
-function drawField(
-  doc: PDFKit.PDFDocument,
-  x: number,
-  y: number,
-  w: number,
-  label: string,
-  value: string,
-): number {
-  doc
-    .font("Regular")
-    .fontSize(7)
-    .fillColor(COLOR.muted)
-    .text(label.toUpperCase(), x, y, { width: w, characterSpacing: 0.5 });
-  doc
-    .font("Regular")
-    .fontSize(9.5)
-    .fillColor(COLOR.text)
-    .text(value, x, y + 8, { width: w });
-  return y + 22;
-}
-
-function drawLockBlock(
-  doc: PDFKit.PDFDocument,
-  x: number,
-  y: number,
-  w: number,
-  lock: { type: string; code: string },
-): number {
-  const h = 28;
-  doc.rect(x, y, w, h).fill(COLOR.bgLight);
-  doc.rect(x, y, 3, h).fill(COLOR.text);
-  doc
-    .font("Regular")
-    .fontSize(7)
-    .fillColor(COLOR.muted)
-    .text((LOCK_LABELS[lock.type] ?? lock.type).toUpperCase(), x + 8, y + 4, {
-      characterSpacing: 0.5,
-    });
-  doc
-    .font("Bold")
-    .fontSize(11)
-    .fillColor(COLOR.text)
-    .text(lock.code || "—", x + 8, y + 13, { width: w - 16 });
-  return y + h;
-}
-
-function drawDescriptionBlock(
-  doc: PDFKit.PDFDocument,
-  x: number,
-  y: number,
-  w: number,
-  text: string,
-): number {
-  // Padding 6, oblicz wysokość tekstu.
-  doc.font("Regular").fontSize(9).fillColor(COLOR.text);
-  const textH = doc.heightOfString(text, { width: w - 14 });
-  const h = textH + 12;
-  doc.rect(x, y, w, h).fill(COLOR.bgLight);
-  doc.rect(x, y, 3, h).fill(COLOR.text);
-  doc
-    .font("Regular")
-    .fontSize(9)
-    .fillColor(COLOR.text)
-    .text(text, x + 8, y + 6, { width: w - 14 });
-  return y + h;
-}
-
-function drawTechnicalView(
-  doc: PDFKit.PDFDocument,
-  x: number,
-  y: number,
-  w: number,
-  markers: NonNullable<ReceiptInput["visualCondition"]["damage_markers"]>,
-): number {
-  const phoneW = 60;
-  const phoneH = 110;
-  const phoneSpace = 8;
-  const totalSvgW = phoneW * 2 + phoneSpace;
-  const listX = x + totalSvgW + 16;
-  const listW = w - (totalSvgW + 16);
-
-  // Front + Back outline
-  drawPhoneOutline(doc, x, y, phoneW, phoneH, "PRZÓD", "front", markers);
-  drawPhoneOutline(
-    doc,
-    x + phoneW + phoneSpace,
-    y,
-    phoneW,
-    phoneH,
-    "TYŁ",
-    "back",
-    markers,
-  );
-
-  // Lista markerów
-  let lyy = y;
-  markers.forEach((m, i) => {
-    const num = String(i + 1);
-    // numbered circle
-    doc.circle(listX + 5, lyy + 5, 5).fill(COLOR.text);
-    doc
-      .font("Bold")
-      .fontSize(6)
-      .fillColor("#fff")
-      .text(num, listX, lyy + 2.5, { width: 10, align: "center" });
-    // surface + description
-    doc
-      .font("Regular")
-      .fontSize(7)
-      .fillColor(COLOR.muted)
-      .text((m.surface ?? "powierzchnia").toUpperCase(), listX + 14, lyy, {
-        width: listW - 14,
-        characterSpacing: 0.4,
-      });
-    doc
-      .font("Regular")
-      .fontSize(8.5)
-      .fillColor(COLOR.text)
-      .text(m.description?.trim() || "(brak opisu)", listX + 14, lyy + 8, {
-        width: listW - 14,
-      });
-    lyy += 22;
+  doc.font("B").fontSize(8).fillColor(TEXT).text(title, x, y, {
+    width: w,
+    characterSpacing: 0.6,
   });
+  doc
+    .moveTo(x, y + 10)
+    .lineTo(x + w, y + 10)
+    .lineWidth(0.8)
+    .strokeColor(TEXT)
+    .stroke();
+  let yy = y + 14;
+  for (const [label, value] of rows) {
+    doc
+      .font("R")
+      .fontSize(6.5)
+      .fillColor(MUTED)
+      .text(label.toUpperCase(), x, yy, {
+        width: w,
+        characterSpacing: 0.5,
+        lineBreak: false,
+      });
+    doc
+      .font("R")
+      .fontSize(8.5)
+      .fillColor(TEXT)
+      .text(value, x, yy + 7, {
+        width: w,
+        lineBreak: false,
+        ellipsis: true,
+      });
+    yy += 19;
+  }
+}
 
-  return Math.max(y + phoneH + 14, lyy);
+function drawSection(
+  doc: PDFKit.PDFDocument,
+  x: number,
+  y: number,
+  w: number,
+  title: string,
+): number {
+  doc.font("B").fontSize(7.5).fillColor(TEXT).text(title, x, y, {
+    width: w,
+    characterSpacing: 0.6,
+    lineBreak: false,
+  });
+  doc
+    .moveTo(x, y + 9)
+    .lineTo(x + w, y + 9)
+    .lineWidth(0.8)
+    .strokeColor(TEXT)
+    .stroke();
+  return y + 12;
+}
+
+function drawBlock(
+  doc: PDFKit.PDFDocument,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  fillColor: string,
+  borderColor: string,
+  borderWidth = 0,
+): void {
+  doc.rect(x, y, w, h).fill(fillColor);
+  doc.rect(x, y, 2.5, h).fill(borderColor);
+  if (borderWidth > 0) {
+    doc.rect(x, y, w, h).lineWidth(borderWidth).strokeColor(borderColor).stroke();
+  }
 }
 
 function drawPhoneOutline(
@@ -563,39 +575,31 @@ function drawPhoneOutline(
   view: "front" | "back",
   markers: NonNullable<ReceiptInput["visualCondition"]["damage_markers"]>,
 ): void {
-  // Phone body outline
-  doc
-    .roundedRect(x, y, w, h, 8)
-    .lineWidth(1)
-    .fillAndStroke("#fafafa", COLOR.text);
-  // Inner screen area
-  doc
-    .roundedRect(x + 4, y + 10, w - 8, h - 20, 3)
-    .lineWidth(0.5)
-    .fillAndStroke("#ffffff", COLOR.border);
-  // Top dot
-  doc.circle(x + w / 2, y + 6, 1.2).fill("#444");
-
-  // Markers
+  doc.roundedRect(x, y, w, h, 6).lineWidth(0.8).fillAndStroke("#fafafa", TEXT);
+  doc.roundedRect(x + 3, y + 8, w - 6, h - 16, 2).lineWidth(0.4).fillAndStroke("#ffffff", "#888");
+  doc.circle(x + w / 2, y + 5, 1).fill("#444");
   markers.forEach((m, i) => {
     const p = projectMarker(m);
     if (p.view !== view) return;
     const cx = x + (p.px / 100) * w;
     const cy = y + (p.py / 100) * h;
-    doc.circle(cx, cy, 3.5).fill(COLOR.text);
+    doc.circle(cx, cy, 2.8).fill(TEXT);
     doc
-      .font("Bold")
-      .fontSize(5)
+      .font("B")
+      .fontSize(4.5)
       .fillColor("#fff")
-      .text(String(i + 1), cx - 5, cy - 2.2, { width: 10, align: "center" });
+      .text(String(i + 1), cx - 4, cy - 1.8, { width: 8, align: "center", lineBreak: false });
   });
-
-  // Label
   doc
-    .font("Bold")
-    .fontSize(6)
-    .fillColor(COLOR.text)
-    .text(label, x, y + h + 2, { width: w, align: "center", characterSpacing: 0.5 });
+    .font("B")
+    .fontSize(5.5)
+    .fillColor(TEXT)
+    .text(label, x, y + h + 1, {
+      width: w,
+      align: "center",
+      characterSpacing: 0.5,
+      lineBreak: false,
+    });
 }
 
 function drawTwoColRow(
@@ -606,203 +610,27 @@ function drawTwoColRow(
   label: string,
   value: string,
 ): number {
-  const labelW = 90;
+  const labelW = 80;
   const valueW = w - labelW - 4;
-  doc.font("Bold").fontSize(8).fillColor(COLOR.text).text(label, x + 4, y + 2, {
-    width: labelW,
-  });
   doc
-    .font("Regular")
-    .fontSize(8)
+    .font("B")
+    .fontSize(7.5)
+    .fillColor(TEXT)
+    .text(label, x, y + 1, { width: labelW, lineBreak: false });
+  doc
+    .font("R")
+    .fontSize(7.5)
     .fillColor("#333")
-    .text(value, x + labelW, y + 2, { width: valueW });
-  const rowH = Math.max(
-    14,
-    doc.heightOfString(value, { width: valueW }) + 4,
-  );
+    .text(value, x + labelW, y + 1, {
+      width: valueW,
+      height: 12,
+      ellipsis: true,
+    });
   doc
-    .moveTo(x, y + rowH)
-    .lineTo(x + w, y + rowH)
-    .lineWidth(0.4)
+    .moveTo(x, y + 11)
+    .lineTo(x + w, y + 11)
+    .lineWidth(0.3)
     .strokeColor("#cccccc")
     .stroke();
-  return y + rowH;
-}
-
-function drawTotalBlock(
-  doc: PDFKit.PDFDocument,
-  x: number,
-  y: number,
-  w: number,
-  data: ReceiptInput,
-): number {
-  const repair = data.estimate ?? 0;
-  const cleaning =
-    data.cleaningAccepted && data.cleaningPrice ? data.cleaningPrice : 0;
-  const total = repair + cleaning;
-  const hasCleaning = cleaning > 0;
-  const h = hasCleaning ? 50 : 38;
-
-  doc.rect(x, y, w, h).lineWidth(1.2).strokeColor(COLOR.text).fillAndStroke("#fafafa", COLOR.text);
-
-  // Naprawa
-  doc.font("Regular").fontSize(9).fillColor(COLOR.text).text("Naprawa", x + 8, y + 6);
-  doc
-    .font("Regular")
-    .fontSize(9)
-    .text(`${repair.toFixed(2)} PLN`, x + 8, y + 6, {
-      width: w - 16,
-      align: "right",
-    });
-
-  let cy = y + 18;
-  if (hasCleaning) {
-    doc
-      .font("Regular")
-      .fontSize(9)
-      .text("Czyszczenie urządzenia", x + 8, cy);
-    doc
-      .font("Regular")
-      .fontSize(9)
-      .text(`${cleaning.toFixed(2)} PLN`, x + 8, cy, {
-        width: w - 16,
-        align: "right",
-      });
-    cy += 12;
-  }
-
-  // separator
-  doc
-    .moveTo(x + 8, cy + 1)
-    .lineTo(x + w - 8, cy + 1)
-    .lineWidth(1.2)
-    .strokeColor(COLOR.text)
-    .stroke();
-
-  // Total
-  doc
-    .font("Bold")
-    .fontSize(11)
-    .fillColor(COLOR.text)
-    .text("Razem orientacyjnie", x + 8, cy + 5);
-  doc
-    .font("Bold")
-    .fontSize(11)
-    .text(`${total.toFixed(2)} PLN`, x + 8, cy + 5, {
-      width: w - 16,
-      align: "right",
-    });
-
-  return y + h;
-}
-
-function drawHandoverBlock(
-  doc: PDFKit.PDFDocument,
-  x: number,
-  y: number,
-  w: number,
-  handover: ReceiptInput["handover"],
-): number {
-  const text =
-    handover.choice === "none"
-      ? "Potwierdzam, że przyjmowane urządzenie nie posiada karty SIM, karty pamięci SD ani nie posiadało etui przy przyjęciu."
-      : `Pobrane od klienta dodatkowe przedmioty:\n${handover.items}`;
-  doc.font("Regular").fontSize(9).fillColor(COLOR.text);
-  const textH = doc.heightOfString(text, { width: w - 14 });
-  const h = textH + 12;
-  doc.rect(x, y, w, h).fill(COLOR.bgLight);
-  doc.rect(x, y, 3, h).fill(COLOR.text);
-  doc
-    .font("Regular")
-    .fontSize(9)
-    .fillColor(COLOR.text)
-    .text(text, x + 8, y + 6, { width: w - 14 });
-  return y + h;
-}
-
-function drawSignatures(
-  doc: PDFKit.PDFDocument,
-  x: number,
-  y: number,
-  w: number,
-): void {
-  const colW = (w - 16) / 2;
-  // Lewa
-  doc
-    .moveTo(x, y)
-    .lineTo(x + colW, y)
-    .lineWidth(0.8)
-    .strokeColor(COLOR.text)
-    .stroke();
-  doc
-    .font("Regular")
-    .fontSize(7.5)
-    .fillColor(COLOR.muted)
-    .text("PODPIS PRACOWNIKA", x, y + 4, {
-      width: colW,
-      align: "center",
-      characterSpacing: 0.5,
-    });
-  // Prawa
-  const xR = x + colW + 16;
-  doc
-    .moveTo(xR, y)
-    .lineTo(xR + colW, y)
-    .lineWidth(0.8)
-    .strokeColor(COLOR.text)
-    .stroke();
-  doc
-    .font("Regular")
-    .fontSize(7.5)
-    .fillColor(COLOR.muted)
-    .text("PODPIS KLIENTA", xR, y + 4, {
-      width: colW,
-      align: "center",
-      characterSpacing: 0.5,
-    });
-}
-
-function drawFooter(
-  doc: PDFKit.PDFDocument,
-  x: number,
-  y: number,
-  w: number,
-): void {
-  doc
-    .moveTo(x, y - 6)
-    .lineTo(x + w, y - 6)
-    .lineWidth(0.5)
-    .strokeColor(COLOR.light)
-    .stroke();
-  doc
-    .font("Regular")
-    .fontSize(7)
-    .fillColor(COLOR.muted)
-    .text("Serwis Telefonów by Caseownia · UNIKOM S.C.", x, y, { width: w - 100 });
-  if (fs.existsSync(LOGO_CASEOWNIA)) {
-    doc.image(LOGO_CASEOWNIA, x + w - 70, y - 4, { fit: [70, 18] });
-  }
-}
-
-function drawRegulations(doc: PDFKit.PDFDocument): void {
-  const M = 28;
-  const W = doc.page.width - 2 * M;
-  doc
-    .font("Bold")
-    .fontSize(13)
-    .fillColor(COLOR.text)
-    .text("Regulamin świadczenia usług serwisowych", M, M, {
-      width: W,
-      align: "center",
-    });
-  let y = M + 24;
-  for (const sec of REGULATIONS) {
-    doc.font("Bold").fontSize(9).fillColor(COLOR.text).text(sec.title, M, y);
-    y += 12;
-    doc.font("Regular").fontSize(8).fillColor("#333").text(sec.body, M, y, {
-      width: W,
-    });
-    y += doc.heightOfString(sec.body, { width: W }) + 8;
-  }
-  drawFooter(doc, M, doc.page.height - 36, W);
+  return y + 12;
 }
