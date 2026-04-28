@@ -82,11 +82,22 @@ export async function GET(
 
   try {
     const pdfBuffer = await renderReceiptPdf(data);
-    const blob = new Blob([new Uint8Array(pdfBuffer)], { type: "application/pdf" });
-    return new NextResponse(blob, {
+    console.log(
+      `[receipt] PDF generated, size=${pdfBuffer.length} bytes for ${service.ticketNumber}`,
+    );
+    // Stream Buffer directly via ReadableStream — Blob/Uint8Array konwersja
+    // może w niektórych Next.js + Node combos zwracać empty body.
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new Uint8Array(pdfBuffer));
+        controller.close();
+      },
+    });
+    return new NextResponse(stream, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
+        "Content-Length": String(pdfBuffer.length),
         "Content-Disposition": `inline; filename="Potwierdzenie-${service.ticketNumber}.pdf"`,
         "Cache-Control": "no-store",
       },
