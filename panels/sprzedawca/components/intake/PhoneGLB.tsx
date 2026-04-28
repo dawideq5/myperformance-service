@@ -184,10 +184,15 @@ export function PhoneGLB({
           if (!damageMode || !onModelClick) return;
           if (e.delta > 5) return;
           e.stopPropagation();
-          // Convert world point → local space (znormalizowane przez group transform).
           if (!groupRef.current) return;
+          // Klasyfikacja w WORLD coords — phone jest auto-skalowany do
+          // maxDim 3.5 i wycentrowany w (0,0,0), więc world coords są
+          // bezpośrednio relatywne do telefonu (X±0.09 thin, Y±1.7 long,
+          // Z±0.85 wide). Local coords by były w GLB internal scale (duże
+          // liczby) — użycie world dla klasyfikacji jest poprawne.
+          const worldP = e.point.clone();
           const local = groupRef.current.worldToLocal(e.point.clone());
-          onModelClick(local, classifyDamageZone(local));
+          onModelClick(local, classifyDamageZone(worldP));
         }}
       />
       {/* Markery — TYLKO gdy nie disassembly (ukrywamy podczas rozkładania). */}
@@ -207,42 +212,52 @@ function inferSurface(name: string): string {
   return "frame";
 }
 
-/** Klasyfikuje punkt kliknięcia w lokalnej przestrzeni telefonu na konkretny
- * obszar uszkodzenia. Telefon zorientowany:
- *   +X = wyświetlacz, -X = panel tylny
- *   +Y = góra (głośnik rozmów), -Y = dół (port)
- *   ±Z = ramki boczne (lewa/prawa)
- * Obszary mapowane wg empirycznych progów (po auto-skalowaniu max dim ~3.5).
+/** Klasyfikuje punkt kliknięcia (WORLD space) na konkretny obszar uszkodzenia.
+ * Telefon auto-skalowany do max dim ~3.5 i wycentrowany w (0,0,0):
+ *   X (depth, perpendicular do display): ~±0.09
+ *   Y (height, top→bottom): ~±1.6
+ *   Z (width, left→right): ~±0.8
+ * Orientacja: +X=display, -X=panel tylny, +Y=góra, -Y=dół, ±Z=ramki boczne.
  */
 function classifyDamageZone(point: THREE.Vector3): string {
   const { x, y, z } = point;
-  const isFront = x > 0;
-  const surface = isFront ? "Wyświetlacz" : "Panel tylny";
 
-  // Specyficzne strefy najpierw — port, wyspa aparatów.
+  // Najpierw specyficzne strefy.
+  // Port + dolne głośniki: dolna krawędź (Y ~< -1.4).
   if (y < -1.4) {
-    return "Port ładowania / głośniki";
+    return "Port ładowania / głośniki dolne";
   }
-  if (!isFront && y > 0.7 && Math.abs(z) < 0.45) {
+  // Wyspa aparatów: na panelu tylnym (-X), górna część (+Y), środek/lewo Z.
+  if (x < 0 && y > 0.6 && z < 0.2) {
     return "Wyspa aparatów";
   }
+  // Głośnik rozmów: górna krawędź ekranu (+Y) na froncie.
+  if (y > 1.4 && x > 0) {
+    return "Głośnik rozmów";
+  }
 
-  // Krawędzie ramek — gdy klik na boku/górze/dole.
-  if (Math.abs(y) > 1.3 && Math.abs(x) < 0.06) {
+  // Krawędzie ramek — klik blisko brzegu długiej osi (top/bottom).
+  if (Math.abs(y) > 1.3) {
     return y > 0 ? "Górna krawędź (ramka)" : "Dolna krawędź (ramka)";
   }
-  if (Math.abs(z) > 0.45 && Math.abs(x) < 0.06) {
+  // Boczne ramki — klik blisko prawej/lewej krawędzi (Z extreme).
+  if (Math.abs(z) > 0.6) {
     return z > 0 ? "Ramka prawa" : "Ramka lewa";
   }
 
-  // Klik na powierzchni front/back — podział na 9 stref (3×3 grid).
-  let vert = "środek";
-  if (y > 0.6) vert = "góra";
-  else if (y < -0.6) vert = "dół";
+  // Klik na powierzchni front lub back — 3×3 grid (góra/środek/dół + lewo/środek/prawo).
+  const isFront = x > 0;
+  const surface = isFront ? "Wyświetlacz" : "Panel tylny";
 
+  // Progi proporcjonalne do bounding box: phone Y ±1.6 → ⅓ = 0.55, ½ = 0.8
+  let vert = "środek";
+  if (y > 0.55) vert = "góra";
+  else if (y < -0.55) vert = "dół";
+
+  // Z ±0.8 → ⅓ = 0.27, ½ = 0.4
   let horiz = "środek";
-  if (z > 0.18) horiz = "prawo";
-  else if (z < -0.18) horiz = "lewo";
+  if (z > 0.27) horiz = "prawo";
+  else if (z < -0.27) horiz = "lewo";
 
   if (vert === "środek" && horiz === "środek") return `${surface} — środek`;
   if (vert === "środek") return `${surface} — ${horiz}`;

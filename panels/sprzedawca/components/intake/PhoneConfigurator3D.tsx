@@ -180,19 +180,19 @@ export interface VisualConditionState {
   additional_notes?: string;
 }
 
-/** Detekcja platformy + zwrot odpowiedniej instrukcji obracania modelem 3D. */
+/** Detekcja platformy + zwrot profesjonalnej instrukcji obracania modelem. */
 function getRotationInstruction(): string {
   if (typeof navigator === "undefined") return "";
   const ua = navigator.userAgent;
   const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(ua);
   if (isMobile) {
-    return "👆 1 palec — obrót · 2 palce (rozsuń) — przybliżenie";
+    return "Jeden palec — obrót, dwa palce — przybliżenie.";
   }
   const isMac = /Mac|Macintosh/i.test(ua);
   if (isMac) {
-    return "🖱️ Trackpad: 1 palec — obrót · ścisk 2 palcami — przybliżenie · Cmd+scroll = zoom";
+    return "Trackpad: jeden palec — obrót, ścisk dwoma palcami — przybliżenie.";
   }
-  return "🖱️ Lewy przycisk myszy + przeciągnij — obrót · scroll — przybliżenie";
+  return "Przeciągnij lewym przyciskiem myszy aby obrócić, scroll aby przybliżyć.";
 }
 
 /** Polskie etykiety nazw powierzchni dla markerów. */
@@ -555,70 +555,38 @@ function StepInputs({
 }) {
   if (step.id === "display") {
     return (
-      <div className="space-y-3">
-        <RatingScale
-          label="Ocena ekranu"
-          value={state.display_rating}
-          onChange={(v) => onChange({ display_rating: v })}
-          descriptions={DISPLAY_DESCRIPTIONS}
-        />
-        <NotesField
-          label="Komentarz do ekranu"
-          value={state.display_notes ?? ""}
-          onChange={(v) => onChange({ display_notes: v })}
-        />
-      </div>
+      <RatingScale
+        value={state.display_rating}
+        onChange={(v) => onChange({ display_rating: v })}
+        descriptions={DISPLAY_DESCRIPTIONS}
+      />
     );
   }
   if (step.id === "back") {
     return (
-      <div className="space-y-3">
-        <RatingScale
-          label="Ocena panelu tylnego"
-          value={state.back_rating}
-          onChange={(v) => onChange({ back_rating: v })}
-          descriptions={BACK_DESCRIPTIONS}
-        />
-        <NotesField
-          label="Tył — uwagi"
-          value={state.back_notes ?? ""}
-          onChange={(v) => onChange({ back_notes: v })}
-        />
-      </div>
+      <RatingScale
+        value={state.back_rating}
+        onChange={(v) => onChange({ back_rating: v })}
+        descriptions={BACK_DESCRIPTIONS}
+      />
     );
   }
   if (step.id === "cameras") {
     return (
-      <div className="space-y-3">
-        <RatingScale
-          label="Ocena wyspy aparatów"
-          value={state.camera_rating}
-          onChange={(v) => onChange({ camera_rating: v })}
-          descriptions={CAMERA_DESCRIPTIONS}
-        />
-        <NotesField
-          label="Wyspa aparatów — uwagi"
-          value={state.camera_notes ?? ""}
-          onChange={(v) => onChange({ camera_notes: v })}
-        />
-      </div>
+      <RatingScale
+        value={state.camera_rating}
+        onChange={(v) => onChange({ camera_rating: v })}
+        descriptions={CAMERA_DESCRIPTIONS}
+      />
     );
   }
   if (step.id === "frames") {
     return (
-      <div className="space-y-3">
-        <RatingScale
-          label="Ocena ramek"
-          value={state.frames_rating}
-          onChange={(v) => onChange({ frames_rating: v })}
-          descriptions={FRAMES_DESCRIPTIONS}
-        />
-        <NotesField
-          label="Ramki boczne — uwagi"
-          value={state.frames_notes ?? ""}
-          onChange={(v) => onChange({ frames_notes: v })}
-        />
-      </div>
+      <RatingScale
+        value={state.frames_rating}
+        onChange={(v) => onChange({ frames_rating: v })}
+        descriptions={FRAMES_DESCRIPTIONS}
+      />
     );
   }
   if (step.id === "cleaning") {

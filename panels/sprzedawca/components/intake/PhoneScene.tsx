@@ -58,29 +58,31 @@ export default function PhoneScene({
     const t = clock.getElapsedTime();
     if (groupRef.current) {
       groupRef.current.position.lerp(tgtPos.current, Math.min(dt * 1.4, 1));
-      // Lerp rotacji Y telefonu do target (np. display=0, back=π). Krótsza
-      // droga kątowa — animowany płynny obrót między krokami.
+      // Lerp rotacji Y telefonu do target. Szybszy lerp (4.0/s) żeby
+      // animacja zakończyła się przed orbit kamery w frames step.
       if (!damageMode) {
         const cur = groupRef.current.rotation.y;
         let delta = phoneRotationY - cur;
         while (delta > Math.PI) delta -= 2 * Math.PI;
         while (delta < -Math.PI) delta += 2 * Math.PI;
-        groupRef.current.rotation.y = cur + delta * Math.min(dt * 2.0, 1);
+        groupRef.current.rotation.y = cur + delta * Math.min(dt * 4.0, 1);
       }
     }
-    // Frames step: kamera orbituje w PŁASZCZYŹNIE YZ (X=0). Idzie od +Z
-    // (prawa ramka) przez +Y (góra) do -Z (lewa ramka) i z powrotem
-    // — NIGDY nie pokazuje display (+X) ani back (-X). Tylko ramki + krawędź
-    // górna z głośnikiem rozmów. Oscylacja sin oszczędza ruch.
+    // Frames step: kamera orbituje w PŁASZCZYŹNIE YZ (X=0). Płynna oscylacja
+    // sin·smoothstep żeby krzywa bez gwałtownych skoków na końcach.
+    // Lerp camera position do orbit target — bez snapów przy step transition.
     if (isFramesStep && !damageMode) {
-      const arc = (Math.sin(t * 0.3) + 1) / 2; // 0..1, oscillating
-      const angle = arc * Math.PI; // 0..π
+      // Easeinout: arc ∈ [0..1] oscillating, smoothstep wygładza końce.
+      const raw = (Math.sin(t * 0.22) + 1) / 2;
+      const arc = raw * raw * (3 - 2 * raw); // smoothstep
+      const angle = arc * Math.PI;
       const radius = 6.0;
-      camera.position.set(
+      const tgt = new THREE.Vector3(
         0,
-        Math.sin(angle) * radius * 0.7, // height oscillation
+        Math.sin(angle) * radius * 0.65,
         Math.cos(angle) * radius,
       );
+      camera.position.lerp(tgt, Math.min(dt * 3.5, 1));
       camera.lookAt(0, 0, 0);
     }
     // Animowane key + fill lights.

@@ -355,7 +355,7 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
               ? "Zapisany — możesz edytować klikając poniżej"
               : "3D walkthrough — kliknij aby rozpocząć"
           }
-          accent="#EC4899"
+          accent="#9C8869"
           complete={visualComplete}
           open={open.visual}
           onToggle={() => toggle("visual")}
@@ -662,8 +662,8 @@ function VisualConditionSummary({
         <div
           className="w-12 h-12 rounded-2xl flex items-center justify-center"
           style={{
-            background: "linear-gradient(135deg, #EC489922, #A855F722)",
-            color: "#EC4899",
+            background: "linear-gradient(135deg, #9C886933, #B8A88033)",
+            color: "#B8A880",
           }}
         >
           <Sparkles className="w-6 h-6" />
