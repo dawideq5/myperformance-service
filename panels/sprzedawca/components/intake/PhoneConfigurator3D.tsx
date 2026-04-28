@@ -1,20 +1,29 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
   CheckCircle2,
+  CircleDot,
   Cpu,
+  MapPin,
   ScanFace,
   Smartphone,
   Sparkles,
-  Speaker,
-  Wrench,
+  Target,
   X,
 } from "lucide-react";
+import * as THREE from "three";
 import type { HighlightId } from "./PhoneModel";
+import {
+  BACK_DESCRIPTIONS,
+  CAMERA_DESCRIPTIONS,
+  DISPLAY_DESCRIPTIONS,
+  FRAMES_DESCRIPTIONS,
+  RatingScale,
+} from "./RatingScale";
 
 const Canvas = dynamic(
   () => import("@react-three/fiber").then((m) => m.Canvas),
@@ -27,93 +36,120 @@ type StepId =
   | "back"
   | "cameras"
   | "frames"
-  | "earpiece"
-  | "speakers"
-  | "port"
-  | "front";
+  | "cleaning"
+  | "damage"
+  | "summary";
+
+interface CleaningTourPos {
+  pos: [number, number, number];
+  highlight: HighlightId;
+  caption: string;
+  durationMs: number;
+}
 
 interface Step {
   id: StepId;
   title: string;
   subtitle: string;
   highlight: HighlightId;
-  // Camera position [x, y, z] — kamera patrzy na środek (0,0,0).
   cameraPos: [number, number, number];
-  /** Czy ten krok pyta o czyszczenie (kwota z cennika) */
-  cleaningOffer?: "earpiece" | "speakers" | "port";
+  /** Dla cleaning step: tour po kilku punktach. */
+  cleaningTour?: CleaningTourPos[];
 }
 
 const STEPS: Step[] = [
   {
     id: "display",
-    title: "Wyświetlacz",
-    subtitle: "Oceń stan ekranu w skali 1–10. Możesz dodać opis usterek.",
+    title: "Stan wyświetlacza",
+    subtitle: "Oceń ekran w skali 1–10. Każda ocena ma opis.",
     highlight: "display",
-    cameraPos: [0, 0, 5.2],
+    cameraPos: [0, 0, 5.0],
   },
   {
     id: "back",
-    title: "Tył urządzenia",
-    subtitle: "Sprawdź pleckę pod kątem rys, pęknięć i odkształceń.",
+    title: "Tylna szybka",
+    subtitle: "Oceń stan plecka — pęknięcia, rysy, odkształcenia.",
     highlight: "back",
-    cameraPos: [0, 0, -5.2],
+    cameraPos: [0, 0, -5.0],
   },
   {
     id: "cameras",
     title: "Wyspa aparatów",
-    subtitle: "Stan obiektywów, szkiełek osłonowych i ramki wyspy.",
+    subtitle: "Stan szkiełek obiektywów, ramki wyspy.",
     highlight: "cameras",
     cameraPos: [-1.6, 1.4, -3.4],
   },
   {
     id: "frames",
     title: "Ramki boczne",
-    subtitle: "Obejrzyj boki — zarysowania, wgniecenia, deformacje.",
+    subtitle: "Otarcia, wgniecenia, deformacje krawędzi (model się obraca).",
     highlight: "frames",
     cameraPos: [4.6, 0, 1.5],
   },
   {
-    id: "earpiece",
-    title: "Głośnik rozmów",
-    subtitle: "Pył i kurz w głośniku rozmów to częsta przyczyna problemów ze słyszalnością.",
-    highlight: "earpiece",
-    cameraPos: [0, 4.0, 1.6],
-    cleaningOffer: "earpiece",
-  },
-  {
-    id: "speakers",
-    title: "Głośniczki dolne",
-    subtitle: "Zatkane głośniczki = przytłumiony dźwięk. Czyszczenie zwykle pomaga.",
-    highlight: "speakers",
-    cameraPos: [0, -4.0, 1.6],
-    cleaningOffer: "speakers",
-  },
-  {
-    id: "port",
-    title: "Port ładowania",
-    subtitle: "Kurz w porcie = problem z ładowaniem. Profesjonalne czyszczenie często rozwiązuje.",
-    highlight: "port",
-    cameraPos: [0, -4.5, 1.0],
-    cleaningOffer: "port",
-  },
-  {
-    id: "front",
-    title: "Podsumowanie",
-    subtitle: "Ostatnia chwila na dodatkowe uwagi przed zapisem.",
+    id: "cleaning",
+    title: "Czyszczenie urządzenia",
+    subtitle:
+      "Pył w głośnikach i porcie często powoduje problemy. Pokażemy co warto wyczyścić — jedna decyzja na końcu.",
     highlight: null,
-    cameraPos: [0, 0, 5.2],
+    cameraPos: [0, 0, 5.0],
+    cleaningTour: [
+      {
+        pos: [0, 4.0, 1.6],
+        highlight: "earpiece",
+        caption: "Głośnik rozmów — pył przyczynia się do problemów ze słyszalnością",
+        durationMs: 2400,
+      },
+      {
+        pos: [0, -4.0, 1.6],
+        highlight: "speakers",
+        caption: "Głośniczki dolne — kurz tłumi dźwięk multimedia",
+        durationMs: 2400,
+      },
+      {
+        pos: [0, -4.5, 1.0],
+        highlight: "port",
+        caption: "Port ładowania — kurz blokuje połączenie z kablem",
+        durationMs: 2400,
+      },
+    ],
+  },
+  {
+    id: "damage",
+    title: "Zaznacz uszkodzenia",
+    subtitle: "Kliknij na modelu w miejscach uszkodzeń, aby je zarejestrować.",
+    highlight: null,
+    cameraPos: [0, 0, 4.5],
+  },
+  {
+    id: "summary",
+    title: "Podsumowanie",
+    subtitle: "Sprawdź wszystko i dodaj uwagi końcowe.",
+    highlight: null,
+    cameraPos: [0, 0, 4.6],
   },
 ];
+
+export interface DamageMarker {
+  id: string;
+  x: number;
+  y: number;
+  z: number;
+  surface?: string;
+  description?: string;
+}
 
 export interface VisualConditionState {
   display_rating?: number;
   display_notes?: string;
+  back_rating?: number;
   back_notes?: string;
+  camera_rating?: number;
   camera_notes?: string;
+  frames_rating?: number;
   frames_notes?: string;
-  earpiece_clean?: boolean;
-  speakers_clean?: boolean;
-  port_clean?: boolean;
+  cleaning_accepted?: boolean;
+  damage_markers?: DamageMarker[];
   additional_notes?: string;
 }
 
@@ -122,10 +158,9 @@ const STEP_ICONS: Record<StepId, React.ComponentType<{ className?: string }>> = 
   back: Smartphone,
   cameras: ScanFace,
   frames: Cpu,
-  earpiece: Speaker,
-  speakers: Speaker,
-  port: Wrench,
-  front: CheckCircle2,
+  cleaning: Sparkles,
+  damage: Target,
+  summary: CheckCircle2,
 };
 
 export function PhoneConfigurator3D({
@@ -145,8 +180,67 @@ export function PhoneConfigurator3D({
 }) {
   const [stepIdx, setStepIdx] = useState(0);
   const step = STEPS[stepIdx];
-  const [state, setState] = useState<VisualConditionState>(initial ?? {});
+  const [state, setState] = useState<VisualConditionState>(
+    initial ?? { damage_markers: [] },
+  );
   const [closing, setClosing] = useState(false);
+
+  // Cleaning tour state — kiedy jesteśmy w cleaning step, animujemy kolejne pozycje.
+  const [tourIdx, setTourIdx] = useState(0);
+  const tourTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (step.id !== "cleaning" || !step.cleaningTour) {
+      if (tourTimerRef.current) clearTimeout(tourTimerRef.current);
+      setTourIdx(0);
+      return;
+    }
+    if (tourIdx < step.cleaningTour.length - 1) {
+      tourTimerRef.current = setTimeout(
+        () => setTourIdx((i) => i + 1),
+        step.cleaningTour[tourIdx].durationMs,
+      );
+    }
+    return () => {
+      if (tourTimerRef.current) clearTimeout(tourTimerRef.current);
+    };
+  }, [stepIdx, tourIdx, step]);
+
+  // Damage markers — kliknięcie w model przy step=damage dodaje marker.
+  const [pendingMarker, setPendingMarker] = useState<{
+    x: number;
+    y: number;
+    z: number;
+    surface: string;
+  } | null>(null);
+
+  const onModelClick = (point: THREE.Vector3, surface: string) => {
+    if (step.id !== "damage") return;
+    setPendingMarker({ x: point.x, y: point.y, z: point.z, surface });
+  };
+
+  const confirmMarker = (description: string) => {
+    if (!pendingMarker) return;
+    const m: DamageMarker = {
+      id: `m-${Date.now()}`,
+      x: pendingMarker.x,
+      y: pendingMarker.y,
+      z: pendingMarker.z,
+      surface: pendingMarker.surface,
+      description: description.trim() || undefined,
+    };
+    setState((s) => ({
+      ...s,
+      damage_markers: [...(s.damage_markers ?? []), m],
+    }));
+    setPendingMarker(null);
+  };
+
+  const removeMarker = (id: string) => {
+    setState((s) => ({
+      ...s,
+      damage_markers: (s.damage_markers ?? []).filter((m) => m.id !== id),
+    }));
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -164,13 +258,22 @@ export function PhoneConfigurator3D({
 
   const finish = () => {
     setClosing(true);
-    // ~1.2s closing animation, potem onComplete.
-    setTimeout(() => onComplete(state), 1200);
+    setTimeout(() => onComplete(state), 1500);
   };
 
   const StepIcon = STEP_ICONS[step.id];
   const update = (patch: Partial<VisualConditionState>) =>
     setState((s) => ({ ...s, ...patch }));
+
+  // Compute current camera + highlight (cleaning tour overrides static step.cameraPos).
+  const currentCameraPos: [number, number, number] =
+    step.id === "cleaning" && step.cleaningTour
+      ? step.cleaningTour[tourIdx].pos
+      : step.cameraPos;
+  const currentHighlight: HighlightId =
+    step.id === "cleaning" && step.cleaningTour
+      ? step.cleaningTour[tourIdx].highlight
+      : step.highlight;
 
   return (
     <div
@@ -227,24 +330,59 @@ export function PhoneConfigurator3D({
         </div>
 
         {/* Main canvas */}
-        <div className="flex-1 grid grid-cols-1 lg:grid-cols-[1fr,minmax(320px,420px)] gap-0 min-h-0">
+        <div className="flex-1 grid grid-cols-1 lg:grid-cols-[1fr,minmax(340px,440px)] gap-0 min-h-0">
           <div
             className={`relative ${closing ? "phone-into-box" : ""}`}
             style={{ minHeight: 360 }}
           >
             <Canvas
               shadows
-              camera={{ position: [0, 0, 5.2], fov: 38 }}
+              camera={{ position: [0, 0, 5.2], fov: 36 }}
               dpr={[1, 2]}
+              gl={{
+                antialias: true,
+                toneMapping: THREE.ACESFilmicToneMapping,
+                outputColorSpace: THREE.SRGBColorSpace,
+              }}
+              onPointerMissed={() => setPendingMarker(null)}
             >
               <PhoneScene
-                highlight={step.highlight}
-                cameraPos={step.cameraPos}
+                highlight={currentHighlight}
+                cameraPos={currentCameraPos}
                 brandColor={brandColorHex}
                 isFramesStep={step.id === "frames"}
+                screenOn={step.id === "summary"}
+                damageMarkers={state.damage_markers ?? []}
+                damageMode={step.id === "damage"}
+                onModelClick={onModelClick}
               />
             </Canvas>
-            {/* Overlay caption */}
+
+            {/* Cleaning tour caption overlay */}
+            {step.id === "cleaning" && step.cleaningTour && (
+              <div className="absolute bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-full bg-black/60 backdrop-blur-md border border-white/10 text-xs text-white/90 max-w-[80%] text-center animate-fade-in">
+                <Sparkles className="w-3 h-3 inline mr-1.5 text-amber-400" />
+                {step.cleaningTour[tourIdx].caption}
+              </div>
+            )}
+
+            {/* Damage mode hint */}
+            {step.id === "damage" && (
+              <div className="absolute bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-full bg-black/60 backdrop-blur-md border border-amber-500/40 text-xs text-amber-300 animate-fade-in">
+                <CircleDot className="w-3 h-3 inline mr-1.5" />
+                Kliknij w model w miejscu uszkodzenia, aby dodać marker
+              </div>
+            )}
+
+            {/* Summary screen overlay (HTML on top of phone display) */}
+            {step.id === "summary" && (
+              <SummaryOverlay
+                state={state}
+                cleaningPrice={cleaningPrice}
+                brand={brand}
+              />
+            )}
+
             <div className="absolute top-4 left-4 px-3 py-1.5 rounded-full bg-black/40 backdrop-blur-sm border border-white/10 text-[10px] uppercase tracking-wider text-white/80 font-mono flex items-center gap-1.5">
               <Sparkles className="w-3 h-3" />
               {brand || "Telefon"} · krok {stepIdx + 1} z {STEPS.length}
@@ -257,12 +395,16 @@ export function PhoneConfigurator3D({
               step={step}
               state={state}
               cleaningPrice={cleaningPrice}
+              pendingMarker={pendingMarker}
               onChange={update}
+              onConfirmMarker={confirmMarker}
+              onCancelMarker={() => setPendingMarker(null)}
+              onRemoveMarker={removeMarker}
             />
           </div>
         </div>
 
-        {/* Bottom bar — nav */}
+        {/* Bottom bar */}
         <div className="flex items-center justify-between px-4 sm:px-6 py-3 bg-black/40 backdrop-blur-md border-t border-white/10 gap-2">
           <button
             type="button"
@@ -277,7 +419,7 @@ export function PhoneConfigurator3D({
             {STEPS.map((_, i) => (
               <span
                 key={i}
-                className="w-1.5 h-1.5 rounded-full"
+                className="w-1.5 h-1.5 rounded-full transition-all"
                 style={{
                   background:
                     i === stepIdx
@@ -285,6 +427,7 @@ export function PhoneConfigurator3D({
                       : i < stepIdx
                         ? "#22C55E"
                         : "rgba(255,255,255,0.2)",
+                  width: i === stepIdx ? "1.5rem" : "0.375rem",
                 }}
               />
             ))}
@@ -319,25 +462,18 @@ export function PhoneConfigurator3D({
         </div>
       </div>
 
-      {/* Closing box overlay */}
-      {closing && <ClosingBoxOverlay />}
+      {closing && <ClosingBox />}
 
       <style>{`
         .phone-into-box {
-          animation: phoneIntoBox 1.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+          animation: phoneIntoBox 1.5s cubic-bezier(0.45, 0, 0.2, 1) forwards;
+          transform-origin: 50% 70%;
         }
         @keyframes phoneIntoBox {
-          0%   { transform: scale(1) rotate(0deg); opacity: 1; }
-          50%  { transform: scale(0.6) translateY(20%) rotate(-3deg); opacity: 0.9; }
-          100% { transform: scale(0.2) translateY(40%) rotate(0deg); opacity: 0; }
-        }
-        .box-flap-top {
-          animation: foldTop 0.7s cubic-bezier(0.4, 0, 0.2, 1) 0.5s forwards;
-          transform-origin: 50% 100%;
-          transform: rotateX(180deg);
-        }
-        @keyframes foldTop {
-          to { transform: rotateX(0deg); }
+          0%   { transform: scale(1) translateY(0) rotateX(0deg); opacity: 1; filter: brightness(1); }
+          30%  { transform: scale(0.92) translateY(8%) rotateX(-8deg); opacity: 1; filter: brightness(0.95); }
+          70%  { transform: scale(0.42) translateY(28%) rotateX(-15deg); opacity: 0.9; filter: brightness(0.7); }
+          100% { transform: scale(0.18) translateY(45%) rotateX(-20deg); opacity: 0; filter: brightness(0.4); }
         }
       `}</style>
     </div>
@@ -348,47 +484,30 @@ function StepInputs({
   step,
   state,
   cleaningPrice,
+  pendingMarker,
   onChange,
+  onConfirmMarker,
+  onCancelMarker,
+  onRemoveMarker,
 }: {
   step: Step;
   state: VisualConditionState;
   cleaningPrice: number | null;
+  pendingMarker: { x: number; y: number; z: number; surface: string } | null;
   onChange: (patch: Partial<VisualConditionState>) => void;
+  onConfirmMarker: (description: string) => void;
+  onCancelMarker: () => void;
+  onRemoveMarker: (id: string) => void;
 }) {
   if (step.id === "display") {
     return (
       <div className="space-y-3">
-        <div>
-          <p className="text-xs uppercase tracking-wider text-white/60 font-semibold mb-2">
-            Stan wyświetlacza
-          </p>
-          <div className="grid grid-cols-10 gap-1">
-            {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => {
-              const active = state.display_rating === n;
-              const color =
-                n <= 3 ? "#EF4444" : n <= 6 ? "#F59E0B" : "#22C55E";
-              return (
-                <button
-                  key={n}
-                  type="button"
-                  onClick={() => onChange({ display_rating: n })}
-                  className="aspect-square rounded-lg border text-xs font-bold transition-all hover:scale-110"
-                  style={{
-                    background: active ? color : "rgba(255,255,255,0.05)",
-                    borderColor: active ? color : "rgba(255,255,255,0.1)",
-                    color: active ? "#fff" : "rgba(255,255,255,0.7)",
-                  }}
-                >
-                  {n}
-                </button>
-              );
-            })}
-          </div>
-          <div className="flex justify-between mt-1.5 text-[10px] text-white/50">
-            <span>roztrzaskany</span>
-            <span>idealny</span>
-          </div>
-        </div>
+        <RatingScale
+          label="Ocena ekranu"
+          value={state.display_rating}
+          onChange={(v) => onChange({ display_rating: v })}
+          descriptions={DISPLAY_DESCRIPTIONS}
+        />
         <NotesField
           label="Komentarz do ekranu"
           value={state.display_notes ?? ""}
@@ -399,89 +518,157 @@ function StepInputs({
   }
   if (step.id === "back") {
     return (
-      <NotesField
-        label="Tył — uwagi"
-        placeholder="Rysy, pęknięcia, odbarwienia, odkształcenia…"
-        value={state.back_notes ?? ""}
-        onChange={(v) => onChange({ back_notes: v })}
-      />
+      <div className="space-y-3">
+        <RatingScale
+          label="Ocena tylnej szybki"
+          value={state.back_rating}
+          onChange={(v) => onChange({ back_rating: v })}
+          descriptions={BACK_DESCRIPTIONS}
+        />
+        <NotesField
+          label="Tył — uwagi"
+          value={state.back_notes ?? ""}
+          onChange={(v) => onChange({ back_notes: v })}
+        />
+      </div>
     );
   }
   if (step.id === "cameras") {
     return (
-      <NotesField
-        label="Wyspa aparatów — uwagi"
-        placeholder="Pęknięte szkiełka, brak ostrości, kurz w obiektywie…"
-        value={state.camera_notes ?? ""}
-        onChange={(v) => onChange({ camera_notes: v })}
-      />
+      <div className="space-y-3">
+        <RatingScale
+          label="Ocena wyspy aparatów"
+          value={state.camera_rating}
+          onChange={(v) => onChange({ camera_rating: v })}
+          descriptions={CAMERA_DESCRIPTIONS}
+        />
+        <NotesField
+          label="Wyspa aparatów — uwagi"
+          value={state.camera_notes ?? ""}
+          onChange={(v) => onChange({ camera_notes: v })}
+        />
+      </div>
     );
   }
   if (step.id === "frames") {
     return (
-      <NotesField
-        label="Ramki boczne — uwagi"
-        placeholder="Wgniecenia, otarcia, deformacje, działanie przycisków…"
-        value={state.frames_notes ?? ""}
-        onChange={(v) => onChange({ frames_notes: v })}
-      />
+      <div className="space-y-3">
+        <RatingScale
+          label="Ocena ramek"
+          value={state.frames_rating}
+          onChange={(v) => onChange({ frames_rating: v })}
+          descriptions={FRAMES_DESCRIPTIONS}
+        />
+        <NotesField
+          label="Ramki boczne — uwagi"
+          value={state.frames_notes ?? ""}
+          onChange={(v) => onChange({ frames_notes: v })}
+        />
+      </div>
     );
   }
-  if (step.id === "front") {
-    return (
-      <NotesField
-        label="Dodatkowe uwagi"
-        placeholder="Wszystko, co istotne i nie zostało jeszcze zapisane…"
-        value={state.additional_notes ?? ""}
-        onChange={(v) => onChange({ additional_notes: v })}
-        rows={5}
-      />
-    );
-  }
-  // earpiece / speakers / port — cleaning offers
-  if (step.cleaningOffer) {
-    const key = step.cleaningOffer;
-    const stateKey =
-      key === "earpiece"
-        ? "earpiece_clean"
-        : key === "speakers"
-          ? "speakers_clean"
-          : "port_clean";
-    const current = state[stateKey];
+  if (step.id === "cleaning") {
     return (
       <div className="space-y-3">
         <div className="rounded-2xl border border-white/10 bg-white/5 p-3 text-white/90 text-sm">
           <p className="font-semibold mb-1 flex items-center gap-1.5">
             <Sparkles className="w-4 h-4 text-amber-400" />
-            Wykonać profesjonalne czyszczenie?
+            Profesjonalne czyszczenie urządzenia
           </p>
           <p className="text-xs text-white/70 mb-3">
-            Pył i kurz w tym miejscu często powoduje problemy. Dodajemy
-            usługę czyszczenia
+            Jedna usługa, która obejmuje wszystkie miejsca pokazane wyżej:
+            głośnik rozmów, głośniczki dolne i port ładowania
             {cleaningPrice != null ? (
               <>
-                {" "}za <strong className="text-amber-400">{cleaningPrice} PLN</strong>
+                {" "}— <strong className="text-amber-400">{cleaningPrice} PLN</strong>
               </>
             ) : null}
             .
           </p>
           <div className="flex gap-2">
             <CleaningPill
-              active={current === false}
+              active={state.cleaning_accepted === false}
               color="#EF4444"
-              onClick={() => onChange({ [stateKey]: false } as Partial<VisualConditionState>)}
+              onClick={() => onChange({ cleaning_accepted: false })}
             >
               Pomiń
             </CleaningPill>
             <CleaningPill
-              active={current === true}
+              active={state.cleaning_accepted === true}
               color="#22C55E"
-              onClick={() => onChange({ [stateKey]: true } as Partial<VisualConditionState>)}
+              onClick={() => onChange({ cleaning_accepted: true })}
             >
-              Tak, dodaj
+              Tak, dodaj usługę
             </CleaningPill>
           </div>
         </div>
+      </div>
+    );
+  }
+  if (step.id === "damage") {
+    return (
+      <div className="space-y-3">
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+          <p className="text-xs uppercase tracking-wider text-white/60 font-semibold mb-1">
+            Markery uszkodzeń
+          </p>
+          <p className="text-xs text-white/60 mb-2">
+            {(state.damage_markers ?? []).length === 0
+              ? "Brak — kliknij na modelu w miejscu uszkodzenia."
+              : `${(state.damage_markers ?? []).length} marker(ów)`}
+          </p>
+          <div className="space-y-1.5">
+            {(state.damage_markers ?? []).map((m, idx) => (
+              <div
+                key={m.id}
+                className="flex items-start gap-2 p-2 rounded-lg bg-white/5"
+              >
+                <span className="flex-shrink-0 w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+                  {idx + 1}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] uppercase text-white/50 mb-0.5">
+                    {m.surface ?? "powierzchnia"}
+                  </p>
+                  <p className="text-xs text-white/80 truncate">
+                    {m.description ?? "(brak opisu)"}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onRemoveMarker(m.id)}
+                  className="p-1 rounded hover:bg-white/10 text-white/60"
+                  aria-label="Usuń marker"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+        {pendingMarker && (
+          <PendingMarkerEditor
+            surface={pendingMarker.surface}
+            onConfirm={onConfirmMarker}
+            onCancel={onCancelMarker}
+          />
+        )}
+      </div>
+    );
+  }
+  if (step.id === "summary") {
+    return (
+      <div className="space-y-3">
+        <p className="text-xs text-white/60">
+          Po prawej widzisz podgląd zapisanych ocen. Dodaj końcowe uwagi
+          poniżej, jeśli coś jeszcze chcesz zaznaczyć.
+        </p>
+        <NotesField
+          label="Dodatkowe uwagi"
+          value={state.additional_notes ?? ""}
+          onChange={(v) => onChange({ additional_notes: v })}
+          rows={5}
+        />
       </div>
     );
   }
@@ -547,50 +734,222 @@ function CleaningPill({
   );
 }
 
-function ClosingBoxOverlay() {
+function PendingMarkerEditor({
+  surface,
+  onConfirm,
+  onCancel,
+}: {
+  surface: string;
+  onConfirm: (description: string) => void;
+  onCancel: () => void;
+}) {
+  const [description, setDescription] = useState("");
   return (
-    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-      <div className="relative" style={{ width: 280, height: 280, perspective: 800 }}>
-        {/* Box base */}
-        <div
-          className="absolute inset-0 rounded-2xl"
+    <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3 animate-fade-in">
+      <div className="flex items-center gap-2 mb-2">
+        <MapPin className="w-4 h-4 text-amber-400" />
+        <p className="text-xs uppercase tracking-wider text-amber-300 font-semibold">
+          Nowy marker · {surface}
+        </p>
+      </div>
+      <textarea
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+        placeholder="Opisz uszkodzenie (np. głębokie pęknięcie 3 cm, wgniecenie)"
+        rows={2}
+        autoFocus
+        className="w-full px-3 py-2 rounded-xl border border-amber-500/30 bg-black/30 text-sm text-white outline-none resize-none focus:border-amber-400 placeholder:text-white/30"
+      />
+      <div className="flex gap-2 mt-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="flex-1 py-1.5 rounded-lg text-xs font-medium border border-white/15 text-white/70 hover:bg-white/5"
+        >
+          Anuluj
+        </button>
+        <button
+          type="button"
+          onClick={() => onConfirm(description)}
+          className="flex-1 py-1.5 rounded-lg text-xs font-bold"
           style={{
+            background: "linear-gradient(135deg, #F59E0B, #D97706)",
+            color: "#fff",
+          }}
+        >
+          Zapisz marker
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Półprzezroczysty overlay HTML pokazujący podsumowanie na "włączonym" ekranie. */
+function SummaryOverlay({
+  state,
+  cleaningPrice,
+  brand,
+}: {
+  state: VisualConditionState;
+  cleaningPrice: number | null;
+  brand: string;
+}) {
+  const totalCleaning =
+    state.cleaning_accepted && cleaningPrice ? cleaningPrice : 0;
+  const ratings = [
+    { label: "Ekran", value: state.display_rating },
+    { label: "Tył", value: state.back_rating },
+    { label: "Aparaty", value: state.camera_rating },
+    { label: "Ramki", value: state.frames_rating },
+  ].filter((r) => r.value != null);
+  const avg =
+    ratings.length > 0
+      ? Math.round(
+          (ratings.reduce((a, b) => a + (b.value as number), 0) /
+            ratings.length) *
+            10,
+        ) / 10
+      : null;
+
+  return (
+    <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+      <div
+        className="rounded-[28px] border border-white/10 backdrop-blur-md shadow-2xl px-5 py-4"
+        style={{
+          width: 230,
+          minHeight: 480,
+          background:
+            "linear-gradient(180deg, rgba(15, 23, 50, 0.85), rgba(8, 12, 30, 0.85))",
+          color: "white",
+        }}
+      >
+        <div className="text-center mb-3 pt-2">
+          <p className="text-[10px] uppercase tracking-widest text-white/50">
+            {brand}
+          </p>
+          <p className="text-lg font-bold mt-0.5">Podsumowanie</p>
+        </div>
+        {avg != null && (
+          <div
+            className="rounded-xl p-3 text-center mb-3"
+            style={{
+              background:
+                "linear-gradient(135deg, rgba(34,197,94,0.2), rgba(34,197,94,0.05))",
+              borderLeft: "3px solid #22c55e",
+            }}
+          >
+            <p className="text-[10px] uppercase text-white/60">Średnia ocena</p>
+            <p className="text-3xl font-bold text-emerald-400 mt-0.5">{avg}<span className="text-sm text-white/50">/10</span></p>
+          </div>
+        )}
+        <div className="space-y-1.5 mb-3">
+          {ratings.map((r) => (
+            <div
+              key={r.label}
+              className="flex items-center justify-between text-xs"
+            >
+              <span className="text-white/70">{r.label}</span>
+              <span className="font-mono font-bold">{r.value}/10</span>
+            </div>
+          ))}
+        </div>
+        {(state.damage_markers ?? []).length > 0 && (
+          <div className="text-xs text-white/70 border-t border-white/10 pt-2 mb-2">
+            <span className="text-amber-400 font-semibold">
+              {(state.damage_markers ?? []).length}
+            </span>{" "}
+            marker(ów) uszkodzeń
+          </div>
+        )}
+        {state.cleaning_accepted && (
+          <div className="text-xs text-emerald-400 border-t border-white/10 pt-2">
+            ✓ Czyszczenie:{" "}
+            <strong>+{totalCleaning} PLN</strong>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Lepsza animacja pudełka — actually drawn 3D box z pseudo-perspective. */
+function ClosingBox() {
+  return (
+    <div className="absolute inset-0 flex items-center justify-center pointer-events-none animate-fade-in">
+      <div
+        className="relative"
+        style={{
+          width: 320,
+          height: 240,
+          perspective: 1000,
+          transformStyle: "preserve-3d",
+        }}
+      >
+        {/* Box body (3 visible faces) */}
+        <div
+          className="absolute inset-0 rounded-lg"
+          style={{
+            background: "linear-gradient(160deg, #c89870, #8b6f47)",
+            boxShadow: "inset 0 -10px 30px rgba(0,0,0,0.5), 0 20px 60px rgba(0,0,0,0.7)",
+            transform: "rotateX(60deg) rotateZ(-5deg)",
+          }}
+        />
+        {/* Top flap (left) */}
+        <div
+          className="box-flap-left absolute"
+          style={{
+            top: "-50%",
+            left: "-2%",
+            width: "52%",
+            height: "100%",
             background: "linear-gradient(135deg, #d4a574, #8b6f47)",
-            boxShadow:
-              "inset 0 -8px 24px rgba(0,0,0,0.4), 0 16px 48px rgba(0,0,0,0.6)",
+            boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
+            transformOrigin: "100% 100%",
+            transform: "rotateX(-180deg) rotateZ(-5deg)",
           }}
         />
-        {/* Box top flap (animates closing) */}
+        {/* Top flap (right) */}
         <div
-          className="box-flap-top absolute"
+          className="box-flap-right absolute"
           style={{
-            top: 0,
-            left: 0,
-            right: 0,
-            height: "50%",
-            background: "linear-gradient(135deg, #e8c096, #b08a5e)",
-            borderRadius: "1rem 1rem 0 0",
-            boxShadow: "0 -4px 12px rgba(0,0,0,0.3)",
+            top: "-50%",
+            right: "-2%",
+            width: "52%",
+            height: "100%",
+            background: "linear-gradient(225deg, #c89870, #7a5e3e)",
+            boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
+            transformOrigin: "0% 100%",
+            transform: "rotateX(-180deg) rotateZ(-5deg)",
           }}
         />
-        {/* Tape */}
+        {/* Tape stripe */}
         <div
-          className="absolute"
+          className="box-tape absolute"
           style={{
-            top: "calc(50% - 8px)",
-            left: 30,
-            right: 30,
-            height: 16,
+            top: "calc(50% - 12px)",
+            left: "10%",
+            width: "80%",
+            height: 24,
             background:
-              "repeating-linear-gradient(45deg, #e8d8b0, #e8d8b0 6px, #d4c094 6px, #d4c094 12px)",
+              "repeating-linear-gradient(45deg, #f0e4c8, #f0e4c8 8px, #d4c094 8px, #d4c094 16px)",
             opacity: 0,
-            animation: "tapeIn 0.4s ease 1.2s forwards",
+            boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
+            transform: "rotateX(60deg) rotateZ(-5deg)",
           }}
         />
         <style>{`
+          .box-flap-left { animation: foldLeft 0.7s cubic-bezier(0.4,0,0.2,1) 0.6s forwards; }
+          .box-flap-right { animation: foldRight 0.7s cubic-bezier(0.4,0,0.2,1) 0.7s forwards; }
+          .box-tape { animation: tapeIn 0.4s ease 1.3s forwards; }
+          @keyframes foldLeft {
+            to { transform: rotateX(-90deg) rotateZ(-5deg); }
+          }
+          @keyframes foldRight {
+            to { transform: rotateX(-90deg) rotateZ(-5deg); }
+          }
           @keyframes tapeIn {
-            from { opacity: 0; transform: scaleX(0.2); }
-            to { opacity: 0.85; transform: scaleX(1); }
+            from { opacity: 0; transform: scaleX(0.2) rotateX(60deg) rotateZ(-5deg); }
+            to { opacity: 0.85; transform: scaleX(1) rotateX(60deg) rotateZ(-5deg); }
           }
         `}</style>
       </div>

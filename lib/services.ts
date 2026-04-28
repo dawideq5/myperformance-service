@@ -68,20 +68,37 @@ export interface IntakeChecklist {
   notes?: string;
 }
 
-/** Wizualny stan urządzenia z 3D walkthrough. */
+/** Marker uszkodzenia umieszczony klikiem na 3D modelu. */
+export interface DamageMarker {
+  id: string;
+  /** Pozycja w przestrzeni 3D modelu telefonu. */
+  x: number;
+  y: number;
+  z: number;
+  /** Powierzchnia: front/back/frame/cameras. */
+  surface?: string;
+  description?: string;
+  severity?: number; // 1-10
+}
+
+/** Wizualny stan urządzenia z 3D walkthrough. Wszystkie oceny 1-10. */
 export interface VisualCondition {
-  /** 1-10 ocena ekranu. */
+  /** 1-10 ocena ekranu (1 = zniszczony, 10 = jak nowy). */
   display_rating?: number;
   display_notes?: string;
+  /** 1-10 ocena tylnej szybki / obudowy. */
+  back_rating?: number;
   back_notes?: string;
+  /** 1-10 ocena wyspy aparatów (szkiełek + ramki). */
+  camera_rating?: number;
   camera_notes?: string;
+  /** 1-10 ocena ramek bocznych. */
+  frames_rating?: number;
   frames_notes?: string;
-  /** Czy klient zaakceptował czyszczenie głośnika rozmów. */
-  earpiece_clean?: boolean;
-  /** Czy klient zaakceptował czyszczenie głośniczków. */
-  speakers_clean?: boolean;
-  /** Czy klient zaakceptował czyszczenie portu ładowania. */
-  port_clean?: boolean;
+  /** Czy zaakceptowano usługę czyszczenia (jedna decyzja dla głośników + portu). */
+  cleaning_accepted?: boolean;
+  /** Markery uszkodzeń umieszczone na 3D modelu. */
+  damage_markers?: DamageMarker[];
   additional_notes?: string;
 }
 

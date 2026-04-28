@@ -539,11 +539,18 @@ function VisualConditionSummary({
     );
   }
 
-  const cleaningSelected = [
-    condition.earpiece_clean,
-    condition.speakers_clean,
-    condition.port_clean,
-  ].filter(Boolean).length;
+  const cleaningSelected = condition.cleaning_accepted ? 1 : 0;
+  const ratings = [
+    condition.display_rating,
+    condition.back_rating,
+    condition.camera_rating,
+    condition.frames_rating,
+  ].filter((v): v is number => v != null);
+  const avgRating =
+    ratings.length > 0
+      ? Math.round((ratings.reduce((a, b) => a + b, 0) / ratings.length) * 10) /
+        10
+      : null;
 
   return (
     <div className="space-y-2">
@@ -572,19 +579,24 @@ function VisualConditionSummary({
             className="text-xs mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5"
             style={{ color: "var(--text-muted)" }}
           >
-            {condition.display_rating != null && (
+            {avgRating != null && (
               <span>
-                Ekran: <strong>{condition.display_rating}/10</strong>
+                Średnia: <strong>{avgRating}/10</strong>
+              </span>
+            )}
+            {(condition.damage_markers ?? []).length > 0 && (
+              <span>
+                Markery: <strong>{(condition.damage_markers ?? []).length}</strong>
               </span>
             )}
             {cleaningSelected > 0 && cleaningPrice != null && (
-              <span>
-                Czyszczenie: <strong>+{cleaningSelected * cleaningPrice} PLN</strong>
+              <span className="col-span-2">
+                ✓ Czyszczenie: <strong>+{cleaningPrice} PLN</strong>
               </span>
             )}
-            {condition.display_notes && (
+            {condition.additional_notes && (
               <span className="col-span-2 truncate">
-                💬 {condition.display_notes}
+                💬 {condition.additional_notes}
               </span>
             )}
           </div>

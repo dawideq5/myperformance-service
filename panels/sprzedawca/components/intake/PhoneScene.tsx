@@ -1,73 +1,107 @@
 "use client";
 
-import { OrbitControls } from "@react-three/drei";
+import { ContactShadows } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 import * as THREE from "three";
-import { CameraRig, PhoneModel, type HighlightId } from "./PhoneModel";
+import {
+  CameraRig,
+  PhoneModel,
+  type HighlightId,
+} from "./PhoneModel";
+
+interface DamageMarker {
+  id: string;
+  x: number;
+  y: number;
+  z: number;
+  description?: string;
+}
 
 export default function PhoneScene({
   highlight,
   cameraPos,
   brandColor,
   isFramesStep,
+  screenOn = false,
+  damageMarkers = [],
+  damageMode = false,
+  onModelClick,
 }: {
   highlight: HighlightId;
   cameraPos: [number, number, number];
   brandColor: string;
   isFramesStep: boolean;
+  screenOn?: boolean;
+  damageMarkers?: DamageMarker[];
+  damageMode?: boolean;
+  onModelClick?: (point: THREE.Vector3, surface: string) => void;
 }) {
-  // Auto-rotacja kąta tylko podczas kroku "frames" — wtedy obracamy telefonem
-  // wzdłuż osi Y, żeby pokazać wszystkie boki.
   const groupRef = useRef<THREE.Group>(null);
 
   useFrame((_, dt) => {
     if (!groupRef.current) return;
     if (isFramesStep) {
-      groupRef.current.rotation.y += dt * 0.6;
+      groupRef.current.rotation.y += dt * 0.5;
     } else {
-      // Smoothly back to 0
       const target = 0;
       const cur = groupRef.current.rotation.y;
-      groupRef.current.rotation.y = cur + (target - cur) * Math.min(dt * 2, 1);
+      // Normalize cur to [-PI, PI]
+      const normalized = Math.atan2(Math.sin(cur), Math.cos(cur));
+      groupRef.current.rotation.y =
+        normalized + (target - normalized) * Math.min(dt * 2.5, 1);
     }
   });
-
-  // Reset rotation when leaving frames step.
-  useEffect(() => {
-    if (!isFramesStep && groupRef.current) {
-      // Snap towards 0 only after step change; gentle animation handled in useFrame.
-    }
-  }, [isFramesStep]);
 
   return (
     <>
       <CameraRig position={cameraPos} lookAt={[0, 0, 0]} />
-      <ambientLight intensity={0.5} />
+
+      {/* Tonemapping-style lighting setup (3-point + rim + fill) */}
+      <ambientLight intensity={0.35} color="#aabbcc" />
+      {/* Key light — biały, mocny */}
       <directionalLight
-        position={[5, 5, 5]}
-        intensity={1.0}
+        position={[5, 6, 4]}
+        intensity={1.6}
         castShadow
-        shadow-mapSize-width={1024}
-        shadow-mapSize-height={1024}
+        shadow-mapSize-width={2048}
+        shadow-mapSize-height={2048}
+        shadow-camera-near={0.1}
+        shadow-camera-far={20}
+        shadow-camera-left={-3}
+        shadow-camera-right={3}
+        shadow-camera-top={3}
+        shadow-camera-bottom={-3}
       />
-      <directionalLight position={[-3, -2, -3]} intensity={0.3} />
-      <pointLight position={[0, 0, 4]} intensity={0.4} color="#88aaff" />
+      {/* Fill light — chłodny, słabszy z drugiej strony */}
+      <directionalLight position={[-4, 2, 3]} intensity={0.6} color="#88aaff" />
+      {/* Rim light — z tyłu, ciepły, dla highlight krawędzi */}
+      <directionalLight position={[0, -2, -5]} intensity={0.7} color="#ffaa66" />
+      {/* Studio fill — punktowe światła nadające reflective bliki */}
+      <pointLight position={[3, -3, 4]} intensity={0.6} color="#ffd9a0" />
+      <pointLight position={[-3, 3, 4]} intensity={0.5} color="#a0d0ff" />
+      {/* Bottom uplight — lekki kontur podstawy */}
+      <pointLight position={[0, -4, 1]} intensity={0.3} color="#ffffff" />
 
       <group ref={groupRef}>
-        <PhoneModel highlight={highlight} brandColor={brandColor} />
+        <PhoneModel
+          highlight={highlight}
+          brandColor={brandColor}
+          screenOn={screenOn}
+          damageMarkers={damageMarkers}
+          onModelClick={damageMode ? onModelClick : undefined}
+        />
       </group>
 
-      {/* Bez Environment HDRI (zewnętrzny CDN drei) — zastąpione lokalnymi rim
-          lights żeby uniknąć CSP issues. */}
-      <pointLight position={[3, -3, 2]} intensity={0.5} color="#ffaa66" />
-      <pointLight position={[-3, 3, -2]} intensity={0.4} color="#66aaff" />
-      {/* Wyłączone — zostawiamy tylko płynne przejścia kamery; user nie kręci */}
-      <OrbitControls
-        enabled={false}
-        enablePan={false}
-        enableZoom={false}
-        enableRotate={false}
+      {/* Mięka kontaktowa cień — daje grunt i osadza model w przestrzeni */}
+      <ContactShadows
+        position={[0, -1.7, 0]}
+        opacity={0.55}
+        scale={6}
+        blur={2.4}
+        far={4}
+        resolution={1024}
+        color="#000000"
       />
     </>
   );
