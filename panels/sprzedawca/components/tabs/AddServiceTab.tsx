@@ -50,12 +50,11 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
   const [customerLastName, setCustomerLastName] = useState("");
   const [contactPhone, setContactPhone] = useState("");
   const [contactEmail, setContactEmail] = useState("");
-  // Potwierdzenie odbioru (P29-B2): user musi explicit wybrać yes/no/na
-  // dla każdej pozycji. null = nie zdecydowany → blokuje submit.
-  type HandoverState = "yes" | "no" | "na" | null;
-  const [sdRemoved, setSdRemoved] = useState<HandoverState>(null);
-  const [simRemoved, setSimRemoved] = useState<HandoverState>(null);
-  const [caseReturned, setCaseReturned] = useState<HandoverState>(null);
+  // Potwierdzenie odbioru (P29-C2): jeden wybór — albo "bez dodatków"
+  // albo "wpisz pobrane przedmioty" + textarea.
+  type HandoverChoice = "none" | "items" | null;
+  const [handoverChoice, setHandoverChoice] = useState<HandoverChoice>(null);
+  const [handoverItems, setHandoverItems] = useState("");
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -156,9 +155,10 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
     customerLastName.trim() &&
     phoneLocalDigits.length >= 6
   );
-  // Handover: wszystkie 3 muszą być explicite zaznaczone (nie null).
+  // Handover: wybór musi być dokonany. Jeśli "items" — textarea wymagana.
   const handoverComplete =
-    sdRemoved !== null && simRemoved !== null && caseReturned !== null;
+    handoverChoice === "none" ||
+    (handoverChoice === "items" && handoverItems.trim().length > 0);
   const allComplete =
     deviceComplete &&
     lockComplete &&
@@ -209,9 +209,8 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
     setCustomerLastName("");
     setContactPhone("");
     setContactEmail("");
-    setSdRemoved(null);
-    setSimRemoved(null);
-    setCaseReturned(null);
+    setHandoverChoice(null);
+    setHandoverItems("");
   };
 
   const onSubmit = async (e: React.FormEvent) => {
@@ -305,7 +304,10 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
         estimate: amountEstimate ? Number(amountEstimate) : null,
         cleaningPrice,
         cleaningAccepted: !!visualCondition.cleaning_accepted,
-        handover: { sdRemoved, simRemoved, caseReturned },
+        handover: {
+          choice: handoverChoice ?? "none",
+          items: handoverItems.trim(),
+        },
       };
       setLastCreated(snapshot);
       setSuccess(`Utworzono zlecenie ${ticketNumber}`);
@@ -589,32 +591,103 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
           onToggle={() => toggle("handover")}
         >
           <div className="space-y-3">
-            <p
-              className="text-xs"
-              style={{ color: "var(--text-muted)" }}
+            <button
+              type="button"
+              onClick={() => {
+                setHandoverChoice("none");
+                setHandoverItems("");
+              }}
+              className="w-full text-left rounded-xl border p-3 transition-all"
+              style={{
+                background:
+                  handoverChoice === "none"
+                    ? "linear-gradient(135deg, rgba(34, 197, 94, 0.15), rgba(34, 197, 94, 0.04))"
+                    : "var(--bg-surface)",
+                borderColor:
+                  handoverChoice === "none"
+                    ? "rgba(34, 197, 94, 0.5)"
+                    : "var(--border-subtle)",
+              }}
             >
-              Sprawdź każdą pozycję ZANIM klient odda urządzenie. „Brak"
-              oznacza że danej rzeczy nie było w urządzeniu/etui w momencie
-              przyjęcia.
-            </p>
-            <HandoverItem
-              label="Karta pamięci SD"
-              value={sdRemoved}
-              onChange={setSdRemoved}
-            />
-            <HandoverItem
-              label="Karta SIM"
-              value={simRemoved}
-              onChange={setSimRemoved}
-            />
-            <HandoverItem
-              label="Etui zwrócone klientowi"
-              value={caseReturned}
-              onChange={setCaseReturned}
-              yesLabel="Zwrócone"
-              noLabel="Nie zwrócone"
-              naLabel="Brak etui"
-            />
+              <p
+                className="text-sm font-semibold mb-0.5"
+                style={{
+                  color:
+                    handoverChoice === "none"
+                      ? "#22c55e"
+                      : "var(--text-main)",
+                }}
+              >
+                Potwierdzam, że przyjmowane urządzenie nie posiada:
+              </p>
+              <p
+                className="text-xs"
+                style={{ color: "var(--text-muted)" }}
+              >
+                Karty SIM · Karty SD · Etui
+              </p>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setHandoverChoice("items")}
+              className="w-full text-left rounded-xl border p-3 transition-all"
+              style={{
+                background:
+                  handoverChoice === "items"
+                    ? "linear-gradient(135deg, rgba(245, 158, 11, 0.15), rgba(245, 158, 11, 0.04))"
+                    : "var(--bg-surface)",
+                borderColor:
+                  handoverChoice === "items"
+                    ? "rgba(245, 158, 11, 0.5)"
+                    : "var(--border-subtle)",
+              }}
+            >
+              <p
+                className="text-sm font-semibold"
+                style={{
+                  color:
+                    handoverChoice === "items"
+                      ? "#F59E0B"
+                      : "var(--text-main)",
+                }}
+              >
+                Wpisz pobrane przedmioty od klienta
+              </p>
+            </button>
+
+            {handoverChoice === "items" && (
+              <div
+                className="rounded-xl border p-3 space-y-2 animate-fade-in"
+                style={{
+                  background: "rgba(59, 130, 246, 0.06)",
+                  borderColor: "rgba(59, 130, 246, 0.3)",
+                }}
+              >
+                <p
+                  className="text-xs"
+                  style={{ color: "var(--text-main)", lineHeight: 1.5 }}
+                >
+                  Pamiętaj, do przyjęcia serwisowego powinniśmy pobrać
+                  jedynie naprawiane urządzenie. Jeżeli jednak w celu
+                  realizacji naprawy (np. kopii danych) lub w innym
+                  uzasadnionym przypadku musisz pobrać od klienta
+                  dodatkowe przedmioty — wpisz je poniżej.
+                </p>
+                <textarea
+                  value={handoverItems}
+                  onChange={(e) => setHandoverItems(e.target.value)}
+                  rows={3}
+                  placeholder="np. ładowarka oryginalna Apple, etui Spigen, karta SIM"
+                  className="w-full px-3 py-2 rounded-lg border text-sm outline-none focus:border-[var(--accent)] resize-none"
+                  style={{
+                    background: "var(--bg-surface)",
+                    borderColor: "var(--border-subtle)",
+                    color: "var(--text-main)",
+                  }}
+                />
+              </div>
+            )}
           </div>
         </Section>
         </div>
@@ -796,71 +869,6 @@ function Section({
             </div>
           )}
         </div>
-      </div>
-    </div>
-  );
-}
-
-/** Pojedyncza pozycja potwierdzenia odbioru — Yes/No/Brak (Not Applicable).
- * Każda musi być explicit zaznaczona; null = nie wybrano → blokuje submit. */
-function HandoverItem({
-  label,
-  value,
-  onChange,
-  yesLabel = "Wyjęta",
-  noLabel = "Nie wyjęta",
-  naLabel = "Brak",
-}: {
-  label: string;
-  value: "yes" | "no" | "na" | null;
-  onChange: (v: "yes" | "no" | "na") => void;
-  yesLabel?: string;
-  noLabel?: string;
-  naLabel?: string;
-}) {
-  const opts: {
-    val: "yes" | "no" | "na";
-    label: string;
-    color: string;
-  }[] = [
-    { val: "yes", label: yesLabel, color: "#22C55E" },
-    { val: "no", label: noLabel, color: "#EF4444" },
-    { val: "na", label: naLabel, color: "#6b6b7b" },
-  ];
-  return (
-    <div className="rounded-xl border p-3 space-y-2"
-      style={{
-        background: "var(--bg-surface)",
-        borderColor: value === null ? "rgba(245, 158, 11, 0.4)" : "var(--border-subtle)",
-      }}
-    >
-      <p
-        className="text-sm font-medium"
-        style={{ color: "var(--text-main)" }}
-      >
-        {label}
-      </p>
-      <div className="grid grid-cols-3 gap-1.5">
-        {opts.map((o) => {
-          const active = value === o.val;
-          return (
-            <button
-              key={o.val}
-              type="button"
-              onClick={() => onChange(o.val)}
-              className="px-2 py-1.5 rounded-lg border text-xs font-semibold transition-all"
-              style={{
-                background: active
-                  ? `linear-gradient(135deg, ${o.color}, ${o.color}cc)`
-                  : "var(--bg-card)",
-                color: active ? "#fff" : "var(--text-muted)",
-                borderColor: active ? o.color : "var(--border-subtle)",
-              }}
-            >
-              {o.label}
-            </button>
-          );
-        })}
       </div>
     </div>
   );

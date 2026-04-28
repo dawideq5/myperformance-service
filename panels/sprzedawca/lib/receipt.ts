@@ -25,17 +25,12 @@ export interface ReceiptData {
   cleaningPrice: number | null;
   cleaningAccepted: boolean;
   handover: {
-    sdRemoved: "yes" | "no" | "na" | null;
-    simRemoved: "yes" | "no" | "na" | null;
-    caseReturned: "yes" | "no" | "na" | null;
+    /** "none" = potwierdzam brak SD/SIM/etui; "items" = wpisane dodatkowe
+     * przedmioty pobrane od klienta (np. kabel, kopia danych). */
+    choice: "none" | "items";
+    items: string;
   };
 }
-
-const HANDOVER_LABELS: Record<string, string> = {
-  yes: "Wyjęta / Zwrócone",
-  no: "POZOSTAWIONA W URZĄDZENIU",
-  na: "Brak",
-};
 
 const LOCK_LABELS: Record<string, string> = {
   none: "Brak blokady",
@@ -393,24 +388,17 @@ export function buildReceiptHTML(data: ReceiptData): string {
   </div>
 
   <h2>Potwierdzenie odbioru</h2>
-  <table class="handover-table">
-    <tr>
-      <th>Pozycja</th>
-      <th style="text-align:right;">Status</th>
-    </tr>
-    <tr>
-      <td>Karta pamięci SD</td>
-      <td style="text-align:right; font-weight:600;">${escapeHtml(HANDOVER_LABELS[data.handover.sdRemoved ?? "na"])}</td>
-    </tr>
-    <tr>
-      <td>Karta SIM</td>
-      <td style="text-align:right; font-weight:600;">${escapeHtml(HANDOVER_LABELS[data.handover.simRemoved ?? "na"])}</td>
-    </tr>
-    <tr>
-      <td>Etui zwrócone klientowi</td>
-      <td style="text-align:right; font-weight:600;">${escapeHtml(HANDOVER_LABELS[data.handover.caseReturned ?? "na"])}</td>
-    </tr>
-  </table>
+  ${
+    data.handover.choice === "none"
+      ? `<div style="background:#f0fdf4; border-left:3px solid #22c55e; padding:10pt 14pt; font-size:11pt; line-height:1.5;">
+          Potwierdzam, że przyjmowane urządzenie nie posiada karty SIM,
+          karty pamięci SD ani nie posiadało etui przy przyjęciu.
+        </div>`
+      : `<div style="background:#fff7ed; border-left:3px solid #f59e0b; padding:10pt 14pt; font-size:11pt;">
+          <p style="font-weight:600; margin:0 0 4pt 0;">Pobrane od klienta dodatkowe przedmioty:</p>
+          <p style="margin:0; white-space:pre-wrap;">${escapeHtml(data.handover.items)}</p>
+        </div>`
+  }
 
   <div class="legal">
     Powyższe potwierdzenie stanowi pokwitowanie przyjęcia urządzenia do
