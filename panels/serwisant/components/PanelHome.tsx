@@ -14,6 +14,7 @@ import {
   User as UserIcon,
 } from "lucide-react";
 import { PanelLocationMap, type PanelLocation } from "./PanelLocationMap";
+import { ServicesBoard } from "./tabs/ServicesBoard";
 
 const STORAGE_KEY = "panel-serwisant:selected-location";
 
@@ -343,90 +344,76 @@ export function PanelHome({
       <main
         className="flex-1 mx-auto max-w-7xl w-full px-4 sm:px-6 py-6 sm:py-8 space-y-4 animate-fade-in"
       >
-        {/* Hero z punktem */}
+        {/* Compact hero — bez mapy */}
         <div
-          className="p-6 rounded-2xl border"
+          className="p-4 sm:p-5 rounded-2xl border flex items-center gap-4"
           style={{
             background: "var(--bg-card)",
             borderColor: "var(--border-subtle)",
             color: "var(--text-main)",
           }}
         >
-          <div className="flex items-start gap-4">
-            <div
-              className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
-              style={{
-                background: selected.type === "service" ? "rgba(244, 63, 94, 0.1)" : "rgba(14, 165, 233, 0.1)",
-                color: selected.type === "service" ? "#f43f5e" : "#0ea5e9",
-              }}
-            >
-              {selected.type === "service" ? (
-                <Building2 className="w-6 h-6" />
-              ) : (
-                <Briefcase className="w-6 h-6" />
-              )}
-            </div>
-            <div className="flex-1 min-w-0">
-              <h1 className="text-xl sm:text-2xl font-bold mb-1">
+          <div
+            className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+            style={{
+              background:
+                selected.type === "service"
+                  ? "rgba(244, 63, 94, 0.1)"
+                  : "rgba(14, 165, 233, 0.1)",
+              color: selected.type === "service" ? "#f43f5e" : "#0ea5e9",
+            }}
+          >
+            {selected.type === "service" ? (
+              <Building2 className="w-5 h-5" />
+            ) : (
+              <Briefcase className="w-5 h-5" />
+            )}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex flex-wrap items-center gap-2 mb-0.5">
+              <h1 className="text-base sm:text-lg font-semibold truncate">
                 {selected.name}
               </h1>
-              <div className="flex flex-wrap gap-3 text-sm" style={{ color: "var(--text-muted)" }}>
-                {selected.warehouseCode && (
-                  <span className="font-mono text-xs">{selected.warehouseCode}</span>
-                )}
-                {selected.address && (
-                  <span className="flex items-center gap-1.5">
-                    <MapPin className="w-3.5 h-3.5" />
-                    {selected.address}
-                  </span>
-                )}
-                {selected.phone && (
-                  <span className="flex items-center gap-1.5">
-                    <Phone className="w-3.5 h-3.5" />
-                    {selected.phone}
-                  </span>
-                )}
-                {selected.email && (
-                  <span className="flex items-center gap-1.5">
-                    <Mail className="w-3.5 h-3.5" />
-                    {selected.email}
-                  </span>
-                )}
-              </div>
-              {selected.description && (
-                <p className="mt-3 text-sm" style={{ color: "var(--text-muted)" }}>
-                  {selected.description}
-                </p>
+              {selected.warehouseCode && (
+                <span
+                  className="text-[10px] uppercase font-mono px-2 py-0.5 rounded"
+                  style={{
+                    background: "var(--bg-surface)",
+                    color: "var(--text-muted)",
+                  }}
+                >
+                  {selected.warehouseCode}
+                </span>
+              )}
+            </div>
+            <div
+              className="flex flex-wrap gap-x-3 gap-y-1 text-xs"
+              style={{ color: "var(--text-muted)" }}
+            >
+              {selected.address && (
+                <span className="flex items-center gap-1">
+                  <MapPin className="w-3 h-3" />
+                  {selected.address}
+                </span>
+              )}
+              {selected.phone && (
+                <span className="flex items-center gap-1">
+                  <Phone className="w-3 h-3" />
+                  {selected.phone}
+                </span>
+              )}
+              {selected.email && (
+                <span className="flex items-center gap-1">
+                  <Mail className="w-3 h-3" />
+                  {selected.email}
+                </span>
               )}
             </div>
           </div>
         </div>
 
-        {/* Mapa pojedynczego punktu — orientacja */}
-        <div style={{ height: 320 }}>
-          <PanelLocationMap
-            locations={[selected]}
-            selectedId={selected.id}
-            className="h-full"
-          />
-        </div>
-
-        {/* Placeholder na widgety panelu — kolejne fazy dodadzą tu zamówienia,
-            klienci, oferty itd. */}
-        <div
-          className="p-6 rounded-2xl border text-center"
-          style={{
-            background: "var(--bg-surface)",
-            borderColor: "var(--border-subtle)",
-            color: "var(--text-muted)",
-          }}
-        >
-          <p className="text-sm">
-            Kolejne widgety (oferty, klienci, zamówienia) zostaną dodane w
-            kolejnych fazach rozbudowy. Zalogowany jako:{" "}
-            <strong style={{ color: "var(--text-main)" }}>{userEmail}</strong>
-          </p>
-        </div>
+        {/* Główna treść panelu serwisanta — kanban zleceń */}
+        <ServicesBoard userEmail={userEmail} />
       </main>
     </div>
   );
