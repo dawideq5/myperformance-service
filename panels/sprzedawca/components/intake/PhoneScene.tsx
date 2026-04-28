@@ -5,7 +5,7 @@ import { useFrame } from "@react-three/fiber";
 import { Suspense, useRef } from "react";
 import * as THREE from "three";
 import { CameraRig } from "./PhoneModel";
-import { PhoneGLB, type HighlightId } from "./PhoneGLB";
+import { PhoneGLB, type HighlightId, type PhoneAxes } from "./PhoneGLB";
 
 interface DamageMarker {
   id: string;
@@ -20,23 +20,29 @@ export default function PhoneScene({
   cameraPos,
   cameraLookAt,
   isFramesStep,
+  framesAxis,
   damageMarkers = [],
   damageMode = false,
   playDisassembly = false,
   phonePosition = [0, 0, 0],
   onModelClick,
+  onAxesReady,
 }: {
   highlight: HighlightId;
   cameraPos: [number, number, number];
   cameraLookAt?: [number, number, number];
   brandColor?: string;
   isFramesStep: boolean;
+  /** Oś wokół której orbituje kamera w frames step (axes.up — pionowa oś
+   * telefonu, dzięki czemu obraca się wokół ramek a nie wokół poprzecznej osi). */
+  framesAxis?: THREE.Vector3;
   screenOn?: boolean;
   damageMarkers?: DamageMarker[];
   damageMode?: boolean;
   playDisassembly?: boolean;
   phonePosition?: [number, number, number];
   onModelClick?: (point: THREE.Vector3, surface: string) => void;
+  onAxesReady?: (axes: PhoneAxes) => void;
 }) {
   const groupRef = useRef<THREE.Group>(null);
   const keyLightRef = useRef<THREE.DirectionalLight>(null);
@@ -63,16 +69,28 @@ export default function PhoneScene({
           normalized + (-normalized) * Math.min(dt * 2.5, 1);
       }
     }
-    // Frames step: orbit camera wokół phone (phone static, camera leci po
-    // okręgu wolniej dla cinematic feel).
-    if (isFramesStep && !damageMode) {
+    // Frames step: orbit kamery wokół osi pionowej telefonu (axes.up).
+    // Dzięki temu widzimy kolejno wszystkie 4 boki ramek niezależnie od
+    // orientacji modelu w GLB.
+    if (isFramesStep && !damageMode && framesAxis) {
       const angle = t * 0.25;
-      const radius = 3.8;
-      camera.position.set(
-        Math.sin(angle) * radius,
-        0.5,
-        Math.cos(angle) * radius,
-      );
+      const radius = 3.5;
+      // Build orthonormal basis: up = framesAxis, right = arbitrary perp.
+      const up = framesAxis.clone();
+      const right = new THREE.Vector3(1, 0, 0);
+      if (Math.abs(up.dot(right)) > 0.9) right.set(0, 1, 0);
+      const forward = new THREE.Vector3().crossVectors(right, up).normalize();
+      const trueRight = new THREE.Vector3()
+        .crossVectors(up, forward)
+        .normalize();
+      // Pozycja: orbituje wokół up axis.
+      const pos = trueRight
+        .clone()
+        .multiplyScalar(Math.sin(angle) * radius)
+        .add(forward.clone().multiplyScalar(Math.cos(angle) * radius));
+      // Niewielka elewacja dla lepszego widoku (15% w kierunku up).
+      pos.add(up.clone().multiplyScalar(radius * 0.15));
+      camera.position.copy(pos);
       camera.lookAt(0, 0, 0);
     }
     // Animowane key + fill lights.
@@ -135,6 +153,7 @@ export default function PhoneScene({
             damageMode={damageMode}
             playDisassembly={playDisassembly}
             onModelClick={onModelClick}
+            onAxesReady={onAxesReady}
           />
         </Suspense>
       </group>
