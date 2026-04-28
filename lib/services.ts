@@ -50,28 +50,39 @@ export type LockType =
   | "fingerprint"
   | "multi";
 
-/** Checklista przyjęcia urządzenia — stan + funkcjonalności. JSON w DB. */
+/** Checklista przyjęcia urządzenia — funkcjonalność + stan podstawowy. JSON w DB. */
 export interface IntakeChecklist {
-  /** "perfect" | "minor_scratches" | "cracked" | "shattered" */
-  screen?: string;
-  /** "perfect" | "minor_wear" | "dents" | "damaged" */
-  body?: string;
-  /** "good" | "moderate" | "poor" | "swollen" | "unknown" */
-  battery_health?: string;
-  /** "all_working" | "some_loose" | "broken" | "unknown" */
-  ports?: string;
-  /** Czy są ślady wody (LDI / korozja). */
-  water_damage?: boolean;
-  /** Czy urządzenie się włącza. */
-  powers_on?: boolean;
-  /** Czy ekran reaguje na dotyk. */
-  screen_responds?: boolean;
-  /** Czy klient zrobił backup. */
-  customer_backup?: boolean;
-  /** Czy klient zgadza się na reset do ustawień fabrycznych jeśli niezbędny. */
-  reset_consent?: boolean;
+  /** "yes" | "no" | "vibrates" — czy urządzenie się włącza. */
+  powers_on?: "yes" | "no" | "vibrates";
+  /** Czy urządzenie jest wygięte. */
+  bent?: boolean;
+  /** Czy urządzenie ma pęknięty front. */
+  cracked_front?: boolean;
+  /** Czy urządzenie ma pęknięty tył. */
+  cracked_back?: boolean;
+  /** Tylko dla iPhone — czy Face ID / Touch ID działa. */
+  face_touch_id?: boolean;
+  /** "yes" | "no" | "unknown" — czy urządzenie było zalane. */
+  water_damage?: "yes" | "no" | "unknown";
   /** Dodatkowe notatki technika. */
   notes?: string;
+}
+
+/** Wizualny stan urządzenia z 3D walkthrough. */
+export interface VisualCondition {
+  /** 1-10 ocena ekranu. */
+  display_rating?: number;
+  display_notes?: string;
+  back_notes?: string;
+  camera_notes?: string;
+  frames_notes?: string;
+  /** Czy klient zaakceptował czyszczenie głośnika rozmów. */
+  earpiece_clean?: boolean;
+  /** Czy klient zaakceptował czyszczenie głośniczków. */
+  speakers_clean?: boolean;
+  /** Czy klient zaakceptował czyszczenie portu ładowania. */
+  port_clean?: boolean;
+  additional_notes?: string;
 }
 
 export interface ServiceTicket {
@@ -90,6 +101,8 @@ export interface ServiceTicket {
   signedInAccount: string | null;
   accessories: string[];
   intakeChecklist: IntakeChecklist;
+  chargingCurrent: number | null;
+  visualCondition: VisualCondition;
   description: string | null;
   diagnosis: string | null;
   amountEstimate: number | null;
@@ -125,6 +138,8 @@ interface ServiceRow {
   signed_in_account: string | null;
   accessories: string[] | string | null;
   intake_checklist: IntakeChecklist | string | null;
+  charging_current: number | string | null;
+  visual_condition: VisualCondition | string | null;
   description: string | null;
   diagnosis: string | null;
   amount_estimate: number | string | null;
@@ -178,6 +193,21 @@ function parseChecklist(
   return v;
 }
 
+function parseVisualCondition(
+  v: VisualCondition | string | null,
+): VisualCondition {
+  if (!v) return {};
+  if (typeof v === "string") {
+    try {
+      const p = JSON.parse(v);
+      return typeof p === "object" && p ? (p as VisualCondition) : {};
+    } catch {
+      return {};
+    }
+  }
+  return v;
+}
+
 function mapRow(r: ServiceRow): ServiceTicket {
   return {
     id: r.id,
@@ -195,6 +225,8 @@ function mapRow(r: ServiceRow): ServiceTicket {
     signedInAccount: r.signed_in_account ?? null,
     accessories: parseStringArray(r.accessories),
     intakeChecklist: parseChecklist(r.intake_checklist),
+    chargingCurrent: num(r.charging_current),
+    visualCondition: parseVisualCondition(r.visual_condition),
     description: r.description ?? null,
     diagnosis: r.diagnosis ?? null,
     amountEstimate: num(r.amount_estimate),
@@ -305,6 +337,8 @@ export interface CreateServiceInput {
   signedInAccount?: string | null;
   accessories?: string[];
   intakeChecklist?: IntakeChecklist;
+  chargingCurrent?: number | null;
+  visualCondition?: VisualCondition;
   description?: string | null;
   amountEstimate?: number | null;
   contactPhone?: string | null;
@@ -361,6 +395,8 @@ export async function createService(
     signed_in_account: input.signedInAccount ?? null,
     accessories: input.accessories ?? [],
     intake_checklist: input.intakeChecklist ?? {},
+    charging_current: input.chargingCurrent ?? null,
+    visual_condition: input.visualCondition ?? {},
     description: input.description ?? null,
     amount_estimate: input.amountEstimate ?? null,
     contact_phone: input.contactPhone ?? null,
@@ -427,6 +463,8 @@ export interface UpdateServiceInput {
   signedInAccount?: string | null;
   accessories?: string[];
   intakeChecklist?: IntakeChecklist;
+  chargingCurrent?: number | null;
+  visualCondition?: VisualCondition;
 }
 
 export async function updateService(
@@ -468,6 +506,10 @@ export async function updateService(
   if (input.accessories !== undefined) patch.accessories = input.accessories;
   if (input.intakeChecklist !== undefined)
     patch.intake_checklist = input.intakeChecklist;
+  if (input.chargingCurrent !== undefined)
+    patch.charging_current = input.chargingCurrent;
+  if (input.visualCondition !== undefined)
+    patch.visual_condition = input.visualCondition;
   const updated = await updateItem<ServiceRow>("mp_services", id, patch);
   const mapped = mapRow(updated);
 

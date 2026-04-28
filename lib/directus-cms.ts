@@ -2182,7 +2182,28 @@ export const COLLECTION_SPECS: CollectionSpec[] = [
           interface: "input-code",
           width: "full",
           options: { language: "JSON" },
-          note: "Checklista przyjęcia (stan ekranu/obudowy/baterii/portów, sprawdzenia funkcjonalne, ślady wody itd). JSON: {screen, body, battery_health, ports, water_damage, powers_on, screen_responds, customer_backup, reset_consent}.",
+          note: "Checklista przyjęcia. JSON: {powers_on (yes/no/vibrates), bent (boolean), cracked_front (boolean), cracked_back (boolean), face_touch_id (boolean), water_damage (yes/no/unknown), notes}.",
+        },
+      },
+      {
+        field: "charging_current",
+        type: "decimal",
+        schema: { numeric_precision: 5, numeric_scale: 2 },
+        meta: {
+          interface: "input",
+          width: "half",
+          options: { iconLeft: "bolt" },
+          note: "Prąd ładowania w amperach (X.XX A). Pomijane gdy water_damage = yes/unknown.",
+        },
+      },
+      {
+        field: "visual_condition",
+        type: "json",
+        meta: {
+          interface: "input-code",
+          width: "full",
+          options: { language: "JSON" },
+          note: "Stan wizualny urządzenia (z 3D walkthrough): { display_rating (1-10), display_notes, back_notes, camera_notes, frames_notes, earpiece_clean (boolean), speakers_clean (boolean), port_clean (boolean), additional_notes }.",
         },
       },
       {
