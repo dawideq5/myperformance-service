@@ -1,7 +1,7 @@
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { PanelShell } from "@/components/PanelShell";
+import { DriverHome } from "@/components/DriverHome";
 
 export default async function HomePage() {
   const session = await getServerSession(authOptions);
@@ -11,12 +11,8 @@ export default async function HomePage() {
   const hasRole = roles.includes("kierowca") || roles.includes("admin");
   if (!hasRole) redirect("/forbidden");
 
-  return (
-    <PanelShell
-      title="Panel Kierowcy"
-      subtitle="panelkierowcy.myperformance.pl"
-      userLabel={session.user?.name ?? session.user?.email ?? ""}
-      roles={roles}
-    />
-  );
+  const userLabel = session.user?.name ?? session.user?.email ?? "";
+  const userEmail = session.user?.email ?? "";
+
+  return <DriverHome userLabel={userLabel} userEmail={userEmail} />;
 }

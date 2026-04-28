@@ -58,7 +58,19 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url);
   const type = url.searchParams.get("type") ?? undefined;
-  const locations = await getActiveLocationsForUser({ email, panelType: type });
+  const idsParam = url.searchParams.get("ids");
+
+  // ?ids=a,b,c — bypass cert-filter, used by panel-kierowca do resolve-owania
+  // source/destination locations w transport jobs. Lookup po znanych IDs
+  // (driver i tak widzi te adresy z transport-jobs response).
+  let locations: Awaited<ReturnType<typeof getActiveLocationsForUser>>;
+  if (idsParam) {
+    const { listLocationsByIds } = await import("@/lib/locations");
+    const ids = idsParam.split(",").map((s) => s.trim()).filter(Boolean);
+    locations = ids.length > 0 ? await listLocationsByIds(ids) : [];
+  } else {
+    locations = await getActiveLocationsForUser({ email, panelType: type });
+  }
 
   return NextResponse.json(
     { locations },
