@@ -7,7 +7,6 @@ import {
   ArrowLeft,
   Briefcase,
   Building2,
-  ClipboardList,
   ListChecks,
   LogOut,
   Mail,
@@ -21,6 +20,12 @@ import {
   User as UserIcon,
 } from "lucide-react";
 import { PanelLocationMap, type PanelLocation } from "./PanelLocationMap";
+import { ServicesAllTab } from "./tabs/ServicesAllTab";
+import { AddServiceTab } from "./tabs/AddServiceTab";
+import { ProtectionTab } from "./tabs/ProtectionTab";
+import { ClaimsTab } from "./tabs/ClaimsTab";
+import { PricelistTab } from "./tabs/PricelistTab";
+import { DeliveryTab } from "./tabs/DeliveryTab";
 
 const STORAGE_KEY = "panel-sprzedawca:selected-location";
 const TAB_STORAGE_KEY = "panel-sprzedawca:active-tab";
@@ -37,57 +42,13 @@ const TABS: {
   id: SprzedawcaTab;
   label: string;
   icon: React.ReactNode;
-  description: string;
-  status: "soon" | "draft";
 }[] = [
-  {
-    id: "services-add",
-    label: "Dodaj serwis",
-    icon: <PlusCircle className="w-4 h-4" />,
-    description:
-      "Formularz przyjęcia urządzenia do serwisu (IMEI, marka, model, opis usterki, kod blokady, zdjęcia).",
-    status: "soon",
-  },
-  {
-    id: "services-all",
-    label: "Wszystkie serwisy",
-    icon: <ListChecks className="w-4 h-4" />,
-    description:
-      "Lista wszystkich zleceń z filtrami i wyszukiwarką. Statusy: przyjęty, diagnoza, naprawa, gotowy do odbioru, wydany.",
-    status: "soon",
-  },
-  {
-    id: "protection",
-    label: "Pakiet ochronny",
-    icon: <Shield className="w-4 h-4" />,
-    description:
-      "Sprzedaż pakietu ochronnego (szkło hartowane, gwarancja rozszerzona). Powiązanie z urządzeniem (IMEI).",
-    status: "soon",
-  },
-  {
-    id: "claims",
-    label: "Reklamacje",
-    icon: <AlertTriangle className="w-4 h-4" />,
-    description:
-      "Przyjmowanie reklamacji (dane klienta, paragon, opis usterki, żądanie klienta). Załączniki + zdjęcia.",
-    status: "soon",
-  },
-  {
-    id: "delivery",
-    label: "Dostawa",
-    icon: <Truck className="w-4 h-4" />,
-    description:
-      "Status transportu urządzeń serwisowych — kierowcy odbierają i dostarczają urządzenia. Live tracking + planowane terminy.",
-    status: "soon",
-  },
-  {
-    id: "pricelist",
-    label: "Cennik",
-    icon: <Tags className="w-4 h-4" />,
-    description:
-      "Cennik usług i pakietów (tylko do odczytu, edytowany w panelu admin / Directus).",
-    status: "soon",
-  },
+  { id: "services-add", label: "Dodaj serwis", icon: <PlusCircle className="w-4 h-4" /> },
+  { id: "services-all", label: "Wszystkie serwisy", icon: <ListChecks className="w-4 h-4" /> },
+  { id: "protection", label: "Pakiet ochronny", icon: <Shield className="w-4 h-4" /> },
+  { id: "claims", label: "Reklamacje", icon: <AlertTriangle className="w-4 h-4" /> },
+  { id: "delivery", label: "Dostawa", icon: <Truck className="w-4 h-4" /> },
+  { id: "pricelist", label: "Cennik", icon: <Tags className="w-4 h-4" /> },
 ];
 
 export function PanelHome({
@@ -540,69 +501,14 @@ export function PanelHome({
           </div>
         </div>
 
-        {/* Treść aktywnej zakładki — placeholdery do uzupełnienia w kolejnych fazach */}
-        <TabContent
-          tab={TABS.find((t) => t.id === activeTab) ?? TABS[0]}
-          userEmail={userEmail}
-        />
+        {/* Treść aktywnej zakładki */}
+        {activeTab === "services-add" && <AddServiceTab locationId={selected.id} />}
+        {activeTab === "services-all" && <ServicesAllTab />}
+        {activeTab === "protection" && <ProtectionTab locationId={selected.id} />}
+        {activeTab === "claims" && <ClaimsTab locationId={selected.id} />}
+        {activeTab === "delivery" && <DeliveryTab />}
+        {activeTab === "pricelist" && <PricelistTab />}
       </main>
-    </div>
-  );
-}
-
-function TabContent({
-  tab,
-  userEmail,
-}: {
-  tab: (typeof TABS)[number];
-  userEmail: string;
-}) {
-  return (
-    <div
-      className="p-6 sm:p-8 rounded-2xl border"
-      style={{
-        background: "var(--bg-card)",
-        borderColor: "var(--border-subtle)",
-        color: "var(--text-main)",
-      }}
-    >
-      <div className="flex items-start gap-4">
-        <div
-          className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
-          style={{ background: "var(--bg-surface)", color: "var(--accent)" }}
-        >
-          <ClipboardList className="w-6 h-6" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <h2 className="text-lg sm:text-xl font-semibold">{tab.label}</h2>
-            <span
-              className="text-[10px] uppercase font-mono px-2 py-0.5 rounded"
-              style={{
-                background: "rgba(251, 191, 36, 0.12)",
-                color: "#fbbf24",
-              }}
-            >
-              wkrótce
-            </span>
-          </div>
-          <p
-            className="text-sm mb-4"
-            style={{ color: "var(--text-muted)" }}
-          >
-            {tab.description}
-          </p>
-          <p
-            className="text-xs"
-            style={{ color: "var(--text-muted)" }}
-          >
-            Funkcjonalność jest w trakcie projektowania w oparciu o Directus
-            (mp_services, mp_claims, mp_protections), Chatwoot (powiadomienia
-            klienta) i moduł kierowcy (transport). Zalogowany jako:{" "}
-            <strong style={{ color: "var(--text-main)" }}>{userEmail}</strong>.
-          </p>
-        </div>
-      </div>
     </div>
   );
 }
