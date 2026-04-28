@@ -17,7 +17,6 @@ import {
 } from "lucide-react";
 import * as THREE from "three";
 import type { HighlightId } from "./PhoneModel";
-import type { PhoneAxes } from "./PhoneGLB";
 import {
   BACK_DESCRIPTIONS,
   CAMERA_DESCRIPTIONS,
@@ -147,7 +146,7 @@ const STEPS: Step[] = [
   {
     id: "summary",
     title: "Podsumowanie",
-    subtitle: "Sprawdź zapisane oceny i dodaj uwagi końcowe.",
+    subtitle: "Telefon rozkładany na elementy — sprawdź podsumowanie po prawej.",
     highlight: null,
     cameraPos: [3.5, 1, 5.5],
     cameraLookAt: [-1.8, 0, 0],
@@ -183,13 +182,13 @@ function getRotationInstruction(): string {
   const ua = navigator.userAgent;
   const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(ua);
   if (isMobile) {
-    return "1 palec — obrót modelu, 2 palce — przybliżenie";
+    return "👆 1 palec — obrót · 2 palce (rozsuń) — przybliżenie";
   }
   const isMac = /Mac|Macintosh/i.test(ua);
   if (isMac) {
-    return "Trackpad: 1 palec — obrót, ścisk 2 palcami — przybliżenie";
+    return "🖱️ Trackpad: 1 palec — obrót · ścisk 2 palcami — przybliżenie · Cmd+scroll = zoom";
   }
-  return "Lewy przycisk myszy + ruch — obrót, scroll — przybliżenie";
+  return "🖱️ Lewy przycisk myszy + przeciągnij — obrót · scroll — przybliżenie";
 }
 
 /** Polskie etykiety nazw powierzchni dla markerów. */
@@ -343,142 +342,15 @@ export function PhoneConfigurator3D({
   const update = (patch: Partial<VisualConditionState>) =>
     setState((s) => ({ ...s, ...patch }));
 
-  // === Dynamic camera positioning na podstawie axes telefonu ===
-  // axes: front/up/side wykryte z pozycji nazwanych nodów GLB. Liczymy pozycje
-  // kamery POPRAWNIE niezależnie od orientacji modelu w pliku.
-  const phoneAxesRef = useRef<PhoneAxes | null>(null);
-  const [, forceUpdate] = useState(0);
-
-  const handleAxesReady = (axes: PhoneAxes) => {
-    phoneAxesRef.current = axes;
-    forceUpdate((n) => n + 1);
-  };
-
-  const computeCameraForStep = (
-    s: StepId,
-    tourIdxValue: number,
-  ): { pos: [number, number, number]; lookAt: [number, number, number] } => {
-    const axes = phoneAxesRef.current;
-    if (!axes) {
-      // Fallback przed załadowaniem GLB.
-      return { pos: [0, 0, 4], lookAt: [0, 0, 0] };
-    }
-    const D = axes.radius * 2.0; // distance scale
-    const v3 = (x: THREE.Vector3): [number, number, number] => [x.x, x.y, x.z];
-    const front = axes.front;
-    const up = axes.up;
-    const side = axes.side;
-
-    const offsetFromCenter = (
-      ...components: { dir: THREE.Vector3; mul: number }[]
-    ): [number, number, number] => {
-      const pos = new THREE.Vector3();
-      for (const c of components) {
-        pos.add(c.dir.clone().multiplyScalar(c.mul * D));
-      }
-      return v3(pos);
-    };
-
-    switch (s) {
-      case "display":
-        // Patrzymy z PRZODU prosto na ekran.
-        return {
-          pos: offsetFromCenter({ dir: front, mul: 1.1 }),
-          lookAt: [0, 0, 0],
-        };
-      case "back":
-        // Patrzymy od TYŁU prosto.
-        return {
-          pos: offsetFromCenter({ dir: front, mul: -1.1 }),
-          lookAt: [0, 0, 0],
-        };
-      case "frames":
-        // Inicjalna pozycja — orbit handle'owany w PhoneScene.
-        return {
-          pos: offsetFromCenter({ dir: side, mul: 1.0 }),
-          lookAt: [0, 0, 0],
-        };
-      case "cameras":
-        // Z TYŁU lekko od góry — patrzymy na wyspę aparatów (która jest na
-        // tylnej powierzchni w górnej części).
-        return {
-          pos: offsetFromCenter(
-            { dir: front, mul: -0.85 },
-            { dir: up, mul: 0.4 },
-          ),
-          lookAt: v3(up.clone().multiplyScalar(D * 0.25)),
-        };
-      case "cleaning": {
-        if (!step.cleaningTour) {
-          return {
-            pos: offsetFromCenter({ dir: front, mul: 1.0 }),
-            lookAt: [0, 0, 0],
-          };
-        }
-        const tour = step.cleaningTour[tourIdxValue];
-        // Każdy spot w cleaning tour ma własną logikę kamery:
-        if (tour.highlight === "earpiece") {
-          // Front-top, blisko górnej krawędzi ekranu.
-          return {
-            pos: offsetFromCenter(
-              { dir: front, mul: 1.0 },
-              { dir: up, mul: 0.5 },
-            ),
-            lookAt: v3(up.clone().multiplyScalar(D * 0.4)),
-          };
-        }
-        if (tour.highlight === "speakers") {
-          // Front-bottom, lekko od dołu — głośniczki na dolnej krawędzi.
-          return {
-            pos: offsetFromCenter(
-              { dir: front, mul: 0.8 },
-              { dir: up, mul: -0.55 },
-            ),
-            lookAt: v3(up.clone().multiplyScalar(-D * 0.4)),
-          };
-        }
-        if (tour.highlight === "port") {
-          // Bardziej z dołu — port w środku dolnej krawędzi.
-          return {
-            pos: offsetFromCenter(
-              { dir: front, mul: 0.45 },
-              { dir: up, mul: -0.95 },
-            ),
-            lookAt: v3(up.clone().multiplyScalar(-D * 0.4)),
-          };
-        }
-        return {
-          pos: offsetFromCenter({ dir: front, mul: 1.0 }),
-          lookAt: [0, 0, 0],
-        };
-      }
-      case "damage":
-        // Z PRZODU, oddalone żeby było widać cały telefon.
-        return {
-          pos: offsetFromCenter({ dir: front, mul: 1.5 }),
-          lookAt: [0, 0, 0],
-        };
-      case "summary":
-        // Z prawej strony lekko z góry — model przesunięty w lewo.
-        return {
-          pos: offsetFromCenter(
-            { dir: front, mul: 1.3 },
-            { dir: side, mul: 1.0 },
-            { dir: up, mul: 0.3 },
-          ),
-          lookAt: [-1.8, 0, 0],
-        };
-      default:
-        return {
-          pos: offsetFromCenter({ dir: front, mul: 1.0 }),
-          lookAt: [0, 0, 0],
-        };
-    }
-  };
-
-  const computed = computeCameraForStep(step.id, tourIdx);
-  const currentCameraPos = computed.pos;
-  const currentLookAt = computed.lookAt;
+  // Compute current camera + highlight (cleaning tour overrides static step.cameraPos).
+  const currentCameraPos: [number, number, number] =
+    step.id === "cleaning" && step.cleaningTour
+      ? step.cleaningTour[tourIdx].pos
+      : step.cameraPos;
+  const currentLookAt: [number, number, number] | undefined =
+    step.id === "cleaning" && step.cleaningTour
+      ? step.cleaningTour[tourIdx].lookAt
+      : step.cameraLookAt;
   const currentHighlight: HighlightId =
     step.id === "cleaning" && step.cleaningTour
       ? step.cleaningTour[tourIdx].highlight
@@ -563,14 +435,12 @@ export function PhoneConfigurator3D({
                 cameraLookAt={currentLookAt}
                 brandColor={brandColorHex}
                 isFramesStep={step.id === "frames"}
-                framesAxis={phoneAxesRef.current?.up}
                 screenOn={false}
                 damageMarkers={state.damage_markers ?? []}
                 damageMode={step.id === "damage"}
                 playDisassembly={playDisassembly}
                 phonePosition={phonePosition}
                 onModelClick={onModelClick}
-                onAxesReady={handleAxesReady}
               />
             </Canvas>
             <ModelLoadingOverlay />
@@ -598,7 +468,16 @@ export function PhoneConfigurator3D({
               </div>
             )}
 
-            <div className="absolute top-4 left-4 px-3 py-1.5 rounded-full bg-black/40 backdrop-blur-sm border border-white/10 text-[10px] uppercase tracking-wider text-white/80 font-mono">
+            {/* Summary step: caption nad rozkładającym się modelem */}
+            {step.id === "summary" && (
+              <div className="absolute bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-full bg-black/60 backdrop-blur-md border border-white/10 text-xs text-white/80 max-w-[60%] text-center animate-fade-in">
+                <Sparkles className="w-3 h-3 inline mr-1.5 text-amber-400" />
+                Telefon rozłożony na elementy. Podsumowanie po prawej.
+              </div>
+            )}
+
+            <div className="absolute top-4 left-4 px-3 py-1.5 rounded-full bg-black/40 backdrop-blur-sm border border-white/10 text-[10px] uppercase tracking-wider text-white/80 font-mono flex items-center gap-1.5">
+              <Sparkles className="w-3 h-3" />
               {brand || "Telefon"} · krok {stepIdx + 1} z {STEPS.length}
             </div>
           </div>

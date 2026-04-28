@@ -38,21 +38,6 @@ interface DamageMarker {
   description?: string;
 }
 
-/** Orientacja telefonu wyciągnięta z pozycji nazwanych nodów GLB. Używana
- * w PhoneScene/Configurator do liczenia kamer dynamicznie zamiast hardkodów. */
-export interface PhoneAxes {
-  /** Centrum telefonu w world space po skali grupy. */
-  center: THREE.Vector3;
-  /** Kierunek "do przodu" (od środka do display/cover). */
-  front: THREE.Vector3;
-  /** Kierunek "do góry" (od portu do front_cam/earpiece). */
-  up: THREE.Vector3;
-  /** Kierunek "w bok" — perpendicular do front i up. */
-  side: THREE.Vector3;
-  /** Promień bounding box (dla skali kamery). */
-  radius: number;
-}
-
 interface PhoneGLBProps {
   highlight?: HighlightId;
   damageMarkers?: DamageMarker[];
@@ -63,9 +48,6 @@ interface PhoneGLBProps {
   onModelClick?: (localPoint: THREE.Vector3, surface: string) => void;
   /** Subtelne unoszenie się modelu w przestrzeni (idle effect). */
   floating?: boolean;
-  /** Wywoływany raz po załadowaniu modelu — pozwala parentowi pozycjonować
-   *  kamerę dynamicznie na podstawie rzeczywistych pozycji elementów. */
-  onAxesReady?: (axes: PhoneAxes) => void;
 }
 
 useGLTF.preload("/models/smartphone.glb", "/draco/");
@@ -77,14 +59,13 @@ export function PhoneGLB({
   playDisassembly = false,
   onModelClick,
   floating = true,
-  onAxesReady,
 }: PhoneGLBProps) {
   const groupRef = useRef<THREE.Group>(null);
   const { scene, animations } = useGLTF("/models/smartphone.glb", "/draco/");
   const { actions, mixer } = useAnimations(animations, groupRef);
 
-  // Klonowanie + auto-center + auto-skala + wykrywanie osi telefonu.
-  const { clonedScene, normalize, axes } = useMemo(() => {
+  // Klonowanie + auto-center + auto-skala. Robimy raz i pamiętamy.
+  const { clonedScene, normalize } = useMemo(() => {
     const cloned = scene.clone(true);
     // Klonuj materiały żeby emissive nie collide między instancjami.
     cloned.traverse((obj) => {
@@ -97,98 +78,20 @@ export function PhoneGLB({
       }
     });
     // Compute bounding box → auto-center + scale to fit ~3.5 unit max dim.
-    cloned.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(cloned);
     const size = box.getSize(new THREE.Vector3());
     const maxDim = Math.max(size.x, size.y, size.z);
     const targetSize = 3.5;
     const scaleFactor = maxDim > 0 ? targetSize / maxDim : 1;
-    const localCenter = box.getCenter(new THREE.Vector3());
-    const offsetCenter = localCenter.clone().multiplyScalar(scaleFactor);
-
-    // === Wykryj orientację telefonu z pozycji nazwanych nodów ===
-    // Po zastosowaniu group transform (scale=scaleFactor, position=-offsetCenter),
-    // model będzie wycentrowany w (0,0,0). Liczymy KIERUNKI w lokalnej przestrzeni
-    // GLB — nie zależą od scale ani translacji, więc są poprawne też po transform.
-    const findNode = (
-      ...candidates: string[]
-    ): THREE.Object3D | null => {
-      for (const name of candidates) {
-        let found: THREE.Object3D | null = null;
-        cloned.traverse((obj) => {
-          if (found) return;
-          if (obj.name && obj.name.toLowerCase().includes(name.toLowerCase())) {
-            found = obj;
-          }
-        });
-        if (found) return found;
-      }
-      return null;
-    };
-
-    const nodePos = (node: THREE.Object3D | null): THREE.Vector3 | null => {
-      if (!node) return null;
-      const p = new THREE.Vector3();
-      node.getWorldPosition(p);
-      return p;
-    };
-
-    const coverPos = nodePos(findNode("cover", "screen"));
-    const backPos = nodePos(findNode("backplate"));
-    const frontCamPos = nodePos(findNode("front_cam", "front_sensor", "inside_cam_holder"));
-    const portPos = nodePos(findNode("charging_port"));
-
-    // Domyślne osie (fallback gdy nie znajdziemy nodów).
-    let frontDir = new THREE.Vector3(0, 0, 1);
-    let upDir = new THREE.Vector3(0, 1, 0);
-
-    if (coverPos && backPos) {
-      // Front = od średniej (cover+back)/2 do cover.
-      const mid = coverPos.clone().add(backPos).multiplyScalar(0.5);
-      frontDir = coverPos.clone().sub(mid).normalize();
-    } else if (coverPos) {
-      frontDir = coverPos.clone().sub(localCenter).normalize();
-    }
-
-    if (frontCamPos && portPos) {
-      // Up = od portu do front_cam (głośnik rozmów obok front_cam).
-      upDir = frontCamPos.clone().sub(portPos).normalize();
-    } else if (frontCamPos) {
-      upDir = frontCamPos.clone().sub(localCenter).normalize();
-    }
-
-    // Side = perpendicular do up i front (cross product).
-    const sideDir = new THREE.Vector3()
-      .crossVectors(upDir, frontDir)
-      .normalize();
-    // Re-orthogonalize up żeby było idealnie prostopadłe do front i side.
-    upDir = new THREE.Vector3().crossVectors(frontDir, sideDir).normalize();
-
+    const center = box.getCenter(new THREE.Vector3()).multiplyScalar(scaleFactor);
     return {
       clonedScene: cloned,
       normalize: {
-        offset: [-offsetCenter.x, -offsetCenter.y, -offsetCenter.z] as [
-          number,
-          number,
-          number,
-        ],
+        offset: [-center.x, -center.y, -center.z] as [number, number, number],
         scale: scaleFactor,
       },
-      axes: {
-        // Po transform group center jest w (0,0,0).
-        center: new THREE.Vector3(0, 0, 0),
-        front: frontDir,
-        up: upDir,
-        side: sideDir,
-        radius: maxDim * scaleFactor * 0.5,
-      } as PhoneAxes,
     };
   }, [scene]);
-
-  // Notify parent o axes — used do dynamicznego pozycjonowania kamery.
-  useEffect(() => {
-    if (axes && onAxesReady) onAxesReady(axes);
-  }, [axes, onAxesReady]);
 
   // Mapowanie HighlightId → materiały meshy. Klonowane materiały to nasze, możemy
   // mutować emissive bez side effects.
