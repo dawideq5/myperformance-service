@@ -46,6 +46,7 @@ type StepId =
 
 interface CleaningTourPos {
   pos: [number, number, number];
+  lookAt?: [number, number, number];
   highlight: HighlightId;
   caption: string;
   durationMs: number;
@@ -57,61 +58,68 @@ interface Step {
   subtitle: string;
   highlight: HighlightId;
   cameraPos: [number, number, number];
-  /** Dla cleaning step: tour po kilku punktach. */
+  cameraLookAt?: [number, number, number];
   cleaningTour?: CleaningTourPos[];
 }
 
+// Pozycje kamery dopasowane do auto-skalowanego modelu (max dim ~3.5 jednostek).
+// Telefon zorientowany: ekran → +Z, tył → -Z, góra (głośnik rozmów) → +Y,
+// dół (port + speakers) → -Y, ramki boczne → ±X.
 const STEPS: Step[] = [
   {
     id: "display",
     title: "Stan wyświetlacza",
     subtitle: "Oceń ekran w skali 1–10. Każda ocena ma opis.",
     highlight: "display",
-    cameraPos: [0, 0, 5.0],
+    cameraPos: [0, 0, 4.0],
   },
   {
     id: "back",
     title: "Tylna szybka",
     subtitle: "Oceń stan plecka — pęknięcia, rysy, odkształcenia.",
     highlight: "back",
-    cameraPos: [0, 0, -5.0],
-  },
-  {
-    id: "cameras",
-    title: "Wyspa aparatów",
-    subtitle: "Stan szkiełek obiektywów, ramki wyspy.",
-    highlight: "cameras",
-    cameraPos: [-1.6, 1.4, -3.4],
+    cameraPos: [0, 0, -4.0],
   },
   {
     id: "frames",
     title: "Ramki boczne",
     subtitle: "Otarcia, wgniecenia, deformacje krawędzi (model się obraca).",
     highlight: "frames",
-    cameraPos: [4.6, 0, 1.5],
+    cameraPos: [3.6, 0.5, 1.5],
+  },
+  {
+    id: "cameras",
+    title: "Wyspa aparatów",
+    subtitle: "Stan szkiełek obiektywów, ramki wyspy.",
+    highlight: "cameras",
+    cameraPos: [-1.4, 1.3, -2.8],
+    cameraLookAt: [-0.5, 0.8, 0],
   },
   {
     id: "cleaning",
     title: "Czyszczenie urządzenia",
     subtitle:
-      "Pył w głośnikach i porcie często powoduje problemy. Pokażemy co warto wyczyścić — jedna decyzja na końcu.",
+      "Kurz w głośnikach i porcie powoduje problemy. Jedna usługa — pokażemy gdzie czyścimy.",
     highlight: null,
-    cameraPos: [0, 0, 5.0],
+    cameraPos: [0, 0, 4.0],
     cleaningTour: [
       {
-        pos: [0, 4.0, 1.6],
+        pos: [0, 3.0, 1.4],
+        lookAt: [0, 1.4, 0],
         highlight: "earpiece",
         caption: "Głośnik rozmów — pył przyczynia się do problemów ze słyszalnością",
         durationMs: 7200,
       },
       {
-        pos: [0, -4.0, 1.6],
+        pos: [0, -3.0, 1.4],
+        lookAt: [0, -1.4, 0],
         highlight: "speakers",
         caption: "Głośniczki dolne — kurz tłumi dźwięk multimedia",
         durationMs: 7200,
       },
       {
-        pos: [0, -4.5, 1.0],
+        pos: [0, -3.5, 0.6],
+        lookAt: [0, -1.6, 0],
         highlight: "port",
         caption: "Port ładowania — kurz blokuje połączenie z kablem",
         durationMs: 7200,
@@ -121,16 +129,17 @@ const STEPS: Step[] = [
   {
     id: "damage",
     title: "Zaznacz uszkodzenia",
-    subtitle: "Kliknij na modelu w miejscach uszkodzeń, aby je zarejestrować.",
+    subtitle: "Obróć telefon i kliknij w miejscu uszkodzenia. Marker pojawi się na powierzchni.",
     highlight: null,
-    cameraPos: [0, 0, 4.5],
+    cameraPos: [0, 0, 4.0],
   },
   {
     id: "summary",
     title: "Podsumowanie",
-    subtitle: "Sprawdź wszystko i dodaj uwagi końcowe.",
+    subtitle: "Telefon rozkładany na elementy — sprawdź podsumowanie po prawej.",
     highlight: null,
-    cameraPos: [0, 0, 4.6],
+    cameraPos: [3.5, 1, 5.5],
+    cameraLookAt: [-1.8, 0, 0],
   },
 ];
 
@@ -275,10 +284,17 @@ export function PhoneConfigurator3D({
     step.id === "cleaning" && step.cleaningTour
       ? step.cleaningTour[tourIdx].pos
       : step.cameraPos;
+  const currentLookAt: [number, number, number] | undefined =
+    step.id === "cleaning" && step.cleaningTour
+      ? step.cleaningTour[tourIdx].lookAt
+      : step.cameraLookAt;
   const currentHighlight: HighlightId =
     step.id === "cleaning" && step.cleaningTour
       ? step.cleaningTour[tourIdx].highlight
       : step.highlight;
+  const phonePosition: [number, number, number] =
+    step.id === "summary" ? [-1.8, 0, 0] : [0, 0, 0];
+  const playDisassembly = step.id === "summary";
 
   return (
     <div
@@ -353,11 +369,14 @@ export function PhoneConfigurator3D({
               <PhoneScene
                 highlight={currentHighlight}
                 cameraPos={currentCameraPos}
+                cameraLookAt={currentLookAt}
                 brandColor={brandColorHex}
                 isFramesStep={step.id === "frames"}
-                screenOn={step.id === "summary"}
+                screenOn={false}
                 damageMarkers={state.damage_markers ?? []}
                 damageMode={step.id === "damage"}
+                playDisassembly={playDisassembly}
+                phonePosition={phonePosition}
                 onModelClick={onModelClick}
               />
             </Canvas>
@@ -379,13 +398,12 @@ export function PhoneConfigurator3D({
               </div>
             )}
 
-            {/* Summary screen overlay (HTML on top of phone display) */}
+            {/* Summary step: caption nad rozkładającym się modelem */}
             {step.id === "summary" && (
-              <SummaryOverlay
-                state={state}
-                cleaningPrice={cleaningPrice}
-                brand={brand}
-              />
+              <div className="absolute bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-full bg-black/60 backdrop-blur-md border border-white/10 text-xs text-white/80 max-w-[60%] text-center animate-fade-in">
+                <Sparkles className="w-3 h-3 inline mr-1.5 text-amber-400" />
+                Telefon rozłożony na elementy. Podsumowanie po prawej.
+              </div>
             )}
 
             <div className="absolute top-4 left-4 px-3 py-1.5 rounded-full bg-black/40 backdrop-blur-sm border border-white/10 text-[10px] uppercase tracking-wider text-white/80 font-mono flex items-center gap-1.5">
@@ -649,18 +667,11 @@ function StepInputs({
   }
   if (step.id === "summary") {
     return (
-      <div className="space-y-3">
-        <p className="text-xs text-white/60">
-          Po prawej widzisz podgląd zapisanych ocen. Dodaj końcowe uwagi
-          poniżej, jeśli coś jeszcze chcesz zaznaczyć.
-        </p>
-        <NotesField
-          label="Dodatkowe uwagi"
-          value={state.additional_notes ?? ""}
-          onChange={(v) => onChange({ additional_notes: v })}
-          rows={5}
-        />
-      </div>
+      <SummaryPanel
+        state={state}
+        cleaningPrice={cleaningPrice}
+        onChange={onChange}
+      />
     );
   }
   return null;
@@ -775,90 +786,128 @@ function PendingMarkerEditor({
   );
 }
 
-/** Półprzezroczysty overlay HTML pokazujący podsumowanie na "włączonym" ekranie. */
-function SummaryOverlay({
+/** Pełen panel podsumowania w prawej kolumnie summary step. Pokazuje
+ * średnią, oceny per element, markery + treść notatek + cleaning total. */
+function SummaryPanel({
   state,
   cleaningPrice,
-  brand,
+  onChange,
 }: {
   state: VisualConditionState;
   cleaningPrice: number | null;
-  brand: string;
+  onChange: (patch: Partial<VisualConditionState>) => void;
 }) {
   const totalCleaning =
     state.cleaning_accepted && cleaningPrice ? cleaningPrice : 0;
-  const ratings = [
-    { label: "Ekran", value: state.display_rating },
-    { label: "Tył", value: state.back_rating },
-    { label: "Aparaty", value: state.camera_rating },
-    { label: "Ramki", value: state.frames_rating },
-  ].filter((r) => r.value != null);
+  const ratings: { label: string; value: number | undefined; notes?: string }[] = [
+    { label: "Ekran", value: state.display_rating, notes: state.display_notes },
+    { label: "Tył", value: state.back_rating, notes: state.back_notes },
+    { label: "Aparaty", value: state.camera_rating, notes: state.camera_notes },
+    { label: "Ramki", value: state.frames_rating, notes: state.frames_notes },
+  ];
+  const filled = ratings.filter((r) => r.value != null);
   const avg =
-    ratings.length > 0
+    filled.length > 0
       ? Math.round(
-          (ratings.reduce((a, b) => a + (b.value as number), 0) /
-            ratings.length) *
+          (filled.reduce((a, b) => a + (b.value as number), 0) / filled.length) *
             10,
         ) / 10
       : null;
 
   return (
-    <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-      <div
-        className="rounded-[28px] border border-white/10 backdrop-blur-md shadow-2xl px-5 py-4"
-        style={{
-          width: 230,
-          minHeight: 480,
-          background:
-            "linear-gradient(180deg, rgba(15, 23, 50, 0.85), rgba(8, 12, 30, 0.85))",
-          color: "white",
-        }}
-      >
-        <div className="text-center mb-3 pt-2">
-          <p className="text-[10px] uppercase tracking-widest text-white/50">
-            {brand}
+    <div className="space-y-3 animate-fade-in">
+      {avg != null && (
+        <div
+          className="rounded-2xl p-4 text-center"
+          style={{
+            background:
+              "linear-gradient(135deg, rgba(34,197,94,0.18), rgba(34,197,94,0.03))",
+            border: "1px solid rgba(34,197,94,0.3)",
+          }}
+        >
+          <p className="text-[10px] uppercase tracking-widest text-white/60 font-semibold">
+            Średnia ocena
           </p>
-          <p className="text-lg font-bold mt-0.5">Podsumowanie</p>
+          <p className="text-4xl font-bold text-emerald-400 mt-1">
+            {avg}
+            <span className="text-base text-white/40">/10</span>
+          </p>
         </div>
-        {avg != null && (
+      )}
+
+      <div className="space-y-2">
+        {ratings.map((r) => (
           <div
-            className="rounded-xl p-3 text-center mb-3"
-            style={{
-              background:
-                "linear-gradient(135deg, rgba(34,197,94,0.2), rgba(34,197,94,0.05))",
-              borderLeft: "3px solid #22c55e",
-            }}
+            key={r.label}
+            className="rounded-xl p-2.5 border border-white/10 bg-white/5"
           >
-            <p className="text-[10px] uppercase text-white/60">Średnia ocena</p>
-            <p className="text-3xl font-bold text-emerald-400 mt-0.5">{avg}<span className="text-sm text-white/50">/10</span></p>
-          </div>
-        )}
-        <div className="space-y-1.5 mb-3">
-          {ratings.map((r) => (
-            <div
-              key={r.label}
-              className="flex items-center justify-between text-xs"
-            >
-              <span className="text-white/70">{r.label}</span>
-              <span className="font-mono font-bold">{r.value}/10</span>
+            <div className="flex items-center justify-between mb-0.5">
+              <span className="text-xs uppercase tracking-wide text-white/70 font-semibold">
+                {r.label}
+              </span>
+              <span
+                className="font-mono text-sm font-bold"
+                style={{
+                  color:
+                    r.value == null
+                      ? "rgba(255,255,255,0.3)"
+                      : r.value >= 7
+                        ? "#22C55E"
+                        : r.value >= 5
+                          ? "#F59E0B"
+                          : "#EF4444",
+                }}
+              >
+                {r.value != null ? `${r.value}/10` : "—"}
+              </span>
             </div>
-          ))}
-        </div>
-        {(state.damage_markers ?? []).length > 0 && (
-          <div className="text-xs text-white/70 border-t border-white/10 pt-2 mb-2">
-            <span className="text-amber-400 font-semibold">
-              {(state.damage_markers ?? []).length}
-            </span>{" "}
-            marker(ów) uszkodzeń
+            {r.notes && (
+              <p className="text-[11px] text-white/60 mt-0.5 line-clamp-2">
+                {r.notes}
+              </p>
+            )}
           </div>
-        )}
-        {state.cleaning_accepted && (
-          <div className="text-xs text-emerald-400 border-t border-white/10 pt-2">
-            ✓ Czyszczenie:{" "}
-            <strong>+{totalCleaning} PLN</strong>
-          </div>
-        )}
+        ))}
       </div>
+
+      {(state.damage_markers ?? []).length > 0 && (
+        <div className="rounded-xl p-3 border border-amber-500/30 bg-amber-500/10">
+          <p className="text-[10px] uppercase tracking-wide text-amber-300 font-semibold mb-1">
+            Markery uszkodzeń ({(state.damage_markers ?? []).length})
+          </p>
+          <div className="space-y-1">
+            {(state.damage_markers ?? []).slice(0, 3).map((m, i) => (
+              <p key={m.id} className="text-[11px] text-white/70">
+                {i + 1}. {m.surface ?? "powierzchnia"}
+                {m.description ? ` — ${m.description}` : ""}
+              </p>
+            ))}
+            {(state.damage_markers ?? []).length > 3 && (
+              <p className="text-[10px] text-white/50">
+                + {(state.damage_markers ?? []).length - 3} więcej
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {state.cleaning_accepted && (
+        <div className="rounded-xl p-3 border border-emerald-500/30 bg-emerald-500/10 flex items-center justify-between">
+          <span className="text-xs text-emerald-300 font-semibold">
+            ✓ Czyszczenie urządzenia
+          </span>
+          <span className="text-sm font-bold text-emerald-400">
+            +{totalCleaning} PLN
+          </span>
+        </div>
+      )}
+
+      <NotesField
+        label="Dodatkowe uwagi (opcjonalnie)"
+        value={state.additional_notes ?? ""}
+        onChange={(v) => onChange({ additional_notes: v })}
+        rows={4}
+      />
     </div>
   );
 }

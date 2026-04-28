@@ -1,6 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+// Preload GLB modelu phone configuratora — fetch w tle gdy panel mountuje,
+// żeby otwarcie 3D walkthrough było natychmiastowe.
+const preloadPhoneModel = () => {
+  if (typeof window === "undefined") return;
+  // Niskoprio fetch żeby nie blokował innych zasobów.
+  void fetch("/models/smartphone.glb", { cache: "force-cache" }).catch(() => {});
+  // Draco decoder pliki też preload'ujemy.
+  void fetch("/draco/draco_decoder.wasm", { cache: "force-cache" }).catch(
+    () => {},
+  );
+};
 import { signOut } from "next-auth/react";
 import {
   AlertTriangle,
@@ -101,6 +112,11 @@ export function PanelHome({
       }
     }
   }, [locations]);
+
+  // Preload phone GLB w tle — gotowe gdy user otworzy "Stan wizualny".
+  useEffect(() => {
+    preloadPhoneModel();
+  }, []);
 
   const onSelect = useCallback((loc: PanelLocation) => {
     setSelectedId(loc.id);
