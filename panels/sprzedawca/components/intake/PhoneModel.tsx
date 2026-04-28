@@ -510,9 +510,14 @@ function RoundedBoxGeometry({
 export function CameraRig({
   position,
   lookAt,
+  lerpLambda = 2.0,
 }: {
   position: [number, number, number];
   lookAt?: [number, number, number];
+  /** Szybkość lerp w jednostkach 1/sekunda. Większy = szybszy.
+   * Default 2.0 (~500ms do 63%). Cleaning step używa 0.7 (~1.4s do 63%)
+   * dla bardziej cinematic feel. */
+  lerpLambda?: number;
 }) {
   const { camera } = useThree();
   const tgtPos = useRef(new THREE.Vector3(...position));
@@ -536,9 +541,7 @@ export function CameraRig({
   }
 
   useFrame((_, dt) => {
-    // Lambda 2.0 = ~500ms do 63%, ~1.5s do 95%. Wolniejsze, bardziej
-    // cinematic. Wcześniejsze 3.5 dawało "snappy" feel.
-    const k = 1 - Math.exp(-2.0 * dt);
+    const k = 1 - Math.exp(-lerpLambda * dt);
     camera.position.lerp(tgtPos.current, k);
     camera.lookAt(tgtLook.current);
   });

@@ -167,21 +167,25 @@ export function PhoneGLB({
   // Body color override. UWAGA: w naszym GLB descriptive names są na
   // GRUPACH-rodzicach (body_36, backplate_48, profile_housing_bottom_19),
   // a same meshe mają nazwy "Object_115_1". Dlatego matchujemy po
-  // konkatenacji nazw wszystkich przodków + materiału. Bez tego color
-  // override nigdy nie znajdował właściwych meshy.
+  // konkatenacji nazw wszystkich przodków + materiału.
+  //
+  // Rozdzielamy: backplate ZAWSZE w stałym kolorze tytanowej bieli
+  // (niezależny od brandColor). Pozostałe body parts (chassis, ramki,
+  // pokrywa aparatów, anteny, przyciski) → brandColor.
   useEffect(() => {
     if (!clonedScene) return;
     const bodyColor = new THREE.Color(brandColor || "#1f2937");
-    const includes = [
+    const TITANIUM_WHITE = new THREE.Color("#e8e7df");
+    const brandIncludes = [
       "body",
-      "backplate",
       "profile_housing", // ramki: bottom/top/left/right
-      "back_cam_cover", // pokrywa wyspy aparatów (metalowa)
+      "back_cam_cover", // pokrywa wyspy aparatów
       "antenn",
       "btn_off",
       "btn_volume",
-      "color_housing", // material name — chassis/ramki
+      "color_housing",
     ];
+    const fixedBackIncludes = ["backplate"];
     const excludes = [
       "inside",
       "dummies",
@@ -190,7 +194,7 @@ export function PhoneGLB({
       "battery",
       "screen",
       "cover_flex",
-      "back_cam_mat", // sam obiektyw (lens) — nie body
+      "back_cam_mat",
     ];
     /** Konkatenuje nazwy wszystkich rodziców + materiału — używane do
      * dopasowania body części niezależnie od tego gdzie nazwa jest
@@ -205,26 +209,32 @@ export function PhoneGLB({
       if (mat?.name) names.push(mat.name.toLowerCase());
       return names.join("|");
     };
-    const isBody = (n: string) => {
-      if (excludes.some((p) => n.includes(p))) return false;
-      return includes.some((p) => n.includes(p));
+    /** Zwraca docelowy kolor dla danego mesha: brand / titanium / null
+     * (gdy mesh nie ma być malowany). */
+    const targetColor = (n: string): THREE.Color | null => {
+      if (excludes.some((p) => n.includes(p))) return null;
+      if (fixedBackIncludes.some((p) => n.includes(p))) return TITANIUM_WHITE;
+      if (brandIncludes.some((p) => n.includes(p))) return bodyColor;
+      return null;
     };
 
     clonedScene.traverse((obj) => {
       if (!(obj instanceof THREE.Mesh)) return;
       const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-      // Sprawdzamy każdy materiał osobno (mesh może mieć multi-material).
       const newMats = mats.map((m) => {
         if (!m) return m;
         const n = ancestryName(obj, m);
-        if (!isBody(n)) return m;
-        // Klonujemy materiał + override color/map/metallic.
+        const tgt = targetColor(n);
+        if (!tgt) return m;
         const sm = m as THREE.MeshStandardMaterial;
         const newMat = sm.clone();
-        newMat.color = bodyColor.clone();
+        newMat.color = tgt.clone();
         newMat.map = null;
-        newMat.metalness = 0.55;
-        newMat.roughness = 0.35;
+        // Backplate (tytanowa biel) bardziej matowy, ramki/body bardziej
+        // metaliczne.
+        const isBackplate = tgt === TITANIUM_WHITE;
+        newMat.metalness = isBackplate ? 0.25 : 0.55;
+        newMat.roughness = isBackplate ? 0.5 : 0.35;
         newMat.needsUpdate = true;
         return newMat;
       });

@@ -20,6 +20,7 @@ export default function PhoneScene({
   cameraPos,
   cameraLookAt,
   isFramesStep,
+  isCleaningStep = false,
   brandColor,
   damageMarkers = [],
   damageMode = false,
@@ -33,6 +34,8 @@ export default function PhoneScene({
   cameraLookAt?: [number, number, number];
   brandColor?: string;
   isFramesStep: boolean;
+  /** Cleaning tour — wolniejszy lerp kamery dla cinematic feel. */
+  isCleaningStep?: boolean;
   screenOn?: boolean;
   damageMarkers?: DamageMarker[];
   damageMode?: boolean;
@@ -73,17 +76,20 @@ export default function PhoneScene({
         groupRef.current.rotation.y = cur + delta * damp(2.8);
       }
     }
+    // Frames step: ciągły orbit kamery w płaszczyźnie YZ (X=0). Wcześniej
+    // używaliśmy oscylacji sin → smoothstep → angle, ale to dawało reversal
+    // na końcach (gwałtowne zatrzymanie + zmiana kierunku). Continuous
+    // angle = czas * speed, modulo 2π — kamera leci jednostajnie 360°
+    // dookoła telefonu, nigdy nie cofa.
     if (isFramesStep && !damageMode) {
-      const raw = (Math.sin(t * 0.22) + 1) / 2;
-      const arc = raw * raw * (3 - 2 * raw);
-      const angle = arc * Math.PI;
+      const angle = (t * 0.32) % (2 * Math.PI);
       const radius = 6.0;
       const tgt = new THREE.Vector3(
         0,
-        Math.sin(angle) * radius * 0.65,
+        Math.sin(angle) * radius * 0.55,
         Math.cos(angle) * radius,
       );
-      camera.position.lerp(tgt, damp(2.5));
+      camera.position.lerp(tgt, damp(3.5));
       camera.lookAt(0, 0, 0);
     }
     // Animowane key + fill lights — bardzo subtelnie żeby nie powodowały
@@ -110,7 +116,11 @@ export default function PhoneScene({
           zoomSpeed={0.7}
         />
       ) : isFramesStep ? null /* frames step manual orbit, brak CameraRig */ : (
-        <CameraRig position={cameraPos} lookAt={cameraLookAt ?? [0, 0, 0]} />
+        <CameraRig
+          position={cameraPos}
+          lookAt={cameraLookAt ?? [0, 0, 0]}
+          lerpLambda={isCleaningStep ? 0.8 : 2.0}
+        />
       )}
 
       {/* Symetryczne oświetlenie żeby panel tylny wyglądał tak samo jak

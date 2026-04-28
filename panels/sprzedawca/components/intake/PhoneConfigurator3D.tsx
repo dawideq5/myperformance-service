@@ -127,22 +127,21 @@ const STEPS: Step[] = [
         lookAt: [0.5, 1.4, 0],
         highlight: "earpiece",
         caption: "Głośnik rozmów — pył przyczynia się do problemów ze słyszalnością",
-        durationMs: 7200,
+        durationMs: 10000,
       },
       {
-        // STARE pozycje — działały.
         pos: [0, -3.0, 1.4],
         lookAt: [0, -1.4, 0],
         highlight: "speakers",
         caption: "Głośniczki dolne — kurz tłumi dźwięk multimedia",
-        durationMs: 7200,
+        durationMs: 10000,
       },
       {
         pos: [0, -3.5, 0.6],
         lookAt: [0, -1.6, 0],
         highlight: "port",
         caption: "Port ładowania — kurz blokuje połączenie z kablem",
-        durationMs: 7200,
+        durationMs: 10000,
       },
     ],
   },
@@ -507,6 +506,7 @@ export function PhoneConfigurator3D({
                 cameraLookAt={currentLookAt}
                 brandColor={brandColorHex}
                 isFramesStep={step.id === "frames"}
+                isCleaningStep={step.id === "cleaning"}
                 screenOn={false}
                 damageMarkers={state.damage_markers ?? []}
                 damageMode={step.id === "damage"}
