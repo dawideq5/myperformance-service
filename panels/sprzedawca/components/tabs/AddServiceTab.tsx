@@ -371,7 +371,7 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
                       color: "#fff",
                     }}
                   >
-                    Otwórz potwierdzenie w nowej karcie
+                    Otwórz potwierdzenie
                   </button>
                   <button
                     type="button"

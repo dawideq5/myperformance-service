@@ -520,37 +520,49 @@ export function buildReceiptHTML(data: ReceiptData): string {
 </html>`;
 }
 
-/** Generuje PDF z receipt HTML i otwiera w nowej karcie (PDF viewer). */
+/** Generuje PDF z receipt HTML i otwiera w nowej karcie (PDF viewer).
+ *
+ * UWAGA: full HTML z <!DOCTYPE><html><body> NIE może być umieszczony w
+ * div.innerHTML — przeglądarka strippuje wrapper tags. Używamy DOMParser
+ * który parsuje to jako pełny dokument. */
 export async function openReceiptPdf(data: ReceiptData): Promise<boolean> {
-  // Dynamic import — html2pdf jest ciężki (~150KB), ładujemy tylko gdy
-  // user generuje PDF.
-  const html2pdfModule = await import("html2pdf.js");
-  const html2pdf = (html2pdfModule.default ?? html2pdfModule) as (
-    el: HTMLElement,
-  ) => {
-    set: (opts: Record<string, unknown>) => {
-      from: (el: HTMLElement) => {
-        outputPdf: (type: "blob") => Promise<Blob>;
+  let wrapper: HTMLDivElement | null = null;
+  let tempStyle: HTMLStyleElement | null = null;
+  try {
+    const html2pdfModule = await import("html2pdf.js");
+    const html2pdf = (html2pdfModule.default ?? html2pdfModule) as (
+      el: HTMLElement,
+    ) => {
+      set: (opts: Record<string, unknown>) => {
+        from: (el: HTMLElement) => {
+          outputPdf: (type: "blob") => Promise<Blob>;
+        };
       };
     };
-  };
 
-  const html = buildReceiptHTML(data);
-  const container = document.createElement("div");
-  container.innerHTML = html;
-  const body = container.querySelector("body")!;
-  const wrapper = document.createElement("div");
-  wrapper.style.cssText = "position:absolute;left:-9999px;top:0;width:210mm;";
-  while (body.firstChild) wrapper.appendChild(body.firstChild);
-  // Style ze <style> taga musimy wstrzyknąć do dokumentu — html2canvas
-  // odczyta computed styles z DOM żywego.
-  const styleEl = container.querySelector("style");
-  const tempStyle = document.createElement("style");
-  if (styleEl) tempStyle.textContent = styleEl.textContent ?? "";
-  document.head.appendChild(tempStyle);
-  document.body.appendChild(wrapper);
+    const html = buildReceiptHTML(data);
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, "text/html");
 
-  try {
+    // Wstrzyknij <style> do live document żeby html2canvas zobaczył computed
+    // styles na klonowanym wrapper.
+    const docStyle = doc.querySelector("style");
+    if (docStyle) {
+      tempStyle = document.createElement("style");
+      tempStyle.dataset.receiptScope = "true";
+      tempStyle.textContent = docStyle.textContent ?? "";
+      document.head.appendChild(tempStyle);
+    }
+
+    wrapper = document.createElement("div");
+    wrapper.style.cssText =
+      "position:absolute; left:-9999px; top:0; width:210mm; background:#ffffff;";
+    // Przenieś dzieci z parsed body do live wrapper.
+    while (doc.body.firstChild) {
+      wrapper.appendChild(doc.body.firstChild);
+    }
+    document.body.appendChild(wrapper);
+
     const blob = await html2pdf(wrapper)
       .set({
         margin: [8, 10, 8, 10],
@@ -562,6 +574,7 @@ export async function openReceiptPdf(data: ReceiptData): Promise<boolean> {
       })
       .from(wrapper)
       .outputPdf("blob");
+
     const url = URL.createObjectURL(blob);
     const win = window.open(url, "_blank");
     if (!win) {
@@ -572,8 +585,15 @@ export async function openReceiptPdf(data: ReceiptData): Promise<boolean> {
       a.click();
     }
     return true;
+  } catch (err) {
+    console.error("[receipt] PDF generation failed:", err);
+    alert(
+      `Nie udało się wygenerować potwierdzenia: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return false;
   } finally {
-    document.body.removeChild(wrapper);
-    document.head.removeChild(tempStyle);
+    if (wrapper && wrapper.parentNode) wrapper.parentNode.removeChild(wrapper);
+    if (tempStyle && tempStyle.parentNode)
+      tempStyle.parentNode.removeChild(tempStyle);
   }
 }
