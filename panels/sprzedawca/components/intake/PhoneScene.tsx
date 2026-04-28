@@ -57,25 +57,26 @@ export default function PhoneScene({
 
   useFrame(({ clock, camera }, dt) => {
     const t = clock.getElapsedTime();
+    // Damp utility: frame-rate independent smoothing. lambda = ile sekund do
+    // ~63% drogi. Wyższy = szybszy. Wzór: 1 - exp(-lambda * dt). Lepszy niż
+    // raw `Math.min(dt * x, 1)` bo nie miga przy nierównej framerate.
+    const damp = (lambda: number) => 1 - Math.exp(-lambda * dt);
+
     if (groupRef.current) {
-      groupRef.current.position.lerp(tgtPos.current, Math.min(dt * 1.4, 1));
-      // Lerp rotacji Y telefonu do target. Szybszy lerp (4.0/s) żeby
-      // animacja zakończyła się przed orbit kamery w frames step.
+      groupRef.current.position.lerp(tgtPos.current, damp(3.0));
       if (!damageMode) {
         const cur = groupRef.current.rotation.y;
         let delta = phoneRotationY - cur;
         while (delta > Math.PI) delta -= 2 * Math.PI;
         while (delta < -Math.PI) delta += 2 * Math.PI;
-        groupRef.current.rotation.y = cur + delta * Math.min(dt * 4.0, 1);
+        groupRef.current.rotation.y = cur + delta * damp(4.5);
       }
     }
-    // Frames step: kamera orbituje w PŁASZCZYŹNIE YZ (X=0). Płynna oscylacja
-    // sin·smoothstep żeby krzywa bez gwałtownych skoków na końcach.
-    // Lerp camera position do orbit target — bez snapów przy step transition.
+    // Frames step: kamera orbituje w PŁASZCZYŹNIE YZ (X=0). Smoothstep wygładza
+    // końce. Damp na lerp pozycji kamery — bez przeskoków przy step transition.
     if (isFramesStep && !damageMode) {
-      // Easeinout: arc ∈ [0..1] oscillating, smoothstep wygładza końce.
       const raw = (Math.sin(t * 0.22) + 1) / 2;
-      const arc = raw * raw * (3 - 2 * raw); // smoothstep
+      const arc = raw * raw * (3 - 2 * raw);
       const angle = arc * Math.PI;
       const radius = 6.0;
       const tgt = new THREE.Vector3(
@@ -83,16 +84,17 @@ export default function PhoneScene({
         Math.sin(angle) * radius * 0.65,
         Math.cos(angle) * radius,
       );
-      camera.position.lerp(tgt, Math.min(dt * 3.5, 1));
+      camera.position.lerp(tgt, damp(4.5));
       camera.lookAt(0, 0, 0);
     }
-    // Animowane key + fill lights.
+    // Animowane key + fill lights — bardzo subtelnie żeby nie powodowały
+    // wrażenia "flickeru". Mniejsza amplituda + niższa częstotliwość.
     if (keyLightRef.current) {
-      keyLightRef.current.position.x = 5 + Math.sin(t * 0.15) * 0.6;
-      keyLightRef.current.position.y = 6 + Math.cos(t * 0.12) * 0.5;
+      keyLightRef.current.position.x = 5 + Math.sin(t * 0.1) * 0.3;
+      keyLightRef.current.position.y = 6 + Math.cos(t * 0.08) * 0.25;
     }
     if (fillLightRef.current) {
-      fillLightRef.current.position.x = -4 + Math.cos(t * 0.18) * 0.4;
+      fillLightRef.current.position.x = -4 + Math.cos(t * 0.12) * 0.2;
     }
   });
 

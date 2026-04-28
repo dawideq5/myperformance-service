@@ -536,8 +536,11 @@ export function CameraRig({
   }
 
   useFrame((_, dt) => {
-    // Wolniejszy lerp dla bardziej cinematic odczucia.
-    camera.position.lerp(tgtPos.current, Math.min(dt * 1.2, 1));
+    // Frame-rate independent damp. Lambda 3.5 = średnio szybkie, smooth
+    // ease-in/out. Wcześniej Math.min(dt*1.2, 1) robił przeskoki przy
+    // niskim FPS i dawał wrażenie "skoku" przy step change.
+    const k = 1 - Math.exp(-3.5 * dt);
+    camera.position.lerp(tgtPos.current, k);
     camera.lookAt(tgtLook.current);
   });
   return null;
