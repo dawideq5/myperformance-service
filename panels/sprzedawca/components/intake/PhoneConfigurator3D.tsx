@@ -280,9 +280,18 @@ export function PhoneConfigurator3D({
   // dodatkowego "Zapisz" buttona). User może potem edytować opis w panelu
   // bocznym albo usunąć krzyżykiem.
   const [editingMarkerId, setEditingMarkerId] = useState<string | null>(null);
+  // Pending choice — gdy klik trafia w boundary między strefami, popup z wyborem.
+  const [pendingChoice, setPendingChoice] = useState<{
+    x: number;
+    y: number;
+    z: number;
+    candidates: string[];
+  } | null>(null);
 
-  const onModelClick = (point: THREE.Vector3, surface: string) => {
-    if (step.id !== "damage") return;
+  const addMarker = (
+    point: { x: number; y: number; z: number },
+    surface: string,
+  ) => {
     const m: DamageMarker = {
       id: `m-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       x: point.x,
@@ -296,6 +305,31 @@ export function PhoneConfigurator3D({
       damage_markers: [...(s.damage_markers ?? []), m],
     }));
     setEditingMarkerId(m.id);
+  };
+
+  const onModelClick = (point: THREE.Vector3, candidates: string[]) => {
+    if (step.id !== "damage") return;
+    if (candidates.length === 0) return;
+    if (candidates.length === 1) {
+      addMarker(point, candidates[0]);
+      return;
+    }
+    // Multi-candidate (boundary case) — popup wyboru.
+    setPendingChoice({
+      x: point.x,
+      y: point.y,
+      z: point.z,
+      candidates,
+    });
+  };
+
+  const confirmZoneChoice = (choice: string) => {
+    if (!pendingChoice) return;
+    addMarker(
+      { x: pendingChoice.x, y: pendingChoice.y, z: pendingChoice.z },
+      choice,
+    );
+    setPendingChoice(null);
   };
 
   const updateMarkerDescription = (id: string, description: string) => {
@@ -485,7 +519,7 @@ export function PhoneConfigurator3D({
             )}
 
             {/* Damage mode hint — instrukcje zależne od platformy. */}
-            {step.id === "damage" && (
+            {step.id === "damage" && !pendingChoice && (
               <div className="absolute bottom-6 left-1/2 -translate-x-1/2 px-4 py-2.5 rounded-2xl bg-black/70 backdrop-blur-md border border-amber-500/40 text-xs text-amber-200 animate-fade-in max-w-[90%] text-center space-y-1">
                 <div className="flex items-center justify-center gap-1.5">
                   <CircleDot className="w-3 h-3 text-amber-400" />
@@ -499,10 +533,42 @@ export function PhoneConfigurator3D({
               </div>
             )}
 
+            {/* Boundary zone choice popup — gdy klik blisko granicy stref. */}
+            {pendingChoice && (
+              <div className="absolute inset-0 z-[10] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in p-4">
+                <div className="bg-[#1a2138] rounded-2xl border border-white/15 shadow-2xl p-4 max-w-sm w-full">
+                  <p className="text-sm font-semibold text-white mb-1">
+                    Której części dotyczy uszkodzenie?
+                  </p>
+                  <p className="text-xs text-white/60 mb-3">
+                    Klik blisko granicy — wybierz właściwy obszar.
+                  </p>
+                  <div className="space-y-1.5">
+                    {pendingChoice.candidates.map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => confirmZoneChoice(c)}
+                        className="w-full px-3 py-2 rounded-xl border border-white/10 bg-white/5 text-sm text-white text-left hover:bg-white/10 hover:border-amber-500/40 transition-colors"
+                      >
+                        {c}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setPendingChoice(null)}
+                    className="w-full mt-2 px-3 py-1.5 rounded-lg text-xs text-white/60 hover:text-white/90 transition-colors"
+                  >
+                    Anuluj
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* Step controls panel */}
-          <div className="bg-white/5 backdrop-blur-md border-l border-white/10 p-4 overflow-y-auto">
+          {/* Step controls panel — explicit min-h-0 + h-full + overflow scrollable */}
+          <div className="bg-white/5 backdrop-blur-md border-l border-white/10 p-4 overflow-y-auto min-h-0 h-full">
             <StepInputs
               step={step}
               state={state}
@@ -1012,6 +1078,115 @@ function ChargingCurrentInput({
   );
 }
 
+/** Render rzeczowych informacji z testu funkcjonalnego (powers_on, cracked,
+ * bent, face_id, water_damage, charging_current). Tylko wypełnione pola. */
+function ChecklistSummaryBlock({ state }: { state: VisualConditionState }) {
+  const items: { label: string; value: string; tone: "ok" | "bad" | "warn" }[] = [];
+
+  if (state.powers_on != null) {
+    const labels: Record<string, string> = {
+      yes: "Tak",
+      no: "Nie",
+      vibrates: "Wibruje, ekran nie reaguje",
+    };
+    items.push({
+      label: "Włącza się",
+      value: labels[state.powers_on] ?? state.powers_on,
+      tone:
+        state.powers_on === "yes"
+          ? "ok"
+          : state.powers_on === "no"
+            ? "bad"
+            : "warn",
+    });
+  }
+  if (state.cracked_front != null) {
+    items.push({
+      label: "Pęknięty z przodu",
+      value: state.cracked_front ? "Tak" : "Nie",
+      tone: state.cracked_front ? "bad" : "ok",
+    });
+  }
+  if (state.cracked_back != null) {
+    items.push({
+      label: "Pęknięty z tyłu",
+      value: state.cracked_back ? "Tak" : "Nie",
+      tone: state.cracked_back ? "bad" : "ok",
+    });
+  }
+  if (state.bent != null) {
+    items.push({
+      label: "Wygięty",
+      value: state.bent ? "Tak" : "Nie",
+      tone: state.bent ? "bad" : "ok",
+    });
+  }
+  if (state.face_touch_id != null) {
+    items.push({
+      label: "Face ID / Touch ID działa",
+      value: state.face_touch_id ? "Tak" : "Nie",
+      tone: state.face_touch_id ? "ok" : "bad",
+    });
+  }
+  if (state.water_damage != null) {
+    const labels: Record<string, string> = {
+      no: "Nie",
+      yes: "Tak",
+      unknown: "Nie wiadomo",
+    };
+    items.push({
+      label: "Zalany",
+      value: labels[state.water_damage] ?? state.water_damage,
+      tone:
+        state.water_damage === "no"
+          ? "ok"
+          : state.water_damage === "yes"
+            ? "bad"
+            : "warn",
+    });
+  }
+  if (state.charging_current != null) {
+    items.push({
+      label: "Prąd ładowania",
+      value: `${state.charging_current.toFixed(2)} A`,
+      tone: "ok",
+    });
+  }
+
+  if (items.length === 0) return null;
+
+  return (
+    <div className="rounded-xl p-3 border border-white/10 bg-white/5">
+      <p className="text-[10px] uppercase tracking-wide text-white/60 font-semibold mb-2">
+        Test funkcjonalny
+      </p>
+      <div className="space-y-1">
+        {items.map((it) => (
+          <div
+            key={it.label}
+            className="flex items-center justify-between text-xs gap-2"
+          >
+            <span className="text-white/70">{it.label}</span>
+            <span
+              className="font-semibold"
+              style={{
+                color:
+                  it.tone === "ok"
+                    ? "#22C55E"
+                    : it.tone === "bad"
+                      ? "#EF4444"
+                      : "#F59E0B",
+              }}
+            >
+              {it.value}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function NotesField({
   label,
   placeholder,
@@ -1191,6 +1366,9 @@ function SummaryPanel({
           </div>
         </div>
       )}
+
+      {/* Test funkcjonalny — pokazuje wszystkie odpowiedzi z checklisty. */}
+      <ChecklistSummaryBlock state={state} />
 
       {state.cleaning_accepted && (
         <div className="rounded-xl p-3 border border-emerald-500/30 bg-emerald-500/10 flex items-center justify-between">

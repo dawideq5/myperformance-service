@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { BrandPicker, BRANDS } from "../intake/BrandPicker";
 import { ImeiField } from "../intake/ImeiField";
-import { ColorPicker } from "../intake/ColorPicker";
+import { ColorPicker, NAMED_COLORS } from "../intake/ColorPicker";
 import { LockSection } from "../intake/LockSection";
 // ChecklistSection — pytania przeniesione do konfiguratora 3D (P21).
 import {
@@ -97,10 +97,22 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
     })();
   }, []);
 
-  // Hex marki dla 3D modelu — z BrandPicker palette.
-  const brandColorHex =
-    BRANDS.find((b) => b.value.toLowerCase() === brand.toLowerCase())?.color ??
-    "#1f2937";
+  // Body color dla 3D modelu — z ColorPicker (priorytet) lub fallback na
+  // brand color z BRANDS palette.
+  const brandColorHex = (() => {
+    // Wyszukaj wybrany kolor z NAMED_COLORS po nazwie.
+    if (color.trim()) {
+      const named = NAMED_COLORS.find(
+        (c) => c.name.toLowerCase() === color.trim().toLowerCase(),
+      );
+      if (named) return named.hex;
+      // Jeśli user wpisał ręcznie nazwę — fallback na default.
+    }
+    return (
+      BRANDS.find((b) => b.value.toLowerCase() === brand.toLowerCase())?.color ??
+      "#1f2937"
+    );
+  })();
 
   // Per-section completion (wszystkie wymagane pola wypełnione).
   const deviceComplete = !!(brand.trim() && model.trim() && imei.trim() && color.trim());
@@ -723,6 +735,7 @@ function VisualConditionSummary({
             </div>
           ))}
         </div>
+        <ChecklistInfoCompact condition={condition} />
         {markerCount > 0 && (
           <div className="text-xs" style={{ color: "var(--text-muted)" }}>
             Markery uszkodzeń:{" "}
@@ -765,6 +778,75 @@ function VisualConditionSummary({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Mini-summary checklisty pod ratingami w VisualConditionSummary. Pokazuje
+ * kluczowe odpowiedzi z testu funkcjonalnego. */
+function ChecklistInfoCompact({ condition }: { condition: VisualConditionState }) {
+  const items: { label: string; value: string; tone: "ok" | "bad" | "warn" }[] = [];
+  if (condition.powers_on != null) {
+    const labels: Record<string, string> = {
+      yes: "Tak",
+      no: "Nie",
+      vibrates: "Wibruje",
+    };
+    items.push({
+      label: "Włącza się",
+      value: labels[condition.powers_on] ?? condition.powers_on,
+      tone:
+        condition.powers_on === "yes"
+          ? "ok"
+          : condition.powers_on === "no"
+            ? "bad"
+            : "warn",
+    });
+  }
+  if (condition.cracked_front) items.push({ label: "Pęknięty z przodu", value: "Tak", tone: "bad" });
+  if (condition.cracked_back) items.push({ label: "Pęknięty z tyłu", value: "Tak", tone: "bad" });
+  if (condition.bent) items.push({ label: "Wygięty", value: "Tak", tone: "bad" });
+  if (condition.face_touch_id === false) {
+    items.push({ label: "Face / Touch ID", value: "Nie działa", tone: "bad" });
+  }
+  if (condition.water_damage === "yes") {
+    items.push({ label: "Zalany", value: "Tak", tone: "bad" });
+  } else if (condition.water_damage === "unknown") {
+    items.push({ label: "Zalany", value: "Nie wiadomo", tone: "warn" });
+  }
+  if (condition.charging_current != null) {
+    items.push({
+      label: "Prąd ładowania",
+      value: `${condition.charging_current.toFixed(2)} A`,
+      tone: "ok",
+    });
+  }
+
+  if (items.length === 0) return null;
+  return (
+    <div className="space-y-0.5 pt-1">
+      {items.map((it) => (
+        <div
+          key={it.label}
+          className="flex items-center justify-between text-[11px]"
+          style={{ color: "var(--text-muted)" }}
+        >
+          <span>{it.label}</span>
+          <span
+            className="font-semibold"
+            style={{
+              color:
+                it.tone === "ok"
+                  ? "#22C55E"
+                  : it.tone === "bad"
+                    ? "#EF4444"
+                    : "#F59E0B",
+            }}
+          >
+            {it.value}
+          </span>
+        </div>
+      ))}
     </div>
   );
 }

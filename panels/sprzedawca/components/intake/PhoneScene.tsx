@@ -20,6 +20,7 @@ export default function PhoneScene({
   cameraPos,
   cameraLookAt,
   isFramesStep,
+  brandColor,
   damageMarkers = [],
   damageMode = false,
   playDisassembly = false,
@@ -39,7 +40,7 @@ export default function PhoneScene({
   phonePosition?: [number, number, number];
   /** Animowana rotacja telefonu wokół osi Y (np. flip display→back). */
   phoneRotationY?: number;
-  onModelClick?: (point: THREE.Vector3, surface: string) => void;
+  onModelClick?: (point: THREE.Vector3, candidates: string[]) => void;
 }) {
   const groupRef = useRef<THREE.Group>(null);
   const keyLightRef = useRef<THREE.DirectionalLight>(null);
@@ -155,6 +156,7 @@ export default function PhoneScene({
             damageMode={damageMode}
             playDisassembly={playDisassembly}
             onModelClick={onModelClick}
+            brandColor={brandColor}
           />
         </Suspense>
       </group>

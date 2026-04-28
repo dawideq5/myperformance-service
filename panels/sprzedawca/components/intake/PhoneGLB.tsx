@@ -44,10 +44,13 @@ interface PhoneGLBProps {
   damageMode?: boolean;
   /** Trigger disassembly animation (summary step). */
   playDisassembly?: boolean;
-  /** Callback dla kliku w model — pozycja w LOKALNYCH koordynatach grupy. */
-  onModelClick?: (localPoint: THREE.Vector3, surface: string) => void;
+  /** Callback dla kliku w model — pozycja w LOKALNYCH koordynatach grupy +
+   * lista kandydatów stref (1 = jedyna opcja, >1 = boundary, popup z wyborem). */
+  onModelClick?: (localPoint: THREE.Vector3, candidates: string[]) => void;
   /** Subtelne unoszenie się modelu w przestrzeni (idle effect). */
   floating?: boolean;
+  /** Kolor body urządzenia — z ColorPicker w intake formie (hex). */
+  brandColor?: string;
 }
 
 useGLTF.preload("/models/smartphone.glb", "/draco/");
@@ -59,15 +62,16 @@ export function PhoneGLB({
   playDisassembly = false,
   onModelClick,
   floating = true,
+  brandColor,
 }: PhoneGLBProps) {
   const groupRef = useRef<THREE.Group>(null);
   const { scene, animations } = useGLTF("/models/smartphone.glb", "/draco/");
   const { actions, mixer } = useAnimations(animations, groupRef);
 
-  // Klonowanie + auto-center + auto-skala. Robimy raz i pamiętamy.
+  // Klonowanie + auto-center + auto-skala. Robimy raz na model. Koloryzacja
+  // body wykonywana w osobnym useEffect (zależnym od brandColor).
   const { clonedScene, normalize } = useMemo(() => {
     const cloned = scene.clone(true);
-    // Klonuj materiały żeby emissive nie collide między instancjami.
     cloned.traverse((obj) => {
       if (obj instanceof THREE.Mesh) {
         if (Array.isArray(obj.material)) {
@@ -114,6 +118,32 @@ export function PhoneGLB({
     });
     return map;
   }, [clonedScene]);
+
+  // Aktualizuje kolor body materiałów gdy brandColor się zmienił.
+  useEffect(() => {
+    if (!clonedScene) return;
+    const bodyColor = new THREE.Color(brandColor || "#1f2937");
+    const bodyPrefixes = [
+      "body",
+      "backplate",
+      "antenn",
+      "btn_off",
+      "btn_volume",
+    ];
+    clonedScene.traverse((obj) => {
+      if (!(obj instanceof THREE.Mesh)) return;
+      const n = (obj.name || "").toLowerCase();
+      if (!bodyPrefixes.some((p) => n.includes(p))) return;
+      const mats = Array.isArray(obj.material)
+        ? obj.material
+        : [obj.material];
+      for (const m of mats) {
+        if (m && "color" in m) {
+          (m as THREE.MeshStandardMaterial).color = bodyColor.clone();
+        }
+      }
+    });
+  }, [clonedScene, brandColor]);
 
   // Initial state: złożony, animacja zatrzymana w klatce 0.
   useEffect(() => {
@@ -192,7 +222,7 @@ export function PhoneGLB({
           // liczby) — użycie world dla klasyfikacji jest poprawne.
           const worldP = e.point.clone();
           const local = groupRef.current.worldToLocal(e.point.clone());
-          onModelClick(local, classifyDamageZone(worldP));
+          onModelClick(local, classifyDamageZones(worldP));
         }}
       />
       {/* Markery — TYLKO gdy nie disassembly (ukrywamy podczas rozkładania). */}
@@ -212,57 +242,69 @@ function inferSurface(name: string): string {
   return "frame";
 }
 
-/** Klasyfikuje punkt kliknięcia (WORLD space) na konkretny obszar uszkodzenia.
+/** Klasyfikuje punkt kliknięcia (WORLD space) — może zwrócić wiele kandydatów
+ * gdy klik jest blisko granicy między strefami (np. ramka/wyświetlacz).
+ * Pierwszy element listy = najbardziej prawdopodobna strefa. Jeśli więcej
+ * niż 1 kandydat — UI pokazuje popup z wyborem.
+ *
  * Telefon auto-skalowany do max dim ~3.5 i wycentrowany w (0,0,0):
- *   X (depth, perpendicular do display): ~±0.09
- *   Y (height, top→bottom): ~±1.6
- *   Z (width, left→right): ~±0.8
- * Orientacja: +X=display, -X=panel tylny, +Y=góra, -Y=dół, ±Z=ramki boczne.
+ *   X (depth): ±0.09  | Y (height): ±1.6  | Z (width): ±0.8
+ *   +X=display, -X=panel tylny, +Y=góra, -Y=dół, ±Z=ramki boczne
  */
-function classifyDamageZone(point: THREE.Vector3): string {
+function classifyDamageZones(point: THREE.Vector3): string[] {
   const { x, y, z } = point;
+  const candidates: string[] = [];
 
-  // Najpierw specyficzne strefy.
-  // Port + dolne głośniki: dolna krawędź (Y ~< -1.4).
+  // Tolerancja granicy (boundary margin) — w jednostkach world.
+  const M = 0.18;
+
+  // Specyficzne strefy najpierw.
   if (y < -1.4) {
-    return "Port ładowania / głośniki dolne";
+    candidates.push("Port ładowania / głośniki dolne");
   }
-  // Wyspa aparatów: na panelu tylnym (-X), górna część (+Y), środek/lewo Z.
-  if (x < 0 && y > 0.6 && z < 0.2) {
-    return "Wyspa aparatów";
+  if (x < 0 && y > 0.55 && z < 0.25) {
+    candidates.push("Wyspa aparatów");
   }
-  // Głośnik rozmów: górna krawędź ekranu (+Y) na froncie.
-  if (y > 1.4 && x > 0) {
-    return "Głośnik rozmów";
+  if (y > 1.35 && x > 0) {
+    candidates.push("Głośnik rozmów");
   }
 
-  // Krawędzie ramek — klik blisko brzegu długiej osi (top/bottom).
-  if (Math.abs(y) > 1.3) {
-    return y > 0 ? "Górna krawędź (ramka)" : "Dolna krawędź (ramka)";
+  // Krawędzie ramek (long axis top/bottom).
+  if (y > 1.25) {
+    candidates.push("Górna krawędź (ramka)");
+  } else if (y < -1.25) {
+    if (!candidates.includes("Port ładowania / głośniki dolne")) {
+      candidates.push("Dolna krawędź (ramka)");
+    }
   }
-  // Boczne ramki — klik blisko prawej/lewej krawędzi (Z extreme).
-  if (Math.abs(z) > 0.6) {
-    return z > 0 ? "Ramka prawa" : "Ramka lewa";
+  // Boczne ramki.
+  if (z > 0.55) candidates.push("Ramka prawa");
+  else if (z < -0.55) candidates.push("Ramka lewa");
+
+  // Powierzchnia front/back — dodawana zawsze, jeśli klik nie skrajny
+  // (czyli zostaje jako alternatywa dla edge zone w boundary cases).
+  if (Math.abs(y) < 1.25 + M && Math.abs(z) < 0.55 + M) {
+    const isFront = x > 0;
+    const surface = isFront ? "Wyświetlacz" : "Panel tylny";
+
+    let vert = "środek";
+    if (y > 0.5) vert = "góra";
+    else if (y < -0.5) vert = "dół";
+
+    let horiz = "środek";
+    if (z > 0.22) horiz = "prawo";
+    else if (z < -0.22) horiz = "lewo";
+
+    let label;
+    if (vert === "środek" && horiz === "środek") label = `${surface} — środek`;
+    else if (vert === "środek") label = `${surface} — ${horiz}`;
+    else if (horiz === "środek") label = `${surface} — ${vert}`;
+    else label = `${surface} — ${vert}-${horiz}`;
+    candidates.push(label);
   }
 
-  // Klik na powierzchni front lub back — 3×3 grid (góra/środek/dół + lewo/środek/prawo).
-  const isFront = x > 0;
-  const surface = isFront ? "Wyświetlacz" : "Panel tylny";
-
-  // Progi proporcjonalne do bounding box: phone Y ±1.6 → ⅓ = 0.55, ½ = 0.8
-  let vert = "środek";
-  if (y > 0.55) vert = "góra";
-  else if (y < -0.55) vert = "dół";
-
-  // Z ±0.8 → ⅓ = 0.27, ½ = 0.4
-  let horiz = "środek";
-  if (z > 0.27) horiz = "prawo";
-  else if (z < -0.27) horiz = "lewo";
-
-  if (vert === "środek" && horiz === "środek") return `${surface} — środek`;
-  if (vert === "środek") return `${surface} — ${horiz}`;
-  if (horiz === "środek") return `${surface} — ${vert}`;
-  return `${surface} — ${vert}-${horiz}`;
+  // Deduplikacja zachowując kolejność.
+  return Array.from(new Set(candidates));
 }
 
 function DamagePin({ x, y, z }: { x: number; y: number; z: number }) {

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Palette } from "lucide-react";
 
 /** Mapa nazwa → hex dla approximate matching. Polskie nazwy. */
-const NAMED_COLORS: { name: string; hex: string }[] = [
+export const NAMED_COLORS: { name: string; hex: string }[] = [
   { name: "Czarny", hex: "#0a0a0a" },
   { name: "Grafitowy", hex: "#3a3a3a" },
   { name: "Biały", hex: "#fafafa" },
