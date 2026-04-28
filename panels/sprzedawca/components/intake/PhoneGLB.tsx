@@ -164,10 +164,11 @@ export function PhoneGLB({
     return map;
   }, [clonedScene]);
 
-  // Body color override: chassis (body), tylna szyba (backplate), ramki
-  // boczne (profile_housing_*), pokrywa wyspy aparatów (back_cam_cover),
-  // anteny i przyciski. Wykluczamy szkła/wewnętrzne. userData.origMat
-  // cachuje oryginał — kolejne zmiany brandColor klonują od zera.
+  // Body color override. UWAGA: w naszym GLB descriptive names są na
+  // GRUPACH-rodzicach (body_36, backplate_48, profile_housing_bottom_19),
+  // a same meshe mają nazwy "Object_115_1". Dlatego matchujemy po
+  // konkatenacji nazw wszystkich przodków + materiału. Bez tego color
+  // override nigdy nie znajdował właściwych meshy.
   useEffect(() => {
     if (!clonedScene) return;
     const bodyColor = new THREE.Color(brandColor || "#1f2937");
@@ -179,37 +180,57 @@ export function PhoneGLB({
       "antenn",
       "btn_off",
       "btn_volume",
+      "color_housing", // material name — chassis/ramki
     ];
     const excludes = [
-      "inside", // wewnętrzne części
-      "dummies", // techniczne placeholdery (profile_housing_dummies)
+      "inside",
+      "dummies",
       "glue",
       "grid",
       "battery",
       "screen",
-      "cover_flex", // flex cables (mają "cover" ale to nie obudowa)
+      "cover_flex",
+      "back_cam_mat", // sam obiektyw (lens) — nie body
     ];
+    /** Konkatenuje nazwy wszystkich rodziców + materiału — używane do
+     * dopasowania body części niezależnie od tego gdzie nazwa jest
+     * w hierarchii GLB. */
+    const ancestryName = (obj: THREE.Object3D, mat?: THREE.Material): string => {
+      const names: string[] = [];
+      let cur: THREE.Object3D | null = obj;
+      while (cur) {
+        if (cur.name) names.push(cur.name.toLowerCase());
+        cur = cur.parent;
+      }
+      if (mat?.name) names.push(mat.name.toLowerCase());
+      return names.join("|");
+    };
     const isBody = (n: string) => {
       if (excludes.some((p) => n.includes(p))) return false;
       return includes.some((p) => n.includes(p));
     };
+
     clonedScene.traverse((obj) => {
       if (!(obj instanceof THREE.Mesh)) return;
-      const n = (obj.name || "").toLowerCase();
-      if (!isBody(n)) return;
-      if (!obj.userData.origMat) {
-        obj.userData.origMat = Array.isArray(obj.material)
-          ? obj.material[0]
-          : obj.material;
-      }
-      const orig = obj.userData.origMat as THREE.MeshStandardMaterial;
-      const newMat = orig.clone();
-      newMat.color = bodyColor.clone();
-      newMat.map = null;
-      newMat.metalness = 0.55;
-      newMat.roughness = 0.35;
-      newMat.needsUpdate = true;
-      obj.material = newMat;
+      const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+      // Sprawdzamy każdy materiał osobno (mesh może mieć multi-material).
+      const newMats = mats.map((m) => {
+        if (!m) return m;
+        const n = ancestryName(obj, m);
+        if (!isBody(n)) return m;
+        // Klonujemy materiał + override color/map/metallic.
+        const sm = m as THREE.MeshStandardMaterial;
+        const newMat = sm.clone();
+        newMat.color = bodyColor.clone();
+        newMat.map = null;
+        newMat.metalness = 0.55;
+        newMat.roughness = 0.35;
+        newMat.needsUpdate = true;
+        return newMat;
+      });
+      obj.material = Array.isArray(obj.material)
+        ? (newMats as THREE.Material[])
+        : (newMats[0] as THREE.Material);
     });
   }, [clonedScene, brandColor]);
 

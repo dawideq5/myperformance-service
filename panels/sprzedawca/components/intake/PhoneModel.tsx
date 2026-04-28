@@ -536,10 +536,9 @@ export function CameraRig({
   }
 
   useFrame((_, dt) => {
-    // Frame-rate independent damp. Lambda 3.5 = średnio szybkie, smooth
-    // ease-in/out. Wcześniej Math.min(dt*1.2, 1) robił przeskoki przy
-    // niskim FPS i dawał wrażenie "skoku" przy step change.
-    const k = 1 - Math.exp(-3.5 * dt);
+    // Lambda 2.0 = ~500ms do 63%, ~1.5s do 95%. Wolniejsze, bardziej
+    // cinematic. Wcześniejsze 3.5 dawało "snappy" feel.
+    const k = 1 - Math.exp(-2.0 * dt);
     camera.position.lerp(tgtPos.current, k);
     camera.lookAt(tgtLook.current);
   });

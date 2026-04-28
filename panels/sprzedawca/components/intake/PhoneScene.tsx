@@ -63,17 +63,16 @@ export default function PhoneScene({
     const damp = (lambda: number) => 1 - Math.exp(-lambda * dt);
 
     if (groupRef.current) {
-      groupRef.current.position.lerp(tgtPos.current, damp(3.0));
+      // Wolniejsza lambda = bardziej cinematic, mniej "gwałtownego" startu.
+      groupRef.current.position.lerp(tgtPos.current, damp(2.0));
       if (!damageMode) {
         const cur = groupRef.current.rotation.y;
         let delta = phoneRotationY - cur;
         while (delta > Math.PI) delta -= 2 * Math.PI;
         while (delta < -Math.PI) delta += 2 * Math.PI;
-        groupRef.current.rotation.y = cur + delta * damp(4.5);
+        groupRef.current.rotation.y = cur + delta * damp(2.8);
       }
     }
-    // Frames step: kamera orbituje w PŁASZCZYŹNIE YZ (X=0). Smoothstep wygładza
-    // końce. Damp na lerp pozycji kamery — bez przeskoków przy step transition.
     if (isFramesStep && !damageMode) {
       const raw = (Math.sin(t * 0.22) + 1) / 2;
       const arc = raw * raw * (3 - 2 * raw);
@@ -84,7 +83,7 @@ export default function PhoneScene({
         Math.sin(angle) * radius * 0.65,
         Math.cos(angle) * radius,
       );
-      camera.position.lerp(tgt, damp(4.5));
+      camera.position.lerp(tgt, damp(2.5));
       camera.lookAt(0, 0, 0);
     }
     // Animowane key + fill lights — bardzo subtelnie żeby nie powodowały

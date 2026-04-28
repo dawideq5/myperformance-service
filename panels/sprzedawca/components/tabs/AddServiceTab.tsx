@@ -452,8 +452,32 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
               value={contactEmail}
               onChange={setContactEmail}
               type="email"
-              placeholder="dla potwierdzenia elektronicznego"
+              placeholder="adres@example.pl"
             />
+            <div
+              className="rounded-xl border p-3 text-xs"
+              style={{
+                background:
+                  "linear-gradient(135deg, rgba(59, 130, 246, 0.08), rgba(59, 130, 246, 0.02))",
+                borderColor: "rgba(59, 130, 246, 0.3)",
+                color: "rgba(255, 255, 255, 0.85)",
+              }}
+            >
+              <p
+                className="font-semibold mb-1"
+                style={{ color: "#3B82F6" }}
+              >
+                Po co adres email?
+              </p>
+              <ul
+                className="space-y-0.5 list-disc list-inside"
+                style={{ color: "var(--text-muted)" }}
+              >
+                <li>Elektroniczne potwierdzenie odbioru z podpisem.</li>
+                <li>Powiadomienia o zmianie statusu zlecenia.</li>
+                <li>Kontakt w razie pytań do diagnostyki.</li>
+              </ul>
+            </div>
           </div>
         </Section>
         </div>
@@ -699,7 +723,7 @@ function EstimateBlock({
           className="text-xs uppercase tracking-wider font-semibold"
           style={{ color: "#0EA5E9" }}
         >
-          Wycena orientacyjna
+          Wycena
         </p>
         <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
           PLN brutto
@@ -713,7 +737,7 @@ function EstimateBlock({
           value={amountEstimate}
           onChange={(e) => onChangeEstimate(e.target.value)}
           placeholder="0.00"
-          className="flex-1 px-3 py-2.5 rounded-xl border text-lg font-mono font-semibold outline-none focus:border-[var(--accent)] text-right"
+          className="flex-1 px-3 py-2.5 rounded-xl border text-lg font-serif font-semibold outline-none focus:border-[var(--accent)] text-right no-spinner"
           style={{
             background: "var(--bg-surface)",
             borderColor: "var(--border-subtle)",
@@ -721,7 +745,7 @@ function EstimateBlock({
           }}
         />
         <span
-          className="text-base font-mono font-semibold"
+          className="text-base font-serif font-semibold"
           style={{ color: "var(--text-muted)" }}
         >
           PLN
@@ -734,7 +758,7 @@ function EstimateBlock({
         <div className="flex items-center justify-between">
           <span style={{ color: "var(--text-muted)" }}>Naprawa</span>
           <span
-            className="font-mono"
+            className="font-serif"
             style={{ color: "var(--text-main)" }}
           >
             {repair.toFixed(2)} PLN
@@ -746,7 +770,7 @@ function EstimateBlock({
               + Czyszczenie urządzenia
             </span>
             <span
-              className="font-mono"
+              className="font-serif"
               style={{ color: "var(--text-main)" }}
             >
               {cleaningPrice.toFixed(2)} PLN
@@ -764,7 +788,7 @@ function EstimateBlock({
             Razem orientacyjnie
           </span>
           <span
-            className="font-mono font-bold text-sm"
+            className="font-serif font-bold text-sm"
             style={{ color: "#0EA5E9" }}
           >
             {total.toFixed(2)} PLN
@@ -929,9 +953,42 @@ function VisualConditionSummary({
         </div>
         <ChecklistInfoCompact condition={condition} />
         {markerCount > 0 && (
-          <div className="text-xs" style={{ color: "var(--text-muted)" }}>
-            Markery uszkodzeń:{" "}
-            <strong style={{ color: "var(--text-main)" }}>{markerCount}</strong>
+          <div
+            className="rounded-lg border p-2 space-y-1.5"
+            style={{
+              borderColor: "rgba(239, 68, 68, 0.3)",
+              background: "rgba(239, 68, 68, 0.05)",
+            }}
+          >
+            <p
+              className="text-[10px] uppercase tracking-wide font-semibold"
+              style={{ color: "#EF4444" }}
+            >
+              Markery uszkodzeń ({markerCount})
+            </p>
+            <ul className="space-y-1">
+              {(condition.damage_markers ?? []).map((m, idx) => (
+                <li key={m.id} className="flex items-start gap-1.5 text-xs">
+                  <span
+                    className="flex-shrink-0 w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold"
+                    style={{ background: "#EF4444", color: "#fff" }}
+                  >
+                    {idx + 1}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p
+                      className="text-[10px] uppercase tracking-wide"
+                      style={{ color: "var(--text-muted)" }}
+                    >
+                      {m.surface ?? "powierzchnia"}
+                    </p>
+                    <p style={{ color: "var(--text-main)" }}>
+                      {m.description?.trim() || "(brak opisu)"}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ul>
           </div>
         )}
         {cleaningSelected > 0 && cleaningPrice != null && (

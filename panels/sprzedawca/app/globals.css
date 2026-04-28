@@ -23,3 +23,14 @@ html, body {
 body {
   min-height: 100vh;
 }
+
+/* Hide number input spinners (góra/dół arrow buttons). Klasa .no-spinner
+ * stosowana na inputach typu number gdzie nie chcemy native arrow controls. */
+input.no-spinner::-webkit-outer-spin-button,
+input.no-spinner::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input.no-spinner[type="number"] {
+  -moz-appearance: textfield;
+}
