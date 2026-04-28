@@ -9,7 +9,6 @@ import {
   ChevronRight,
   Lock,
   Palette,
-  Phone,
   Smartphone,
   Sparkles,
   User as UserIcon,
@@ -19,6 +18,7 @@ import { BrandPicker, BRANDS } from "../intake/BrandPicker";
 import { ImeiField } from "../intake/ImeiField";
 import { ColorPicker, NAMED_COLORS } from "../intake/ColorPicker";
 import { LockSection } from "../intake/LockSection";
+import { PhoneInputWithFlags } from "../intake/PhoneInputWithFlags";
 // ChecklistSection — pytania przeniesione do konfiguratora 3D (P21).
 import {
   PhoneConfigurator3D,
@@ -34,7 +34,9 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
   const [model, setModel] = useState("");
   const [imei, setImei] = useState("");
   const [color, setColor] = useState("");
-  const [lockType, setLockType] = useState("none");
+  // Lock: pusty default — user musi aktywnie wybrać. "none/pin/pattern" pojawi
+  // się dopiero po kliknięciu opcji.
+  const [lockType, setLockType] = useState("");
   const [lockCode, setLockCode] = useState("");
   // Checklist + charging są teraz częścią VisualConditionState — pytania
   // zadawane wewnątrz konfiguratora 3D, nie w osobnej sekcji formularza.
@@ -53,16 +55,24 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [cleaningPrice, setCleaningPrice] = useState<number | null>(null);
 
-  // Sekcje rozwijane (bez checklist — przeniesiona do configuratora).
+  // Sekcje rozwijane — sekwencyjne gating: tylko pierwsza sekcja otwarta na
+  // start; kolejne odblokowują się gdy poprzednia jest complete.
   const [open, setOpen] = useState<Record<string, boolean>>({
     device: true,
-    lock: true,
-    visual: true,
-    customer: true,
+    lock: false,
+    visual: false,
+    description: false,
+    customer: false,
   });
-  const toggle = (k: string) => setOpen((s) => ({ ...s, [k]: !s[k] }));
 
-  const SECTION_ORDER = ["device", "lock", "visual", "customer"] as const;
+  const SECTION_ORDER = [
+    "device",
+    "lock",
+    "visual",
+    "description",
+    "customer",
+  ] as const;
+
   const continueToNext = (current: string) => {
     const idx = SECTION_ORDER.indexOf(current as (typeof SECTION_ORDER)[number]);
     if (idx === -1) return;
@@ -115,27 +125,55 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
   })();
 
   // Per-section completion (wszystkie wymagane pola wypełnione).
-  const deviceComplete = !!(brand.trim() && model.trim() && imei.trim() && color.trim());
+  const deviceComplete = !!(
+    brand.trim() &&
+    model.trim() &&
+    imei.trim().length === 15 &&
+    color.trim()
+  );
+  // Lock: pusty type = nie complete (user musi wybrać). "none" = complete.
+  // pin/pattern = complete tylko z kodem.
   const lockComplete =
-    lockType === "none" || (lockType !== "none" && !!lockCode.trim());
+    lockType === "none" ||
+    ((lockType === "pin" || lockType === "pattern") && !!lockCode.trim());
   const visualComplete = visualCompleted;
+  const descriptionComplete = repairTypes.length > 0;
+  // Phone w tym formacie zawsze ma prefix; minimum 6 cyfr lokalnego numeru.
+  const phoneLocalDigits = contactPhone.replace(/^\+\d+\s*/, "").replace(/\D/g, "");
   const customerComplete = !!(
-    repairTypes.length > 0 &&
     customerFirstName.trim() &&
     customerLastName.trim() &&
-    contactPhone.trim()
+    phoneLocalDigits.length >= 6
   );
   const allComplete =
     deviceComplete &&
     lockComplete &&
     visualComplete &&
+    descriptionComplete &&
     customerComplete;
+
+  // Sequential gating — sekcja jest dostępna gdy wszystkie poprzednie complete.
+  const sectionUnlocked: Record<string, boolean> = {
+    device: true,
+    lock: deviceComplete,
+    visual: deviceComplete && lockComplete,
+    description: deviceComplete && lockComplete && visualComplete,
+    customer:
+      deviceComplete && lockComplete && visualComplete && descriptionComplete,
+  };
+
+  // Toggle sekcji — tylko gdy odblokowana. Zablokowane sekcje nie reagują.
+  const toggle = (k: string) => {
+    if (!sectionUnlocked[k]) return;
+    setOpen((s) => ({ ...s, [k]: !s[k] }));
+  };
 
   // Auto-collapse sekcji po complete.
   const prevCompletion = useRef({
     device: false,
     lock: false,
     visual: false,
+    description: false,
     customer: false,
   });
   useEffect(() => {
@@ -150,22 +188,37 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
       if (visualComplete && !prevCompletion.current.visual && curr.visual) {
         next.visual = false;
       }
+      if (
+        descriptionComplete &&
+        !prevCompletion.current.description &&
+        curr.description
+      ) {
+        next.description = false;
+      }
       prevCompletion.current = {
         device: deviceComplete,
         lock: lockComplete,
         visual: visualComplete,
+        description: descriptionComplete,
         customer: customerComplete,
       };
       return next;
     });
-  }, [deviceComplete, lockComplete, visualComplete, customerComplete, lockType]);
+  }, [
+    deviceComplete,
+    lockComplete,
+    visualComplete,
+    descriptionComplete,
+    customerComplete,
+    lockType,
+  ]);
 
   const reset = () => {
     setBrand("");
     setModel("");
     setImei("");
     setColor("");
-    setLockType("none");
+    setLockType("");
     setLockCode("");
     setVisualCondition({});
     setVisualCompleted(false);
@@ -296,6 +349,7 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
           subtitle="Marka, model, IMEI, kolor"
           accent="#0EA5E9"
           complete={deviceComplete}
+          unlocked={sectionUnlocked.device}
           open={open.device}
           onToggle={() => toggle("device")}
           onContinue={() => continueToNext("device")}
@@ -320,14 +374,17 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
           icon={<Lock className="w-5 h-5" />}
           title="Blokada urządzenia"
           subtitle={
-            lockType === "none"
-              ? "Brak blokady"
-              : lockType === "pin"
-                ? "Hasło / PIN"
-                : "Wzór"
+            lockType === ""
+              ? "Wybierz typ blokady"
+              : lockType === "none"
+                ? "Brak blokady"
+                : lockType === "pin"
+                  ? "Hasło / PIN"
+                  : "Wzór"
           }
           accent="#A855F7"
           complete={lockComplete}
+          unlocked={sectionUnlocked.lock}
           open={open.lock}
           onToggle={() => toggle("lock")}
           onContinue={() => continueToNext("lock")}
@@ -352,6 +409,7 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
           }
           accent="#9C8869"
           complete={visualComplete}
+          unlocked={sectionUnlocked.visual}
           open={open.visual}
           onToggle={() => toggle("visual")}
           onContinue={() => continueToNext("visual")}
@@ -365,15 +423,17 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
         </Section>
         </div>
 
-        <div data-section="customer">
+        <div data-section="description">
         <Section
           icon={<Wrench className="w-5 h-5" />}
-          title="Opis usterki + dane klienta"
-          subtitle="Wybierz typy napraw i wpisz dane klienta"
+          title="Opis usterki"
+          subtitle="Wybierz typy napraw + opcjonalna wycena"
           accent="#06B6D4"
-          complete={customerComplete}
-          open={open.customer}
-          onToggle={() => toggle("customer")}
+          complete={descriptionComplete}
+          unlocked={sectionUnlocked.description}
+          open={open.description}
+          onToggle={() => toggle("description")}
+          onContinue={() => continueToNext("description")}
         >
           <div className="space-y-3">
             <DescriptionPicker
@@ -390,6 +450,22 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
               type="number"
               placeholder="0.00"
             />
+          </div>
+        </Section>
+        </div>
+
+        <div data-section="customer">
+        <Section
+          icon={<UserIcon className="w-5 h-5" />}
+          title="Dane klienta"
+          subtitle="Imię, nazwisko, telefon, email"
+          accent="#22C55E"
+          complete={customerComplete}
+          unlocked={sectionUnlocked.customer}
+          open={open.customer}
+          onToggle={() => toggle("customer")}
+        >
+          <div className="space-y-3">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Input
                 icon={<UserIcon className="w-4 h-4" />}
@@ -403,21 +479,18 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
                 value={customerLastName}
                 onChange={setCustomerLastName}
               />
-              <Input
-                icon={<Phone className="w-4 h-4" />}
-                label="Telefon"
-                value={contactPhone}
-                onChange={setContactPhone}
-                placeholder="+48 …"
-              />
-              <Input
-                icon={<UserIcon className="w-4 h-4" />}
-                label="Email"
-                value={contactEmail}
-                onChange={setContactEmail}
-                type="email"
-              />
             </div>
+            <PhoneInputWithFlags
+              value={contactPhone}
+              onChange={setContactPhone}
+            />
+            <Input
+              icon={<UserIcon className="w-4 h-4" />}
+              label="Email"
+              value={contactEmail}
+              onChange={setContactEmail}
+              type="email"
+            />
           </div>
         </Section>
         </div>
@@ -494,6 +567,7 @@ function Section({
   onToggle,
   accent,
   complete,
+  unlocked = true,
   onContinue,
   children,
 }: {
@@ -504,31 +578,50 @@ function Section({
   onToggle: () => void;
   accent: string;
   complete?: boolean;
+  /** Czy sekcja jest dostępna. Zablokowane sekcje są wyszarzone i nie reagują
+   * na klik (gating: poprzednie muszą być complete). */
+  unlocked?: boolean;
   /** Show "Kontynuuj" button when section complete + collapse + open next. */
   onContinue?: () => void;
   children: React.ReactNode;
 }) {
+  const locked = !unlocked;
   return (
     <div
       className="rounded-2xl border overflow-hidden transition-all"
       style={{
         background: "var(--bg-card)",
-        borderColor: complete ? "rgba(34,197,94,0.4)" : "var(--border-subtle)",
+        borderColor: complete
+          ? "rgba(34,197,94,0.4)"
+          : locked
+            ? "rgba(120,120,135,0.18)"
+            : "var(--border-subtle)",
+        opacity: locked ? 0.55 : 1,
       }}
     >
       <button
         type="button"
         onClick={onToggle}
-        className="w-full px-4 py-3 flex items-center gap-3 transition-colors hover:bg-[var(--bg-surface)]/50"
+        disabled={locked}
+        title={
+          locked
+            ? "Najpierw uzupełnij poprzednie sekcje"
+            : open
+              ? "Zwiń"
+              : "Rozwiń"
+        }
+        className="w-full px-4 py-3 flex items-center gap-3 transition-colors hover:bg-[var(--bg-surface)]/50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
       >
         <div
           className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
           style={{
-            background: `linear-gradient(135deg, ${accent}22, ${accent}11)`,
-            color: accent,
+            background: locked
+              ? "rgba(120,120,135,0.12)"
+              : `linear-gradient(135deg, ${accent}22, ${accent}11)`,
+            color: locked ? "var(--text-muted)" : accent,
           }}
         >
-          {icon}
+          {locked ? <Lock className="w-4 h-4" /> : icon}
         </div>
         <div className="flex-1 min-w-0 text-left">
           <p className="text-sm font-semibold" style={{ color: "var(--text-main)" }}>
@@ -536,7 +629,7 @@ function Section({
           </p>
           {subtitle && (
             <p className="text-xs truncate" style={{ color: "var(--text-muted)" }}>
-              {subtitle}
+              {locked ? "Zablokowane — uzupełnij poprzednie sekcje" : subtitle}
             </p>
           )}
         </div>
@@ -546,11 +639,12 @@ function Section({
             style={{ color: "#22C55E" }}
           />
         )}
-        {open ? (
-          <ChevronDown className="w-4 h-4 ml-1" style={{ color: "var(--text-muted)" }} />
-        ) : (
-          <ChevronRight className="w-4 h-4 ml-1" style={{ color: "var(--text-muted)" }} />
-        )}
+        {!locked &&
+          (open ? (
+            <ChevronDown className="w-4 h-4 ml-1" style={{ color: "var(--text-muted)" }} />
+          ) : (
+            <ChevronRight className="w-4 h-4 ml-1" style={{ color: "var(--text-muted)" }} />
+          ))}
       </button>
       <div
         className="overflow-hidden transition-all duration-500 ease-in-out"

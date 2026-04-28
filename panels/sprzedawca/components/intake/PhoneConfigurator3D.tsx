@@ -484,10 +484,13 @@ export function PhoneConfigurator3D({
           />
         </div>
 
-        {/* Main canvas — grid z eksplicytnym row/col split. Każda komórka ma
-            konkretną wysokość (%) → overflow-y-auto na panelu działa zawsze. */}
-        <div className="flex-1 grid grid-rows-[60%_40%] lg:grid-rows-1 lg:grid-cols-[1fr_420px] min-h-0 overflow-hidden">
-          <div className="relative min-h-0 min-w-0 overflow-hidden">
+        {/* Main canvas — absolute positioning dla maksymalnej kontroli.
+            Canvas zajmuje pełen obszar (lg: minus right 420px na panel).
+            Panel: bottom 45vh (mobile) / right 420px (desktop), zawsze
+            overflow-y-auto z eksplicytnym wymiarem → scroll niezawodnie
+            działa. */}
+        <div className="flex-1 relative min-h-0 overflow-hidden">
+          <div className="absolute left-0 right-0 top-0 bottom-[45vh] lg:bottom-0 lg:right-[420px]">
             <Canvas
               shadows
               camera={{ position: [4.5, 0, 0], fov: 45 }}
@@ -573,10 +576,12 @@ export function PhoneConfigurator3D({
             )}
           </div>
 
-          {/* Step controls panel — grid cell z own min-h-0 + overflow-y-auto. */}
+          {/* Step controls panel — absolute. Mobile: bottom 45vh. Desktop:
+              right 420px, full height. overflow-y-auto + eksplicytny rozmiar
+              = niezawodny scroll w obu trybach. */}
           <aside
-            className="overflow-y-auto bg-white/5 backdrop-blur-md border-t lg:border-t-0 lg:border-l border-white/10 p-4"
-            style={{ minHeight: 0, overscrollBehavior: "contain" }}
+            className="absolute left-0 right-0 bottom-0 h-[45vh] lg:left-auto lg:top-0 lg:right-0 lg:bottom-0 lg:h-auto lg:w-[420px] overflow-y-auto bg-white/5 backdrop-blur-md border-t lg:border-t-0 lg:border-l border-white/10 p-4"
+            style={{ overscrollBehavior: "contain" }}
           >
             <StepInputs
               step={step}

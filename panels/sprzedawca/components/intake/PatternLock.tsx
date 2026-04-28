@@ -37,11 +37,13 @@ export function PatternLock({
     return [PADDING + col * step, PADDING + row * step];
   };
 
+  // Tolerancja kropek znacznie większa (40 z 240 viewBox = ~17%) — łatwiej
+  // trafić, mniej "wypadających" rysunków przy lekkim drżeniu.
   const dotAtPoint = (x: number, y: number): number | null => {
     for (let i = 0; i < 9; i++) {
       const [dx, dy] = dotPos(i);
       const dist = Math.hypot(x - dx, y - dy);
-      if (dist < 26) return i;
+      if (dist < 40) return i;
     }
     return null;
   };
@@ -58,6 +60,9 @@ export function PatternLock({
 
   const handlePointerDown = (e: React.PointerEvent) => {
     e.preventDefault();
+    // Pointer capture: pointer events lecą do SVG nawet gdy palec wyjdzie
+    // poza element. Bez tego pointermove poza SVG kończył rysowanie.
+    e.currentTarget.setPointerCapture(e.pointerId);
     setDrawing(true);
     setPath([]);
     const [x, y] = screenToSvg(e.clientX, e.clientY);
@@ -74,7 +79,10 @@ export function PatternLock({
     }
   };
 
-  const handlePointerUp = () => {
+  const handlePointerUp = (e: React.PointerEvent) => {
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
     setDrawing(false);
   };
 
@@ -97,7 +105,6 @@ export function PatternLock({
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
-        onPointerLeave={handlePointerUp}
       >
         {/* Linie między aktywnymi kropkami — gradient stroke. */}
         <defs>

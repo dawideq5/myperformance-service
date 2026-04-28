@@ -1,7 +1,7 @@
 "use client";
 
 import { useGLTF, useAnimations } from "@react-three/drei";
-import { useFrame } from "@react-three/fiber";
+import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 
@@ -68,27 +68,21 @@ export function PhoneGLB({
   const { scene, animations } = useGLTF("/models/smartphone.glb", "/draco/");
   const { actions, mixer } = useAnimations(animations, groupRef);
 
-  // Klonowanie sceny BEZ klonowania materiałów — zachowujemy oryginalne
-  // referencje materiałów (i tym samym tekstur). Klonowanie materiałów
-  // gubiło textury na Windows/innych urządzeniach. Body color override
-  // klonuje materiały on-demand tylko dla body parts (useEffect niżej).
+  const { gl } = useThree();
+
+  // Klonowanie sceny BEZ klonowania materiałów. Materiały referencyjnie
+  // współdzielone z originalną sceną — bez mutacji w useMemo (mutacje są
+  // w osobnym useEffect z dostępem do renderera, gdzie ustawiamy sRGB +
+  // anisotropy + frustumCulled przy każdym mount).
   const { clonedScene, normalize } = useMemo(() => {
     const cloned = scene.clone(true);
     cloned.traverse((obj) => {
       if (obj instanceof THREE.Mesh) {
         obj.castShadow = true;
         obj.receiveShadow = true;
-        // Wymuszenie sRGB na color/emissive maps oryginalnych materiałów —
-        // niektóre eksporty GLB nie ustawiają colorSpace, co daje wygląd
-        // "tekstury się nie wczytały" (wyblakłe/białe).
-        const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-        for (const m of mats) {
-          if (!m) continue;
-          const sm = m as THREE.MeshStandardMaterial;
-          if (sm.map) sm.map.colorSpace = THREE.SRGBColorSpace;
-          if (sm.emissiveMap) sm.emissiveMap.colorSpace = THREE.SRGBColorSpace;
-          sm.needsUpdate = true;
-        }
+        // Frustum culling off — chroni przed dziwnym znikaniem meshy gdy
+        // bounding sphere/box sceny jest źle policzony po klonie.
+        obj.frustumCulled = false;
       }
     });
     // Compute bounding box → auto-center + scale to fit ~3.5 unit max dim.
@@ -106,6 +100,43 @@ export function PhoneGLB({
       },
     };
   }, [scene]);
+
+  // Po mount: dla wszystkich tekstur w scenie wymuszamy sRGB color space +
+  // maxAnisotropy z renderera + needsUpdate. Robimy to po mount renderera
+  // (gl gotowy), nie w useMemo — niektóre browsery (Windows Edge/Chrome)
+  // nie zaczytywały tekstur poprawnie gdy sRGB ustawiane było zbyt wcześnie.
+  useEffect(() => {
+    if (!clonedScene || !gl) return;
+    const maxAniso = gl.capabilities.getMaxAnisotropy?.() ?? 1;
+    clonedScene.traverse((obj) => {
+      if (!(obj instanceof THREE.Mesh)) return;
+      const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+      for (const m of mats) {
+        if (!m) continue;
+        const sm = m as THREE.MeshStandardMaterial;
+        // baseColorMap / emissiveMap — sRGB.
+        if (sm.map) {
+          sm.map.colorSpace = THREE.SRGBColorSpace;
+          sm.map.anisotropy = maxAniso;
+          sm.map.needsUpdate = true;
+        }
+        if (sm.emissiveMap) {
+          sm.emissiveMap.colorSpace = THREE.SRGBColorSpace;
+          sm.emissiveMap.needsUpdate = true;
+        }
+        // Linear maps (normal/roughness/metalness/ao) — bez sRGB, ale
+        // anisotropy + needsUpdate na każdej mapie.
+        for (const k of ["normalMap", "roughnessMap", "metalnessMap", "aoMap"] as const) {
+          const tex = sm[k];
+          if (tex) {
+            tex.anisotropy = maxAniso;
+            tex.needsUpdate = true;
+          }
+        }
+        sm.needsUpdate = true;
+      }
+    });
+  }, [clonedScene, gl]);
 
   // Mapowanie HighlightId → materiały meshy. Klonowane materiały to nasze, możemy
   // mutować emissive bez side effects.

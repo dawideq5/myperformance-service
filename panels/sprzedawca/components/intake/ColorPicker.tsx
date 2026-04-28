@@ -77,16 +77,6 @@ export function ColorPicker({
 }) {
   const [hex, setHex] = useState<string>("#0a0a0a");
   const inputRef = useRef<HTMLInputElement>(null);
-  const popularColors = [
-    "Czarny",
-    "Biały",
-    "Srebrny",
-    "Tytanowy naturalny",
-    "Niebieski",
-    "Złoty",
-    "Zielony",
-    "Czerwony",
-  ];
 
   // Jeśli value pasuje do jednego z named — wyciągnij hex jako visualizer.
   useEffect(() => {
@@ -104,11 +94,14 @@ export function ColorPicker({
       >
         Kolor
       </span>
-      <div className="flex items-center gap-2 mb-2">
+      <div className="flex items-center gap-2">
+        {/* Wąski przycisk palety: tylko ikona + swatch. Klik otwiera native picker. */}
         <button
           type="button"
           onClick={() => inputRef.current?.click()}
-          className="flex items-center gap-2 flex-1 px-3 py-2 rounded-xl border text-sm transition-colors hover:border-[var(--accent)]"
+          aria-label="Wybierz kolor z palety"
+          title="Wybierz kolor z palety"
+          className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl border transition-colors hover:border-[var(--accent)] flex-shrink-0"
           style={{
             background: "var(--bg-surface)",
             borderColor: "var(--border-subtle)",
@@ -117,21 +110,12 @@ export function ColorPicker({
         >
           <Palette className="w-4 h-4" style={{ color: "var(--text-muted)" }} />
           <span
-            className="w-6 h-6 rounded-full border flex-shrink-0"
+            className="w-5 h-5 rounded-full border flex-shrink-0"
             style={{
               background: hex,
               borderColor: "var(--border-subtle)",
             }}
           />
-          <span className="flex-1 text-left">
-            {value || "Wybierz kolor z palety"}
-          </span>
-          <span
-            className="text-[10px] uppercase font-semibold"
-            style={{ color: "var(--text-muted)" }}
-          >
-            paleta
-          </span>
           <input
             ref={inputRef}
             type="color"
@@ -143,50 +127,19 @@ export function ColorPicker({
             className="sr-only"
           />
         </button>
+        {/* Szeroki input nazwy. */}
         <input
           type="text"
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          placeholder="lub wpisz nazwę"
-          className="w-32 px-3 py-2 rounded-xl border text-sm outline-none focus:border-[var(--accent)]"
+          placeholder="Wpisz nazwę koloru"
+          className="flex-1 px-3 py-2 rounded-xl border text-sm outline-none focus:border-[var(--accent)]"
           style={{
             background: "var(--bg-surface)",
             borderColor: "var(--border-subtle)",
             color: "var(--text-main)",
           }}
         />
-      </div>
-      <div className="flex flex-wrap gap-1.5">
-        {popularColors.map((name) => {
-          const c = NAMED_COLORS.find((x) => x.name === name);
-          if (!c) return null;
-          const active = value.toLowerCase() === name.toLowerCase();
-          return (
-            <button
-              key={name}
-              type="button"
-              onClick={() => {
-                onChange(name);
-                setHex(c.hex);
-              }}
-              className="px-2.5 py-1 rounded-full border text-[11px] flex items-center gap-1.5 transition-all hover:scale-105"
-              style={{
-                background: active ? "var(--accent)" : "var(--bg-surface)",
-                borderColor: active ? "var(--accent)" : "var(--border-subtle)",
-                color: active ? "#fff" : "var(--text-main)",
-              }}
-            >
-              <span
-                className="w-3 h-3 rounded-full inline-block border"
-                style={{
-                  background: c.hex,
-                  borderColor: "var(--border-subtle)",
-                }}
-              />
-              {name}
-            </button>
-          );
-        })}
       </div>
     </div>
   );

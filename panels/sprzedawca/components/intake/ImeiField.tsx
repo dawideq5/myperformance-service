@@ -37,13 +37,12 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 function isImeiFormat(v: string) {
-  return /^[0-9]{14,15}$/.test(v.trim());
+  return /^[0-9]{15}$/.test(v.trim());
 }
 
 function isValidLuhn(imei: string) {
   const v = imei.trim();
   if (!isImeiFormat(v)) return false;
-  if (v.length === 14) return true;
   let sum = 0;
   for (let i = 0; i < 15; i++) {
     let d = Number(v[14 - i]);
@@ -104,7 +103,7 @@ export function ImeiField({
           className="block text-xs font-medium mb-1.5"
           style={{ color: "var(--text-muted)" }}
         >
-          IMEI / SN
+          IMEI
         </span>
         <div className="relative">
           <ScanLine
@@ -118,7 +117,7 @@ export function ImeiField({
             onChange={(e) =>
               onChange(e.target.value.replace(/[^0-9]/g, "").slice(0, 15))
             }
-            placeholder="15 cyfr (lub 14 — bez checksum)"
+            placeholder="15-cyfrowy IMEI"
             className="w-full pl-9 pr-10 py-2 rounded-xl border text-sm outline-none font-mono transition-colors focus:border-[var(--accent)]"
             style={{
               background: "var(--bg-surface)",
