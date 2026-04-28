@@ -185,16 +185,16 @@ const nextConfig = {
   // packuje go tak jak `pg`.
   serverExternalPackages: [
     "mysql2",
-    // @react-pdf/renderer ma własny React reconciler — gdy Next bundluje go
-    // wraz z aplikacją, $$typeof element types gubią tożsamość przez
-    // duplicate React copies → Minified React error #31. Marking external
-    // wymusza Node load z node_modules at runtime.
-    "@react-pdf/renderer",
+    // pdfkit + fontkit ładują natywne assets (afm, fonts) z własnego
+    // node_modules — Next bundler tego nie tracker. External żeby Node
+    // ładował z node_modules at runtime.
+    "pdfkit",
+    "fontkit",
   ],
   outputFileTracingIncludes: {
     "/api/integrations/moodle/**": ["./node_modules/mysql2/**/*"],
     "/api/panel/services/**": [
-      "./node_modules/@react-pdf/**/*",
+      "./node_modules/pdfkit/**/*",
       "./node_modules/fontkit/**/*",
       "./public/fonts/**/*",
       "./public/logos/**/*",
