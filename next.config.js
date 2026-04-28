@@ -183,9 +183,22 @@ const nextConfig = {
   // mysql2 używa dynamicznego wymagania natywnych bindingów — bundler
   // Next'a go tree-shakuje/przekształca błędnie. Marking as server-external
   // packuje go tak jak `pg`.
-  serverExternalPackages: ["mysql2"],
+  serverExternalPackages: [
+    "mysql2",
+    // @react-pdf/renderer ma własny React reconciler — gdy Next bundluje go
+    // wraz z aplikacją, $$typeof element types gubią tożsamość przez
+    // duplicate React copies → Minified React error #31. Marking external
+    // wymusza Node load z node_modules at runtime.
+    "@react-pdf/renderer",
+  ],
   outputFileTracingIncludes: {
     "/api/integrations/moodle/**": ["./node_modules/mysql2/**/*"],
+    "/api/panel/services/**": [
+      "./node_modules/@react-pdf/**/*",
+      "./node_modules/fontkit/**/*",
+      "./public/fonts/**/*",
+      "./public/logos/**/*",
+    ],
   },
   poweredByHeader: false,
   compress: true,
