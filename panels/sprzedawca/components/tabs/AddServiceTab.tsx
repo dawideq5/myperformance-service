@@ -27,6 +27,7 @@ import {
   DescriptionPicker,
   serializeRepairTypes,
 } from "../intake/DescriptionPicker";
+import { openReceiptPrint, type ReceiptData } from "../../lib/receipt";
 
 export function AddServiceTab({ locationId }: { locationId: string }) {
   const [brand, setBrand] = useState("");
@@ -49,9 +50,18 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
   const [customerLastName, setCustomerLastName] = useState("");
   const [contactPhone, setContactPhone] = useState("");
   const [contactEmail, setContactEmail] = useState("");
+  // Potwierdzenie odbioru (P29-B2): user musi explicit wybrać yes/no/na
+  // dla każdej pozycji. null = nie zdecydowany → blokuje submit.
+  type HandoverState = "yes" | "no" | "na" | null;
+  const [sdRemoved, setSdRemoved] = useState<HandoverState>(null);
+  const [simRemoved, setSimRemoved] = useState<HandoverState>(null);
+  const [caseReturned, setCaseReturned] = useState<HandoverState>(null);
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Snapshot ostatniego utworzonego zlecenia — używany przez drukowanie
+  // potwierdzenia. Reset po Wyczyść lub kolejnym utworzeniu.
+  const [lastCreated, setLastCreated] = useState<ReceiptData | null>(null);
   const [cleaningPrice, setCleaningPrice] = useState<number | null>(null);
 
   // Sekcje rozwijane — sekwencyjne gating: tylko pierwsza sekcja otwarta na
@@ -62,6 +72,7 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
     visual: false,
     description: false,
     customer: false,
+    handover: false,
   });
 
   const SECTION_ORDER = [
@@ -70,6 +81,7 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
     "visual",
     "description",
     "customer",
+    "handover",
   ] as const;
 
   const continueToNext = (current: string) => {
@@ -144,12 +156,16 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
     customerLastName.trim() &&
     phoneLocalDigits.length >= 6
   );
+  // Handover: wszystkie 3 muszą być explicite zaznaczone (nie null).
+  const handoverComplete =
+    sdRemoved !== null && simRemoved !== null && caseReturned !== null;
   const allComplete =
     deviceComplete &&
     lockComplete &&
     visualComplete &&
     descriptionComplete &&
-    customerComplete;
+    customerComplete &&
+    handoverComplete;
 
   // Sequential gating — sekcja jest dostępna gdy wszystkie poprzednie complete.
   const sectionUnlocked: Record<string, boolean> = {
@@ -159,6 +175,12 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
     description: deviceComplete && lockComplete && visualComplete,
     customer:
       deviceComplete && lockComplete && visualComplete && descriptionComplete,
+    handover:
+      deviceComplete &&
+      lockComplete &&
+      visualComplete &&
+      descriptionComplete &&
+      customerComplete,
   };
 
   // Toggle sekcji — tylko gdy odblokowana. Zablokowane sekcje nie reagują.
@@ -187,6 +209,9 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
     setCustomerLastName("");
     setContactPhone("");
     setContactEmail("");
+    setSdRemoved(null);
+    setSimRemoved(null);
+    setCaseReturned(null);
   };
 
   const onSubmit = async (e: React.FormEvent) => {
@@ -257,7 +282,33 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`);
-      setSuccess(`Utworzono zlecenie ${json.service.ticketNumber}`);
+      const ticketNumber = json.service.ticketNumber as string;
+      // Snapshot do drukowania — ZANIM zresetujemy form.
+      const snapshot: ReceiptData = {
+        ticketNumber,
+        createdAt: json.service.createdAt ?? new Date().toISOString(),
+        customer: {
+          firstName: customerFirstName.trim(),
+          lastName: customerLastName.trim(),
+          phone: contactPhone.trim(),
+          email: contactEmail.trim(),
+        },
+        device: {
+          brand: brand.trim(),
+          model: model.trim(),
+          imei: imei.trim(),
+          color: color.trim(),
+        },
+        lock: { type: lockType, code: lockCode.trim() },
+        description: body.description ?? "",
+        visualCondition,
+        estimate: amountEstimate ? Number(amountEstimate) : null,
+        cleaningPrice,
+        cleaningAccepted: !!visualCondition.cleaning_accepted,
+        handover: { sdRemoved, simRemoved, caseReturned },
+      };
+      setLastCreated(snapshot);
+      setSuccess(`Utworzono zlecenie ${ticketNumber}`);
       reset();
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (err) {
@@ -272,24 +323,67 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
       <form onSubmit={onSubmit} className="space-y-3">
         {success && (
           <div
-            className="p-4 rounded-2xl border flex items-center gap-3 animate-fade-in shadow-lg"
+            className="p-4 rounded-2xl border animate-fade-in shadow-lg"
             style={{
               background:
                 "linear-gradient(135deg, rgba(34, 197, 94, 0.12), rgba(34, 197, 94, 0.04))",
               borderColor: "rgba(34, 197, 94, 0.35)",
-              color: "#22c55e",
             }}
           >
-            <div
-              className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-              style={{ background: "rgba(34, 197, 94, 0.18)" }}
-            >
-              <CheckCircle2 className="w-5 h-5" />
+            <div className="flex items-center gap-3">
+              <div
+                className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+                style={{ background: "rgba(34, 197, 94, 0.18)", color: "#22c55e" }}
+              >
+                <CheckCircle2 className="w-5 h-5" />
+              </div>
+              <div className="flex-1">
+                <p className="font-semibold" style={{ color: "#22c55e" }}>
+                  Sukces
+                </p>
+                <p
+                  className="text-xs opacity-80"
+                  style={{ color: "var(--text-main)" }}
+                >
+                  {success}
+                </p>
+              </div>
             </div>
-            <div>
-              <p className="font-semibold">Sukces</p>
-              <p className="text-xs opacity-80">{success}</p>
-            </div>
+            {lastCreated && (
+              <div className="mt-3 pt-3 border-t border-emerald-500/20">
+                <p
+                  className="text-xs uppercase tracking-wide font-semibold mb-2"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  Wybierz potwierdzenie
+                </p>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <button
+                    type="button"
+                    onClick={() => openReceiptPrint(lastCreated)}
+                    className="flex-1 px-4 py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 shadow-md transition-all hover:scale-[1.01]"
+                    style={{
+                      background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+                      color: "#fff",
+                    }}
+                  >
+                    Drukuj papierowe potwierdzenie
+                  </button>
+                  <button
+                    type="button"
+                    disabled
+                    title="Wymaga konfiguracji Documenso (Faza C)"
+                    className="flex-1 px-4 py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+                    style={{
+                      background: "rgba(120,120,140,0.4)",
+                      color: "#fff",
+                    }}
+                  >
+                    Wyślij elektroniczne (wkrótce)
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
         {error && (
@@ -426,6 +520,7 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
           unlocked={sectionUnlocked.customer}
           open={open.customer}
           onToggle={() => toggle("customer")}
+          onContinue={() => continueToNext("customer")}
         >
           <div className="space-y-3">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -478,6 +573,48 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
                 <li>Kontakt w razie pytań do diagnostyki.</li>
               </ul>
             </div>
+          </div>
+        </Section>
+        </div>
+
+        <div data-section="handover">
+        <Section
+          icon={<BoxIcon className="w-5 h-5" />}
+          title="Potwierdzenie odbioru"
+          subtitle="Karty pamięci, SIM, etui — zaznacz zanim oddasz urządzenie"
+          accent="#F59E0B"
+          complete={handoverComplete}
+          unlocked={sectionUnlocked.handover}
+          open={open.handover}
+          onToggle={() => toggle("handover")}
+        >
+          <div className="space-y-3">
+            <p
+              className="text-xs"
+              style={{ color: "var(--text-muted)" }}
+            >
+              Sprawdź każdą pozycję ZANIM klient odda urządzenie. „Brak"
+              oznacza że danej rzeczy nie było w urządzeniu/etui w momencie
+              przyjęcia.
+            </p>
+            <HandoverItem
+              label="Karta pamięci SD"
+              value={sdRemoved}
+              onChange={setSdRemoved}
+            />
+            <HandoverItem
+              label="Karta SIM"
+              value={simRemoved}
+              onChange={setSimRemoved}
+            />
+            <HandoverItem
+              label="Etui zwrócone klientowi"
+              value={caseReturned}
+              onChange={setCaseReturned}
+              yesLabel="Zwrócone"
+              noLabel="Nie zwrócone"
+              naLabel="Brak etui"
+            />
           </div>
         </Section>
         </div>
@@ -659,6 +796,71 @@ function Section({
             </div>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** Pojedyncza pozycja potwierdzenia odbioru — Yes/No/Brak (Not Applicable).
+ * Każda musi być explicit zaznaczona; null = nie wybrano → blokuje submit. */
+function HandoverItem({
+  label,
+  value,
+  onChange,
+  yesLabel = "Wyjęta",
+  noLabel = "Nie wyjęta",
+  naLabel = "Brak",
+}: {
+  label: string;
+  value: "yes" | "no" | "na" | null;
+  onChange: (v: "yes" | "no" | "na") => void;
+  yesLabel?: string;
+  noLabel?: string;
+  naLabel?: string;
+}) {
+  const opts: {
+    val: "yes" | "no" | "na";
+    label: string;
+    color: string;
+  }[] = [
+    { val: "yes", label: yesLabel, color: "#22C55E" },
+    { val: "no", label: noLabel, color: "#EF4444" },
+    { val: "na", label: naLabel, color: "#6b6b7b" },
+  ];
+  return (
+    <div className="rounded-xl border p-3 space-y-2"
+      style={{
+        background: "var(--bg-surface)",
+        borderColor: value === null ? "rgba(245, 158, 11, 0.4)" : "var(--border-subtle)",
+      }}
+    >
+      <p
+        className="text-sm font-medium"
+        style={{ color: "var(--text-main)" }}
+      >
+        {label}
+      </p>
+      <div className="grid grid-cols-3 gap-1.5">
+        {opts.map((o) => {
+          const active = value === o.val;
+          return (
+            <button
+              key={o.val}
+              type="button"
+              onClick={() => onChange(o.val)}
+              className="px-2 py-1.5 rounded-lg border text-xs font-semibold transition-all"
+              style={{
+                background: active
+                  ? `linear-gradient(135deg, ${o.color}, ${o.color}cc)`
+                  : "var(--bg-card)",
+                color: active ? "#fff" : "var(--text-muted)",
+                borderColor: active ? o.color : "var(--border-subtle)",
+              }}
+            >
+              {o.label}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

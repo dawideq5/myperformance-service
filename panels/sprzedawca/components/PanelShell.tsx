@@ -21,14 +21,30 @@ export function PanelShell({ title, subtitle, userLabel, roles }: PanelShellProp
         }}
       >
         <div className="mx-auto max-w-6xl px-6 h-16 flex items-center justify-between gap-4">
-          <a
-            href="https://myperformance.pl/dashboard"
-            className="flex items-center gap-2 font-bold tracking-tight"
-            style={{ color: "var(--text-main)" }}
-          >
-            <ArrowLeft className="w-4 h-4" aria-hidden="true" />
-            <span>MyPerformance</span>
-          </a>
+          <div className="flex items-center gap-3">
+            <a
+              href="https://myperformance.pl/dashboard"
+              className="flex items-center gap-2 text-sm font-medium tracking-tight"
+              style={{ color: "var(--text-muted)" }}
+              title="Powrót do dashboard"
+            >
+              <ArrowLeft className="w-4 h-4" aria-hidden="true" />
+              <span className="hidden sm:inline">MyPerformance</span>
+            </a>
+            <span
+              className="hidden sm:block w-px h-6"
+              style={{ background: "var(--border-subtle)" }}
+            />
+            {/* Caseownia branding — logo widoczne w panelu intake.
+                Backup: Directus file 9145fb6d-fa1c-4440-9c30-ee2c170b2980 */}
+            <div className="bg-white rounded-md px-2 py-1 flex items-center">
+              <img
+                src="/logos/caseownia.jpeg"
+                alt="Caseownia"
+                className="h-7 w-auto"
+              />
+            </div>
+          </div>
           <div className="flex items-center gap-3">
             {userLabel && (
               <div className="hidden sm:flex items-center gap-3">
