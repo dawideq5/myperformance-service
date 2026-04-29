@@ -21,6 +21,7 @@ import {
   X,
 } from "lucide-react";
 import { openServiceReceipt, sendElectronicReceipt } from "../../lib/receipt";
+import { useToast } from "../ToastProvider";
 
 interface ServiceTicket {
   id: string;
@@ -96,13 +97,6 @@ const DEVICE_ICONS: Record<string, React.ComponentType<{ className?: string }>> 
   headphones: TabletSmartphone,
 };
 
-type ToastKind = "success" | "error" | "info";
-interface ToastEntry {
-  id: number;
-  kind: ToastKind;
-  message: string;
-}
-
 export function ServicesAllTab({
   onEdit,
 }: { onEdit?: (id: string) => void } = {}) {
@@ -111,15 +105,7 @@ export function ServicesAllTab({
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState("");
   const [search, setSearch] = useState("");
-  const [toasts, setToasts] = useState<ToastEntry[]>([]);
-
-  const pushToast = useCallback((kind: ToastKind, message: string) => {
-    const id = Date.now() + Math.floor(Math.random() * 1000);
-    setToasts((prev) => [...prev, { id, kind, message }]);
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, kind === "error" ? 6000 : 4000);
-  }, []);
+  const toast = useToast();
 
   const refresh = useCallback(
     async (silent = false) => {
@@ -287,47 +273,10 @@ export function ServicesAllTab({
               service={s}
               onEdit={onEdit}
               onChanged={() => void refresh(true)}
-              pushToast={pushToast}
             />
           ))}
         </div>
       )}
-
-      {/* Toast stack — top-right, z-index ponad dialog. */}
-      <div className="fixed top-4 right-4 z-[2200] flex flex-col gap-2 max-w-sm w-full pointer-events-none">
-        {toasts.map((t) => (
-          <div
-            key={t.id}
-            className="pointer-events-auto rounded-xl border shadow-2xl px-4 py-3 text-sm flex items-start gap-2 animate-fade-in"
-            style={{
-              background:
-                t.kind === "success"
-                  ? "rgba(34,197,94,0.95)"
-                  : t.kind === "error"
-                    ? "rgba(239,68,68,0.95)"
-                    : "rgba(30,41,59,0.95)",
-              borderColor:
-                t.kind === "success"
-                  ? "#22c55e"
-                  : t.kind === "error"
-                    ? "#ef4444"
-                    : "#334155",
-              color: "#fff",
-              backdropFilter: "blur(12px)",
-            }}
-          >
-            <span className="flex-1">{t.message}</span>
-            <button
-              type="button"
-              onClick={() => setToasts((p) => p.filter((x) => x.id !== t.id))}
-              className="opacity-70 hover:opacity-100"
-              aria-label="Zamknij"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }
@@ -336,13 +285,12 @@ function ServiceCard({
   service,
   onChanged,
   onEdit,
-  pushToast,
 }: {
   service: ServiceTicket;
   onChanged?: () => void;
   onEdit?: (id: string) => void;
-  pushToast?: (kind: "success" | "error" | "info", message: string) => void;
 }) {
+  const toast = useToast();
   const status = STATUS_LABELS[service.status] ?? {
     label: service.status,
     color: "#64748B",
@@ -367,21 +315,75 @@ function ServiceCard({
   const handleSendElectronic = async () => {
     if (!hasEmail) return;
     setSendingE(true);
+
+    // Multi-stage progress toast — user widzi na której fazie wysyłki jesteśmy.
+    const toastId = toast.push({
+      kind: "progress",
+      title: "Wysyłka potwierdzenia",
+      message: "Inicjalizacja…",
+      sticky: true,
+      progress: 5,
+    });
+    const stages = [
+      { msg: "Generuję dokument PDF…", progress: 25, delay: 800 },
+      { msg: "Tworzę dokument w Documenso…", progress: 55, delay: 2200 },
+      { msg: "Konfiguruję podpisy i wysyłam…", progress: 85, delay: 4500 },
+    ];
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    for (const s of stages) {
+      timers.push(
+        setTimeout(() => {
+          toast.update(toastId, { message: s.msg, progress: s.progress });
+        }, s.delay),
+      );
+    }
+
     try {
       const r = await sendElectronicReceipt(service.id);
+      timers.forEach((t) => clearTimeout(t));
       if (r.ok) {
         setEStatus("sent");
         onChanged?.();
-        pushToast?.(
-          "success",
-          `Potwierdzenie wysłane — czeka na podpis pracownika, potem klienta. (#${r.documentId})`,
-        );
+        // Pierwszy signingUrl = pracownik (signingOrder=1, SEQUENTIAL).
+        // Otwieramy mu podpis w nowej karcie. Klient dostanie zaproszenie
+        // dopiero po podpisie pracownika (Documenso sequential).
+        const employeeUrl = r.signingUrls?.[0]?.url;
+        toast.update(toastId, {
+          kind: "success",
+          title: "Wysłano",
+          message: employeeUrl
+            ? "Otwórz okno podpisu pracownika — klient otrzyma zaproszenie po Twoim podpisie."
+            : `Dokument w Documenso (#${r.documentId}). Sprawdź swoją skrzynkę po link.`,
+          sticky: false,
+          progress: 100,
+          action: employeeUrl
+            ? {
+                label: "Otwórz okno podpisu",
+                onClick: () => window.open(employeeUrl, "_blank", "noopener"),
+              }
+            : undefined,
+        });
+        if (employeeUrl) {
+          window.open(employeeUrl, "_blank", "noopener");
+        }
       } else {
-        pushToast?.(
-          "error",
-          `Błąd wysyłki: ${r.error ?? "nieznany"}`,
-        );
+        toast.update(toastId, {
+          kind: "error",
+          title: "Błąd wysyłki",
+          message: r.error ?? "Nieznany błąd",
+          sticky: false,
+          progress: undefined,
+        });
       }
+    } catch (err) {
+      timers.forEach((t) => clearTimeout(t));
+      toast.update(toastId, {
+        kind: "error",
+        title: "Błąd wysyłki",
+        message: err instanceof Error ? err.message : "Nieznany błąd",
+        sticky: false,
+        progress: undefined,
+      });
     } finally {
       setSendingE(false);
     }

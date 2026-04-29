@@ -34,6 +34,7 @@ const ModelLoadingOverlay = dynamic(
   () => import("./ModelLoadingOverlay"),
   { ssr: false },
 );
+import { PhoneSceneErrorBoundary } from "./PhoneSceneErrorBoundary";
 
 type StepId =
   | "display"
@@ -490,32 +491,40 @@ export function PhoneConfigurator3D({
             działa. */}
         <div className="flex-1 relative min-h-0 overflow-hidden">
           <div className="absolute left-0 right-0 top-0 bottom-[45vh] lg:bottom-0 lg:right-[420px]">
-            <Canvas
-              camera={{ position: [4.5, 0, 0], fov: 45 }}
-              dpr={[1, 2]}
-              gl={{
-                antialias: true,
-                toneMapping: THREE.ACESFilmicToneMapping,
-                outputColorSpace: THREE.SRGBColorSpace,
-              }}
-              onPointerMissed={() => setEditingMarkerId(null)}
-            >
-              <PhoneScene
-                highlight={currentHighlight}
-                cameraPos={currentCameraPos}
-                cameraLookAt={currentLookAt}
-                brandColor={brandColorHex}
-                isFramesStep={step.id === "frames"}
-                isCleaningStep={step.id === "cleaning"}
-                screenOn={false}
-                damageMarkers={state.damage_markers ?? []}
-                damageMode={step.id === "damage"}
-                playDisassembly={playDisassembly}
-                phonePosition={phonePosition}
-                phoneRotationY={step.phoneRotationY ?? 0}
-                onModelClick={onModelClick}
-              />
-            </Canvas>
+            <PhoneSceneErrorBoundary>
+              <Canvas
+                camera={{ position: [4.5, 0, 0], fov: 45 }}
+                dpr={[1, 2]}
+                gl={{
+                  antialias: true,
+                  toneMapping: THREE.ACESFilmicToneMapping,
+                  outputColorSpace: THREE.SRGBColorSpace,
+                }}
+                onCreated={({ gl }) => {
+                  gl.domElement.addEventListener("webglcontextlost", (e) => {
+                    e.preventDefault();
+                    console.error("[Canvas] WebGL context lost");
+                  });
+                }}
+                onPointerMissed={() => setEditingMarkerId(null)}
+              >
+                <PhoneScene
+                  highlight={currentHighlight}
+                  cameraPos={currentCameraPos}
+                  cameraLookAt={currentLookAt}
+                  brandColor={brandColorHex}
+                  isFramesStep={step.id === "frames"}
+                  isCleaningStep={step.id === "cleaning"}
+                  screenOn={false}
+                  damageMarkers={state.damage_markers ?? []}
+                  damageMode={step.id === "damage"}
+                  playDisassembly={playDisassembly}
+                  phonePosition={phonePosition}
+                  phoneRotationY={step.phoneRotationY ?? 0}
+                  onModelClick={onModelClick}
+                />
+              </Canvas>
+            </PhoneSceneErrorBoundary>
             <ModelLoadingOverlay />
 
             {/* Cleaning tour caption overlay */}
