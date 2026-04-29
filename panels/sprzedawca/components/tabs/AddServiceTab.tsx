@@ -63,6 +63,10 @@ export function AddServiceTab({
   const [customerLastName, setCustomerLastName] = useState("");
   const [contactPhone, setContactPhone] = useState("");
   const [contactEmail, setContactEmail] = useState("");
+  // Gdy klient podpisał elektronicznie, blokujemy edycję emaila —
+  // zmiana po podpisie znaczyłaby że dokument trafił na inny adres
+  // niż osoba która zaakceptowała warunki.
+  const [emailLocked, setEmailLocked] = useState(false);
   // Potwierdzenie odbioru (P29-C2): jeden wybór — albo "bez dodatków"
   // albo "wpisz pobrane przedmioty" + textarea.
   type HandoverChoice = "none" | "items" | null;
@@ -133,15 +137,11 @@ export function AddServiceTab({
     }
   };
 
-  // Ekspertyza: gdy wybrana, sugerujemy cenę (auto-fill jeśli pole puste).
-  // Pole nadal edytowalne — pracownik może zmienić jeśli wycena specjalna.
+  // Ekspertyza: NIE auto-fill kwoty. Cena pojawia się dopiero po
+  // zaznaczeniu w sekcji SUGESTIE CEN Z CENNIKA — pracownik świadomie
+  // wybiera czy zastosować cenę z cennika.
   const isExpertise = repairTypes.includes(EXPERTISE_VALUE);
-  useEffect(() => {
-    if (isExpertise && !amountEstimate.trim()) {
-      setAmountEstimate(expertisePrice.toFixed(2));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isExpertise, expertisePrice]);
+  void isExpertise;
 
   // Edit mode: gdy editingServiceId, pobierz service detail i prefill formularz.
   useEffect(() => {
@@ -178,6 +178,9 @@ export function AddServiceTab({
         setCustomerLastName(s.customerLastName ?? "");
         setContactPhone(s.contactPhone ?? "");
         setContactEmail(s.contactEmail ?? "");
+        // Lock email when customer has signed (electronically).
+        const docStatus = s.visualCondition?.documenso?.status;
+        setEmailLocked(docStatus === "signed");
         // Handover from visualCondition.handover
         const h = s.visualCondition?.handover;
         if (h?.choice) {
@@ -287,21 +290,32 @@ export function AddServiceTab({
       customerComplete &&
       handoverComplete;
 
-  // Sequential gating — sekcja jest dostępna gdy wszystkie poprzednie complete.
-  const sectionUnlocked: Record<string, boolean> = {
-    device: true,
-    lock: deviceComplete,
-    visual: deviceComplete && lockComplete,
-    description: deviceComplete && lockComplete && visualComplete,
-    customer:
-      deviceComplete && lockComplete && visualComplete && descriptionComplete,
-    handover:
-      deviceComplete &&
-      lockComplete &&
-      visualComplete &&
-      descriptionComplete &&
-      customerComplete,
-  };
+  // Sequential gating — sekcja jest dostępna gdy wszystkie poprzednie
+  // complete. W trybie edycji wszystko otwarte (user już wcześniej
+  // utworzył zlecenie, może edytować dowolny fragment).
+  const sectionUnlocked: Record<string, boolean> = editingServiceId
+    ? {
+        device: true,
+        lock: true,
+        visual: true,
+        description: true,
+        customer: true,
+        handover: true,
+      }
+    : {
+        device: true,
+        lock: deviceComplete,
+        visual: deviceComplete && lockComplete,
+        description: deviceComplete && lockComplete && visualComplete,
+        customer:
+          deviceComplete && lockComplete && visualComplete && descriptionComplete,
+        handover:
+          deviceComplete &&
+          lockComplete &&
+          visualComplete &&
+          descriptionComplete &&
+          customerComplete,
+      };
 
   // Toggle sekcji — tylko gdy odblokowana. Zablokowane sekcje nie reagują.
   const toggle = (k: string) => {
@@ -562,7 +576,7 @@ export function AddServiceTab({
           unlocked={sectionUnlocked.device}
           open={open.device}
           onToggle={() => toggle("device")}
-          onContinue={() => continueToNext("device")}
+          onContinue={editingServiceId ? undefined : () => continueToNext("device")}
         >
           <div className="space-y-4">
             <BrandPicker value={brand} onChange={setBrand} />
@@ -597,7 +611,7 @@ export function AddServiceTab({
           unlocked={sectionUnlocked.lock}
           open={open.lock}
           onToggle={() => toggle("lock")}
-          onContinue={() => continueToNext("lock")}
+          onContinue={editingServiceId ? undefined : () => continueToNext("lock")}
         >
           <LockSection
             lockType={lockType}
@@ -622,7 +636,7 @@ export function AddServiceTab({
           unlocked={sectionUnlocked.visual}
           open={open.visual}
           onToggle={() => toggle("visual")}
-          onContinue={() => continueToNext("visual")}
+          onContinue={editingServiceId ? undefined : () => continueToNext("visual")}
         >
           <VisualConditionSummary
             completed={visualCompleted}
@@ -643,7 +657,7 @@ export function AddServiceTab({
           unlocked={sectionUnlocked.description}
           open={open.description}
           onToggle={() => toggle("description")}
-          onContinue={() => continueToNext("description")}
+          onContinue={editingServiceId ? undefined : () => continueToNext("description")}
         >
           <div className="space-y-3">
             <DescriptionPicker
@@ -665,14 +679,6 @@ export function AddServiceTab({
               onChangeEstimate={setAmountEstimate}
               cleaningPrice={cleaningPrice}
               cleaningAccepted={!!visualCondition.cleaning_accepted}
-              suggestion={
-                isExpertise
-                  ? {
-                      label: `Sugerowana cena ekspertyzy: ${expertisePrice.toFixed(2)} PLN`,
-                      value: expertisePrice,
-                    }
-                  : undefined
-              }
             />
           </div>
         </Section>
@@ -688,7 +694,7 @@ export function AddServiceTab({
           unlocked={sectionUnlocked.customer}
           open={open.customer}
           onToggle={() => toggle("customer")}
-          onContinue={() => continueToNext("customer")}
+          onContinue={editingServiceId ? undefined : () => continueToNext("customer")}
         >
           <div className="space-y-3">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -709,14 +715,26 @@ export function AddServiceTab({
               value={contactPhone}
               onChange={setContactPhone}
             />
-            <Input
-              icon={<UserIcon className="w-4 h-4" />}
-              label="Email (zalecany)"
-              value={contactEmail}
-              onChange={setContactEmail}
-              type="email"
-              placeholder="adres@example.pl"
-            />
+            <div>
+              <Input
+                icon={<UserIcon className="w-4 h-4" />}
+                label="Email (zalecany)"
+                value={contactEmail}
+                onChange={emailLocked ? () => {} : setContactEmail}
+                type="email"
+                placeholder="adres@example.pl"
+                disabled={emailLocked}
+              />
+              {emailLocked && (
+                <p
+                  className="text-[10px] mt-1.5 px-2"
+                  style={{ color: "#f59e0b" }}
+                >
+                  Adres zablokowany — klient już zaakceptował dokument na
+                  ten adres. Aby zmienić, anuluj podpis i wyślij ponownie.
+                </p>
+              )}
+            </div>
             <div
               className="rounded-xl border p-3 text-xs"
               style={{
@@ -1226,6 +1244,7 @@ function Input({
   onChange,
   placeholder,
   type = "text",
+  disabled = false,
 }: {
   icon?: React.ReactNode;
   label: string;
@@ -1233,6 +1252,7 @@ function Input({
   onChange: (v: string) => void;
   placeholder?: string;
   type?: string;
+  disabled?: boolean;
 }) {
   return (
     <label className="block">
@@ -1254,9 +1274,11 @@ function Input({
         <input
           type={type}
           value={value}
+          disabled={disabled}
+          readOnly={disabled}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
-          className={`w-full ${icon ? "pl-9" : "pl-3"} pr-3 py-2 rounded-xl border text-sm outline-none transition-colors focus:border-[var(--accent)]`}
+          className={`w-full ${icon ? "pl-9" : "pl-3"} pr-3 py-2 rounded-xl border text-sm outline-none transition-colors focus:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-70`}
           style={{
             background: "var(--bg-surface)",
             borderColor: "var(--border-subtle)",

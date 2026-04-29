@@ -102,6 +102,7 @@ interface Revision {
   changeKind: string;
   editedByName: string | null;
   createdAt: string;
+  changes?: Record<string, { before: unknown; after: unknown }>;
 }
 
 interface ServiceActionEntry {
@@ -458,13 +459,15 @@ function ServiceDetailInner({
       <main className="mx-auto w-full max-w-6xl px-4 sm:px-6 py-6 grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* LEWA — info + akcje */}
         <section className="lg:col-span-2 space-y-4">
-          {eDocStatus !== "none" && eDocStatus !== "expired" && (
-            <DocumentSigningCard
-              status={eDocStatus}
-              signedPdfUrl={signedPdfUrl}
-              employeeSigningUrl={employeeSigningUrl}
-            />
-          )}
+          {eDocStatus !== "none" &&
+            eDocStatus !== "expired" &&
+            !service.visualCondition?.paperSigned && (
+              <DocumentSigningCard
+                status={eDocStatus}
+                signedPdfUrl={signedPdfUrl}
+                employeeSigningUrl={employeeSigningUrl}
+              />
+            )}
 
           <ActionsCard
             eDocStatus={eDocStatus}
@@ -528,7 +531,11 @@ function ServiceDetailInner({
 
         {/* PRAWA — historia, status documenso */}
         <aside className="space-y-4">
-          <DocumensoStatusCard documenso={service.visualCondition?.documenso} />
+          {!service.visualCondition?.paperSigned && (
+            <DocumensoStatusCard
+              documenso={service.visualCondition?.documenso}
+            />
+          )}
           <ActionsLogCard actions={actions} />
           <MailHistoryCard messages={mailMessages} />
           <HistoryCard revisions={revisions} />
@@ -999,6 +1006,38 @@ function MailHistoryCard({ messages }: { messages: MailMessage[] }) {
   );
 }
 
+const FIELD_LABELS_PL: Record<string, string> = {
+  status: "Status",
+  diagnosis: "Diagnoza",
+  description: "Opis usterki",
+  amountEstimate: "Kwota wyceny",
+  amountFinal: "Kwota finalna",
+  promisedAt: "Obiecana data",
+  warrantyUntil: "Gwarancja do",
+  customerFirstName: "Imię klienta",
+  customerLastName: "Nazwisko klienta",
+  contactPhone: "Telefon klienta",
+  contactEmail: "Email klienta",
+  brand: "Marka urządzenia",
+  model: "Model urządzenia",
+  imei: "IMEI",
+  color: "Kolor",
+  lockType: "Typ blokady",
+  lockCode: "Kod blokady",
+  visualCondition: "Stan wizualny",
+  intakeChecklist: "Checklist przyjęcia",
+};
+
+function fmtChangeValue(v: unknown): string {
+  if (v == null || v === "") return "—";
+  if (typeof v === "string") {
+    return v.length > 60 ? v.slice(0, 57) + "…" : v;
+  }
+  if (typeof v === "number") return String(v);
+  if (typeof v === "boolean") return v ? "Tak" : "Nie";
+  return "[obiekt]";
+}
+
 function HistoryCard({ revisions }: { revisions: Revision[] }) {
   return (
     <Card icon={<History className="w-4 h-4" />} title="Historia edycji">
@@ -1007,31 +1046,86 @@ function HistoryCard({ revisions }: { revisions: Revision[] }) {
           Brak zmian od utworzenia.
         </p>
       ) : (
-        <ul className="space-y-2">
-          {revisions.slice(0, 12).map((r) => (
-            <li
-              key={r.id}
-              className="flex items-start gap-2 text-xs"
-              style={{ color: "var(--text-main)" }}
-            >
-              <span
-                className="mt-1 shrink-0 w-1.5 h-1.5 rounded-full"
-                style={{
-                  background: r.isSignificant ? "#f59e0b" : "#64748b",
-                }}
-              />
-              <div className="flex-1 min-w-0">
-                <p className="truncate">{r.summary}</p>
-                <p
-                  className="text-[10px] mt-0.5"
-                  style={{ color: "var(--text-muted)" }}
-                >
-                  {new Date(r.createdAt).toLocaleString("pl-PL")}
-                  {r.editedByName ? ` · ${r.editedByName}` : ""}
-                </p>
-              </div>
-            </li>
-          ))}
+        <ul className="space-y-3">
+          {revisions.slice(0, 15).map((r) => {
+            const changeKeys = Object.keys(r.changes ?? {}).filter(
+              (k) => k !== "visualCondition" && k !== "intakeChecklist",
+            );
+            return (
+              <li
+                key={r.id}
+                className="flex items-start gap-2 text-xs"
+                style={{ color: "var(--text-main)" }}
+              >
+                <span
+                  className="mt-1.5 shrink-0 w-1.5 h-1.5 rounded-full"
+                  style={{
+                    background: r.isSignificant ? "#f59e0b" : "#64748b",
+                  }}
+                />
+                <div className="flex-1 min-w-0">
+                  {changeKeys.length === 0 ? (
+                    <p className="truncate">{r.summary}</p>
+                  ) : (
+                    <ul className="space-y-1">
+                      {changeKeys.map((k) => {
+                        const ch = r.changes![k]!;
+                        const label = FIELD_LABELS_PL[k] ?? k;
+                        const before = fmtChangeValue(ch.before);
+                        const after = fmtChangeValue(ch.after);
+                        const isDelete = ch.after == null || ch.after === "";
+                        const isAdd = ch.before == null || ch.before === "";
+                        return (
+                          <li key={k} className="leading-snug">
+                            <span
+                              className="font-semibold"
+                              style={{ color: "var(--text-main)" }}
+                            >
+                              {label}:
+                            </span>{" "}
+                            {isAdd ? (
+                              <>
+                                dodano{" "}
+                                <span style={{ color: "#22c55e" }}>{after}</span>
+                              </>
+                            ) : isDelete ? (
+                              <>
+                                usunięto{" "}
+                                <span
+                                  className="line-through"
+                                  style={{ color: "#ef4444" }}
+                                >
+                                  {before}
+                                </span>
+                              </>
+                            ) : (
+                              <>
+                                <span
+                                  className="line-through"
+                                  style={{ color: "var(--text-muted)" }}
+                                >
+                                  {before}
+                                </span>{" "}
+                                →{" "}
+                                <span style={{ color: "#22c55e" }}>{after}</span>
+                              </>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                  <p
+                    className="text-[10px] mt-1"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    {new Date(r.createdAt).toLocaleString("pl-PL")}
+                    {r.editedByName ? ` · ${r.editedByName}` : ""}
+                  </p>
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
     </Card>
