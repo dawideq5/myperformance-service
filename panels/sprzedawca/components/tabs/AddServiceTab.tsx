@@ -79,6 +79,14 @@ export function AddServiceTab({
   } | null>(null);
   const [cleaningPrice, setCleaningPrice] = useState<number | null>(null);
   const [expertisePrice, setExpertisePrice] = useState<number>(100);
+  const [cleaningOptions, setCleaningOptions] = useState<
+    Array<{
+      code: string;
+      name: string;
+      price: number;
+      description: string | null;
+    }>
+  >([]);
   // Dialog "Wystawić aneks?" pokazywany po edycji która zmieniła pole
   // significant (kwota wyceny, diagnoza, gwarancja). Decyzja: pobierz PDF
   // (przyciski drukuj/wyślij), albo pomiń.
@@ -192,15 +200,30 @@ export function AddServiceTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingServiceId]);
 
-  // Pobierz ceny z cennika: CLEANING_INTAKE + EXPERTISE.
+  // Pobierz cennik: wszystkie warianty CLEANING_* + EXPERTISE.
   useEffect(() => {
     void (async () => {
       try {
         const r = await fetch("/api/relay/pricelist");
         const json = await r.json();
-        const items = (json.items ?? []) as { code: string; price: number }[];
-        const cleaning = items.find((i) => i.code === "CLEANING_INTAKE");
-        if (cleaning) setCleaningPrice(Number(cleaning.price));
+        const items = (json.items ?? []) as {
+          code: string;
+          name: string;
+          price: number;
+          description?: string | null;
+        }[];
+        const cleanings = items
+          .filter((i) => i.code.startsWith("CLEANING_"))
+          .map((i) => ({
+            code: i.code,
+            name: i.name,
+            price: Number(i.price),
+            description: i.description ?? null,
+          }));
+        setCleaningOptions(cleanings);
+        const intake = cleanings.find((i) => i.code === "CLEANING_INTAKE");
+        if (intake) setCleaningPrice(intake.price);
+        else if (cleanings[0]) setCleaningPrice(cleanings[0].price);
         const expertise = items.find((i) => i.code === "EXPERTISE");
         if (expertise) setExpertisePrice(Number(expertise.price));
       } catch {
@@ -402,31 +425,30 @@ export function AddServiceTab({
       if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`);
       const ticketNumber = json.service.ticketNumber as string;
       const serviceId = json.service.id as string;
-      setLastCreated({
-        id: serviceId,
-        handover: {
-          choice: handoverChoice ?? "none",
-          items: handoverItems.trim(),
-        },
-      });
-      setSuccess(
-        isEdit
-          ? `Zaktualizowano zlecenie ${ticketNumber}`
-          : `Utworzono zlecenie ${ticketNumber}`,
-      );
-      if (isEdit) {
-        const significant = json.revision?.significant === true;
-        if (significant) {
-          setAnnexPrompt({ serviceId, ticketNumber });
-          // Nie resetujemy formularza ani nie wracamy do listy — czekamy
-          // aż user zdecyduje co zrobić z aneksem.
-          return;
-        }
-        // Reset back to list view after edit done.
-        setTimeout(() => onEditDone?.(), 1500);
+      // Auto-flow: po utworzeniu/edycji od razu prowadzimy user'a do
+      // dedykowanego widoku /serwis/[id]?action=sign — tam podpisuje,
+      // wybiera druk/email, widzi historię. Bez pośredniego "wybierz
+      // potwierdzenie" dialog.
+      const significant = isEdit ? json.revision?.significant === true : false;
+      // Zapisz handover w sessionStorage żeby dedykowany widok mógł
+      // przekazać go do PDF/Documenso (handover nie jest persistowany
+      // w DB, tylko w query).
+      try {
+        sessionStorage.setItem(
+          `mp_handover:${serviceId}`,
+          JSON.stringify({
+            choice: handoverChoice ?? "none",
+            items: handoverItems.trim(),
+          }),
+        );
+      } catch {
+        /* localStorage may be disabled */
       }
-      reset();
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      const target = `/serwis/${serviceId}?action=sign${
+        significant ? "&resign=1" : ""
+      }`;
+      window.location.href = target;
+      return;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Błąd zapisu");
     } finally {
@@ -894,6 +916,7 @@ export function AddServiceTab({
           brand={brand || "Telefon"}
           brandColorHex={brandColorHex}
           cleaningPrice={cleaningPrice}
+          cleaningOptions={cleaningOptions}
           initial={visualCondition}
           onCancel={() => setShowConfigurator(false)}
           onComplete={(state) => {

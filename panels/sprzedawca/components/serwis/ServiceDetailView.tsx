@@ -1,0 +1,894 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  ArrowLeft,
+  CheckCircle2,
+  FileText,
+  Mail,
+  Pen,
+  Printer,
+  RefreshCw,
+  Loader2,
+  AlertCircle,
+  Phone,
+  AtSign,
+  Tag,
+  Wrench,
+  Calendar,
+  Clock,
+  History,
+  Send,
+  Edit3,
+} from "lucide-react";
+import Link from "next/link";
+import { ToastProvider, useToast } from "../ToastProvider";
+import { SignaturePadDialog } from "../SignaturePadDialog";
+import { sendElectronicReceipt, openServiceReceipt } from "../../lib/receipt";
+
+interface ServiceDetail {
+  id: string;
+  ticketNumber: string;
+  status: string;
+  brand: string | null;
+  model: string | null;
+  imei: string | null;
+  color: string | null;
+  customerFirstName: string | null;
+  customerLastName: string | null;
+  contactPhone: string | null;
+  contactEmail: string | null;
+  description: string | null;
+  amountEstimate: number | null;
+  createdAt: string | null;
+  visualCondition?: {
+    documenso?: {
+      docId: number;
+      status: "sent" | "signed" | "rejected" | "expired";
+      sentAt: string;
+      completedAt?: string;
+      previousDocIds?: number[];
+    };
+    employeeSignature?: {
+      pngDataUrl: string;
+      signedBy: string;
+      signedAt: string;
+    };
+    handover?: { choice: "none" | "items"; items: string };
+  };
+}
+
+interface Revision {
+  id: string;
+  summary: string;
+  isSignificant: boolean;
+  changeKind: string;
+  editedByName: string | null;
+  createdAt: string;
+}
+
+interface ServiceActionEntry {
+  id: string;
+  action: string;
+  summary: string;
+  actorName: string | null;
+  createdAt: string;
+}
+
+const STATUS_LABELS: Record<string, { label: string; color: string }> = {
+  received: { label: "Przyjęty", color: "#64748B" },
+  diagnosing: { label: "Diagnoza", color: "#0EA5E9" },
+  awaiting_quote: { label: "Wycena", color: "#F59E0B" },
+  repairing: { label: "Naprawa", color: "#A855F7" },
+  testing: { label: "Testy", color: "#06B6D4" },
+  ready: { label: "Gotowy", color: "#22C55E" },
+  delivered: { label: "Wydany", color: "#16A34A" },
+  cancelled: { label: "Anulowany", color: "#EF4444" },
+};
+
+export function ServiceDetailView({
+  serviceId,
+  initialAction,
+}: {
+  serviceId: string;
+  initialAction: string | null;
+}) {
+  return (
+    <ToastProvider>
+      <ServiceDetailInner serviceId={serviceId} initialAction={initialAction} />
+    </ToastProvider>
+  );
+}
+
+function ServiceDetailInner({
+  serviceId,
+  initialAction,
+}: {
+  serviceId: string;
+  initialAction: string | null;
+}) {
+  const toast = useToast();
+  const [service, setService] = useState<ServiceDetail | null>(null);
+  const [revisions, setRevisions] = useState<Revision[]>([]);
+  const [actions, setActions] = useState<ServiceActionEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [showSignature, setShowSignature] = useState(false);
+  const [pendingAction, setPendingAction] = useState<
+    "print" | "email" | "resign" | null
+  >(null);
+  const [busy, setBusy] = useState(false);
+
+  const refresh = useCallback(async () => {
+    setError(null);
+    try {
+      const [r1, r2, r3] = await Promise.all([
+        fetch(`/api/relay/services/${serviceId}`),
+        fetch(`/api/relay/services/${serviceId}/revisions`),
+        fetch(`/api/relay/services/${serviceId}/actions`),
+      ]);
+      const j1 = await r1.json();
+      const j2 = await r2.json();
+      const j3 = await r3.json().catch(() => ({ actions: [] }));
+      if (!r1.ok) throw new Error(j1?.error ?? `HTTP ${r1.status}`);
+      const fetched = (j1.service ?? j1.data?.service) as ServiceDetail;
+      // Handover z sessionStorage — przeniesiony z AddServiceTab po
+      // create. Persiste'owany w visualCondition.handover (przez backend
+      // przy create/edit), ale fresh transfer po create wyciągamy też
+      // z session żeby PDF przy pierwszym otwarciu miał dane.
+      try {
+        const raw = sessionStorage.getItem(`mp_handover:${serviceId}`);
+        if (raw && !fetched.visualCondition?.handover) {
+          const ho = JSON.parse(raw) as {
+            choice: "none" | "items";
+            items: string;
+          };
+          fetched.visualCondition = {
+            ...(fetched.visualCondition ?? {}),
+            handover: ho,
+          };
+        }
+      } catch {
+        /* ignore */
+      }
+      setService(fetched);
+      setRevisions((j2.revisions ?? []) as Revision[]);
+      setActions((j3.actions ?? []) as ServiceActionEntry[]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Błąd pobierania");
+    } finally {
+      setLoading(false);
+    }
+  }, [serviceId]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  // Polling stanu — 30s, pause gdy tab nieaktywny.
+  useEffect(() => {
+    const tick = () => {
+      if (document.visibilityState !== "visible") return;
+      void refresh();
+    };
+    const id = setInterval(tick, 30_000);
+    return () => clearInterval(id);
+  }, [refresh]);
+
+  // Auto-flow: gdy URL ma ?action=sign → po fetched serwisie otwórz pad.
+  useEffect(() => {
+    if (!service) return;
+    if (initialAction === "sign" && !service.visualCondition?.employeeSignature) {
+      setPendingAction("email");
+      setShowSignature(true);
+    }
+  }, [initialAction, service]);
+
+  const eDocStatus = service?.visualCondition?.documenso?.status ?? "none";
+  const hasSignature = !!service?.visualCondition?.employeeSignature?.pngDataUrl;
+
+  const handlePrint = useCallback(() => {
+    if (!service) return;
+    if (!hasSignature) {
+      setPendingAction("print");
+      setShowSignature(true);
+      return;
+    }
+    openServiceReceipt(service.id, service.visualCondition?.handover);
+  }, [hasSignature, service]);
+
+  const handleEmail = useCallback(
+    async (force = false) => {
+      if (!service) return;
+      if (!hasSignature) {
+        setPendingAction(force ? "resign" : "email");
+        setShowSignature(true);
+        return;
+      }
+      setBusy(true);
+      const toastId = toast.push({
+        kind: "progress",
+        title: force ? "Ponowna wysyłka" : "Wysyłka potwierdzenia",
+        message: "Inicjalizacja…",
+        sticky: true,
+        progress: 5,
+      });
+      const stages = [
+        { msg: "Generuję PDF z Twoim podpisem…", progress: 25, delay: 700 },
+        { msg: "Tworzę dokument w Documenso…", progress: 55, delay: 2000 },
+        { msg: "Wysyłam zaproszenie do klienta…", progress: 85, delay: 4000 },
+      ];
+      const timers = stages.map((s) =>
+        setTimeout(
+          () => toast.update(toastId, { message: s.msg, progress: s.progress }),
+          s.delay,
+        ),
+      );
+      try {
+        const r = await sendElectronicReceipt(
+          service.id,
+          service.visualCondition?.handover,
+          force,
+        );
+        timers.forEach(clearTimeout);
+        if (r.ok) {
+          toast.update(toastId, {
+            kind: "success",
+            title: "Wysłano",
+            message: `Klient otrzyma email z linkiem (#${r.documentId}).`,
+            sticky: false,
+            progress: 100,
+          });
+          await refresh();
+        } else {
+          toast.update(toastId, {
+            kind: "error",
+            title: "Błąd wysyłki",
+            message: r.error ?? "Nieznany błąd",
+            sticky: false,
+            progress: undefined,
+          });
+        }
+      } catch (e) {
+        timers.forEach(clearTimeout);
+        toast.update(toastId, {
+          kind: "error",
+          title: "Błąd",
+          message: e instanceof Error ? e.message : "Nieznany błąd",
+          sticky: false,
+        });
+      } finally {
+        setBusy(false);
+      }
+    },
+    [hasSignature, refresh, service, toast],
+  );
+
+  const onSignatureSaved = useCallback(
+    async (pngDataUrl: string) => {
+      if (!service) return;
+      setShowSignature(false);
+      const toastId = toast.push({
+        kind: "progress",
+        message: "Zapisuję podpis…",
+        sticky: true,
+      });
+      try {
+        const r = await fetch(`/api/relay/services/${service.id}/sign`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pngDataUrl }),
+        });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j?.error ?? `HTTP ${r.status}`);
+        toast.update(toastId, {
+          kind: "success",
+          message: "Podpis zapisany.",
+          sticky: false,
+        });
+        await refresh();
+        // Continue pending action automatycznie.
+        const action = pendingAction;
+        setPendingAction(null);
+        await new Promise((res) => setTimeout(res, 400));
+        if (action === "print") {
+          openServiceReceipt(service.id, service.visualCondition?.handover);
+        } else if (action === "email") {
+          await handleEmail(false);
+        } else if (action === "resign") {
+          await handleEmail(true);
+        }
+      } catch (e) {
+        toast.update(toastId, {
+          kind: "error",
+          message: e instanceof Error ? e.message : "Błąd zapisu podpisu",
+          sticky: false,
+        });
+      }
+    },
+    [handleEmail, pendingAction, refresh, service, toast],
+  );
+
+  const employeeName = useMemo(
+    () => service?.visualCondition?.employeeSignature?.signedBy ?? "",
+    [service],
+  );
+
+  if (loading) {
+    return (
+      <div
+        className="min-h-screen flex items-center justify-center"
+        style={{ background: "var(--bg-main)" }}
+      >
+        <Loader2
+          className="w-8 h-8 animate-spin"
+          style={{ color: "var(--text-muted)" }}
+        />
+      </div>
+    );
+  }
+
+  if (error || !service) {
+    return (
+      <div
+        className="min-h-screen flex items-center justify-center p-4"
+        style={{ background: "var(--bg-main)" }}
+      >
+        <div
+          className="max-w-md w-full p-6 rounded-2xl border text-center"
+          style={{
+            background: "var(--bg-card)",
+            borderColor: "var(--border-subtle)",
+            color: "var(--text-main)",
+          }}
+        >
+          <AlertCircle className="w-10 h-10 mx-auto mb-3 text-red-400" />
+          <p className="font-semibold mb-2">Nie udało się pobrać zlecenia</p>
+          <p className="text-sm mb-4" style={{ color: "var(--text-muted)" }}>
+            {error ?? "Nieznany błąd"}
+          </p>
+          <Link
+            href="/"
+            className="inline-flex items-center gap-2 text-sm"
+            style={{ color: "var(--accent)" }}
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Powrót
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  const status = STATUS_LABELS[service.status] ?? {
+    label: service.status,
+    color: "#64748B",
+  };
+
+  return (
+    <div
+      className="min-h-screen flex flex-col"
+      style={{ background: "var(--bg-main)" }}
+    >
+      <header
+        className="border-b backdrop-blur-md sticky top-0 z-10"
+        style={{
+          background: "var(--bg-header)",
+          borderColor: "var(--border-subtle)",
+        }}
+      >
+        <div className="mx-auto max-w-6xl px-4 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-4">
+          <Link
+            href="/"
+            className="flex-shrink-0 p-2 rounded-lg flex items-center gap-2 text-sm"
+            style={{ color: "var(--text-muted)" }}
+          >
+            <ArrowLeft className="w-5 h-5" />
+            <span className="hidden sm:inline">Lista zleceń</span>
+          </Link>
+          <div className="flex items-center gap-3 min-w-0">
+            <span
+              className="text-xs font-bold px-2 py-1 rounded-full uppercase tracking-wide"
+              style={{ background: status.color + "22", color: status.color }}
+            >
+              {status.label}
+            </span>
+            <p
+              className="font-mono font-bold truncate"
+              style={{ color: "var(--text-main)" }}
+            >
+              {service.ticketNumber}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void refresh()}
+            className="p-2 rounded-lg"
+            style={{ color: "var(--text-muted)" }}
+            title="Odśwież"
+          >
+            <RefreshCw className="w-4 h-4" />
+          </button>
+        </div>
+      </header>
+
+      <main className="mx-auto w-full max-w-6xl px-4 sm:px-6 py-6 grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* LEWA — info + akcje */}
+        <section className="lg:col-span-2 space-y-4">
+          <SignatureCard
+            hasSignature={hasSignature}
+            employeeName={employeeName}
+            signedAt={service.visualCondition?.employeeSignature?.signedAt}
+            onSign={() => {
+              setPendingAction(null);
+              setShowSignature(true);
+            }}
+          />
+
+          <ActionsCard
+            hasSignature={hasSignature}
+            eDocStatus={eDocStatus}
+            hasEmail={!!service.contactEmail}
+            busy={busy}
+            onPrint={handlePrint}
+            onEmail={() => void handleEmail(false)}
+            onResend={() => void handleEmail(true)}
+          />
+
+          <Card icon={<Wrench className="w-4 h-4" />} title="Urządzenie">
+            <Row label="Marka" value={service.brand} />
+            <Row label="Model" value={service.model} />
+            <Row label="IMEI" value={service.imei} mono />
+            <Row label="Kolor" value={service.color} />
+          </Card>
+
+          <Card icon={<Phone className="w-4 h-4" />} title="Klient">
+            <Row
+              label="Imię i nazwisko"
+              value={
+                [service.customerFirstName, service.customerLastName]
+                  .filter(Boolean)
+                  .join(" ") || "—"
+              }
+            />
+            <Row label="Telefon" value={service.contactPhone} />
+            <Row label="Email" value={service.contactEmail} />
+          </Card>
+
+          <Card icon={<Edit3 className="w-4 h-4" />} title="Opis usterki">
+            <p
+              className="text-sm whitespace-pre-wrap"
+              style={{ color: "var(--text-main)" }}
+            >
+              {service.description ?? "—"}
+            </p>
+            {service.amountEstimate != null && (
+              <p
+                className="text-sm mt-3 pt-3 border-t flex justify-between items-center"
+                style={{
+                  borderColor: "var(--border-subtle)",
+                  color: "var(--text-muted)",
+                }}
+              >
+                <span>Wycena</span>
+                <span
+                  className="font-bold"
+                  style={{ color: "var(--text-main)" }}
+                >
+                  {service.amountEstimate} PLN
+                </span>
+              </p>
+            )}
+          </Card>
+        </section>
+
+        {/* PRAWA — historia, status documenso */}
+        <aside className="space-y-4">
+          <DocumensoStatusCard documenso={service.visualCondition?.documenso} />
+          <ActionsLogCard actions={actions} />
+          <HistoryCard revisions={revisions} />
+        </aside>
+      </main>
+
+      {showSignature && (
+        <SignaturePadDialog
+          title="Podpis pracownika"
+          subtitle={
+            pendingAction === "resign"
+              ? "Po edycji wymagamy nowego podpisu — poprzedni został unieważniony."
+              : "Podpisz dokument przed wydrukiem lub wysyłką do klienta."
+          }
+          signerName={employeeName || "pracownik"}
+          defaultName={employeeName}
+          onCancel={() => setShowSignature(false)}
+          onConfirm={(png) => void onSignatureSaved(png)}
+        />
+      )}
+    </div>
+  );
+}
+
+function Card({
+  icon,
+  title,
+  children,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className="p-4 rounded-2xl border"
+      style={{
+        background: "var(--bg-card)",
+        borderColor: "var(--border-subtle)",
+      }}
+    >
+      <h3
+        className="text-xs uppercase font-bold tracking-wider mb-3 flex items-center gap-2"
+        style={{ color: "var(--text-muted)" }}
+      >
+        {icon}
+        {title}
+      </h3>
+      <div className="space-y-1.5">{children}</div>
+    </div>
+  );
+}
+
+function Row({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string;
+  value: string | null | undefined;
+  mono?: boolean;
+}) {
+  return (
+    <div className="flex justify-between items-center text-sm gap-3">
+      <span style={{ color: "var(--text-muted)" }}>{label}</span>
+      <span
+        className={`text-right ${mono ? "font-mono" : ""}`}
+        style={{ color: value ? "var(--text-main)" : "var(--text-muted)" }}
+      >
+        {value || "—"}
+      </span>
+    </div>
+  );
+}
+
+function SignatureCard({
+  hasSignature,
+  employeeName,
+  signedAt,
+  onSign,
+}: {
+  hasSignature: boolean;
+  employeeName: string;
+  signedAt?: string;
+  onSign: () => void;
+}) {
+  return (
+    <div
+      className="p-4 rounded-2xl border-2"
+      style={{
+        background: hasSignature ? "rgba(34,197,94,0.06)" : "rgba(245,158,11,0.06)",
+        borderColor: hasSignature
+          ? "rgba(34,197,94,0.4)"
+          : "rgba(245,158,11,0.5)",
+      }}
+    >
+      <div className="flex items-start gap-3">
+        <div
+          className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+          style={{
+            background: hasSignature
+              ? "rgba(34,197,94,0.15)"
+              : "rgba(245,158,11,0.15)",
+            color: hasSignature ? "#22c55e" : "#f59e0b",
+          }}
+        >
+          {hasSignature ? (
+            <CheckCircle2 className="w-5 h-5" />
+          ) : (
+            <Pen className="w-5 h-5" />
+          )}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p
+            className="font-semibold text-sm"
+            style={{ color: "var(--text-main)" }}
+          >
+            {hasSignature
+              ? "Dokument podpisany przez pracownika"
+              : "Wymagany podpis pracownika"}
+          </p>
+          <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
+            {hasSignature
+              ? `${employeeName}${
+                  signedAt
+                    ? ` · ${new Date(signedAt).toLocaleString("pl-PL")}`
+                    : ""
+                }`
+              : "Podpisz dokument, aby aktywować wydruk i wysyłkę elektroniczną."}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onSign}
+          className="px-3 py-1.5 rounded-lg text-xs font-semibold"
+          style={{
+            background: hasSignature
+              ? "transparent"
+              : "linear-gradient(135deg, #f59e0b, #d97706)",
+            color: hasSignature ? "var(--accent)" : "#fff",
+            border: hasSignature ? "1px solid var(--border-subtle)" : "none",
+          }}
+        >
+          {hasSignature ? "Zmień" : "Podpisz"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ActionsCard({
+  hasSignature,
+  eDocStatus,
+  hasEmail,
+  busy,
+  onPrint,
+  onEmail,
+  onResend,
+}: {
+  hasSignature: boolean;
+  eDocStatus: string;
+  hasEmail: boolean;
+  busy: boolean;
+  onPrint: () => void;
+  onEmail: () => void;
+  onResend: () => void;
+}) {
+  const eAlready = eDocStatus === "sent" || eDocStatus === "signed";
+  return (
+    <div
+      className="p-4 rounded-2xl border"
+      style={{
+        background: "var(--bg-card)",
+        borderColor: "var(--border-subtle)",
+      }}
+    >
+      <h3
+        className="text-xs uppercase font-bold tracking-wider mb-3 flex items-center gap-2"
+        style={{ color: "var(--text-muted)" }}
+      >
+        <FileText className="w-4 h-4" />
+        Potwierdzenia
+      </h3>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <ActionButton
+          icon={<Printer className="w-4 h-4" />}
+          label="Otwórz / drukuj PDF"
+          hint={
+            hasSignature
+              ? "Otwiera potwierdzenie w nowej karcie"
+              : "Najpierw wymagany podpis"
+          }
+          onClick={onPrint}
+          disabled={busy}
+          color="#6366f1"
+        />
+        <ActionButton
+          icon={<Mail className="w-4 h-4" />}
+          label={
+            eAlready ? "Wyślij ponownie" : "Wyślij elektronicznie"
+          }
+          hint={
+            !hasEmail
+              ? "Brak emaila klienta"
+              : eAlready
+                ? "Aneks: nowy dokument do podpisu"
+                : "Klient otrzyma email z linkiem"
+          }
+          onClick={eAlready ? onResend : onEmail}
+          disabled={!hasEmail || busy}
+          color={eAlready ? "#f59e0b" : "#06B6D4"}
+        />
+      </div>
+    </div>
+  );
+}
+
+function ActionButton({
+  icon,
+  label,
+  hint,
+  onClick,
+  disabled,
+  color,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  hint: string;
+  onClick: () => void;
+  disabled?: boolean;
+  color: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="p-3 rounded-xl border text-left transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+      style={{
+        background: `linear-gradient(135deg, ${color}22, ${color}11)`,
+        borderColor: color + "44",
+      }}
+    >
+      <div className="flex items-center gap-2 mb-1" style={{ color }}>
+        {icon}
+        <span className="text-sm font-semibold">{label}</span>
+      </div>
+      <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+        {hint}
+      </p>
+    </button>
+  );
+}
+
+function DocumensoStatusCard({
+  documenso,
+}: {
+  documenso?: NonNullable<ServiceDetail["visualCondition"]>["documenso"];
+}) {
+  if (!documenso) {
+    return (
+      <Card icon={<Send className="w-4 h-4" />} title="Status Documenso">
+        <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+          Potwierdzenie elektroniczne nie zostało jeszcze wysłane.
+        </p>
+      </Card>
+    );
+  }
+  const STATUS_TXT: Record<string, { label: string; color: string }> = {
+    sent: { label: "Wysłano — czeka na podpis", color: "#06B6D4" },
+    signed: { label: "Podpisane przez klienta", color: "#22C55E" },
+    rejected: { label: "Odrzucone przez klienta", color: "#EF4444" },
+    expired: { label: "Unieważnione (po edycji)", color: "#F59E0B" },
+  };
+  const s = STATUS_TXT[documenso.status] ?? {
+    label: documenso.status,
+    color: "#64748B",
+  };
+  return (
+    <Card icon={<Send className="w-4 h-4" />} title="Status Documenso">
+      <div
+        className="text-sm font-semibold flex items-center gap-2"
+        style={{ color: s.color }}
+      >
+        <span
+          className="w-2 h-2 rounded-full"
+          style={{ background: s.color }}
+        />
+        {s.label}
+      </div>
+      <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+        Wysłano {new Date(documenso.sentAt).toLocaleString("pl-PL")}
+      </p>
+      {documenso.completedAt && (
+        <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+          Zakończono {new Date(documenso.completedAt).toLocaleString("pl-PL")}
+        </p>
+      )}
+      <p
+        className="text-[10px] mt-2 font-mono"
+        style={{ color: "var(--text-muted)" }}
+      >
+        Doc #{documenso.docId}
+        {documenso.previousDocIds && documenso.previousDocIds.length > 0
+          ? ` (poprzednie: ${documenso.previousDocIds.join(", ")})`
+          : ""}
+      </p>
+    </Card>
+  );
+}
+
+const ACTION_LABELS: Record<string, { label: string; color: string }> = {
+  employee_sign: { label: "Podpis pracownika", color: "#22c55e" },
+  print: { label: "Wydruk PDF", color: "#6366f1" },
+  send_electronic: { label: "Wysłano e-potwierdzenie", color: "#06b6d4" },
+  resend_electronic: { label: "Ponowne wysłanie", color: "#f59e0b" },
+  client_signed: { label: "Klient podpisał", color: "#22c55e" },
+  client_rejected: { label: "Klient odrzucił", color: "#ef4444" },
+  annex_issued: { label: "Aneks wystawiony", color: "#a855f7" },
+  other: { label: "Inne", color: "#64748b" },
+};
+
+function ActionsLogCard({ actions }: { actions: ServiceActionEntry[] }) {
+  return (
+    <Card icon={<Send className="w-4 h-4" />} title="Historia akcji">
+      {actions.length === 0 ? (
+        <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+          Brak akcji.
+        </p>
+      ) : (
+        <ul className="space-y-2">
+          {actions.slice(0, 20).map((a) => {
+            const meta = ACTION_LABELS[a.action] ?? {
+              label: a.action,
+              color: "#64748b",
+            };
+            return (
+              <li
+                key={a.id}
+                className="flex items-start gap-2 text-xs"
+                style={{ color: "var(--text-main)" }}
+              >
+                <span
+                  className="mt-1 shrink-0 w-1.5 h-1.5 rounded-full"
+                  style={{ background: meta.color }}
+                />
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold" style={{ color: meta.color }}>
+                    {meta.label}
+                  </p>
+                  <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+                    {a.summary}
+                  </p>
+                  <p
+                    className="text-[10px] mt-0.5"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    {new Date(a.createdAt).toLocaleString("pl-PL")}
+                    {a.actorName ? ` · ${a.actorName}` : ""}
+                  </p>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Card>
+  );
+}
+
+function HistoryCard({ revisions }: { revisions: Revision[] }) {
+  return (
+    <Card icon={<History className="w-4 h-4" />} title="Historia edycji">
+      {revisions.length === 0 ? (
+        <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+          Brak zmian od utworzenia.
+        </p>
+      ) : (
+        <ul className="space-y-2">
+          {revisions.slice(0, 12).map((r) => (
+            <li
+              key={r.id}
+              className="flex items-start gap-2 text-xs"
+              style={{ color: "var(--text-main)" }}
+            >
+              <span
+                className="mt-1 shrink-0 w-1.5 h-1.5 rounded-full"
+                style={{
+                  background: r.isSignificant ? "#f59e0b" : "#64748b",
+                }}
+              />
+              <div className="flex-1 min-w-0">
+                <p className="truncate">{r.summary}</p>
+                <p
+                  className="text-[10px] mt-0.5"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  {new Date(r.createdAt).toLocaleString("pl-PL")}
+                  {r.editedByName ? ` · ${r.editedByName}` : ""}
+                </p>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+}

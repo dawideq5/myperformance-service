@@ -13,6 +13,7 @@ import {
   type ReceiptInput,
 } from "@/lib/receipt-pdf";
 import { getPricelistPriceByCode } from "@/lib/pricelist";
+import { logServiceAction } from "@/lib/service-actions";
 import { log } from "@/lib/logger";
 import { createHash } from "node:crypto";
 
@@ -197,6 +198,23 @@ export async function POST(
       documensoDocId: result.documentId,
       force,
       pdfHash: pdfHash.slice(0, 16),
+    });
+    void logServiceAction({
+      serviceId: id,
+      ticketNumber: service.ticketNumber,
+      action: force ? "resend_electronic" : "send_electronic",
+      actor: {
+        email: user.email,
+        name: user.name?.trim() || user.preferred_username || user.email,
+      },
+      summary: force
+        ? `Wysłano ponowne potwierdzenie do ${service.contactEmail}`
+        : `Wysłano potwierdzenie elektroniczne do ${service.contactEmail}`,
+      payload: {
+        documentId: result.documentId,
+        pdfHash: pdfHash.slice(0, 16),
+        recipientEmail: service.contactEmail,
+      },
     });
 
     return NextResponse.json(

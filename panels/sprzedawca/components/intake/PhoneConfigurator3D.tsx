@@ -188,6 +188,9 @@ export interface VisualConditionState {
   frames_notes?: string;
   // Cleaning + markers + final notes
   cleaning_accepted?: boolean;
+  /** Code z pricelist (np. CLEANING_INTAKE, CLEANING_DEEP). null gdy
+   * cleaning_accepted=false. */
+  cleaning_variant_code?: string;
   damage_markers?: DamageMarker[];
   additional_notes?: string;
   // === Checklist questions (przeniesione z osobnej sekcji) ===
@@ -234,10 +237,18 @@ const SURFACE_LABELS: Record<string, string> = {
   frame: "Ramka",
 };
 
+export interface CleaningOption {
+  code: string;
+  name: string;
+  price: number;
+  description: string | null;
+}
+
 export function PhoneConfigurator3D({
   brand,
   brandColorHex,
   cleaningPrice,
+  cleaningOptions = [],
   initial,
   onCancel,
   onComplete,
@@ -245,6 +256,7 @@ export function PhoneConfigurator3D({
   brand: string;
   brandColorHex: string;
   cleaningPrice: number | null;
+  cleaningOptions?: CleaningOption[];
   initial?: VisualConditionState;
   onCancel: () => void;
   onComplete: (state: VisualConditionState) => void;
@@ -596,6 +608,7 @@ export function PhoneConfigurator3D({
               state={state}
               brand={brand}
               cleaningPrice={cleaningPrice}
+              cleaningOptions={cleaningOptions}
               editingMarkerId={editingMarkerId}
               onChange={update}
               onUpdateMarkerDescription={updateMarkerDescription}
@@ -684,6 +697,7 @@ function StepInputs({
   state,
   brand,
   cleaningPrice,
+  cleaningOptions = [],
   editingMarkerId,
   onChange,
   onUpdateMarkerDescription,
@@ -694,6 +708,7 @@ function StepInputs({
   state: VisualConditionState;
   brand: string;
   cleaningPrice: number | null;
+  cleaningOptions?: CleaningOption[];
   editingMarkerId: string | null;
   onChange: (patch: Partial<VisualConditionState>) => void;
   onUpdateMarkerDescription: (id: string, description: string) => void;
@@ -854,33 +869,86 @@ function StepInputs({
             <CleaningPill
               active={state.cleaning_accepted === false}
               color="#EF4444"
-              onClick={() => onChange({ cleaning_accepted: false })}
+              onClick={() =>
+                onChange({
+                  cleaning_accepted: false,
+                  cleaning_variant_code: undefined,
+                })
+              }
             >
               Pomiń
             </CleaningPill>
             <CleaningPill
               active={state.cleaning_accepted === true}
               color="#22C55E"
-              onClick={() => onChange({ cleaning_accepted: true })}
+              onClick={() =>
+                onChange({
+                  cleaning_accepted: true,
+                  cleaning_variant_code:
+                    state.cleaning_variant_code ??
+                    cleaningOptions[0]?.code ??
+                    "CLEANING_INTAKE",
+                })
+              }
             >
               Tak, dodaj usługę
             </CleaningPill>
           </div>
           {state.cleaning_accepted === true && (
-            <div className="mt-3 pt-3 border-t border-white/10 animate-fade-in">
-              <div
-                className="w-full p-3 rounded-xl border-2"
-                style={{
-                  background: "rgba(34, 197, 94, 0.12)",
-                  borderColor: "#22C55E",
-                  color: "#fff",
-                }}
-              >
-                <p className="text-sm font-semibold">Czyszczenie standardowe</p>
-                <p className="text-[11px] text-white/60">
-                  Głośnik rozmów + głośniczki dolne + port ładowania
-                </p>
-              </div>
+            <div className="mt-3 pt-3 border-t border-white/10 animate-fade-in space-y-2">
+              {(cleaningOptions.length > 0
+                ? cleaningOptions
+                : [
+                    {
+                      code: "CLEANING_INTAKE",
+                      name: "Czyszczenie standardowe",
+                      price: cleaningPrice ?? 0,
+                      description:
+                        "Głośnik rozmów + głośniczki dolne + port ładowania",
+                    },
+                  ]
+              ).map((opt) => {
+                const selected =
+                  (state.cleaning_variant_code ??
+                    cleaningOptions[0]?.code ??
+                    "CLEANING_INTAKE") === opt.code;
+                return (
+                  <button
+                    type="button"
+                    key={opt.code}
+                    onClick={() =>
+                      onChange({ cleaning_variant_code: opt.code })
+                    }
+                    className="w-full p-3 rounded-xl border-2 text-left transition-all hover:scale-[1.01]"
+                    style={{
+                      background: selected
+                        ? "rgba(34, 197, 94, 0.18)"
+                        : "rgba(255,255,255,0.04)",
+                      borderColor: selected ? "#22C55E" : "rgba(255,255,255,0.1)",
+                      color: "#fff",
+                    }}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold truncate">
+                          {opt.name}
+                        </p>
+                        {opt.description && (
+                          <p className="text-[11px] text-white/60 mt-0.5 line-clamp-2">
+                            {opt.description}
+                          </p>
+                        )}
+                      </div>
+                      <span
+                        className="text-sm font-mono font-bold"
+                        style={{ color: "#22C55E" }}
+                      >
+                        +{opt.price.toFixed(2)} PLN
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>

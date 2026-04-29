@@ -2714,6 +2714,87 @@ export const COLLECTION_SPECS: CollectionSpec[] = [
     ],
   },
 
+  // === Action log — akcje na serwisach ===
+  // Każda akcja na zleceniu (podpis, wysyłka, druk, ponowna wysyłka) loguje
+  // wpis tutaj. Pozwala na pełen audit trail w widoku /serwis/[id] —
+  // niezależnie od mp_service_revisions które trzyma diff edycji pól.
+  {
+    collection: "mp_service_actions",
+    meta: {
+      icon: "fact_check",
+      note: "Audit log akcji na zleceniach serwisowych (podpis, wysyłka, druk).",
+      display_template: "{{action}} — {{ticket_number}} ({{created_at}})",
+      sort_field: "-created_at",
+    },
+    fields: [
+      {
+        field: "id",
+        type: "uuid",
+        schema: { is_primary_key: true },
+        meta: { hidden: true, readonly: true, special: ["uuid"] },
+      },
+      {
+        field: "service_id",
+        type: "uuid",
+        schema: { is_nullable: false },
+        meta: { interface: "input", readonly: true, width: "half" },
+      },
+      {
+        field: "ticket_number",
+        type: "string",
+        meta: { interface: "input", readonly: true, width: "half", options: { font: "monospace" } },
+      },
+      {
+        field: "action",
+        type: "string",
+        schema: { is_nullable: false },
+        meta: {
+          interface: "select-dropdown",
+          readonly: true,
+          width: "half",
+          options: {
+            choices: [
+              { text: "Podpis pracownika", value: "employee_sign" },
+              { text: "Wydruk PDF", value: "print" },
+              { text: "Wysłano e-potwierdzenie", value: "send_electronic" },
+              { text: "Ponowne wysłanie", value: "resend_electronic" },
+              { text: "Klient podpisał", value: "client_signed" },
+              { text: "Klient odrzucił", value: "client_rejected" },
+              { text: "Aneks wystawiony", value: "annex_issued" },
+              { text: "Inne", value: "other" },
+            ],
+          },
+        },
+      },
+      {
+        field: "actor_email",
+        type: "string",
+        meta: { interface: "input", readonly: true, width: "half" },
+      },
+      {
+        field: "actor_name",
+        type: "string",
+        meta: { interface: "input", readonly: true, width: "half" },
+      },
+      {
+        field: "summary",
+        type: "text",
+        meta: { interface: "input-multiline", readonly: true, width: "full" },
+      },
+      {
+        field: "payload",
+        type: "json",
+        meta: { interface: "input-code", readonly: true, width: "full", options: { language: "json" } },
+      },
+      {
+        field: "created_at",
+        type: "timestamp",
+        schema: { default_value: "now()" },
+        meta: { interface: "datetime", readonly: true, width: "half", special: ["date-created"] },
+      },
+    ],
+  },
+
   // === Transport / dostawa (panel kierowcy) ===
   // Każde zlecenie transportu ma source + destination location, status, kierowcę,
   // ETA, podpis odbioru. Powiązany m2o z mp_services (które urządzenie wozimy).

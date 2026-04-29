@@ -4,6 +4,7 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { PANEL_CORS_HEADERS, getPanelUserFromRequest } from "@/lib/panel-auth";
 import { getService, updateService } from "@/lib/services";
+import { logServiceAction } from "@/lib/service-actions";
 import { log } from "@/lib/logger";
 
 const logger = log.child({ module: "service-sign" });
@@ -83,6 +84,17 @@ export async function POST(
     logger.info("employee signature saved", {
       serviceId: id,
       bytes: body.pngDataUrl.length,
+    });
+    void logServiceAction({
+      serviceId: id,
+      ticketNumber: service.ticketNumber,
+      action: "employee_sign",
+      actor: {
+        email: user.email,
+        name: user.name?.trim() || user.preferred_username || user.email,
+      },
+      summary: "Pracownik podpisał dokument elektronicznie",
+      payload: { bytes: body.pngDataUrl.length },
     });
     return NextResponse.json(
       { ok: true },

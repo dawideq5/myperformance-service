@@ -285,14 +285,12 @@ export function ServicesAllTab({
 
 function ServiceCard({
   service,
-  onChanged,
   onEdit,
 }: {
   service: ServiceTicket;
   onChanged?: () => void;
   onEdit?: (id: string) => void;
 }) {
-  const toast = useToast();
   const status = STATUS_LABELS[service.status] ?? {
     label: service.status,
     color: "#64748B",
@@ -305,130 +303,17 @@ function ServiceCard({
       .join(" ") || "—";
   const isReceived = service.status === "received";
   const hasEmail = !!(service.contactEmail ?? "").trim();
-  const persistedStatus = service.visualCondition?.documenso?.status;
-  const [eStatus, setEStatus] = useState<EReceiptStatus>(
-    persistedStatus ?? "none",
-  );
-  const [sendingE, setSendingE] = useState(false);
-  const [showDetail, setShowDetail] = useState(false);
-  const [signatureMode, setSignatureMode] = useState<null | "send" | "resign">(
-    null,
-  );
+  const persistedStatus = service.visualCondition?.documenso?.status ?? "none";
+  const eBadge = ERECEIPT_BADGES[persistedStatus as EReceiptStatus];
+  const hasSignature =
+    !!service.visualCondition?.employeeSignature?.pngDataUrl;
 
-  const eBadge = ERECEIPT_BADGES[eStatus];
-  const hasEmployeeSignature = !!service.visualCondition?.employeeSignature
-    ?.pngDataUrl;
-
-  const performSendElectronic = async (force: boolean) => {
-    if (!hasEmail) return;
-    setSendingE(true);
-
-    // Multi-stage progress toast — user widzi na której fazie wysyłki jesteśmy.
-    const toastId = toast.push({
-      kind: "progress",
-      title: force ? "Ponowna wysyłka" : "Wysyłka potwierdzenia",
-      message: "Inicjalizacja…",
-      sticky: true,
-      progress: 5,
-    });
-    const stages = [
-      { msg: "Generuję dokument PDF…", progress: 25, delay: 800 },
-      { msg: "Tworzę dokument w Documenso…", progress: 55, delay: 2200 },
-      { msg: "Konfiguruję podpisy i wysyłam…", progress: 85, delay: 4500 },
-    ];
-    const timers: ReturnType<typeof setTimeout>[] = [];
-    for (const s of stages) {
-      timers.push(
-        setTimeout(() => {
-          toast.update(toastId, { message: s.msg, progress: s.progress });
-        }, s.delay),
-      );
-    }
-
-    try {
-      const r = await sendElectronicReceipt(service.id, undefined, force);
-      timers.forEach((t) => clearTimeout(t));
-      if (r.ok) {
-        setEStatus("sent");
-        onChanged?.();
-        toast.update(toastId, {
-          kind: "success",
-          title: force ? "Wysłano ponownie" : "Wysłano",
-          message: `Klient otrzyma email z linkiem do podpisu. Dokument #${r.documentId}.`,
-          sticky: false,
-          progress: 100,
-        });
-      } else {
-        toast.update(toastId, {
-          kind: "error",
-          title: "Błąd wysyłki",
-          message: r.error ?? "Nieznany błąd",
-          sticky: false,
-          progress: undefined,
-        });
-      }
-    } catch (err) {
-      timers.forEach((t) => clearTimeout(t));
-      toast.update(toastId, {
-        kind: "error",
-        title: "Błąd wysyłki",
-        message: err instanceof Error ? err.message : "Nieznany błąd",
-        sticky: false,
-        progress: undefined,
-      });
-    } finally {
-      setSendingE(false);
-    }
-  };
-
-  const handleSendElectronic = () => {
-    if (!hasEmployeeSignature) {
-      setSignatureMode("send");
-      return;
-    }
-    void performSendElectronic(false);
-  };
-
-  const handleResign = () => {
-    setSignatureMode("resign");
-  };
-
-  const onSignatureSaved = async (pngDataUrl: string) => {
-    const force = signatureMode === "resign";
-    setSignatureMode(null);
-    const toastId = toast.push({
-      kind: "progress",
-      message: "Zapisuję podpis…",
-      sticky: true,
-    });
-    try {
-      const r = await fetch(`/api/relay/services/${service.id}/sign`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pngDataUrl }),
-      });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j?.error ?? `HTTP ${r.status}`);
-      toast.update(toastId, {
-        kind: "success",
-        message: "Podpis zapisany. Wysyłam dokument…",
-        sticky: false,
-      });
-      onChanged?.();
-      await new Promise((res) => setTimeout(res, 600));
-      void performSendElectronic(force);
-    } catch (e) {
-      toast.update(toastId, {
-        kind: "error",
-        message: e instanceof Error ? e.message : "Błąd zapisu podpisu",
-        sticky: false,
-      });
-    }
-  };
-
+  // legacy handlers usunięte — wszystkie akcje przeniesione do dedykowanego
+  // widoku /serwis/[id]. Karta jest tylko przeglądową/nawigacyjną.
   return (
-    <div
-      className="p-3 rounded-2xl border transition-all duration-200 hover:scale-[1.01] hover:shadow-lg flex gap-3"
+    <a
+      href={`/serwis/${service.id}`}
+      className="p-4 rounded-2xl border transition-all duration-200 hover:scale-[1.01] hover:shadow-lg hover:border-[var(--accent)]/40 flex gap-3 group"
       style={{
         background: "var(--bg-card)",
         borderColor: "var(--border-subtle)",
@@ -436,17 +321,17 @@ function ServiceCard({
       }}
     >
       <div
-        className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+        className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
         style={{
           background: `linear-gradient(135deg, ${status.color}33, ${status.color}11)`,
           color: status.color,
         }}
       >
-        <DeviceIcon className="w-5 h-5" />
+        <DeviceIcon className="w-6 h-6" />
       </div>
       <div className="flex-1 min-w-0">
-        <div className="flex items-start justify-between gap-2 mb-1">
-          <span className="font-mono text-[10px] font-bold opacity-70">
+        <div className="flex items-start justify-between gap-2 mb-1.5">
+          <span className="font-mono text-[11px] font-bold opacity-70">
             {service.ticketNumber}
           </span>
           <span
@@ -460,57 +345,89 @@ function ServiceCard({
             {status.label}
           </span>
         </div>
-        <div className="text-sm font-semibold truncate">
-          {[service.brand, service.model].filter(Boolean).join(" ") || "Brak danych"}
+        <div className="text-base font-semibold truncate">
+          {[service.brand, service.model].filter(Boolean).join(" ") ||
+            "Brak danych"}
         </div>
         {service.imei && (
           <div
-            className="text-[10px] font-mono mt-0.5 truncate"
+            className="text-[11px] font-mono mt-1 truncate"
             style={{ color: "var(--text-muted)" }}
           >
             IMEI: {service.imei}
           </div>
         )}
-        <div
-          className="text-xs mt-1 flex items-center gap-1 truncate"
-          style={{ color: "var(--text-muted)" }}
-        >
-          <Phone className="w-3 h-3" />
-          {customerName}
-          {service.contactPhone && ` · ${service.contactPhone}`}
+        <div className="mt-2 grid grid-cols-1 gap-1 text-xs">
+          <div
+            className="flex items-center gap-1.5 truncate"
+            style={{ color: "var(--text-main)" }}
+          >
+            <Phone
+              className="w-3.5 h-3.5 flex-shrink-0"
+              style={{ color: "var(--text-muted)" }}
+            />
+            <span className="font-medium truncate">{customerName}</span>
+            {service.contactPhone && (
+              <span style={{ color: "var(--text-muted)" }}>
+                · {service.contactPhone}
+              </span>
+            )}
+          </div>
+          {service.contactEmail && (
+            <div
+              className="flex items-center gap-1.5 truncate"
+              style={{ color: "var(--text-muted)" }}
+            >
+              <Mail className="w-3 h-3 flex-shrink-0" />
+              <span className="truncate">{service.contactEmail}</span>
+            </div>
+          )}
         </div>
         {service.description && (
           <p
-            className="text-xs mt-1.5 line-clamp-2"
+            className="text-xs mt-2 line-clamp-2"
             style={{ color: "var(--text-muted)" }}
           >
             {service.description}
           </p>
         )}
-        <div className="flex items-center justify-between mt-2 pt-2 border-t" style={{ borderColor: "var(--border-subtle)" }}>
-          <div className="flex items-center gap-2 text-[10px]" style={{ color: "var(--text-muted)" }}>
-            {service.photos.length > 0 && (
-              <span className="flex items-center gap-0.5">
-                📷 {service.photos.length}
-              </span>
-            )}
-            {service.accessories.length > 0 && (
-              <span className="flex items-center gap-0.5">
-                <Package className="w-3 h-3" />
-                {service.accessories.length}
-              </span>
-            )}
+        <div
+          className="flex items-center justify-between mt-3 pt-2.5 border-t gap-2"
+          style={{ borderColor: "var(--border-subtle)" }}
+        >
+          <div
+            className="flex items-center gap-2 text-[10px] flex-wrap"
+            style={{ color: "var(--text-muted)" }}
+          >
             {service.createdAt && (
               <span className="flex items-center gap-0.5">
                 <Clock className="w-3 h-3" />
                 {new Date(service.createdAt).toLocaleDateString("pl", {
                   day: "numeric",
                   month: "short",
+                  hour: "2-digit",
+                  minute: "2-digit",
                 })}
               </span>
             )}
+            <span
+              className="text-[9px] uppercase font-bold px-1.5 py-0.5 rounded-full flex items-center gap-1"
+              style={{ background: eBadge.bg, color: eBadge.color }}
+            >
+              <Send className="w-2.5 h-2.5" />
+              {eBadge.label}
+            </span>
+            {hasSignature && (
+              <span
+                className="text-[9px] uppercase font-bold px-1.5 py-0.5 rounded-full flex items-center gap-1"
+                style={{ background: "rgba(34,197,94,0.15)", color: "#22c55e" }}
+                title="Pracownik podpisał"
+              >
+                ✓ Podpis
+              </span>
+            )}
           </div>
-          <div className="text-xs font-semibold">
+          <div className="text-sm font-semibold flex items-center gap-2 flex-shrink-0">
             {service.amountFinal != null ? (
               <span style={{ color: "#22C55E" }}>{service.amountFinal} PLN</span>
             ) : service.amountEstimate != null ? (
@@ -518,118 +435,30 @@ function ServiceCard({
                 ~{service.amountEstimate} PLN
               </span>
             ) : null}
+            {isReceived && onEdit && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onEdit(service.id);
+                }}
+                className="px-2 py-1 rounded-lg text-[11px] font-medium border"
+                style={{
+                  background: "var(--bg-surface)",
+                  borderColor: "var(--border-subtle)",
+                  color: "var(--text-main)",
+                }}
+                title="Edytuj zlecenie"
+              >
+                <Eye className="w-3 h-3 inline mr-0.5" />
+                Edytuj
+              </button>
+            )}
           </div>
         </div>
-        <div className="flex items-center gap-1.5 mt-2">
-          <button
-            type="button"
-            onClick={() => {
-              if (!hasEmployeeSignature) {
-                setSignatureMode("send");
-                return;
-              }
-              openServiceReceipt(service.id);
-            }}
-            className="flex-1 px-2 py-1.5 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1 transition-all hover:scale-[1.02]"
-            style={{
-              background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
-              color: "#fff",
-            }}
-            title={
-              hasEmployeeSignature
-                ? "Otwórz potwierdzenie w nowej karcie"
-                : "Wymagany podpis pracownika przed wydrukiem"
-            }
-          >
-            <FileText className="w-3 h-3" />
-            <span className="hidden sm:inline">Potwierdzenie</span>
-            <span className="sm:hidden">PDF</span>
-          </button>
-          <button
-            type="button"
-            onClick={handleSendElectronic}
-            disabled={!hasEmail || sendingE}
-            className="px-2 py-1.5 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1 transition-all hover:scale-[1.02] disabled:cursor-not-allowed disabled:hover:scale-100"
-            style={{
-              background: hasEmail
-                ? "linear-gradient(135deg, #06B6D4, #0891B2)"
-                : "rgba(120,120,140,0.4)",
-              color: "#fff",
-              opacity: hasEmail ? 1 : 0.6,
-            }}
-            title={
-              hasEmail
-                ? "Wyślij elektroniczne potwierdzenie do klienta"
-                : "Brak adresu email klienta — wyślij papierowe lub uzupełnij dane"
-            }
-          >
-            {sendingE ? (
-              <Loader2 className="w-3 h-3 animate-spin" />
-            ) : (
-              <Mail className="w-3 h-3" />
-            )}
-            <span className="hidden md:inline">E-mail</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (isReceived && onEdit) {
-                onEdit(service.id);
-              } else {
-                setShowDetail(true);
-              }
-            }}
-            className="px-2 py-1.5 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1 border transition-all hover:scale-[1.02]"
-            style={{
-              background: "var(--bg-surface)",
-              borderColor: "var(--border-subtle)",
-              color: "var(--text-main)",
-            }}
-            title={isReceived ? "Edytuj zlecenie" : "Szczegóły zlecenia"}
-          >
-            <Eye className="w-3 h-3" />
-            <span className="hidden md:inline">{isReceived ? "Edytuj" : "Szczegóły"}</span>
-          </button>
-        </div>
-        {/* E-receipt status badge */}
-        <div className="flex items-center justify-end mt-1">
-          <span
-            className="text-[9px] uppercase font-bold px-1.5 py-0.5 rounded-full flex items-center gap-1"
-            style={{ background: eBadge.bg, color: eBadge.color }}
-            title="Status potwierdzenia elektronicznego"
-          >
-            <Send className="w-2.5 h-2.5" />
-            {eBadge.label}
-          </span>
-        </div>
       </div>
-      {showDetail && (
-        <ServiceDetailDialog
-          serviceId={service.id}
-          onClose={() => setShowDetail(false)}
-          onSendElectronic={hasEmail ? handleSendElectronic : undefined}
-          onResign={hasEmail && eStatus !== "none" ? handleResign : undefined}
-          isReceived={isReceived}
-        />
-      )}
-      {signatureMode !== null && (
-        <SignaturePadDialog
-          title={
-            signatureMode === "resign"
-              ? "Podpis na nowym potwierdzeniu"
-              : "Podpis pracownika"
-          }
-          subtitle={
-            signatureMode === "resign"
-              ? "Po edycji wymagamy nowego podpisu — Twój poprzedni został unieważniony."
-              : "Podpisz dokument, aby wygenerować PDF lub wysłać do klienta."
-          }
-          signerName={service.customerFirstName ?? ""}
-          onCancel={() => setSignatureMode(null)}
-          onConfirm={(png) => void onSignatureSaved(png)}
-        />
-      )}
-    </div>
+    </a>
   );
 }
 

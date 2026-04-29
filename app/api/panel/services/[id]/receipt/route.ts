@@ -6,6 +6,7 @@ import { PANEL_CORS_HEADERS, getPanelUserFromRequest } from "@/lib/panel-auth";
 import { getService } from "@/lib/services";
 import { renderReceiptPdf, type ReceiptInput } from "@/lib/receipt-pdf";
 import { getPricelistPriceByCode } from "@/lib/pricelist";
+import { logServiceAction } from "@/lib/service-actions";
 
 export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: PANEL_CORS_HEADERS });
@@ -128,6 +129,19 @@ export async function GET(
       fsLocal.writeFileSync("/tmp/last-receipt.pdf", pdfBuffer);
     } catch {
       /* ignore */
+    }
+    if (!previewMode) {
+      void logServiceAction({
+        serviceId: id,
+        ticketNumber: service.ticketNumber,
+        action: "print",
+        actor: {
+          email: user.email,
+          name: user.name?.trim() || user.preferred_username || user.email,
+        },
+        summary: "Wydrukowano/otwarto PDF potwierdzenia",
+        payload: { bytes: pdfBuffer.length },
+      });
     }
     // Pass Buffer directly. Node Buffer is Uint8Array subclass; Next.js
     // Response w Node 22 obsługuje to natywnie bez Blob wrapper.

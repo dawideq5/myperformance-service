@@ -6,6 +6,7 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { log } from "@/lib/logger";
 import { getUserIdByEmail, notifyUser } from "@/lib/notify";
 import { findServiceByDocumensoId, updateService } from "@/lib/services";
+import { logServiceAction } from "@/lib/service-actions";
 
 const logger = log.child({ module: "documenso-webhook" });
 
@@ -122,6 +123,14 @@ export async function POST(req: Request) {
             serviceId: service.id,
             docId: doc.id,
           });
+          void logServiceAction({
+            serviceId: service.id,
+            ticketNumber: service.ticketNumber,
+            action: "client_signed",
+            actor: { name: "Klient" },
+            summary: "Klient podpisał dokument elektronicznie",
+            payload: { documentId: Number(doc.id) },
+          });
         } catch (e) {
           logger.warn("failed to persist signed status", {
             serviceId: service.id,
@@ -154,6 +163,14 @@ export async function POST(req: Request) {
                 completedAt: new Date().toISOString(),
               },
             } as typeof service.visualCondition,
+          });
+          void logServiceAction({
+            serviceId: service.id,
+            ticketNumber: service.ticketNumber,
+            action: "client_rejected",
+            actor: { name: "Klient" },
+            summary: "Klient odrzucił dokument elektroniczny",
+            payload: { documentId: Number(doc.id) },
           });
         } catch {
           /* ignore — notify still goes through */
