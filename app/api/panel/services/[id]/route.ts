@@ -13,6 +13,8 @@ import {
   diffServiceUpdate,
   recordServiceRevision,
 } from "@/lib/service-revisions";
+import { logServiceAction } from "@/lib/service-actions";
+import { getDocument } from "@/lib/documenso";
 import { log } from "@/lib/logger";
 
 const logger = log.child({ module: "panel-services-patch" });
@@ -60,6 +62,75 @@ export async function GET(
       { status: 403, headers: PANEL_CORS_HEADERS },
     );
   }
+
+  // Polling fallback: gdy Documenso doc istnieje i status="sent" (czeka
+  // na klienta), sprawdzamy aktualny stan w Documenso. Webhook może
+  // pominąć event (network glitch) — direct fetch zapewnia że UI
+  // odzwierciedla rzeczywisty status. Wywoływane przy każdym GET (frontend
+  // pollu co 5s, więc zsynchronizujemy w max 5s).
+  const cur = service.visualCondition?.documenso;
+  if (cur?.docId && cur.status === "sent") {
+    try {
+      const doc = await getDocument(cur.docId);
+      if (doc) {
+        const allSigned = (doc.recipients ?? []).every(
+          (r) => r.status === "completed",
+        );
+        const anyDeclined = (doc.recipients ?? []).some(
+          (r) => r.status === "declined",
+        );
+        let newStatus:
+          | "sent"
+          | "signed"
+          | "rejected"
+          | "expired"
+          | "employee_signed"
+          | null = null;
+        if (allSigned) newStatus = "signed";
+        else if (anyDeclined) newStatus = "rejected";
+        if (newStatus && (newStatus as string) !== cur.status) {
+          const updated = {
+            ...cur,
+            status: newStatus,
+            completedAt: new Date().toISOString(),
+            ...(newStatus === "signed" ? { signedPdfUrl: "available" } : {}),
+          };
+          try {
+            await updateService(service.id, {
+              visualCondition: {
+                ...(service.visualCondition ?? {}),
+                documenso: updated,
+              } as typeof service.visualCondition,
+            });
+            void logServiceAction({
+              serviceId: service.id,
+              ticketNumber: service.ticketNumber,
+              action: newStatus === "signed" ? "client_signed" : "client_rejected",
+              actor: { name: "Klient" },
+              summary:
+                newStatus === "signed"
+                  ? "Klient podpisał dokument elektronicznie (sync z Documenso)"
+                  : "Klient odrzucił dokument (sync z Documenso)",
+              payload: { documentId: cur.docId },
+            });
+            // Refresh fetched service żeby zwrócić nowy status w response.
+            service.visualCondition = {
+              ...(service.visualCondition ?? {}),
+              documenso: updated,
+            };
+          } catch (err) {
+            log.warn("documenso poll sync failed", {
+              serviceId: service.id,
+              err: String(err),
+            });
+          }
+        }
+      }
+    } catch {
+      /* polling best-effort, błąd nie blokuje response */
+    }
+  }
+
   return NextResponse.json({ service }, { headers: PANEL_CORS_HEADERS });
 }
 

@@ -2,6 +2,8 @@ import { withExternalClient } from "@/lib/db";
 import { getOptionalEnv } from "@/lib/env";
 import { log } from "@/lib/logger";
 
+const logger = log.child({ module: "documenso" });
+
 export type DocumensoStatus =
   | "draft"
   | "pending"
@@ -493,4 +495,52 @@ export async function findServiceByDocumentId(_docId: number): Promise<null> {
   // TODO: wymaga schema mp_services.documenso_doc_id field.
   // Webhook handler użyje tej funkcji do mapowania doc → service.
   return null;
+}
+
+/** Wysyła przypomnienie do recipientów istniejącego dokumentu — bez
+ * tworzenia nowego doc. Używane gdy klient nie podpisał i pracownik chce
+ * mu przypomnieć (zamiast nowego dokumentu = duplikat). */
+export async function resendDocumentReminder(
+  docId: number,
+  recipientIds?: number[],
+): Promise<boolean> {
+  try {
+    let ids = recipientIds;
+    if (!ids) {
+      const doc = await getDocument(docId);
+      ids = (doc?.recipients ?? [])
+        .filter((r) => r.status !== "completed")
+        .map((r) => r.id);
+    }
+    if (!ids || ids.length === 0) return false;
+    await documensoFetch<unknown>(`/api/v1/documents/${docId}/resend`, {
+      method: "POST",
+      body: JSON.stringify({ recipients: ids }),
+    });
+    return true;
+  } catch (err) {
+    logger.warn("resendDocumentReminder failed", {
+      docId,
+      err: err instanceof Error ? err.message : String(err),
+    });
+    return false;
+  }
+}
+
+/** Usuwa dokument z Documenso (cancel signing flow). Used przy podpisie
+ * papierowym — elektroniczna ścieżka anulowana, klient nie może już
+ * podpisać. */
+export async function deleteDocument(id: number): Promise<boolean> {
+  try {
+    await documensoFetch<unknown>(`/api/v1/documents/${id}`, {
+      method: "DELETE",
+    });
+    return true;
+  } catch (err) {
+    logger.warn("deleteDocument failed", {
+      docId: id,
+      err: err instanceof Error ? err.message : String(err),
+    });
+    return false;
+  }
 }

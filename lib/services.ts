@@ -145,6 +145,13 @@ export interface VisualCondition {
     signedBy: string;
     signedAt: string;
   };
+  /** Wersja papierowa podpisana ręcznie przez klienta. Po zaznaczeniu
+   * elektroniczna ścieżka jest unieważniona w Documenso. */
+  paperSigned?: {
+    signedAt: string;
+    signedBy: string;
+    invalidatedDocId?: number;
+  };
 }
 
 export interface ServiceTicket {

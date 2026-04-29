@@ -55,6 +55,11 @@ interface ServiceDetail {
       employeeSigningUrl?: string;
       signedPdfUrl?: string;
     };
+    paperSigned?: {
+      signedAt: string;
+      signedBy: string;
+      invalidatedDocId?: number;
+    };
     handover?: { choice: "none" | "items"; items: string };
   };
 }
@@ -263,6 +268,40 @@ function ServiceDetailInner({
     openServiceReceipt(service.id, service.visualCondition?.handover);
   }, [service]);
 
+  const handlePaperSigned = useCallback(async () => {
+    if (!service) return;
+    setBusy(true);
+    const tid = toast.push({
+      kind: "progress",
+      message: "Oznaczam jako podpisane papierowo…",
+      sticky: true,
+    });
+    try {
+      const r = await fetch(`/api/relay/services/${service.id}/paper-signed`, {
+        method: "POST",
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j?.error ?? `HTTP ${r.status}`);
+      toast.update(tid, {
+        kind: "success",
+        title: "Podpisano papierowo",
+        message: j.invalidatedDocId
+          ? `Wersja elektroniczna #${j.invalidatedDocId} została unieważniona.`
+          : "Zlecenie zatwierdzone.",
+        sticky: false,
+      });
+      await refresh();
+    } catch (e) {
+      toast.update(tid, {
+        kind: "error",
+        message: e instanceof Error ? e.message : "Błąd zapisu",
+        sticky: false,
+      });
+    } finally {
+      setBusy(false);
+    }
+  }, [refresh, service, toast]);
+
   const handleEmail = useCallback(
     async (force = false) => {
       if (!service) return;
@@ -435,6 +474,9 @@ function ServiceDetailInner({
             onEmail={() => void handleEmail(false)}
             onResend={() => void handleEmail(true)}
             signedPdfUrl={signedPdfUrl}
+            paperSigned={!!service.visualCondition?.paperSigned}
+            paperSignedAt={service.visualCondition?.paperSigned?.signedAt}
+            onPaperSigned={() => void handlePaperSigned()}
           />
 
           <Card icon={<Wrench className="w-4 h-4" />} title="Urządzenie">
@@ -629,6 +671,9 @@ function ActionsCard({
   onEmail,
   onResend,
   signedPdfUrl,
+  paperSigned,
+  paperSignedAt,
+  onPaperSigned,
 }: {
   eDocStatus: string;
   hasEmail: boolean;
@@ -637,6 +682,9 @@ function ActionsCard({
   onEmail: () => void;
   onResend: () => void;
   signedPdfUrl?: string;
+  paperSigned?: boolean;
+  paperSignedAt?: string;
+  onPaperSigned?: () => void;
 }) {
   const eAlready =
     eDocStatus === "sent" ||
@@ -677,9 +725,44 @@ function ActionsCard({
                 : "Documenso — pracownik, następnie klient"
           }
           onClick={eAlready ? onResend : onEmail}
-          disabled={!hasEmail || busy}
+          disabled={!hasEmail || busy || paperSigned}
           color={eAlready ? "#f59e0b" : "#06B6D4"}
         />
+        {!paperSigned && onPaperSigned && (
+          <ActionButton
+            icon={<CheckCircle2 className="w-4 h-4" />}
+            label="Podpisano (papier)"
+            hint="Klient podpisał papierową wersję — unieważnij elektroniczną"
+            onClick={onPaperSigned}
+            disabled={busy}
+            color="#22c55e"
+          />
+        )}
+        {paperSigned && (
+          <div
+            className="p-3 rounded-xl border sm:col-span-2"
+            style={{
+              background:
+                "linear-gradient(135deg, rgba(34,197,94,0.15), rgba(34,197,94,0.05))",
+              borderColor: "rgba(34,197,94,0.4)",
+            }}
+          >
+            <div
+              className="flex items-center gap-2"
+              style={{ color: "#22c55e" }}
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              <span className="text-sm font-semibold">
+                Podpisano papierowo
+              </span>
+            </div>
+            {paperSignedAt && (
+              <p className="text-[11px] mt-1" style={{ color: "var(--text-muted)" }}>
+                {new Date(paperSignedAt).toLocaleString("pl-PL")}
+              </p>
+            )}
+          </div>
+        )}
         {signedPdfUrl && (
           <a
             href={signedPdfUrl}

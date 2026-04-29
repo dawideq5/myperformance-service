@@ -389,54 +389,14 @@ function drawSinglePage(
   });
   y += descH + 12;
 
-  // ===== TECHNICAL VIEW: 6 widoków, tylko gdy markery dla danego widoku =====
+  // ===== USZKODZENIA: lista markerów tylko tekstowo (bez szkiców) =====
   const allMarkers = data.visualCondition.damage_markers ?? [];
   if (allMarkers.length > 0) {
-    y = drawSection(doc, M, y, W, "LOKALIZACJA USZKODZEŃ");
-    // Klasyfikuj markery + przypisz globalny numer (1..N w kolejności).
+    y = drawSection(doc, M, y, W, "USZKODZENIA — LISTA");
     const markersWithNum = allMarkers.map((m, i) => ({
       m,
       num: i + 1,
-      view: classifyView(m),
     }));
-    const VIEWS_ORDER: DamageView[] = [
-      "front",
-      "back",
-      "top",
-      "bottom",
-      "left",
-      "right",
-    ];
-    const viewsWithMarkers = VIEWS_ORDER.filter((v) =>
-      markersWithNum.some((mn) => mn.view === v),
-    );
-
-    // Layout: do 3 widoków per row, kolejne wiersze poniżej.
-    let rowX = M;
-    let rowMaxH = 0;
-    let curY = y;
-    const GAP = 8;
-    for (const view of viewsWithMarkers) {
-      const dims = VIEW_DIMS[view];
-      const labelH = 8;
-      const totalH = dims.h + labelH + 4;
-      // Wrap to new row if doesn't fit.
-      if (rowX + dims.w > M + W) {
-        rowX = M;
-        curY += rowMaxH + GAP;
-        rowMaxH = 0;
-      }
-      drawDamageViewBox(
-        doc,
-        rowX,
-        curY,
-        view,
-        markersWithNum.filter((mn) => mn.view === view),
-      );
-      rowX += dims.w + GAP;
-      if (totalH > rowMaxH) rowMaxH = totalH;
-    }
-    y = curY + rowMaxH + 6;
 
     // Lista markerów (numer + powierzchnia + opis) — pełna lista.
     for (const mn of markersWithNum) {

@@ -7,6 +7,7 @@ import { getService, updateService } from "@/lib/services";
 import {
   createDocumentForSigning,
   isDocumensoConfigured,
+  resendDocumentReminder,
 } from "@/lib/documenso";
 import {
   renderReceiptPdfWithLayout,
@@ -91,6 +92,38 @@ export async function POST(
       },
       { status: 409 },
     );
+  }
+
+  // Force resend gdy istnieje active sent doc — wysyłamy PRZYPOMNIENIE
+  // (nie nowy dokument). Klient dostaje email z tym samym linkiem do
+  // tego samego dokumentu, bez duplikatu w Documenso.
+  if (force && existing?.docId && existing.status === "sent") {
+    const ok = await resendDocumentReminder(existing.docId);
+    if (ok) {
+      void logServiceAction({
+        serviceId: id,
+        ticketNumber: service.ticketNumber,
+        action: "resend_electronic",
+        actor: {
+          email: user.email,
+          name: user.name?.trim() || user.preferred_username || user.email,
+        },
+        summary: `Wysłano przypomnienie do ${service.contactEmail} (dokument #${existing.docId})`,
+        payload: { documentId: existing.docId, reminder: true },
+      });
+      return NextResponse.json(
+        {
+          ok: true,
+          reminder: true,
+          documentId: existing.docId,
+        },
+        { status: 200 },
+      );
+    }
+    // Resend failed — fall through do utworzenia nowego doc.
+    logger.warn("resendDocumentReminder failed, creating new doc", {
+      docId: existing.docId,
+    });
   }
 
   // Auto-sign przez pracownika: bierzemy jego per-user signature z DB
