@@ -2622,6 +2622,10 @@ export const COLLECTION_SPECS: CollectionSpec[] = [
       { field: "duration_minutes", type: "integer", meta: { interface: "input", width: "half", note: "Szacowany czas wykonania (min)." } },
       { field: "sort", type: "integer", schema: { default_value: 0 }, meta: { interface: "input", width: "half" } },
       { field: "enabled", type: "boolean", schema: { default_value: true }, meta: { interface: "boolean", width: "half", options: { label: "Pozycja aktywna" } } },
+      // Brand/model targeting — pozycja stosowana tylko gdy device match.
+      // null = pasuje do wszystkich (default).
+      { field: "brand", type: "string", schema: { is_nullable: true }, meta: { interface: "input", width: "half", note: "Marka urządzenia (Apple, Samsung, ...). Puste = wszystkie." } },
+      { field: "model_pattern", type: "string", schema: { is_nullable: true }, meta: { interface: "input", width: "half", note: "Substring nazwy modelu (np. 'iPhone 12'). Puste = wszystkie modele tej marki." } },
     ],
   },
 

@@ -31,6 +31,12 @@ export interface PricelistItem {
   durationMinutes: number | null;
   sort: number;
   enabled: boolean;
+  /** Marka urządzenia (Apple, Samsung, ...) — null = pasuje do wszystkich. */
+  brand: string | null;
+  /** Wzorzec modelu (substring lub glob, case-insensitive). null = wszystkie
+   * modele danej marki. Np. "iPhone 12" pasuje do "iPhone 12", "iPhone 12 Pro",
+   * "iPhone 12 Pro Max". */
+  modelPattern: string | null;
 }
 
 interface PricelistRow {
@@ -44,6 +50,8 @@ interface PricelistRow {
   duration_minutes: number | null;
   sort: number | null;
   enabled: boolean;
+  brand: string | null;
+  model_pattern: string | null;
 }
 
 function num(v: number | string | null): number {
@@ -64,6 +72,8 @@ function mapRow(r: PricelistRow): PricelistItem {
     durationMinutes: r.duration_minutes ?? null,
     sort: r.sort ?? 0,
     enabled: r.enabled !== false,
+    brand: r.brand?.trim() || null,
+    modelPattern: r.model_pattern?.trim() || null,
   };
 }
 
@@ -95,6 +105,27 @@ export interface PricelistInput {
   durationMinutes?: number | null;
   sort?: number;
   enabled?: boolean;
+  brand?: string | null;
+  modelPattern?: string | null;
+}
+
+/** Filtruje cennik po brand+model. Pozycje z brand=null pasują do
+ * wszystkich; z brand=X pasują tylko gdy device.brand match (case-i).
+ * Model pattern (gdy ustawiony) musi być substring device.model (case-i). */
+export function matchesPricelist(
+  item: PricelistItem,
+  device: { brand?: string | null; model?: string | null },
+): boolean {
+  if (!item.enabled) return false;
+  const dBrand = (device.brand ?? "").toLowerCase().trim();
+  const dModel = (device.model ?? "").toLowerCase().trim();
+  if (item.brand) {
+    if (item.brand.toLowerCase() !== dBrand) return false;
+  }
+  if (item.modelPattern) {
+    if (!dModel.includes(item.modelPattern.toLowerCase())) return false;
+  }
+  return true;
 }
 
 export function validatePricelist(input: Partial<PricelistInput>): string[] {
@@ -122,6 +153,8 @@ export async function createPricelistItem(
     duration_minutes: input.durationMinutes ?? null,
     sort: input.sort ?? 0,
     enabled: input.enabled !== false,
+    brand: input.brand?.trim() || null,
+    model_pattern: input.modelPattern?.trim() || null,
   });
   return mapRow(created);
 }
@@ -141,6 +174,9 @@ export async function updatePricelistItem(
     patch.duration_minutes = input.durationMinutes;
   if (input.sort !== undefined) patch.sort = input.sort;
   if (input.enabled !== undefined) patch.enabled = input.enabled;
+  if (input.brand !== undefined) patch.brand = input.brand?.trim() || null;
+  if (input.modelPattern !== undefined)
+    patch.model_pattern = input.modelPattern?.trim() || null;
   const updated = await updateItem<PricelistRow>("mp_pricelist", id, patch);
   return mapRow(updated);
 }
