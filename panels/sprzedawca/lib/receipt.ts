@@ -20,7 +20,9 @@ export function openServiceReceipt(
     params.set("handover_choice", handover.choice);
     if (handover.items) params.set("handover_items", handover.items);
   }
-  const qs = params.toString();
-  const url = `/api/relay/services/${encodeURIComponent(serviceId)}/receipt${qs ? `?${qs}` : ""}`;
+  // Cache-buster — Safari potrafi cachować PDF mimo no-store; każdy klik
+  // unikalny URL → fresh fetch.
+  params.set("_t", String(Date.now()));
+  const url = `/api/relay/services/${encodeURIComponent(serviceId)}/receipt?${params.toString()}`;
   window.open(url, "_blank");
 }
