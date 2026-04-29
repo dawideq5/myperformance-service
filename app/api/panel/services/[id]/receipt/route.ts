@@ -43,6 +43,20 @@ export async function GET(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  // Wymaga podpisu pracownika przed generacją PDF — chyba że flag preview=1
+  // (admin/podgląd bez wysyłki). Dla wydruku/Documenso podpis obligatoryjny.
+  const previewMode = url.searchParams.get("preview") === "1";
+  if (!previewMode && !service.visualCondition?.employeeSignature?.pngDataUrl) {
+    return NextResponse.json(
+      {
+        error:
+          "Wymagany podpis pracownika. Otwórz okno podpisu w panelu i podpisz dokument przed wydrukiem.",
+        code: "EMPLOYEE_SIGNATURE_REQUIRED",
+      },
+      { status: 412 },
+    );
+  }
+
   // Handover: priorytet → query string (świeże dane z panel side po
   // creation), fallback → visualCondition.handover (persisted w DB),
   // ostatnia opcja → default "none".
@@ -79,6 +93,13 @@ export async function GET(
       code: service.lockCode ?? "",
     },
     description: service.description ?? "",
+    employeeName:
+      service.visualCondition?.employeeSignature?.signedBy ??
+      user.name?.trim() ??
+      user.preferred_username ??
+      user.email,
+    employeeSignaturePng:
+      service.visualCondition?.employeeSignature?.pngDataUrl ?? null,
     visualCondition: {
       ...(service.visualCondition ?? {}),
       ...(service.intakeChecklist ?? {}),

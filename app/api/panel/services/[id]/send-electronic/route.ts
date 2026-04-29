@@ -14,6 +14,7 @@ import {
 } from "@/lib/receipt-pdf";
 import { getPricelistPriceByCode } from "@/lib/pricelist";
 import { log } from "@/lib/logger";
+import { createHash } from "node:crypto";
 
 const logger = log.child({ module: "send-electronic" });
 
@@ -64,14 +65,25 @@ export async function POST(
     );
   }
 
+  // Optional handover + force flag z query.
+  const url = new URL(req.url);
+  const handoverChoice =
+    (url.searchParams.get("handover_choice") as "none" | "items" | null) ?? "none";
+  const handoverItems = url.searchParams.get("handover_items") ?? "";
+  const force = url.searchParams.get("force") === "true";
+
   const existing = service.visualCondition?.documenso;
-  if (existing?.docId && (existing.status === "sent" || existing.status === "signed")) {
+  if (
+    !force &&
+    existing?.docId &&
+    (existing.status === "sent" || existing.status === "signed")
+  ) {
     return NextResponse.json(
       {
         error:
           existing.status === "signed"
-            ? "Potwierdzenie zostało już podpisane przez klienta"
-            : "Potwierdzenie zostało już wysłane do klienta. Poczekaj na podpis lub anuluj i wyślij ponownie.",
+            ? "Potwierdzenie zostało już podpisane. Aby wysłać aneks użyj force=true."
+            : "Potwierdzenie zostało już wysłane do klienta. Aby wysłać ponownie użyj force=true.",
         documentId: existing.docId,
         status: existing.status,
       },
@@ -79,11 +91,20 @@ export async function POST(
     );
   }
 
-  // Optional handover from query (panel passes z lokalnej pamięci).
-  const url = new URL(req.url);
-  const handoverChoice =
-    (url.searchParams.get("handover_choice") as "none" | "items" | null) ?? "none";
-  const handoverItems = url.searchParams.get("handover_items") ?? "";
+  // Wymagamy podpisu pracownika in-app przed generacją PDF — embedowany
+  // jako image w bloku PODPIS PRACOWNIKA. Klient widzi gotowy podpis
+  // pracownika i podpisuje swój.
+  const employeeSig = service.visualCondition?.employeeSignature?.pngDataUrl;
+  if (!employeeSig) {
+    return NextResponse.json(
+      {
+        error:
+          "Brak podpisu pracownika. Otwórz okno podpisu w panelu i podpisz dokument przed wysłaniem.",
+        code: "EMPLOYEE_SIGNATURE_REQUIRED",
+      },
+      { status: 412 },
+    );
+  }
 
   const data: ReceiptInput = {
     ticketNumber: service.ticketNumber ?? "—",
@@ -102,6 +123,8 @@ export async function POST(
     },
     lock: { type: service.lockType ?? "none", code: service.lockCode ?? "" },
     description: service.description ?? "",
+    employeeName: user.name?.trim() || user.preferred_username || user.email,
+    employeeSignaturePng: employeeSig,
     visualCondition: {
       ...(service.visualCondition ?? {}),
       ...(service.intakeChecklist ?? {}),
@@ -121,20 +144,19 @@ export async function POST(
 
   try {
     const rendered = await renderReceiptPdfWithLayout(data);
-    const employeeName = user.name?.trim() || user.preferred_username || user.email;
+    const pdfHash = createHash("sha256").update(rendered.buffer).digest("hex");
     const customerName =
       `${service.customerFirstName ?? ""} ${service.customerLastName ?? ""}`.trim() ||
       "Klient";
 
+    // Documenso recipient = TYLKO klient. Pracownik już podpisał in-app
+    // (PNG embedded w PDF), więc klient widzi gotowy dokument do podpisu.
     const result = await createDocumentForSigning({
-      title: `Potwierdzenie ${service.ticketNumber}`,
+      title: force
+        ? `Potwierdzenie ${service.ticketNumber} (aktualizacja)`
+        : `Potwierdzenie ${service.ticketNumber}`,
       pdfBuffer: rendered.buffer,
       signers: [
-        {
-          name: employeeName,
-          email: user.email,
-          signatureBox: rendered.signatures.employee,
-        },
         {
           name: customerName,
           email: service.contactEmail,
@@ -143,8 +165,12 @@ export async function POST(
       ],
     });
 
-    // Persist documenso status do service.visualCondition.documenso —
-    // bez schema migration. Frontend czyta status na refresh listy.
+    const previousDocIds = (() => {
+      const cur = service.visualCondition?.documenso;
+      if (!cur?.docId) return [] as number[];
+      return [...(cur.previousDocIds ?? []), cur.docId];
+    })();
+
     try {
       await updateService(id, {
         visualCondition: {
@@ -153,6 +179,8 @@ export async function POST(
             docId: result.documentId,
             status: "sent",
             sentAt: new Date().toISOString(),
+            pdfHash,
+            previousDocIds,
           },
         } as typeof service.visualCondition,
       });
@@ -167,10 +195,18 @@ export async function POST(
       serviceId: id,
       ticket: service.ticketNumber,
       documensoDocId: result.documentId,
+      force,
+      pdfHash: pdfHash.slice(0, 16),
     });
 
     return NextResponse.json(
-      { ok: true, documentId: result.documentId, signingUrls: result.signingUrls },
+      {
+        ok: true,
+        documentId: result.documentId,
+        signingUrls: result.signingUrls,
+        pdfHash,
+        force,
+      },
       { status: 200 },
     );
   } catch (err) {

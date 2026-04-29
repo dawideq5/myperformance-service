@@ -22,6 +22,8 @@ import {
 } from "lucide-react";
 import { openServiceReceipt, sendElectronicReceipt } from "../../lib/receipt";
 import { useToast } from "../ToastProvider";
+import { SignaturePadDialog } from "../SignaturePadDialog";
+import { ServiceListSkeleton } from "../Skeleton";
 
 interface ServiceTicket {
   id: string;
@@ -48,6 +50,11 @@ interface ServiceTicket {
       status: "sent" | "signed" | "rejected" | "expired";
       sentAt: string;
       completedAt?: string;
+    };
+    employeeSignature?: {
+      pngDataUrl: string;
+      signedBy: string;
+      signedAt: string;
     };
   };
 }
@@ -239,12 +246,7 @@ export function ServicesAllTab({
       )}
 
       {loading && services.length === 0 ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader2
-            className="w-6 h-6 animate-spin"
-            style={{ color: "var(--text-muted)" }}
-          />
-        </div>
+        <ServiceListSkeleton />
       ) : services.length === 0 ? (
         <div
           className="text-center py-12 rounded-2xl border"
@@ -309,17 +311,22 @@ function ServiceCard({
   );
   const [sendingE, setSendingE] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
+  const [signatureMode, setSignatureMode] = useState<null | "send" | "resign">(
+    null,
+  );
 
   const eBadge = ERECEIPT_BADGES[eStatus];
+  const hasEmployeeSignature = !!service.visualCondition?.employeeSignature
+    ?.pngDataUrl;
 
-  const handleSendElectronic = async () => {
+  const performSendElectronic = async (force: boolean) => {
     if (!hasEmail) return;
     setSendingE(true);
 
     // Multi-stage progress toast — user widzi na której fazie wysyłki jesteśmy.
     const toastId = toast.push({
       kind: "progress",
-      title: "Wysyłka potwierdzenia",
+      title: force ? "Ponowna wysyłka" : "Wysyłka potwierdzenia",
       message: "Inicjalizacja…",
       sticky: true,
       progress: 5,
@@ -339,33 +346,18 @@ function ServiceCard({
     }
 
     try {
-      const r = await sendElectronicReceipt(service.id);
+      const r = await sendElectronicReceipt(service.id, undefined, force);
       timers.forEach((t) => clearTimeout(t));
       if (r.ok) {
         setEStatus("sent");
         onChanged?.();
-        // Pierwszy signingUrl = pracownik (signingOrder=1, SEQUENTIAL).
-        // Otwieramy mu podpis w nowej karcie. Klient dostanie zaproszenie
-        // dopiero po podpisie pracownika (Documenso sequential).
-        const employeeUrl = r.signingUrls?.[0]?.url;
         toast.update(toastId, {
           kind: "success",
-          title: "Wysłano",
-          message: employeeUrl
-            ? "Otwórz okno podpisu pracownika — klient otrzyma zaproszenie po Twoim podpisie."
-            : `Dokument w Documenso (#${r.documentId}). Sprawdź swoją skrzynkę po link.`,
+          title: force ? "Wysłano ponownie" : "Wysłano",
+          message: `Klient otrzyma email z linkiem do podpisu. Dokument #${r.documentId}.`,
           sticky: false,
           progress: 100,
-          action: employeeUrl
-            ? {
-                label: "Otwórz okno podpisu",
-                onClick: () => window.open(employeeUrl, "_blank", "noopener"),
-              }
-            : undefined,
         });
-        if (employeeUrl) {
-          window.open(employeeUrl, "_blank", "noopener");
-        }
       } else {
         toast.update(toastId, {
           kind: "error",
@@ -386,6 +378,51 @@ function ServiceCard({
       });
     } finally {
       setSendingE(false);
+    }
+  };
+
+  const handleSendElectronic = () => {
+    if (!hasEmployeeSignature) {
+      setSignatureMode("send");
+      return;
+    }
+    void performSendElectronic(false);
+  };
+
+  const handleResign = () => {
+    setSignatureMode("resign");
+  };
+
+  const onSignatureSaved = async (pngDataUrl: string) => {
+    const force = signatureMode === "resign";
+    setSignatureMode(null);
+    const toastId = toast.push({
+      kind: "progress",
+      message: "Zapisuję podpis…",
+      sticky: true,
+    });
+    try {
+      const r = await fetch(`/api/relay/services/${service.id}/sign`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pngDataUrl }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j?.error ?? `HTTP ${r.status}`);
+      toast.update(toastId, {
+        kind: "success",
+        message: "Podpis zapisany. Wysyłam dokument…",
+        sticky: false,
+      });
+      onChanged?.();
+      await new Promise((res) => setTimeout(res, 600));
+      void performSendElectronic(force);
+    } catch (e) {
+      toast.update(toastId, {
+        kind: "error",
+        message: e instanceof Error ? e.message : "Błąd zapisu podpisu",
+        sticky: false,
+      });
     }
   };
 
@@ -486,13 +523,23 @@ function ServiceCard({
         <div className="flex items-center gap-1.5 mt-2">
           <button
             type="button"
-            onClick={() => openServiceReceipt(service.id)}
+            onClick={() => {
+              if (!hasEmployeeSignature) {
+                setSignatureMode("send");
+                return;
+              }
+              openServiceReceipt(service.id);
+            }}
             className="flex-1 px-2 py-1.5 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1 transition-all hover:scale-[1.02]"
             style={{
               background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
               color: "#fff",
             }}
-            title="Otwórz potwierdzenie w nowej karcie"
+            title={
+              hasEmployeeSignature
+                ? "Otwórz potwierdzenie w nowej karcie"
+                : "Wymagany podpis pracownika przed wydrukiem"
+            }
           >
             <FileText className="w-3 h-3" />
             <span className="hidden sm:inline">Potwierdzenie</span>
@@ -561,7 +608,25 @@ function ServiceCard({
           serviceId={service.id}
           onClose={() => setShowDetail(false)}
           onSendElectronic={hasEmail ? handleSendElectronic : undefined}
+          onResign={hasEmail && eStatus !== "none" ? handleResign : undefined}
           isReceived={isReceived}
+        />
+      )}
+      {signatureMode !== null && (
+        <SignaturePadDialog
+          title={
+            signatureMode === "resign"
+              ? "Podpis na nowym potwierdzeniu"
+              : "Podpis pracownika"
+          }
+          subtitle={
+            signatureMode === "resign"
+              ? "Po edycji wymagamy nowego podpisu — Twój poprzedni został unieważniony."
+              : "Podpisz dokument, aby wygenerować PDF lub wysłać do klienta."
+          }
+          signerName={service.customerFirstName ?? ""}
+          onCancel={() => setSignatureMode(null)}
+          onConfirm={(png) => void onSignatureSaved(png)}
         />
       )}
     </div>
@@ -575,11 +640,13 @@ function ServiceDetailDialog({
   serviceId,
   onClose,
   onSendElectronic,
+  onResign,
   isReceived,
 }: {
   serviceId: string;
   onClose: () => void;
   onSendElectronic?: () => void;
+  onResign?: () => void;
   isReceived: boolean;
 }) {
   const [data, setData] = useState<Record<string, unknown> | null>(null);
@@ -679,6 +746,25 @@ function ServiceDetailDialog({
                 >
                   <Mail className="w-4 h-4" />
                   Wyślij elektroniczne
+                </button>
+              )}
+              {onResign && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onResign();
+                    onClose();
+                  }}
+                  className="px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 border"
+                  style={{
+                    background: "transparent",
+                    borderColor: "rgba(245,158,11,0.5)",
+                    color: "#f59e0b",
+                  }}
+                  title="Wyślij ponowne potwierdzenie po zmianach"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  Wyślij ponownie
                 </button>
               )}
             </div>

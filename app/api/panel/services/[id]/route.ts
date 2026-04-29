@@ -102,6 +102,24 @@ export async function PATCH(
     fields: Object.keys(body),
     changedFields: Object.keys(diff.changes),
   });
+
+  // Po istotnej edycji (cena, diagnoza, gwarancja) unieważniamy poprzedni
+  // podpis pracownika i status Documenso. User musi podpisać nowy PDF
+  // i wysłać ponownie — to zapobiega rozjazdowi treści między PDF
+  // podpisanym przez klienta a aktualnym stanem serwisu.
+  // mergeJsonb traktuje `null` jako delete-key.
+  if (diff.isSignificant) {
+    const vcPatch = {
+      ...((body.visualCondition as Record<string, unknown>) ?? {}),
+      employeeSignature: null,
+    } as Record<string, unknown>;
+    const curDocumenso = existing.visualCondition?.documenso;
+    if (curDocumenso && curDocumenso.status === "sent") {
+      vcPatch.documenso = { ...curDocumenso, status: "expired" };
+    }
+    body.visualCondition = vcPatch as typeof body.visualCondition;
+  }
+
   try {
     const service = await updateService(id, body);
     // Zapisz rewizję — best-effort, błąd nie blokuje update'u.

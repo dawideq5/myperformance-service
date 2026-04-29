@@ -33,17 +33,20 @@ export function openServiceReceipt(
 export async function sendElectronicReceipt(
   serviceId: string,
   handover?: ReceiptHandoverInfo,
+  force = false,
 ): Promise<{
   ok: boolean;
   documentId?: number;
   signingUrls?: Array<{ email: string; url: string | null }>;
   error?: string;
+  code?: string;
 }> {
   const params = new URLSearchParams();
   if (handover) {
     params.set("handover_choice", handover.choice);
     if (handover.items) params.set("handover_items", handover.items);
   }
+  if (force) params.set("force", "true");
   const qs = params.toString();
   const url = `/api/relay/services/${encodeURIComponent(serviceId)}/send-electronic${qs ? `?${qs}` : ""}`;
   try {
@@ -53,6 +56,7 @@ export async function sendElectronicReceipt(
       return {
         ok: false,
         error: json?.error ?? json?.detail ?? `HTTP ${res.status}`,
+        code: json?.code,
       };
     }
     return {

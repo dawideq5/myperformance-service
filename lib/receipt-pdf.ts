@@ -14,6 +14,12 @@ export interface ReceiptInput {
   device: { brand: string; model: string; imei: string; color: string };
   lock: { type: string; code: string };
   description: string;
+  /** Imię i nazwisko pracownika przyjmującego — wyświetlane pod linią
+   * podpisu pracownika. */
+  employeeName?: string;
+  /** Data URL PNG podpisu pracownika — embedowany w PDF nad linią. Gdy
+   * brak, zostaje samo pole do podpisu ręcznego. */
+  employeeSignaturePng?: string | null;
   visualCondition: {
     display_rating?: number;
     back_rating?: number;
@@ -583,7 +589,23 @@ function drawSinglePage(
   const sigW = (W - 24) / 2;
   const SIG_HEIGHT = 34; // miejsce na rzeczywisty podpis
   const sigTopY = y; // top sygnatur (pole Documenso od top do linii)
-  // Lewa: pracownik
+  // Lewa: pracownik. Embed podpisu PNG gdy podany (z signature pad in-app).
+  if (data.employeeSignaturePng) {
+    try {
+      const base64 = data.employeeSignaturePng.replace(
+        /^data:image\/[a-z]+;base64,/,
+        "",
+      );
+      const buf = Buffer.from(base64, "base64");
+      doc.image(buf, M + 4, y + 2, {
+        fit: [sigW - 8, SIG_HEIGHT - 4],
+        align: "center",
+        valign: "center",
+      });
+    } catch {
+      // bad base64 — pomijamy embed, zostaje samo pole do podpisu ręcznego.
+    }
+  }
   doc
     .moveTo(M, y + SIG_HEIGHT)
     .lineTo(M + sigW, y + SIG_HEIGHT)
@@ -594,11 +616,18 @@ function drawSinglePage(
     .font("R")
     .fontSize(7)
     .fillColor(MUTED)
-    .text("PODPIS PRACOWNIKA", M, y + SIG_HEIGHT + 4, {
-      width: sigW,
-      align: "center",
-      characterSpacing: 0.5,
-    });
+    .text(
+      data.employeeName
+        ? `PODPIS PRACOWNIKA — ${data.employeeName.toUpperCase()}`
+        : "PODPIS PRACOWNIKA",
+      M,
+      y + SIG_HEIGHT + 4,
+      {
+        width: sigW,
+        align: "center",
+        characterSpacing: 0.5,
+      },
+    );
   // Prawa: klient
   doc
     .moveTo(M + sigW + 24, y + SIG_HEIGHT)

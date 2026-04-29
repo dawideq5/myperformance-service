@@ -114,6 +114,19 @@ export interface VisualCondition {
     status: "sent" | "signed" | "rejected" | "expired";
     sentAt: string;
     completedAt?: string;
+    /** Sha256 wygenerowanego PDF — żeby porównać przy rebuild i wykryć
+     * manipulację. */
+    pdfHash?: string;
+    /** Lista poprzednich docId-ów (po re-sign po istotnej edycji). */
+    previousDocIds?: number[];
+  };
+  /** Lokalny podpis pracownika (data:image/png;base64) embedowany w PDF
+   * przed wysłaniem do Documenso/wydrukiem. Wymagany dla każdej generacji
+   * potwierdzenia — zapewnia że pracownik świadomie autoryzował dokument. */
+  employeeSignature?: {
+    pngDataUrl: string;
+    signedBy: string;
+    signedAt: string;
   };
 }
 
@@ -530,6 +543,26 @@ export interface UpdateServiceInput {
   visualCondition?: VisualCondition;
 }
 
+/** Atomic merge dla pola JSONB. Klucze z `input` nakładają się na `base`,
+ * z jednym wyjątkiem: wartość `null` lub `undefined` usuwa klucz z output
+ * (w bazie nie zostanie nawet tombstone). Pozwala na atomic delete pól
+ * bez race condition (np. invalidacja employeeSignature po edycji
+ * istotnej). */
+function mergeJsonb(
+  base: Record<string, unknown>,
+  input: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...base };
+  for (const [k, v] of Object.entries(input)) {
+    if (v === null || v === undefined) {
+      delete out[k];
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
 /** Dozwolone tranzycje statusu serwisu. Cykl pracy:
  * received → diagnosing → awaiting_quote → repairing → testing → ready → delivered.
  * Z każdego stanu można też anulować (cancelled) lub zarchiwizować (archived).
@@ -627,18 +660,14 @@ export async function updateService(
     patch.signed_in_account = input.signedInAccount;
   if (input.accessories !== undefined) patch.accessories = input.accessories;
   if (input.intakeChecklist !== undefined) {
-    // Atomic merge: jeśli caller chce częściowy update intake_checklist,
-    // nakłada się na fresh DB state (nie na stale closure z UI). Caller
-    // który chce hard-reset może podać explicit pełny obiekt — ten i tak
-    // zostaje overwrite'owany kluczami z input.
     const baseCk = (before?.intakeChecklist ?? {}) as Record<string, unknown>;
-    patch.intake_checklist = { ...baseCk, ...input.intakeChecklist };
+    patch.intake_checklist = mergeJsonb(baseCk, input.intakeChecklist as Record<string, unknown>);
   }
   if (input.chargingCurrent !== undefined)
     patch.charging_current = input.chargingCurrent;
   if (input.visualCondition !== undefined) {
     const baseVc = (before?.visualCondition ?? {}) as Record<string, unknown>;
-    patch.visual_condition = { ...baseVc, ...input.visualCondition };
+    patch.visual_condition = mergeJsonb(baseVc, input.visualCondition as Record<string, unknown>);
   }
   const updated = await updateItem<ServiceRow>("mp_services", id, patch);
   const mapped = mapRow(updated);
