@@ -73,6 +73,7 @@ export function PanelHome({
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<SprzedawcaTab>("services-all");
+  const [editingServiceId, setEditingServiceId] = useState<string | null>(null);
 
   useEffect(() => {
     try {
@@ -518,8 +519,24 @@ export function PanelHome({
         </div>
 
         {/* Treść aktywnej zakładki */}
-        {activeTab === "services-add" && <AddServiceTab locationId={selected.id} />}
-        {activeTab === "services-all" && <ServicesAllTab />}
+        {activeTab === "services-add" && (
+          <AddServiceTab
+            locationId={selected.id}
+            editingServiceId={editingServiceId}
+            onEditDone={() => {
+              setEditingServiceId(null);
+              setActiveTab("services-all");
+            }}
+          />
+        )}
+        {activeTab === "services-all" && (
+          <ServicesAllTab
+            onEdit={(id) => {
+              setEditingServiceId(id);
+              setActiveTab("services-add");
+            }}
+          />
+        )}
         {activeTab === "protection" && <ProtectionTab locationId={selected.id} />}
         {activeTab === "claims" && <ClaimsTab locationId={selected.id} />}
         {activeTab === "delivery" && <DeliveryTab />}

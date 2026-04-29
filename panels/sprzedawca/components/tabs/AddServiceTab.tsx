@@ -34,7 +34,15 @@ import {
   sendElectronicReceipt,
 } from "../../lib/receipt";
 
-export function AddServiceTab({ locationId }: { locationId: string }) {
+export function AddServiceTab({
+  locationId,
+  editingServiceId,
+  onEditDone,
+}: {
+  locationId: string;
+  editingServiceId?: string | null;
+  onEditDone?: () => void;
+}) {
   const [brand, setBrand] = useState("");
   const [model, setModel] = useState("");
   const [imei, setImei] = useState("");
@@ -119,6 +127,63 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isExpertise, expertisePrice]);
+
+  // Edit mode: gdy editingServiceId, pobierz service detail i prefill formularz.
+  useEffect(() => {
+    if (!editingServiceId) return;
+    void (async () => {
+      try {
+        const r = await fetch(`/api/relay/services/${editingServiceId}`);
+        const j = await r.json();
+        const s = j.service ?? j.data?.service;
+        if (!s) return;
+        setBrand(s.brand ?? "");
+        setModel(s.model ?? "");
+        setImei(s.imei ?? "");
+        setColor(s.color ?? "");
+        setLockType(s.lockType ?? "");
+        setLockCode(s.lockCode ?? "");
+        if (s.visualCondition || s.intakeChecklist) {
+          setVisualCondition({
+            ...(s.visualCondition ?? {}),
+            ...(s.intakeChecklist ?? {}),
+            charging_current: s.chargingCurrent ?? undefined,
+          });
+          setVisualCompleted(true);
+        }
+        // Description = repair types — try to parse back: split by ' · '
+        const desc = s.description ?? "";
+        if (desc) {
+          // Best-effort parse: znajdź repair types pasujące do labels.
+          // Inne wartości idą do customDescription.
+          setCustomDescription(desc);
+        }
+        setAmountEstimate(s.amountEstimate?.toString() ?? "");
+        setCustomerFirstName(s.customerFirstName ?? "");
+        setCustomerLastName(s.customerLastName ?? "");
+        setContactPhone(s.contactPhone ?? "");
+        setContactEmail(s.contactEmail ?? "");
+        // Handover from visualCondition.handover
+        const h = s.visualCondition?.handover;
+        if (h?.choice) {
+          setHandoverChoice(h.choice);
+          setHandoverItems(h.items ?? "");
+        }
+        // Open all sections in edit mode.
+        setOpen({
+          device: true,
+          lock: true,
+          visual: true,
+          description: true,
+          customer: true,
+          handover: true,
+        });
+      } catch {
+        /* ignore */
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingServiceId]);
 
   // Pobierz ceny z cennika: CLEANING_INTAKE + EXPERTISE.
   useEffect(() => {
@@ -302,8 +367,13 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
         contactPhone: contactPhone.trim() || null,
         contactEmail: contactEmail.trim() || null,
       };
-      const res = await fetch("/api/relay/services", {
-        method: "POST",
+      // POST = utworzenie nowego zlecenia. PATCH = edycja istniejącego.
+      const isEdit = !!editingServiceId;
+      const url = isEdit
+        ? `/api/relay/services/${editingServiceId}`
+        : "/api/relay/services";
+      const res = await fetch(url, {
+        method: isEdit ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
@@ -318,7 +388,15 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
           items: handoverItems.trim(),
         },
       });
-      setSuccess(`Utworzono zlecenie ${ticketNumber}`);
+      setSuccess(
+        isEdit
+          ? `Zaktualizowano zlecenie ${ticketNumber}`
+          : `Utworzono zlecenie ${ticketNumber}`,
+      );
+      if (isEdit) {
+        // Reset back to list view after edit done.
+        setTimeout(() => onEditDone?.(), 1500);
+      }
       reset();
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (err) {

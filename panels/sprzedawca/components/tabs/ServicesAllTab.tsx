@@ -41,6 +41,14 @@ interface ServiceTicket {
   createdAt: string | null;
   photos: string[];
   accessories: string[];
+  visualCondition?: {
+    documenso?: {
+      docId: number;
+      status: "sent" | "signed" | "rejected" | "expired";
+      sentAt: string;
+      completedAt?: string;
+    };
+  };
 }
 
 type EReceiptStatus = "none" | "sent" | "signed" | "rejected" | "expired";
@@ -88,7 +96,9 @@ const DEVICE_ICONS: Record<string, React.ComponentType<{ className?: string }>> 
   headphones: TabletSmartphone,
 };
 
-export function ServicesAllTab() {
+export function ServicesAllTab({
+  onEdit,
+}: { onEdit?: (id: string) => void } = {}) {
   const [services, setServices] = useState<ServiceTicket[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -235,7 +245,7 @@ export function ServicesAllTab() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
           {services.map((s) => (
-            <ServiceCard key={s.id} service={s} />
+            <ServiceCard key={s.id} service={s} onEdit={onEdit} />
           ))}
         </div>
       )}
@@ -246,9 +256,11 @@ export function ServicesAllTab() {
 function ServiceCard({
   service,
   onChanged,
+  onEdit,
 }: {
   service: ServiceTicket;
   onChanged?: () => void;
+  onEdit?: (id: string) => void;
 }) {
   const status = STATUS_LABELS[service.status] ?? {
     label: service.status,
@@ -262,7 +274,10 @@ function ServiceCard({
       .join(" ") || "—";
   const isReceived = service.status === "received";
   const hasEmail = !!(service.contactEmail ?? "").trim();
-  const [eStatus, setEStatus] = useState<EReceiptStatus>("none");
+  const persistedStatus = service.visualCondition?.documenso?.status;
+  const [eStatus, setEStatus] = useState<EReceiptStatus>(
+    persistedStatus ?? "none",
+  );
   const [sendingE, setSendingE] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
 
@@ -423,7 +438,13 @@ function ServiceCard({
           </button>
           <button
             type="button"
-            onClick={() => setShowDetail(true)}
+            onClick={() => {
+              if (isReceived && onEdit) {
+                onEdit(service.id);
+              } else {
+                setShowDetail(true);
+              }
+            }}
             className="px-2 py-1.5 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1 border transition-all hover:scale-[1.02]"
             style={{
               background: "var(--bg-surface)",

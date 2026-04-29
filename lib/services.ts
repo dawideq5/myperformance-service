@@ -107,6 +107,14 @@ export interface VisualCondition {
     choice: "none" | "items";
     items: string;
   };
+  /** Status elektronicznego potwierdzenia (Documenso). Persistowane żeby
+   * UI nie resetowało statusu do "brak" po refresh. */
+  documenso?: {
+    docId: number;
+    status: "sent" | "signed" | "rejected" | "expired";
+    sentAt: string;
+    completedAt?: string;
+  };
 }
 
 export interface ServiceTicket {

@@ -3,7 +3,7 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { PANEL_CORS_HEADERS, getPanelUserFromRequest } from "@/lib/panel-auth";
-import { getService } from "@/lib/services";
+import { getService, updateService } from "@/lib/services";
 import {
   createDocumentForSigning,
   isDocumensoConfigured,
@@ -110,6 +110,26 @@ export async function POST(
         { name: customerName, email: service.contactEmail },
       ],
     });
+
+    // Persist documenso status do service.visualCondition.documenso —
+    // bez schema migration. Frontend czyta status na refresh listy.
+    try {
+      await updateService(id, {
+        visualCondition: {
+          ...(service.visualCondition ?? {}),
+          documenso: {
+            docId: result.documentId,
+            status: "sent",
+            sentAt: new Date().toISOString(),
+          },
+        } as typeof service.visualCondition,
+      });
+    } catch (e) {
+      logger.warn("documenso status persist failed", {
+        serviceId: id,
+        err: e instanceof Error ? e.message : String(e),
+      });
+    }
 
     logger.info("electronic confirmation sent", {
       serviceId: id,
