@@ -57,13 +57,18 @@ async function handle(
   }
   try {
     const r = await fetch(targetUrl, init);
-    const body = await r.text();
-    return new NextResponse(body, {
+    // Binary-safe: arrayBuffer zamiast text(). text() decoduje jako UTF-8
+    // co PSUJE binary streams (PDF, obrazy). Forward bytes nietknięte.
+    const ab = await r.arrayBuffer();
+    const headers: Record<string, string> = {
+      "content-type": r.headers.get("content-type") ?? "application/json",
+      "cache-control": "no-store",
+    };
+    const cd = r.headers.get("content-disposition");
+    if (cd) headers["content-disposition"] = cd;
+    return new NextResponse(ab, {
       status: r.status,
-      headers: {
-        "content-type": r.headers.get("content-type") ?? "application/json",
-        "cache-control": "no-store",
-      },
+      headers,
     });
   } catch (err) {
     return NextResponse.json(

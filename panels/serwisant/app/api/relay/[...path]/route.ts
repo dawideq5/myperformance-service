@@ -45,7 +45,8 @@ async function handle(
   }
   try {
     const r = await fetch(targetUrl, init);
-    const body = await r.text();
+    // Binary-safe: arrayBuffer zamiast text() — PDF/obrazy nie tracą bytes.
+    const body = await r.arrayBuffer();
     return new NextResponse(body, {
       status: r.status,
       headers: {
