@@ -2,6 +2,7 @@
 
 import {
   createContext,
+  memo,
   useCallback,
   useContext,
   useMemo,
@@ -92,15 +93,19 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
   const update = useCallback(
     (id: number, patch: Partial<Omit<Toast, "id">>) => {
-      setToasts((p) => p.map((t) => (t.id === id ? { ...t, ...patch } : t)));
-      if (patch.kind || patch.sticky !== undefined) {
-        const cur = toasts.find((t) => t.id === id);
-        const newKind = patch.kind ?? cur?.kind ?? "info";
-        const newSticky = patch.sticky ?? cur?.sticky;
-        scheduleDismiss(id, newKind, newSticky);
-      }
+      setToasts((p) =>
+        p.map((t) => {
+          if (t.id !== id) return t;
+          const next = { ...t, ...patch };
+          // Auto-dismiss timer reset gdy zmienia się kind/sticky.
+          if (patch.kind !== undefined || patch.sticky !== undefined) {
+            scheduleDismiss(id, next.kind, next.sticky);
+          }
+          return next;
+        }),
+      );
     },
-    [scheduleDismiss, toasts],
+    [scheduleDismiss],
   );
 
   const value = useMemo<ToastContextValue>(
@@ -113,19 +118,19 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {children}
       <div className="fixed top-4 right-4 z-[2200] flex flex-col gap-2 max-w-sm w-full pointer-events-none">
         {toasts.map((t) => (
-          <ToastItem key={t.id} toast={t} onDismiss={() => dismiss(t.id)} />
+          <ToastItem key={t.id} toast={t} onDismiss={dismiss} />
         ))}
       </div>
     </ToastContext.Provider>
   );
 }
 
-function ToastItem({
+const ToastItem = memo(function ToastItem({
   toast,
   onDismiss,
 }: {
   toast: Toast;
-  onDismiss: () => void;
+  onDismiss: (id: number) => void;
 }) {
   const Icon = ICONS[toast.kind];
   return (
@@ -179,7 +184,7 @@ function ToastItem({
       {!toast.sticky && (
         <button
           type="button"
-          onClick={onDismiss}
+          onClick={() => onDismiss(toast.id)}
           className="opacity-70 hover:opacity-100"
           aria-label="Zamknij"
         >
@@ -188,7 +193,7 @@ function ToastItem({
       )}
     </div>
   );
-}
+});
 
 const ICONS = {
   success: CheckCircle2,

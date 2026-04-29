@@ -75,6 +75,15 @@ interface ServiceActionEntry {
   createdAt: string;
 }
 
+interface MailMessage {
+  id: number;
+  status: string;
+  rcptTo: string;
+  subject: string;
+  timestamp: number;
+  bounce?: boolean;
+}
+
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   received: { label: "Przyjęty", color: "#64748B" },
   diagnosing: { label: "Diagnoza", color: "#0EA5E9" },
@@ -111,6 +120,7 @@ function ServiceDetailInner({
   const [service, setService] = useState<ServiceDetail | null>(null);
   const [revisions, setRevisions] = useState<Revision[]>([]);
   const [actions, setActions] = useState<ServiceActionEntry[]>([]);
+  const [mailMessages, setMailMessages] = useState<MailMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showSignature, setShowSignature] = useState(false);
@@ -122,14 +132,16 @@ function ServiceDetailInner({
   const refresh = useCallback(async () => {
     setError(null);
     try {
-      const [r1, r2, r3] = await Promise.all([
+      const [r1, r2, r3, r4] = await Promise.all([
         fetch(`/api/relay/services/${serviceId}`),
         fetch(`/api/relay/services/${serviceId}/revisions`),
         fetch(`/api/relay/services/${serviceId}/actions`),
+        fetch(`/api/relay/services/${serviceId}/mail-history`),
       ]);
       const j1 = await r1.json();
       const j2 = await r2.json();
       const j3 = await r3.json().catch(() => ({ actions: [] }));
+      const j4 = await r4.json().catch(() => ({ messages: [] }));
       if (!r1.ok) throw new Error(j1?.error ?? `HTTP ${r1.status}`);
       const fetched = (j1.service ?? j1.data?.service) as ServiceDetail;
       // Handover z sessionStorage — przeniesiony z AddServiceTab po
@@ -154,6 +166,7 @@ function ServiceDetailInner({
       setService(fetched);
       setRevisions((j2.revisions ?? []) as Revision[]);
       setActions((j3.actions ?? []) as ServiceActionEntry[]);
+      setMailMessages((j4.messages ?? []) as MailMessage[]);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Błąd pobierania");
     } finally {
@@ -486,6 +499,7 @@ function ServiceDetailInner({
         <aside className="space-y-4">
           <DocumensoStatusCard documenso={service.visualCondition?.documenso} />
           <ActionsLogCard actions={actions} />
+          <MailHistoryCard messages={mailMessages} />
           <HistoryCard revisions={revisions} />
         </aside>
       </main>
@@ -845,6 +859,61 @@ function ActionsLogCard({ actions }: { actions: ServiceActionEntry[] }) {
                     {a.actorName ? ` · ${a.actorName}` : ""}
                   </p>
                 </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Card>
+  );
+}
+
+const MAIL_STATUS_LABELS: Record<string, { label: string; color: string }> = {
+  Sent: { label: "Wysłano", color: "#06b6d4" },
+  Held: { label: "Wstrzymano", color: "#f59e0b" },
+  Bounced: { label: "Zwrot", color: "#ef4444" },
+  HardFail: { label: "Błąd dostarczenia", color: "#ef4444" },
+  SoftFail: { label: "Tymczasowy błąd", color: "#f59e0b" },
+  Pending: { label: "W kolejce", color: "#64748b" },
+};
+
+function MailHistoryCard({ messages }: { messages: MailMessage[] }) {
+  return (
+    <Card icon={<AtSign className="w-4 h-4" />} title="Historia wiadomości">
+      {messages.length === 0 ? (
+        <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+          Brak wysłanych wiadomości.
+        </p>
+      ) : (
+        <ul className="space-y-2">
+          {messages.slice(0, 15).map((m) => {
+            const meta = MAIL_STATUS_LABELS[m.status] ?? {
+              label: m.status,
+              color: "#64748b",
+            };
+            return (
+              <li
+                key={m.id}
+                className="text-xs"
+                style={{ color: "var(--text-main)" }}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span
+                    className="font-semibold truncate"
+                    style={{ color: meta.color }}
+                  >
+                    {meta.label}
+                  </span>
+                  <span
+                    className="text-[10px] flex-shrink-0"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    {new Date(m.timestamp * 1000).toLocaleString("pl-PL")}
+                  </span>
+                </div>
+                <p className="truncate text-[11px] mt-0.5">
+                  {m.subject}
+                </p>
               </li>
             );
           })}

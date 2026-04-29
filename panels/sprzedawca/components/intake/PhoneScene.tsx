@@ -7,6 +7,28 @@ import * as THREE from "three";
 import { CameraRig } from "./PhoneModel";
 import { PhoneGLB, type HighlightId } from "./PhoneGLB";
 
+/** Lowpoly placeholder telefonu — rounded box renderowany NATYCHMIAST,
+ * widoczny dopóki GLB się ładuje. Brand color jako kolor klapki tylnej.
+ * Daje user wrażenie że scena działa, nawet przy wolnym łączu. */
+function PhonePlaceholder({ brandColor }: { brandColor?: string }) {
+  return (
+    <group>
+      <mesh position={[0, 0, 0]}>
+        <boxGeometry args={[1.6, 3.4, 0.18]} />
+        <meshStandardMaterial
+          color={brandColor ?? "#1f2937"}
+          metalness={0.5}
+          roughness={0.4}
+        />
+      </mesh>
+      <mesh position={[0, 0, 0.0951]}>
+        <boxGeometry args={[1.45, 3.2, 0.001]} />
+        <meshStandardMaterial color="#0a0a0a" metalness={0} roughness={0.2} />
+      </mesh>
+    </group>
+  );
+}
+
 interface DamageMarker {
   id: string;
   x: number;
@@ -118,7 +140,7 @@ export default function PhoneScene({
       />
 
       <group ref={groupRef}>
-        <Suspense fallback={null}>
+        <Suspense fallback={<PhonePlaceholder brandColor={brandColor} />}>
           <PhoneGLB
             highlight={highlight}
             damageMarkers={damageMarkers}
