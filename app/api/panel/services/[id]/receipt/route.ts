@@ -44,19 +44,11 @@ export async function GET(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  // Wymaga podpisu pracownika przed generacją PDF — chyba że flag preview=1
-  // (admin/podgląd bez wysyłki). Dla wydruku/Documenso podpis obligatoryjny.
+  // PDF papierowy renderowany ZAWSZE z pustymi polami podpisu (klient
+  // podpisuje ręcznie). Elektroniczne potwierdzenie idzie przez
+  // Documenso (sequential pracownik+klient). Brak wymogu employeeSignature.
   const previewMode = url.searchParams.get("preview") === "1";
-  if (!previewMode && !service.visualCondition?.employeeSignature?.pngDataUrl) {
-    return NextResponse.json(
-      {
-        error:
-          "Wymagany podpis pracownika. Otwórz okno podpisu w panelu i podpisz dokument przed wydrukiem.",
-        code: "EMPLOYEE_SIGNATURE_REQUIRED",
-      },
-      { status: 412 },
-    );
-  }
+  void previewMode;
 
   // Handover: priorytet → query string (świeże dane z panel side po
   // creation), fallback → visualCondition.handover (persisted w DB),
@@ -95,12 +87,8 @@ export async function GET(
     },
     description: service.description ?? "",
     employeeName:
-      service.visualCondition?.employeeSignature?.signedBy ??
-      user.name?.trim() ??
-      user.preferred_username ??
-      user.email,
-    employeeSignaturePng:
-      service.visualCondition?.employeeSignature?.pngDataUrl ?? null,
+      user.name?.trim() ?? user.preferred_username ?? user.email,
+    employeeSignaturePng: null,
     visualCondition: {
       ...(service.visualCondition ?? {}),
       ...(service.intakeChecklist ?? {}),

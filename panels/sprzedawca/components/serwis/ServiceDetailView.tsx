@@ -23,7 +23,6 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { ToastProvider, useToast } from "../ToastProvider";
-import { SignaturePadDialog } from "../SignaturePadDialog";
 import { sendElectronicReceipt, openServiceReceipt } from "../../lib/receipt";
 
 interface ServiceDetail {
@@ -44,19 +43,58 @@ interface ServiceDetail {
   visualCondition?: {
     documenso?: {
       docId: number;
-      status: "sent" | "signed" | "rejected" | "expired";
+      status:
+        | "sent"
+        | "employee_signed"
+        | "signed"
+        | "rejected"
+        | "expired";
       sentAt: string;
+      employeeSignedAt?: string;
       completedAt?: string;
       previousDocIds?: number[];
-    };
-    employeeSignature?: {
-      pngDataUrl: string;
-      signedBy: string;
-      signedAt: string;
+      employeeSigningUrl?: string;
+      signedPdfUrl?: string;
     };
     handover?: { choice: "none" | "items"; items: string };
   };
 }
+
+const DOCUMENSO_STATUS_PHRASES: Record<
+  string,
+  { label: string; color: string; description: string }
+> = {
+  sent: {
+    label: "Wysłano — oczekiwanie na podpis pracownika",
+    color: "#06B6D4",
+    description:
+      "Otwórz okno podpisu pracownika żeby zatwierdzić dokument. Po Twoim podpisie klient otrzyma email z prośbą.",
+  },
+  employee_signed: {
+    label: "Pracownik podpisał — oczekiwanie na podpis klienta",
+    color: "#A855F7",
+    description:
+      "Klient otrzymał email z linkiem do podpisu. Status zaktualizuje się automatycznie po jego akcji.",
+  },
+  signed: {
+    label: "Klient podpisał — dokument zatwierdzony",
+    color: "#22C55E",
+    description:
+      "Pełna ścieżka podpisu zakończona pomyślnie. Podpisany dokument dostępny w archiwum.",
+  },
+  rejected: {
+    label: "Klient odrzucił dokument",
+    color: "#EF4444",
+    description:
+      "Klient odmówił podpisu. Skontaktuj się z klientem i wyślij ponownie po wyjaśnieniu warunków.",
+  },
+  expired: {
+    label: "Unieważnione po edycji",
+    color: "#F59E0B",
+    description:
+      "Po edycji warunków dokument został unieważniony. Wyślij ponownie aby uzyskać świeży podpis.",
+  },
+};
 
 interface Revision {
   id: string;
@@ -123,11 +161,8 @@ function ServiceDetailInner({
   const [mailMessages, setMailMessages] = useState<MailMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showSignature, setShowSignature] = useState(false);
-  const [pendingAction, setPendingAction] = useState<
-    "print" | "email" | "resign" | null
-  >(null);
   const [busy, setBusy] = useState(false);
+  const [showSigningModal, setShowSigningModal] = useState(false);
 
   const refresh = useCallback(async () => {
     setError(null);
@@ -178,46 +213,51 @@ function ServiceDetailInner({
     void refresh();
   }, [refresh]);
 
-  // Polling stanu — 30s, pause gdy tab nieaktywny.
+  // Polling 5s w aktywnym widoku — real-time tracking statusu Documenso.
+  // Pause gdy tab nieaktywny + instant refresh przy focus.
   useEffect(() => {
     const tick = () => {
       if (document.visibilityState !== "visible") return;
       void refresh();
     };
-    const id = setInterval(tick, 30_000);
-    return () => clearInterval(id);
+    const id = setInterval(tick, 5_000);
+    const onFocus = () => void refresh();
+    window.addEventListener("focus", onFocus);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener("focus", onFocus);
+    };
   }, [refresh]);
 
-  // Auto-flow: gdy URL ma ?action=sign → po fetched serwisie otwórz pad.
+  const eDocStatus = service?.visualCondition?.documenso?.status ?? "none";
+  const employeeSigningUrl =
+    service?.visualCondition?.documenso?.employeeSigningUrl;
+  // Backend ustawia signedPdfUrl="available" gdy dokument podpisany —
+  // panel-side budujemy URL do relay endpointa.
+  const signedPdfUrl = service?.visualCondition?.documenso?.signedPdfUrl
+    ? `/api/relay/services/${service.id}/signed-pdf`
+    : undefined;
+
+  // Auto-flow: gdy URL ma ?action=sign i potwierdzenie nie zostało
+  // jeszcze wysłane do Documenso → wywołaj wysyłkę automatycznie.
+  // Po wysyłce status zmieni się na "sent" + pojawi się signing URL
+  // pracownika do otwarcia w iframe/nowej karcie.
   useEffect(() => {
     if (!service) return;
-    if (initialAction === "sign" && !service.visualCondition?.employeeSignature) {
-      setPendingAction("email");
-      setShowSignature(true);
+    if (initialAction === "sign" && eDocStatus === "none") {
+      void handleEmail(false);
     }
-  }, [initialAction, service]);
-
-  const eDocStatus = service?.visualCondition?.documenso?.status ?? "none";
-  const hasSignature = !!service?.visualCondition?.employeeSignature?.pngDataUrl;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialAction, service?.id]);
 
   const handlePrint = useCallback(() => {
     if (!service) return;
-    if (!hasSignature) {
-      setPendingAction("print");
-      setShowSignature(true);
-      return;
-    }
     openServiceReceipt(service.id, service.visualCondition?.handover);
-  }, [hasSignature, service]);
+  }, [service]);
 
   const handleEmail = useCallback(
     async (force = false) => {
       if (!service) return;
-      if (!hasSignature) {
-        setPendingAction(force ? "resign" : "email");
-        setShowSignature(true);
-        return;
-      }
       setBusy(true);
       const toastId = toast.push({
         kind: "progress",
@@ -227,9 +267,9 @@ function ServiceDetailInner({
         progress: 5,
       });
       const stages = [
-        { msg: "Generuję PDF z Twoim podpisem…", progress: 25, delay: 700 },
+        { msg: "Generuję dokument PDF…", progress: 25, delay: 700 },
         { msg: "Tworzę dokument w Documenso…", progress: 55, delay: 2000 },
-        { msg: "Wysyłam zaproszenie do klienta…", progress: 85, delay: 4000 },
+        { msg: "Wysyłam zaproszenie do podpisu…", progress: 85, delay: 4000 },
       ];
       const timers = stages.map((s) =>
         setTimeout(
@@ -247,12 +287,15 @@ function ServiceDetailInner({
         if (r.ok) {
           toast.update(toastId, {
             kind: "success",
-            title: "Wysłano",
-            message: `Klient otrzyma email z linkiem (#${r.documentId}).`,
+            title: "Dokument utworzony",
+            message:
+              "Najpierw podpisz dokument w Documenso, klient otrzyma link po Twoim podpisie.",
             sticky: false,
             progress: 100,
           });
           await refresh();
+          // Po success otwórz signing modal pracownika.
+          setShowSigningModal(true);
         } else {
           toast.update(toastId, {
             kind: "error",
@@ -274,57 +317,7 @@ function ServiceDetailInner({
         setBusy(false);
       }
     },
-    [hasSignature, refresh, service, toast],
-  );
-
-  const onSignatureSaved = useCallback(
-    async (pngDataUrl: string) => {
-      if (!service) return;
-      setShowSignature(false);
-      const toastId = toast.push({
-        kind: "progress",
-        message: "Zapisuję podpis…",
-        sticky: true,
-      });
-      try {
-        const r = await fetch(`/api/relay/services/${service.id}/sign`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ pngDataUrl }),
-        });
-        const j = await r.json();
-        if (!r.ok) throw new Error(j?.error ?? `HTTP ${r.status}`);
-        toast.update(toastId, {
-          kind: "success",
-          message: "Podpis zapisany.",
-          sticky: false,
-        });
-        await refresh();
-        // Continue pending action automatycznie.
-        const action = pendingAction;
-        setPendingAction(null);
-        await new Promise((res) => setTimeout(res, 400));
-        if (action === "print") {
-          openServiceReceipt(service.id, service.visualCondition?.handover);
-        } else if (action === "email") {
-          await handleEmail(false);
-        } else if (action === "resign") {
-          await handleEmail(true);
-        }
-      } catch (e) {
-        toast.update(toastId, {
-          kind: "error",
-          message: e instanceof Error ? e.message : "Błąd zapisu podpisu",
-          sticky: false,
-        });
-      }
-    },
-    [handleEmail, pendingAction, refresh, service, toast],
-  );
-
-  const employeeName = useMemo(
-    () => service?.visualCondition?.employeeSignature?.signedBy ?? "",
-    [service],
+    [refresh, service, toast],
   );
 
   if (loading) {
@@ -428,24 +421,23 @@ function ServiceDetailInner({
       <main className="mx-auto w-full max-w-6xl px-4 sm:px-6 py-6 grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* LEWA — info + akcje */}
         <section className="lg:col-span-2 space-y-4">
-          <SignatureCard
-            hasSignature={hasSignature}
-            employeeName={employeeName}
-            signedAt={service.visualCondition?.employeeSignature?.signedAt}
-            onSign={() => {
-              setPendingAction(null);
-              setShowSignature(true);
-            }}
-          />
+          {eDocStatus !== "none" && eDocStatus !== "expired" && (
+            <DocumentSigningCard
+              status={eDocStatus}
+              signedPdfUrl={signedPdfUrl}
+              employeeSigningUrl={employeeSigningUrl}
+              onOpenSigning={() => setShowSigningModal(true)}
+            />
+          )}
 
           <ActionsCard
-            hasSignature={hasSignature}
             eDocStatus={eDocStatus}
             hasEmail={!!service.contactEmail}
             busy={busy}
             onPrint={handlePrint}
             onEmail={() => void handleEmail(false)}
             onResend={() => void handleEmail(true)}
+            signedPdfUrl={signedPdfUrl}
           />
 
           <Card icon={<Wrench className="w-4 h-4" />} title="Urządzenie">
@@ -504,20 +496,174 @@ function ServiceDetailInner({
         </aside>
       </main>
 
-      {showSignature && (
-        <SignaturePadDialog
-          title="Podpis pracownika"
-          subtitle={
-            pendingAction === "resign"
-              ? "Po edycji wymagamy nowego podpisu — poprzedni został unieważniony."
-              : "Podpisz dokument przed wydrukiem lub wysyłką do klienta."
-          }
-          signerName={employeeName || "pracownik"}
-          defaultName={employeeName}
-          onCancel={() => setShowSignature(false)}
-          onConfirm={(png) => void onSignatureSaved(png)}
+      {showSigningModal && employeeSigningUrl && (
+        <DocumensoSigningModal
+          url={employeeSigningUrl}
+          onClose={() => setShowSigningModal(false)}
+          onComplete={() => {
+            setShowSigningModal(false);
+            void refresh();
+          }}
         />
       )}
+    </div>
+  );
+}
+
+/** Modal z embed Documenso signing flow. iframe pełnoekranowy z linkiem
+ * pracownika. Po podpisaniu zamykamy modal i refresh statusu. */
+function DocumensoSigningModal({
+  url,
+  onClose,
+  onComplete,
+}: {
+  url: string;
+  onClose: () => void;
+  onComplete: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[2300] bg-black/80 backdrop-blur-md flex flex-col p-2 sm:p-4 animate-fade-in">
+      <div
+        className="flex items-center justify-between px-3 py-2 rounded-t-2xl"
+        style={{
+          background: "var(--bg-card)",
+          borderBottom: "1px solid var(--border-subtle)",
+        }}
+      >
+        <p
+          className="text-sm font-semibold"
+          style={{ color: "var(--text-main)" }}
+        >
+          Podpis dokumentu — Documenso
+        </p>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onComplete}
+            className="px-3 py-1.5 rounded-lg text-xs font-semibold"
+            style={{
+              background: "linear-gradient(135deg, #22c55e, #16a34a)",
+              color: "#fff",
+            }}
+          >
+            Gotowe (odśwież)
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-3 py-1.5 rounded-lg text-xs"
+            style={{ color: "var(--text-muted)" }}
+          >
+            Zamknij
+          </button>
+        </div>
+      </div>
+      <iframe
+        src={url}
+        className="flex-1 w-full rounded-b-2xl"
+        style={{ background: "#fff", border: 0 }}
+        title="Documenso — podpis dokumentu"
+        allow="clipboard-read; clipboard-write"
+      />
+    </div>
+  );
+}
+
+/** Karta z aktualnym stanem podpisu Documenso + akcje (otwórz signing,
+ * pobierz podpisany PDF). Pokazywana gdy potwierdzenie zostało wysłane. */
+function DocumentSigningCard({
+  status,
+  signedPdfUrl,
+  employeeSigningUrl,
+  onOpenSigning,
+}: {
+  status: string;
+  signedPdfUrl?: string;
+  employeeSigningUrl?: string;
+  onOpenSigning: () => void;
+}) {
+  const meta = DOCUMENSO_STATUS_PHRASES[status] ?? {
+    label: "Status nieznany",
+    color: "#64748B",
+    description: "",
+  };
+  return (
+    <div
+      className="p-4 rounded-2xl border-2"
+      style={{
+        background: meta.color + "0d",
+        borderColor: meta.color + "55",
+      }}
+    >
+      <div className="flex items-start gap-3">
+        <div
+          className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+          style={{
+            background: meta.color + "22",
+            color: meta.color,
+          }}
+        >
+          {status === "signed" ? (
+            <CheckCircle2 className="w-5 h-5" />
+          ) : status === "rejected" ? (
+            <AlertCircle className="w-5 h-5" />
+          ) : (
+            <Send className="w-5 h-5" />
+          )}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p
+            className="font-semibold text-sm"
+            style={{ color: meta.color }}
+          >
+            {meta.label}
+          </p>
+          <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+            {meta.description}
+          </p>
+          <div className="flex flex-wrap gap-2 mt-3">
+            {(status === "sent" || status === "employee_signed") &&
+              employeeSigningUrl && (
+                <button
+                  type="button"
+                  onClick={onOpenSigning}
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5"
+                  style={{
+                    background:
+                      status === "sent"
+                        ? "linear-gradient(135deg, #06B6D4, #0891B2)"
+                        : "transparent",
+                    color: status === "sent" ? "#fff" : meta.color,
+                    border:
+                      status === "sent"
+                        ? "none"
+                        : `1px solid ${meta.color}55`,
+                  }}
+                >
+                  <Pen className="w-3 h-3" />
+                  {status === "sent"
+                    ? "Otwórz okno podpisu pracownika"
+                    : "Otwórz dokument"}
+                </button>
+              )}
+            {signedPdfUrl && (
+              <a
+                href={signedPdfUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5"
+                style={{
+                  background: "linear-gradient(135deg, #22c55e, #16a34a)",
+                  color: "#fff",
+                }}
+              >
+                <FileText className="w-3 h-3" />
+                Pobierz podpisany dokument
+              </a>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -573,99 +719,28 @@ function Row({
   );
 }
 
-function SignatureCard({
-  hasSignature,
-  employeeName,
-  signedAt,
-  onSign,
-}: {
-  hasSignature: boolean;
-  employeeName: string;
-  signedAt?: string;
-  onSign: () => void;
-}) {
-  return (
-    <div
-      className="p-4 rounded-2xl border-2"
-      style={{
-        background: hasSignature ? "rgba(34,197,94,0.06)" : "rgba(245,158,11,0.06)",
-        borderColor: hasSignature
-          ? "rgba(34,197,94,0.4)"
-          : "rgba(245,158,11,0.5)",
-      }}
-    >
-      <div className="flex items-start gap-3">
-        <div
-          className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-          style={{
-            background: hasSignature
-              ? "rgba(34,197,94,0.15)"
-              : "rgba(245,158,11,0.15)",
-            color: hasSignature ? "#22c55e" : "#f59e0b",
-          }}
-        >
-          {hasSignature ? (
-            <CheckCircle2 className="w-5 h-5" />
-          ) : (
-            <Pen className="w-5 h-5" />
-          )}
-        </div>
-        <div className="flex-1 min-w-0">
-          <p
-            className="font-semibold text-sm"
-            style={{ color: "var(--text-main)" }}
-          >
-            {hasSignature
-              ? "Dokument podpisany przez pracownika"
-              : "Wymagany podpis pracownika"}
-          </p>
-          <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
-            {hasSignature
-              ? `${employeeName}${
-                  signedAt
-                    ? ` · ${new Date(signedAt).toLocaleString("pl-PL")}`
-                    : ""
-                }`
-              : "Podpisz dokument, aby aktywować wydruk i wysyłkę elektroniczną."}
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={onSign}
-          className="px-3 py-1.5 rounded-lg text-xs font-semibold"
-          style={{
-            background: hasSignature
-              ? "transparent"
-              : "linear-gradient(135deg, #f59e0b, #d97706)",
-            color: hasSignature ? "var(--accent)" : "#fff",
-            border: hasSignature ? "1px solid var(--border-subtle)" : "none",
-          }}
-        >
-          {hasSignature ? "Zmień" : "Podpisz"}
-        </button>
-      </div>
-    </div>
-  );
-}
 
 function ActionsCard({
-  hasSignature,
   eDocStatus,
   hasEmail,
   busy,
   onPrint,
   onEmail,
   onResend,
+  signedPdfUrl,
 }: {
-  hasSignature: boolean;
   eDocStatus: string;
   hasEmail: boolean;
   busy: boolean;
   onPrint: () => void;
   onEmail: () => void;
   onResend: () => void;
+  signedPdfUrl?: string;
 }) {
-  const eAlready = eDocStatus === "sent" || eDocStatus === "signed";
+  const eAlready =
+    eDocStatus === "sent" ||
+    eDocStatus === "employee_signed" ||
+    eDocStatus === "signed";
   return (
     <div
       className="p-4 rounded-2xl border"
@@ -679,17 +754,13 @@ function ActionsCard({
         style={{ color: "var(--text-muted)" }}
       >
         <FileText className="w-4 h-4" />
-        Potwierdzenia
+        Potwierdzenia odbioru urządzenia
       </h3>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <ActionButton
           icon={<Printer className="w-4 h-4" />}
-          label="Otwórz / drukuj PDF"
-          hint={
-            hasSignature
-              ? "Otwiera potwierdzenie w nowej karcie"
-              : "Najpierw wymagany podpis"
-          }
+          label="Otwórz wersję papierową (PDF)"
+          hint="Drukowane potwierdzenie z miejscami na ręczny podpis pracownika i klienta"
           onClick={onPrint}
           disabled={busy}
           color="#6366f1"
@@ -697,19 +768,48 @@ function ActionsCard({
         <ActionButton
           icon={<Mail className="w-4 h-4" />}
           label={
-            eAlready ? "Wyślij ponownie" : "Wyślij elektronicznie"
+            eAlready
+              ? "Wyślij ponowne potwierdzenie"
+              : "Wyślij potwierdzenie elektroniczne"
           }
           hint={
             !hasEmail
-              ? "Brak emaila klienta"
+              ? "Brak adresu email klienta — uzupełnij dane lub użyj wersji papierowej"
               : eAlready
-                ? "Aneks: nowy dokument do podpisu"
-                : "Klient otrzyma email z linkiem"
+                ? "Generuje nowy dokument do podpisu (np. po zmianach warunków)"
+                : "Pracownik podpisuje pierwszy w Documenso, klient otrzymuje email po Twoim podpisie"
           }
           onClick={eAlready ? onResend : onEmail}
           disabled={!hasEmail || busy}
           color={eAlready ? "#f59e0b" : "#06B6D4"}
         />
+        {signedPdfUrl && (
+          <a
+            href={signedPdfUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="p-3 rounded-xl border text-left transition-all hover:scale-[1.02] sm:col-span-2"
+            style={{
+              background:
+                "linear-gradient(135deg, rgba(34,197,94,0.18), rgba(34,197,94,0.08))",
+              borderColor: "rgba(34,197,94,0.4)",
+            }}
+          >
+            <div
+              className="flex items-center gap-2 mb-1"
+              style={{ color: "#22c55e" }}
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              <span className="text-sm font-semibold">
+                Pobierz podpisany dokument
+              </span>
+            </div>
+            <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+              Pełna wersja z podpisami pracownika i klienta — pobrana z
+              Documenso po zakończeniu procesu podpisu.
+            </p>
+          </a>
+        )}
       </div>
     </div>
   );

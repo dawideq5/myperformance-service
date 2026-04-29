@@ -92,21 +92,9 @@ export async function POST(
     );
   }
 
-  // Wymagamy podpisu pracownika in-app przed generacją PDF — embedowany
-  // jako image w bloku PODPIS PRACOWNIKA. Klient widzi gotowy podpis
-  // pracownika i podpisuje swój.
-  const employeeSig = service.visualCondition?.employeeSignature?.pngDataUrl;
-  if (!employeeSig) {
-    return NextResponse.json(
-      {
-        error:
-          "Brak podpisu pracownika. Otwórz okno podpisu w panelu i podpisz dokument przed wysłaniem.",
-        code: "EMPLOYEE_SIGNATURE_REQUIRED",
-      },
-      { status: 412 },
-    );
-  }
-
+  // Sequential signing przez Documenso: pracownik podpisuje pierwszy
+  // (signingOrder=1), klient drugi (signingOrder=2). Bez embed PNG —
+  // każdy signer dodaje swój podpis przez Documenso UI/iframe.
   const data: ReceiptInput = {
     ticketNumber: service.ticketNumber ?? "—",
     createdAt: service.createdAt ?? new Date().toISOString(),
@@ -125,7 +113,7 @@ export async function POST(
     lock: { type: service.lockType ?? "none", code: service.lockCode ?? "" },
     description: service.description ?? "",
     employeeName: user.name?.trim() || user.preferred_username || user.email,
-    employeeSignaturePng: employeeSig,
+    employeeSignaturePng: null,
     visualCondition: {
       ...(service.visualCondition ?? {}),
       ...(service.intakeChecklist ?? {}),
@@ -146,18 +134,31 @@ export async function POST(
   try {
     const rendered = await renderReceiptPdfWithLayout(data);
     const pdfHash = createHash("sha256").update(rendered.buffer).digest("hex");
+    const employeeName =
+      user.name?.trim() || user.preferred_username || user.email;
     const customerName =
       `${service.customerFirstName ?? ""} ${service.customerLastName ?? ""}`.trim() ||
       "Klient";
 
-    // Documenso recipient = TYLKO klient. Pracownik już podpisał in-app
-    // (PNG embedded w PDF), więc klient widzi gotowy dokument do podpisu.
+    // Sequential signing przez Documenso:
+    //  1. Pracownik (signingOrder=1) — dostaje email + frontend embeduje
+    //     signing URL w panelu pracownika.
+    //  2. Klient (signingOrder=2) — dostaje email DOPIERO po podpisie
+    //     pracownika.
     const result = await createDocumentForSigning({
       title: force
-        ? `Potwierdzenie ${service.ticketNumber} (aktualizacja)`
+        ? `Potwierdzenie ${service.ticketNumber} — aktualizacja`
         : `Potwierdzenie ${service.ticketNumber}`,
       pdfBuffer: rendered.buffer,
+      message: force
+        ? "Aktualizacja potwierdzenia odbioru urządzenia po edycji warunków. Prosimy o ponowny podpis."
+        : "Prosimy o podpisanie potwierdzenia odbioru urządzenia.",
       signers: [
+        {
+          name: employeeName,
+          email: user.email,
+          signatureBox: rendered.signatures.employee,
+        },
         {
           name: customerName,
           email: service.contactEmail,
@@ -165,6 +166,11 @@ export async function POST(
         },
       ],
     });
+
+    const employeeSigningUrl =
+      result.signingUrls.find(
+        (s) => s.email.toLowerCase() === user.email.toLowerCase(),
+      )?.url ?? result.signingUrls[0]?.url ?? null;
 
     const previousDocIds = (() => {
       const cur = service.visualCondition?.documenso;
@@ -176,12 +182,16 @@ export async function POST(
       await updateService(id, {
         visualCondition: {
           ...(service.visualCondition ?? {}),
+          // Po new send: invalidacja employeeSignature (null = delete-key
+          // przez mergeJsonb sentinel).
+          employeeSignature: null as unknown as undefined,
           documenso: {
             docId: result.documentId,
             status: "sent",
             sentAt: new Date().toISOString(),
             pdfHash,
             previousDocIds,
+            employeeSigningUrl: employeeSigningUrl ?? undefined,
           },
         } as typeof service.visualCondition,
       });

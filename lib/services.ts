@@ -111,14 +111,31 @@ export interface VisualCondition {
    * UI nie resetowało statusu do "brak" po refresh. */
   documenso?: {
     docId: number;
-    status: "sent" | "signed" | "rejected" | "expired";
+    /** Status flow:
+     *  - sent: wysłany do pracownika do podpisu
+     *  - employee_signed: pracownik podpisał, czeka na klienta
+     *  - signed: klient podpisał (= COMPLETED)
+     *  - rejected: ktoś odrzucił
+     *  - expired: unieważniony (po edycji istotnej)
+     */
+    status:
+      | "sent"
+      | "employee_signed"
+      | "signed"
+      | "rejected"
+      | "expired";
     sentAt: string;
+    employeeSignedAt?: string;
     completedAt?: string;
     /** Sha256 wygenerowanego PDF — żeby porównać przy rebuild i wykryć
      * manipulację. */
     pdfHash?: string;
     /** Lista poprzednich docId-ów (po re-sign po istotnej edycji). */
     previousDocIds?: number[];
+    /** Signing URL dla pracownika (z Documenso). Frontend embeduje/redirect. */
+    employeeSigningUrl?: string;
+    /** URL podpisanego dokumentu pobranego z Documenso po DOCUMENT_COMPLETED. */
+    signedPdfUrl?: string;
   };
   /** Lokalny podpis pracownika (data:image/png;base64) embedowany w PDF
    * przed wysłaniem do Documenso/wydrukiem. Wymagany dla każdej generacji
@@ -424,21 +441,45 @@ export function validateService(
   input: Partial<CreateServiceInput>,
 ): string[] {
   const errors: string[] = [];
-  if (!input.locationId) errors.push("locationId required");
-  if (!input.receivedBy) errors.push("receivedBy required");
+  if (!input.locationId) errors.push("Brak punktu sprzedaży (locationId)");
+  if (!input.receivedBy) errors.push("Brak identyfikatora pracownika");
+  if (!input.brand?.trim()) errors.push("Marka urządzenia jest wymagana");
+  if (!input.model?.trim()) errors.push("Model urządzenia jest wymagany");
+  if (!input.customerFirstName?.trim())
+    errors.push("Imię klienta jest wymagane");
+  if (!input.customerLastName?.trim())
+    errors.push("Nazwisko klienta jest wymagane");
+  if (!input.contactPhone?.trim())
+    errors.push("Telefon kontaktowy klienta jest wymagany");
+  // IMEI: dokładnie 15 cyfr (standard 3GPP) lub 17 dla MEID extended.
+  // Inne urządzenia (laptop, tablet bez modemu) mogą nie mieć IMEI —
+  // dlatego optional, ale gdy podany musi być prawidłowy.
+  if (input.imei && input.imei.trim()) {
+    const cleaned = input.imei.replace(/\D/g, "");
+    if (cleaned.length !== 15 && cleaned.length !== 17) {
+      errors.push("Numer IMEI musi mieć 15 cyfr (lub 17 dla MEID)");
+    }
+  }
   if (
-    !input.brand &&
-    !input.model &&
-    !input.imei &&
-    !input.description
+    input.contactEmail &&
+    input.contactEmail.trim() &&
+    !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(input.contactEmail.trim())
   ) {
-    errors.push("Wymagane: marka/model/IMEI lub opis usterki");
+    errors.push("Niepoprawny format adresu email klienta");
   }
-  if (input.imei && !/^[A-Z0-9]{6,20}$/.test(input.imei.toUpperCase())) {
-    errors.push("IMEI: 6-20 znaków, A-Z 0-9");
+  if (input.contactPhone && input.contactPhone.trim()) {
+    const digits = input.contactPhone.replace(/\D/g, "");
+    if (digits.length < 9) {
+      errors.push("Telefon kontaktowy musi zawierać co najmniej 9 cyfr");
+    }
   }
-  if (input.contactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.contactEmail)) {
-    errors.push("Niepoprawny email kontaktowy");
+  if (
+    input.amountEstimate != null &&
+    (!Number.isFinite(input.amountEstimate) || input.amountEstimate < 0)
+  ) {
+    errors.push(
+      "Kwota wyceny musi być liczbą nieujemną (lub puste, gdy brak wyceny)",
+    );
   }
   return errors;
 }

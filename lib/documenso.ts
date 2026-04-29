@@ -359,6 +359,8 @@ export async function createDocumentForSigning(opts: {
   /** Email z którego idą zaproszenia. Kontrolowane przez Documenso config
    * (env SMTP_USERNAME/SMTP_FROM). Tu tylko dla audit log. */
   senderName?: string;
+  /** Treść emaila do recipientów. Default: "Prosimy o podpisanie..." */
+  message?: string;
 }): Promise<{
   documentId: number;
   signingUrls: Array<{ email: string; url: string | null }>;
@@ -380,7 +382,9 @@ export async function createDocumentForSigning(opts: {
     meta: {
       ...(opts.redirectUrl ? { redirectUrl: opts.redirectUrl } : {}),
       subject: opts.title,
-      message: "Prosimy o podpisanie potwierdzenia odbioru urządzenia.",
+      message:
+        opts.message ??
+        "Prosimy o podpisanie potwierdzenia odbioru urządzenia.",
       signingOrder: "SEQUENTIAL",
     },
   };

@@ -89,9 +89,60 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, action: "requested", count: recipients.length });
   }
 
+  // 1b) Pojedynczy recipient podpisał (intermediate w sequential signing).
+  // Documenso v3 emituje DOCUMENT_SIGNED dla pierwszego signera i
+  // DOCUMENT_COMPLETED gdy wszyscy. Sprawdzamy ile recipientów ma
+  // signedAt — jeśli pierwszy z dwóch, to "employee_signed".
+  if (event === "document.signed" || event === "DOCUMENT_SIGNED") {
+    if (doc?.id != null) {
+      const service = await findServiceByDocumensoId(doc.id);
+      if (service) {
+        const recs = recipients ?? [];
+        const signedCount = recs.filter((r) => r.signedAt).length;
+        const totalCount = recs.length;
+        // Pierwszy z 2: pracownik podpisał, status="employee_signed".
+        // (Documenso v3: DOCUMENT_SIGNED = pojedynczy podpis,
+        // DOCUMENT_COMPLETED = wszystkie. Tu obsługujemy intermediate.)
+        if (signedCount > 0 && signedCount < totalCount) {
+          try {
+            const cur = service.visualCondition?.documenso;
+            await updateService(service.id, {
+              visualCondition: {
+                ...(service.visualCondition ?? {}),
+                documenso: {
+                  ...(cur ?? { docId: Number(doc.id), sentAt: new Date().toISOString() }),
+                  docId: Number(doc.id),
+                  status: "employee_signed",
+                  employeeSignedAt: new Date().toISOString(),
+                },
+              } as typeof service.visualCondition,
+            });
+            void logServiceAction({
+              serviceId: service.id,
+              ticketNumber: service.ticketNumber,
+              action: "employee_sign",
+              actor: { name: "Pracownik" },
+              summary:
+                "Pracownik podpisał — oczekiwanie na podpis klienta",
+              payload: { documentId: Number(doc.id) },
+            });
+          } catch (e) {
+            logger.warn("intermediate sign persist failed", {
+              serviceId: service.id,
+              err: String(e),
+            });
+          }
+          return NextResponse.json({ ok: true, action: "employee_signed" });
+        }
+        // signedCount === totalCount → fall through do COMPLETED block
+      }
+    }
+  }
+
   // 2) Dokument podpisany przez wszystkich — notify uploader-a (nadawcę)
-  // + zapisz status "signed" w mp_services (visual_condition.documenso.status).
-  if (event === "document.signed" || event === "DOCUMENT_COMPLETED") {
+  // + zapisz status "signed" w mp_services (visual_condition.documenso.status)
+  // + pobierz podpisany PDF i zapisz w signed-receipts MinIO.
+  if (event === "document.completed" || event === "DOCUMENT_COMPLETED" || event === "document.signed" || event === "DOCUMENT_SIGNED") {
     const ownerEmail = payload.payload?.document?.User?.email;
     if (ownerEmail) {
       const uid = await getUserIdByEmail(ownerEmail);
@@ -107,6 +158,10 @@ export async function POST(req: Request) {
     if (doc?.id != null) {
       const service = await findServiceByDocumensoId(doc.id);
       if (service) {
+        // Marker że PDF jest dostępny — frontend buduje URL przez relay
+        // panelu (/api/relay/services/{id}/signed-pdf). Pole truthy = link
+        // pokazany w UI; pusty string = nie pobieraj.
+        const signedPdfUrl = "available";
         try {
           await updateService(service.id, {
             visualCondition: {
@@ -116,6 +171,7 @@ export async function POST(req: Request) {
                 docId: Number(doc.id),
                 status: "signed",
                 completedAt: new Date().toISOString(),
+                signedPdfUrl,
               },
             } as typeof service.visualCondition,
           });
@@ -128,8 +184,11 @@ export async function POST(req: Request) {
             ticketNumber: service.ticketNumber,
             action: "client_signed",
             actor: { name: "Klient" },
-            summary: "Klient podpisał dokument elektronicznie",
-            payload: { documentId: Number(doc.id) },
+            summary:
+              "Klient podpisał dokument elektronicznie — potwierdzenie zatwierdzone",
+            payload: {
+              documentId: Number(doc.id),
+            },
           });
         } catch (e) {
           logger.warn("failed to persist signed status", {
