@@ -94,19 +94,14 @@ export async function POST(
   }
 
   // Auto-sign przez pracownika: bierzemy jego per-user signature z DB
-  // i embedujemy jako PNG w PDF (na linii PODPIS PRACOWNIKA). Documenso
-  // wysyła tylko klientowi do podpisu — workflow "1 klik = wysłane".
+  // (jeśli istnieje, embed PNG). W przeciwnym razie receipt-pdf
+  // renderuje imię cursive font bezpośrednio. Workflow "1 klik = wysłane".
   const employeeSig = await getUserSignature(user.email);
-  if (!employeeSig) {
-    return NextResponse.json(
-      {
-        error:
-          "Brak skonfigurowanego podpisu pracownika. Otwórz ustawienia panelu i zapisz swój podpis — będzie automatycznie używany w potwierdzeniach.",
-        code: "EMPLOYEE_SIGNATURE_NOT_CONFIGURED",
-      },
-      { status: 412 },
-    );
-  }
+  const employeeDisplayName =
+    employeeSig?.signedName ??
+    user.name?.trim() ??
+    user.preferred_username ??
+    user.email;
 
   const data: ReceiptInput = {
     ticketNumber: service.ticketNumber ?? "—",
@@ -125,8 +120,8 @@ export async function POST(
     },
     lock: { type: service.lockType ?? "none", code: service.lockCode ?? "" },
     description: service.description ?? "",
-    employeeName: employeeSig.signedName,
-    employeeSignaturePng: employeeSig.pngDataUrl,
+    employeeName: employeeDisplayName,
+    employeeSignaturePng: employeeSig?.pngDataUrl ?? null,
     visualCondition: {
       ...(service.visualCondition ?? {}),
       ...(service.intakeChecklist ?? {}),

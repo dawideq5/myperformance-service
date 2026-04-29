@@ -1,13 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { SignaturePadDialog } from "./SignaturePadDialog";
-import { useToast } from "./ToastProvider";
+import { useEffect, useRef } from "react";
 
-/** Onboarding podpisu pracownika — sprawdza czy user ma zapisany podpis
- * w mp_user_signatures. Jeśli nie, pokazuje modal SignaturePadDialog
- * z wymuszonym save. Bez zapisanego podpisu sprzedawca nie może
- * wysłać żadnego potwierdzenia elektronicznego. */
+/** Auto-generuje podpis pracownika z imienia + nazwiska (cursive script
+ * render na canvas → PNG data URL → upsert w mp_user_signatures). Bez
+ * modala, bez interakcji user'a. Działa raz przy pierwszym wejściu —
+ * po deploy każdy pracownik dostaje podpis automatycznie. */
 export function SignatureSetup({
   userLabel,
   userEmail,
@@ -15,68 +13,57 @@ export function SignatureSetup({
   userLabel: string;
   userEmail: string;
 }) {
-  const toast = useToast();
-  const [needsSetup, setNeedsSetup] = useState<boolean | null>(null);
+  const ranRef = useRef(false);
 
   useEffect(() => {
-    void (async () => {
+    if (ranRef.current) return;
+    ranRef.current = true;
+    void userEmail;
+
+    (async () => {
       try {
-        const r = await fetch("/api/relay/me/signature");
-        if (!r.ok) {
-          setNeedsSetup(true);
-          return;
+        const check = await fetch("/api/relay/me/signature");
+        if (check.ok) {
+          const j = await check.json();
+          if (j.signature?.pngDataUrl) return; // już ustawiony
         }
-        const j = await r.json();
-        setNeedsSetup(!j.signature?.pngDataUrl);
+        const png = renderTextSignature(userLabel || "Pracownik");
+        if (!png) return;
+        await fetch("/api/relay/me/signature", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pngDataUrl: png, signedName: userLabel }),
+        });
       } catch {
-        setNeedsSetup(true);
+        /* best-effort — fallback w backend i tak generuje on-the-fly */
       }
     })();
-  }, []);
+  }, [userLabel, userEmail]);
 
-  if (!needsSetup) return null;
+  return null;
+}
 
-  return (
-    <SignaturePadDialog
-      title="Skonfiguruj swój podpis"
-      subtitle="Twój podpis będzie automatycznie umieszczany na potwierdzeniach odbioru. Skonfiguruj raz — używamy go we wszystkich Twoich dokumentach."
-      signerName={userLabel}
-      defaultName={userLabel}
-      onCancel={() => {
-        toast.push({
-          kind: "info",
-          message: "Bez podpisu nie możesz wysyłać potwierdzeń elektronicznych.",
-        });
-        setNeedsSetup(false);
-      }}
-      onConfirm={async (pngDataUrl) => {
-        try {
-          const r = await fetch("/api/relay/me/signature", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              pngDataUrl,
-              signedName: userLabel,
-            }),
-          });
-          if (!r.ok) {
-            const j = await r.json().catch(() => ({}));
-            throw new Error(j?.error ?? `HTTP ${r.status}`);
-          }
-          toast.push({
-            kind: "success",
-            title: "Podpis zapisany",
-            message: "Będzie automatycznie używany w potwierdzeniach.",
-          });
-          setNeedsSetup(false);
-        } catch (e) {
-          toast.push({
-            kind: "error",
-            message: e instanceof Error ? e.message : "Błąd zapisu podpisu",
-          });
-        }
-        void userEmail;
-      }}
-    />
-  );
+/** Renderuje cursive text na off-screen canvas, eksport PNG data URL. */
+function renderTextSignature(name: string): string | null {
+  if (typeof document === "undefined") return null;
+  const canvas = document.createElement("canvas");
+  const dpr = 2;
+  const W = 480;
+  const H = 140;
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  ctx.scale(dpr, dpr);
+  ctx.fillStyle = "#0f172a";
+  ctx.textBaseline = "middle";
+  ctx.textAlign = "center";
+  let size = 64;
+  ctx.font = `italic 600 ${size}px "Brush Script MT", "Segoe Script", "Lucida Handwriting", cursive`;
+  while (ctx.measureText(name).width > W - 40 && size > 22) {
+    size -= 2;
+    ctx.font = `italic 600 ${size}px "Brush Script MT", "Segoe Script", "Lucida Handwriting", cursive`;
+  }
+  ctx.fillText(name, W / 2, H / 2);
+  return canvas.toDataURL("image/png");
 }

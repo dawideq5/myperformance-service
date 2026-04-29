@@ -605,6 +605,23 @@ function drawSinglePage(
     } catch {
       // bad base64 — pomijamy embed, zostaje samo pole do podpisu ręcznego.
     }
+  } else if (data.employeeName) {
+    // Fallback gdy mp_user_signatures nie ma jeszcze pngDataUrl —
+    // renderujemy imię cursive font bezpośrednio w PDF. Zachowuje
+    // workflow "1 klik = wysłane" nawet przy pierwszym użyciu.
+    try {
+      doc
+        .font("B")
+        .fontSize(20)
+        .fillColor(TEXT)
+        .text(data.employeeName, M + 4, y + (SIG_HEIGHT - 22) / 2, {
+          width: sigW - 8,
+          align: "center",
+          oblique: 12,
+        });
+    } catch {
+      /* ignore */
+    }
   }
   doc
     .moveTo(M, y + SIG_HEIGHT)
