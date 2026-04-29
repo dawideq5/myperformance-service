@@ -356,6 +356,31 @@ export async function getService(id: string): Promise<ServiceTicket | null> {
   }
 }
 
+/** Znajduje service po Documenso documentId zapisanym w
+ * visual_condition.documenso.docId. Używane w webhook handler do mapowania
+ * podpisu klienta na service ticket. */
+export async function findServiceByDocumensoId(
+  docId: number | string,
+): Promise<ServiceTicket | null> {
+  if (!(await directusConfigured())) return null;
+  const docIdNum = typeof docId === "string" ? Number(docId) : docId;
+  if (!Number.isFinite(docIdNum)) return null;
+  try {
+    const rows = await listItems<ServiceRow>("mp_services", {
+      sort: "-created_at",
+      limit: 500,
+    });
+    const found = rows.find((r) => {
+      const vc = (r.visual_condition ?? {}) as { documenso?: { docId?: number } };
+      return vc.documenso?.docId === docIdNum;
+    });
+    return found ? mapRow(found) : null;
+  } catch (err) {
+    logger.warn("findServiceByDocumensoId failed", { err: String(err) });
+    return null;
+  }
+}
+
 export interface CreateServiceInput {
   locationId: string;
   serviceLocationId?: string | null;
@@ -499,12 +524,64 @@ export interface UpdateServiceInput {
   visualCondition?: VisualCondition;
 }
 
+/** Dozwolone tranzycje statusu serwisu. Cykl pracy:
+ * received → diagnosing → awaiting_quote → repairing → testing → ready → delivered.
+ * Z każdego stanu można też anulować (cancelled) lub zarchiwizować (archived).
+ * Cofanie nie jest dozwolone — zapobiega kasowaniu pracy serwisanta przez
+ * przypadkowe kliknięcie sprzedawcy. */
+const STATUS_TRANSITIONS: Record<ServiceStatus, ServiceStatus[]> = {
+  received: ["diagnosing", "awaiting_quote", "repairing", "cancelled", "archived"],
+  diagnosing: ["awaiting_quote", "repairing", "cancelled", "archived"],
+  awaiting_quote: ["repairing", "cancelled", "archived"],
+  repairing: ["testing", "ready", "cancelled", "archived"],
+  testing: ["ready", "repairing", "cancelled", "archived"],
+  ready: ["delivered", "archived"],
+  delivered: ["archived"],
+  cancelled: ["archived"],
+  archived: [],
+};
+
+export class StatusTransitionError extends Error {
+  constructor(
+    public readonly from: ServiceStatus,
+    public readonly to: ServiceStatus,
+  ) {
+    super(`Niedozwolone przejście statusu: ${from} → ${to}`);
+    this.name = "StatusTransitionError";
+  }
+}
+
+export function isAllowedTransition(
+  from: ServiceStatus,
+  to: ServiceStatus,
+): boolean {
+  if (from === to) return true;
+  return (STATUS_TRANSITIONS[from] ?? []).includes(to);
+}
+
 export async function updateService(
   id: string,
   input: UpdateServiceInput,
 ): Promise<ServiceTicket> {
-  // Pre-fetch — potrzebny do detekcji zmiany statusu i conversation_id.
-  const before = input.status !== undefined ? await getService(id) : null;
+  // Pre-fetch — potrzebny do walidacji statusu, conversation_id, oraz do
+  // atomic-merge JSONB (visualCondition / intakeChecklist). Robimy go
+  // ZAWSZE gdy input dotyka pola JSONB (zapobiega overwrite races między
+  // równoległym PATCH-em a documenso webhook'iem).
+  const needsBefore =
+    input.status !== undefined ||
+    input.visualCondition !== undefined ||
+    input.intakeChecklist !== undefined;
+  const before = needsBefore ? await getService(id) : null;
+  if (
+    before &&
+    input.status !== undefined &&
+    !isAllowedTransition(before.status as ServiceStatus, input.status as ServiceStatus)
+  ) {
+    throw new StatusTransitionError(
+      before.status as ServiceStatus,
+      input.status as ServiceStatus,
+    );
+  }
   const patch: Record<string, unknown> = {
     updated_at: new Date().toISOString(),
   };
@@ -536,12 +613,20 @@ export async function updateService(
   if (input.signedInAccount !== undefined)
     patch.signed_in_account = input.signedInAccount;
   if (input.accessories !== undefined) patch.accessories = input.accessories;
-  if (input.intakeChecklist !== undefined)
-    patch.intake_checklist = input.intakeChecklist;
+  if (input.intakeChecklist !== undefined) {
+    // Atomic merge: jeśli caller chce częściowy update intake_checklist,
+    // nakłada się na fresh DB state (nie na stale closure z UI). Caller
+    // który chce hard-reset może podać explicit pełny obiekt — ten i tak
+    // zostaje overwrite'owany kluczami z input.
+    const baseCk = (before?.intakeChecklist ?? {}) as Record<string, unknown>;
+    patch.intake_checklist = { ...baseCk, ...input.intakeChecklist };
+  }
   if (input.chargingCurrent !== undefined)
     patch.charging_current = input.chargingCurrent;
-  if (input.visualCondition !== undefined)
-    patch.visual_condition = input.visualCondition;
+  if (input.visualCondition !== undefined) {
+    const baseVc = (before?.visualCondition ?? {}) as Record<string, unknown>;
+    patch.visual_condition = { ...baseVc, ...input.visualCondition };
+  }
   const updated = await updateItem<ServiceRow>("mp_services", id, patch);
   const mapped = mapRow(updated);
 

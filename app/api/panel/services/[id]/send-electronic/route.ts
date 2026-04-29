@@ -61,6 +61,21 @@ export async function POST(
     );
   }
 
+  const existing = service.visualCondition?.documenso;
+  if (existing?.docId && (existing.status === "sent" || existing.status === "signed")) {
+    return NextResponse.json(
+      {
+        error:
+          existing.status === "signed"
+            ? "Potwierdzenie zostało już podpisane przez klienta"
+            : "Potwierdzenie zostało już wysłane do klienta. Poczekaj na podpis lub anuluj i wyślij ponownie.",
+        documentId: existing.docId,
+        status: existing.status,
+      },
+      { status: 409 },
+    );
+  }
+
   // Optional handover from query (panel passes z lokalnej pamięci).
   const url = new URL(req.url);
   const handoverChoice =

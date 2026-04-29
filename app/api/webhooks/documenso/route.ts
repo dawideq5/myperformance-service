@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { createHmac, timingSafeEqual } from "crypto";
 import { log } from "@/lib/logger";
 import { getUserIdByEmail, notifyUser } from "@/lib/notify";
+import { findServiceByDocumensoId, updateService } from "@/lib/services";
 
 const logger = log.child({ module: "documenso-webhook" });
 
@@ -88,6 +89,7 @@ export async function POST(req: Request) {
   }
 
   // 2) Dokument podpisany przez wszystkich — notify uploader-a (nadawcę)
+  // + zapisz status "signed" w mp_services (visual_condition.documenso.status).
   if (event === "document.signed" || event === "DOCUMENT_COMPLETED") {
     const ownerEmail = payload.payload?.document?.User?.email;
     if (ownerEmail) {
@@ -101,8 +103,64 @@ export async function POST(req: Request) {
         });
       }
     }
+    if (doc?.id != null) {
+      const service = await findServiceByDocumensoId(doc.id);
+      if (service) {
+        try {
+          await updateService(service.id, {
+            visualCondition: {
+              ...(service.visualCondition ?? {}),
+              documenso: {
+                ...(service.visualCondition?.documenso ?? { docId: Number(doc.id), sentAt: new Date().toISOString() }),
+                docId: Number(doc.id),
+                status: "signed",
+                completedAt: new Date().toISOString(),
+              },
+            } as typeof service.visualCondition,
+          });
+          logger.info("documenso status persisted as signed", {
+            serviceId: service.id,
+            docId: doc.id,
+          });
+        } catch (e) {
+          logger.warn("failed to persist signed status", {
+            serviceId: service.id,
+            err: e instanceof Error ? e.message : String(e),
+          });
+        }
+      } else {
+        logger.warn("documenso webhook: service not found for docId", {
+          docId: doc.id,
+        });
+      }
+    }
     logger.info("documenso doc completed", { docId: doc?.id });
     return NextResponse.json({ ok: true, action: "completed" });
+  }
+
+  // 3) Dokument odrzucony przez recipienta
+  if (event === "document.rejected" || event === "DOCUMENT_REJECTED") {
+    if (doc?.id != null) {
+      const service = await findServiceByDocumensoId(doc.id);
+      if (service) {
+        try {
+          await updateService(service.id, {
+            visualCondition: {
+              ...(service.visualCondition ?? {}),
+              documenso: {
+                ...(service.visualCondition?.documenso ?? { docId: Number(doc.id), sentAt: new Date().toISOString() }),
+                docId: Number(doc.id),
+                status: "rejected",
+                completedAt: new Date().toISOString(),
+              },
+            } as typeof service.visualCondition,
+          });
+        } catch {
+          /* ignore — notify still goes through */
+        }
+      }
+    }
+    return NextResponse.json({ ok: true, action: "rejected" });
   }
 
   return NextResponse.json({ ok: true, ignored: event });

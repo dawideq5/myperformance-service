@@ -6,6 +6,7 @@ import { PANEL_CORS_HEADERS, getPanelUserFromRequest } from "@/lib/panel-auth";
 import {
   getService,
   updateService,
+  StatusTransitionError,
   type UpdateServiceInput,
 } from "@/lib/services";
 
@@ -91,6 +92,12 @@ export async function PATCH(
     const service = await updateService(id, body);
     return NextResponse.json({ service }, { headers: PANEL_CORS_HEADERS });
   } catch (err) {
+    if (err instanceof StatusTransitionError) {
+      return NextResponse.json(
+        { error: err.message, from: err.from, to: err.to },
+        { status: 409, headers: PANEL_CORS_HEADERS },
+      );
+    }
     return NextResponse.json(
       { error: err instanceof Error ? err.message : String(err) },
       { status: 400, headers: PANEL_CORS_HEADERS },
