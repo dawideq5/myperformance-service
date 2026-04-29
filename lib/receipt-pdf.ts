@@ -698,52 +698,21 @@ function drawDamageViewBox(
   const r = view === "front" || view === "back" ? 5 : 2;
   doc.roundedRect(x, y, w, h, r).lineWidth(0.8).fillAndStroke("#fafafa", TEXT);
 
-  // Visualne odróżnienie front vs back vs ramki:
+  // Maksymalnie proste szkice — tylko outline, bez wypełnień, bez detali.
   if (view === "front") {
-    // Ekran rect + notch (dynamic island/kamerka)
+    // Wycięcie na kamerę (notch) — pusta linia, bez fill.
     doc
-      .roundedRect(x + 3, y + 8, w - 6, h - 16, 2)
-      .lineWidth(0.4)
-      .fillAndStroke("#ffffff", "#888");
-    // Notch w środku górnej krawędzi
-    doc.roundedRect(x + w / 2 - 6, y + 4, 12, 3, 1.5).fill("#222");
+      .roundedRect(x + w / 2 - 5, y + 4, 10, 2.5, 1)
+      .lineWidth(0.5)
+      .stroke("#888");
   } else if (view === "back") {
-    // Wyspa aparatów (camera bump) — kwadrat w prawym górnym rogu
-    const camX = x + 5;
-    const camY = y + 5;
-    const camS = 14;
+    // Wyspa aparatów — tylko outline, bez czarnych obiektywów, bez fill.
     doc
-      .roundedRect(camX, camY, camS, camS, 3)
-      .lineWidth(0.4)
-      .fillAndStroke("#e5e5e5", "#888");
-    // 3 obiektywy (małe okręgi)
-    doc.circle(camX + 4, camY + 4, 2).fill("#1a1a1a");
-    doc.circle(camX + 10, camY + 4, 2).fill("#1a1a1a");
-    doc.circle(camX + 4, camY + 10, 2).fill("#1a1a1a");
-    // Logo placeholder w środku
-    doc.circle(x + w / 2, y + h / 2, 4).lineWidth(0.4).stroke("#bbb");
-  } else if (view === "top" || view === "bottom") {
-    // Ramka pozioma — pokażmy gniazda jak port ładowania (dla bottom)
-    if (view === "bottom") {
-      // Port + głośniki
-      doc.rect(x + w / 2 - 5, y + h / 2 - 1.5, 10, 3).fill("#888");
-      doc.rect(x + w / 2 - 18, y + h / 2 - 1, 6, 2).fill("#888");
-      doc.rect(x + w / 2 + 12, y + h / 2 - 1, 6, 2).fill("#888");
-    } else {
-      // Top: głośnik rozmów
-      doc.rect(x + w / 2 - 6, y + h / 2 - 1, 12, 2).fill("#888");
-    }
-  } else {
-    // Left/right ramka — przyciski głośność/power
-    if (view === "left") {
-      // Volume up/down
-      doc.rect(x + w / 2 - 1.5, y + 18, 3, 8).fill("#888");
-      doc.rect(x + w / 2 - 1.5, y + 30, 3, 8).fill("#888");
-    } else {
-      // Power button + (na S23) bixby
-      doc.rect(x + w / 2 - 1.5, y + 25, 3, 10).fill("#888");
-    }
+      .roundedRect(x + 5, y + 5, 14, 14, 2.5)
+      .lineWidth(0.5)
+      .stroke("#888");
   }
+  // top/bottom/left/right: tylko outline ramki, bez markerów elementów.
 
   // Markery w widoku.
   for (const { m, num } of markersForView) {

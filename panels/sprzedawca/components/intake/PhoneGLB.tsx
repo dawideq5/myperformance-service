@@ -282,42 +282,44 @@ export function PhoneGLB({
   void materialMap;
 
   return (
-    <group
-      ref={groupRef}
-      position={normalize.offset}
-      scale={normalize.scale}
-    >
-      <primitive
-        object={clonedScene}
-        onClick={(e: {
-          point: THREE.Vector3;
-          delta: number;
-          stopPropagation: () => void;
-          object?: { name?: string };
-        }) => {
-          if (!damageMode || !onModelClick) return;
-          if (e.delta > 5) return;
-          e.stopPropagation();
-          if (!groupRef.current) return;
-          // Marker coords MUSZĄ być w OUTER-group frame (gdzie phone ma
-          // znormalizowany scale 3.5 maxDim, X±0.09, Y±1.7, Z±0.85).
-          // worldToLocal na groupRef (INNER group) dawał coords w INTERNAL
-          // GLB scale (przed normalize.scale) — wszystkie markery wyglądały
-          // jak w środku po projekcji, bo zakres był ~25× za duży.
-          // Outer group = inner.parent. Bierzemy worldToLocal stamtąd —
-          // identity transform (lub rotacja gdy display↔back step) →
-          // znormalizowany frame.
-          const outerGroup = groupRef.current.parent;
-          const worldP = e.point.clone();
-          const localOuter = outerGroup
-            ? outerGroup.worldToLocal(e.point.clone())
-            : worldP.clone();
-          // Klasyfikacja stref: używamy world coords (matchują static
-          // ranges 1.25/0.55 hardcoded w classifyDamageZones).
-          onModelClick(localOuter, classifyDamageZones(worldP));
-        }}
-      />
-      {/* Markery — TYLKO gdy nie disassembly (ukrywamy podczas rozkładania). */}
+    // Wrapper outer (identity transform) — markery renderowane W TYM
+    // outer wrapper, NIE w inner z normalize.scale. Marker coords są
+    // w outer-frame (post worldToLocal outer), więc render bez extra
+    // scaling. Inner group hosting cloned mesh dalej skaluje GLB
+    // do widocznego rozmiaru.
+    <group>
+      <group
+        ref={groupRef}
+        position={normalize.offset}
+        scale={normalize.scale}
+      >
+        <primitive
+          object={clonedScene}
+          onClick={(e: {
+            point: THREE.Vector3;
+            delta: number;
+            stopPropagation: () => void;
+            object?: { name?: string };
+          }) => {
+            if (!damageMode || !onModelClick) return;
+            if (e.delta > 5) return;
+            e.stopPropagation();
+            if (!groupRef.current) return;
+            // Marker coords w OUTER (PhoneScene wrapper) frame: worldToLocal
+            // od PhoneScene outer group (parent grand-parent) — uwzględnia
+            // rotację (display↔back step), znormalizowany scale.
+            const sceneOuter = groupRef.current.parent?.parent;
+            const worldP = e.point.clone();
+            const localScene = sceneOuter
+              ? sceneOuter.worldToLocal(e.point.clone())
+              : worldP.clone();
+            onModelClick(localScene, classifyDamageZones(worldP));
+          }}
+        />
+      </group>
+      {/* Markery POZA inner — renderowane w outer wrapper (identity), więc
+          marker.x/y/z są w outer-scene frame (znormalizowany rozmiar
+          phone'a). Stąd widoczne na powierzchni mesh w edit mode. */}
       {!playDisassembly &&
         damageMarkers.map((m) => (
           <DamagePin key={m.id} x={m.x} y={m.y} z={m.z} />

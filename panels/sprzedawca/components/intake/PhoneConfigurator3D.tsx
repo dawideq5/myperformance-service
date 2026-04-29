@@ -839,13 +839,7 @@ function StepInputs({
           </p>
           <p className="text-xs text-white/70 mb-3">
             Jedna usługa, która obejmuje wszystkie miejsca pokazane wyżej:
-            głośnik rozmów, głośniczki dolne i port ładowania
-            {cleaningPrice != null ? (
-              <>
-                {" "}— <strong className="text-amber-400">{cleaningPrice} PLN</strong>
-              </>
-            ) : null}
-            .
+            głośnik rozmów, głośniczki dolne i port ładowania.
           </p>
           <div className="flex gap-2">
             <CleaningPill
@@ -863,6 +857,37 @@ function StepInputs({
               Tak, dodaj usługę
             </CleaningPill>
           </div>
+          {state.cleaning_accepted === true && cleaningPrice != null && (
+            <div className="mt-3 pt-3 border-t border-white/10 animate-fade-in">
+              <p className="text-[10px] uppercase tracking-wide font-semibold text-white/60 mb-2">
+                Wybierz wariant czyszczenia
+              </p>
+              <button
+                type="button"
+                className="w-full p-3 rounded-xl border-2 flex items-center justify-between transition-all hover:scale-[1.01]"
+                style={{
+                  background: "rgba(34, 197, 94, 0.12)",
+                  borderColor: "#22C55E",
+                  color: "#fff",
+                }}
+              >
+                <div className="text-left">
+                  <p className="text-sm font-semibold">
+                    Czyszczenie standardowe
+                  </p>
+                  <p className="text-[11px] text-white/60">
+                    Głośnik rozmów + głośniczki dolne + port ładowania
+                  </p>
+                </div>
+                <span
+                  className="font-mono font-bold text-base"
+                  style={{ color: "#22C55E" }}
+                >
+                  {cleaningPrice.toFixed(2)} PLN
+                </span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );
