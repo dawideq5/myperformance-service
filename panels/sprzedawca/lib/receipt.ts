@@ -40,6 +40,7 @@ export async function sendElectronicReceipt(
   signingUrls?: Array<{ email: string; url: string | null }>;
   error?: string;
   code?: string;
+  reminder?: boolean;
 }> {
   const params = new URLSearchParams();
   if (handover) {
@@ -63,6 +64,7 @@ export async function sendElectronicReceipt(
       ok: true,
       documentId: json.documentId,
       signingUrls: json.signingUrls,
+      reminder: json.reminder === true,
     };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };

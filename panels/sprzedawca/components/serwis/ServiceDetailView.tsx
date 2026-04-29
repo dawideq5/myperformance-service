@@ -307,56 +307,30 @@ function ServiceDetailInner({
     async (force = false) => {
       if (!service) return;
       setBusy(true);
-      const toastId = toast.push({
-        kind: "progress",
-        title: force ? "Ponowna wysyłka" : "Wysyłka potwierdzenia",
-        message: "Inicjalizacja…",
-        sticky: true,
-        progress: 5,
-      });
-      const stages = [
-        { msg: "Generuję dokument PDF…", progress: 25, delay: 700 },
-        { msg: "Tworzę dokument w Documenso…", progress: 55, delay: 2000 },
-        { msg: "Wysyłam zaproszenie do podpisu…", progress: 85, delay: 4000 },
-      ];
-      const timers = stages.map((s) =>
-        setTimeout(
-          () => toast.update(toastId, { message: s.msg, progress: s.progress }),
-          s.delay,
-        ),
-      );
       try {
         const r = await sendElectronicReceipt(
           service.id,
           service.visualCondition?.handover,
           force,
         );
-        timers.forEach(clearTimeout);
         if (r.ok) {
-          toast.update(toastId, {
+          toast.push({
             kind: "success",
-            title: "Wysłano do klienta",
-            message: `Klient otrzyma email z linkiem do podpisu (#${r.documentId}).`,
-            sticky: false,
-            progress: 100,
+            message: r.reminder
+              ? "Wysłano przypomnienie do klienta."
+              : "Wysłano potwierdzenie do klienta.",
           });
           await refresh();
         } else {
-          toast.update(toastId, {
+          toast.push({
             kind: "error",
-            title: "Błąd wysyłki",
-            message: r.error ?? "Nieznany błąd",
-            sticky: false,
-            progress: undefined,
+            message: r.error ?? "Nie udało się wysłać",
           });
         }
       } catch (e) {
-        timers.forEach(clearTimeout);
-        toast.update(toastId, {
+        toast.push({
           kind: "error",
-          title: "Błąd",
-          message: e instanceof Error ? e.message : "Nieznany błąd",
-          sticky: false,
+          message: e instanceof Error ? e.message : "Nie udało się wysłać",
         });
       } finally {
         setBusy(false);
