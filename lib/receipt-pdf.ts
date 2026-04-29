@@ -260,7 +260,30 @@ const LIGHT = "#aaaaaa";
 const BG_LIGHT = "#f0f0f0";
 
 /** Render PDF do Buffer. PDFKit programmatic, JEDNA strona A4. */
+export interface SignatureBox {
+  /** Procent strony [0-100], origin top-left. */
+  pageX: number;
+  pageY: number;
+  pageWidth: number;
+  pageHeight: number;
+}
+
+export interface ReceiptRenderResult {
+  buffer: Buffer;
+  pageWidth: number; // pt
+  pageHeight: number; // pt
+  /** Pozycje pól podpisu w procentach strony (Documenso convention). */
+  signatures: { employee: SignatureBox; customer: SignatureBox };
+}
+
 export async function renderReceiptPdf(data: ReceiptInput): Promise<Buffer> {
+  const r = await renderReceiptPdfWithLayout(data);
+  return r.buffer;
+}
+
+export async function renderReceiptPdfWithLayout(
+  data: ReceiptInput,
+): Promise<ReceiptRenderResult> {
   return new Promise((resolve, reject) => {
     try {
       const doc = new PDFDocument({
@@ -275,14 +298,28 @@ export async function renderReceiptPdf(data: ReceiptInput): Promise<Buffer> {
       });
       const chunks: Buffer[] = [];
       doc.on("data", (c: Buffer) => chunks.push(c));
-      doc.on("end", () => resolve(Buffer.concat(chunks)));
+      const layout: { signatures?: ReceiptRenderResult["signatures"] } = {};
+      doc.on("end", () => {
+        const pageW = 595.28;
+        const pageH = 841.89;
+        resolve({
+          buffer: Buffer.concat(chunks),
+          pageWidth: pageW,
+          pageHeight: pageH,
+          signatures: layout.signatures ?? {
+            employee: { pageX: 6, pageY: 56, pageWidth: 38, pageHeight: 5 },
+            customer: { pageX: 56, pageY: 56, pageWidth: 38, pageHeight: 5 },
+          },
+        });
+      });
       doc.on("error", reject);
 
       doc.registerFont("R", FONT_REGULAR);
       doc.registerFont("B", FONT_BOLD);
 
       doc.addPage({ size: "A4", margin: 0 });
-      drawSinglePage(doc, data);
+      const sig = drawSinglePage(doc, data);
+      layout.signatures = sig;
       doc.end();
     } catch (e) {
       reject(e);
@@ -290,7 +327,10 @@ export async function renderReceiptPdf(data: ReceiptInput): Promise<Buffer> {
   });
 }
 
-function drawSinglePage(doc: PDFKit.PDFDocument, data: ReceiptInput): void {
+function drawSinglePage(
+  doc: PDFKit.PDFDocument,
+  data: ReceiptInput,
+): { employee: SignatureBox; customer: SignatureBox } {
   const PW = doc.page.width; // 595.28
   const PH = doc.page.height; // 841.89
   const M = 24; // margins
@@ -480,25 +520,36 @@ function drawSinglePage(doc: PDFKit.PDFDocument, data: ReceiptInput): void {
   const cleaning =
     data.cleaningAccepted && data.cleaningPrice ? data.cleaningPrice : 0;
   const total = repair + cleaning;
-  const totH = cleaning > 0 ? 38 : 30;
+  // Wysokość bloku liczona dynamicznie z liczby pozycji + zawsze separator
+  // + Razem. 16pt na pozycję + 4pt padding nad separatorem + 16pt Razem
+  // + 6pt dolnego paddingu. Bez cleaning: 1 pozycja → 16+4+16+6 = 42.
+  // Z cleaning: 2 pozycje → 32+4+16+6 = 58.
+  const itemRows = cleaning > 0 ? 2 : 1;
+  const totH = itemRows * 16 + 4 + 18 + 6;
   drawBlock(doc, M, y, W, totH, "#fafafa", TEXT, 1);
-  doc.font("R").fontSize(8.5).fillColor(TEXT).text("Naprawa", M + 8, y + 5);
+  doc.font("R").fontSize(8.5).fillColor(TEXT).text("Naprawa", M + 8, y + 6);
   doc
     .font("R")
     .fontSize(8.5)
-    .text(`${repair.toFixed(2)} PLN`, M, y + 5, { width: W - 8, align: "right" });
-  let cy = y + 16;
+    .text(`${repair.toFixed(2)} PLN`, M, y + 6, {
+      width: W - 16,
+      align: "right",
+    });
+  let cy = y + 22;
   if (cleaning > 0) {
     doc
       .font("R")
       .fontSize(8.5)
       .fillColor(TEXT)
-      .text("Czyszczenie urządzenia", M + 8, cy);
+      .text("Czyszczenie urządzenia", M + 8, cy - 6);
     doc
       .font("R")
       .fontSize(8.5)
-      .text(`${cleaning.toFixed(2)} PLN`, M, cy, { width: W - 8, align: "right" });
-    cy += 11;
+      .text(`${cleaning.toFixed(2)} PLN`, M, cy - 6, {
+        width: W - 16,
+        align: "right",
+      });
+    cy += 10;
   }
   doc
     .moveTo(M + 8, cy)
@@ -506,11 +557,14 @@ function drawSinglePage(doc: PDFKit.PDFDocument, data: ReceiptInput): void {
     .lineWidth(0.8)
     .strokeColor(TEXT)
     .stroke();
-  doc.font("B").fontSize(10).fillColor(TEXT).text("Razem", M + 8, cy + 3);
+  doc.font("B").fontSize(10).fillColor(TEXT).text("Razem", M + 8, cy + 5);
   doc
     .font("B")
     .fontSize(10)
-    .text(`${total.toFixed(2)} PLN`, M, cy + 3, { width: W - 8, align: "right" });
+    .text(`${total.toFixed(2)} PLN`, M, cy + 5, {
+      width: W - 16,
+      align: "right",
+    });
   y += totH + 8;
 
   // ===== HANDOVER =====
@@ -528,6 +582,7 @@ function drawSinglePage(doc: PDFKit.PDFDocument, data: ReceiptInput): void {
   // ===== SIGNATURES — wyższe pola, więcej miejsca na podpisy ręczne =====
   const sigW = (W - 24) / 2;
   const SIG_HEIGHT = 34; // miejsce na rzeczywisty podpis
+  const sigTopY = y; // top sygnatur (pole Documenso od top do linii)
   // Lewa: pracownik
   doc
     .moveTo(M, y + SIG_HEIGHT)
@@ -556,6 +611,22 @@ function drawSinglePage(doc: PDFKit.PDFDocument, data: ReceiptInput): void {
     characterSpacing: 0.5,
   });
   y += SIG_HEIGHT + 18;
+
+  // === SIGNATURE BOX coords w procentach strony (Documenso convention).
+  // Origin top-left, jednostki: % strony (0-100). Pole pokrywa obszar nad
+  // linią "PODPIS …" — od top sigTopY do linii (sigTopY + SIG_HEIGHT).
+  const employeeBox: SignatureBox = {
+    pageX: (M / PW) * 100,
+    pageY: (sigTopY / PH) * 100,
+    pageWidth: (sigW / PW) * 100,
+    pageHeight: (SIG_HEIGHT / PH) * 100,
+  };
+  const customerBox: SignatureBox = {
+    pageX: ((M + sigW + 24) / PW) * 100,
+    pageY: (sigTopY / PH) * 100,
+    pageWidth: (sigW / PW) * 100,
+    pageHeight: (SIG_HEIGHT / PH) * 100,
+  };
 
   // ===== REGULAMIN — rozłożony, 2 kolumny, większy font =====
   const FOOTER_H = 22;
@@ -604,6 +675,8 @@ function drawSinglePage(doc: PDFKit.PDFDocument, data: ReceiptInput): void {
   if (fs.existsSync(LOGO_CASEOWNIA)) {
     doc.image(LOGO_CASEOWNIA, M + W - 60, fy + 2, { fit: [60, 14] });
   }
+
+  return { employee: employeeBox, customer: customerBox };
 }
 
 function drawColumn(

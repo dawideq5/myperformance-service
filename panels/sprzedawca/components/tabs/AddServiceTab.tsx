@@ -251,13 +251,18 @@ export function AddServiceTab({
   const handoverComplete =
     handoverChoice === "none" ||
     (handoverChoice === "items" && handoverItems.trim().length > 0);
-  const allComplete =
-    deviceComplete &&
-    lockComplete &&
-    visualComplete &&
-    descriptionComplete &&
-    customerComplete &&
-    handoverComplete;
+  // W trybie edycji nie wymuszamy ponownego "complete" wszystkich sekcji —
+  // serwis już istnieje, user zmienia konkretne pola. Na zapisie wymagamy
+  // tylko żeby device + customer były minimum wypełnione (bez ich PATCH
+  // backend i tak by zignorował, ale to UX guard żeby nie wysłać śmieci).
+  const allComplete = editingServiceId
+    ? deviceComplete && customerComplete
+    : deviceComplete &&
+      lockComplete &&
+      visualComplete &&
+      descriptionComplete &&
+      customerComplete &&
+      handoverComplete;
 
   // Sequential gating — sekcja jest dostępna gdy wszystkie poprzednie complete.
   const sectionUnlocked: Record<string, boolean> = {
@@ -351,6 +356,15 @@ export function AddServiceTab({
               items: handoverItems.trim(),
             },
           };
+      // W trybie edit: gdy user nie wybrał żadnego typu naprawy z pickera
+      // (selected = []), zachowujemy customDescription jako opis (inaczej
+      // serializeRepairTypes zwróciłby "" i wykasowało opis z DB).
+      const descriptionPayload = (() => {
+        const serialized = serializeRepairTypes(repairTypes, customDescription);
+        if (serialized) return serialized;
+        if (editingServiceId && customDescription.trim()) return customDescription.trim();
+        return null;
+      })();
       const body = {
         locationId,
         type: "phone",
@@ -367,7 +381,7 @@ export function AddServiceTab({
         // mają osobne pole w DB (visual_condition.damage_markers) i są
         // renderowane w sekcji LOKALIZACJA USZKODZEŃ na PDF — nie miksuj
         // ich z opisem usterki.
-        description: serializeRepairTypes(repairTypes, customDescription) || null,
+        description: descriptionPayload,
         amountEstimate: amountEstimate ? Number(amountEstimate) : null,
         customerFirstName: customerFirstName.trim() || null,
         customerLastName: customerLastName.trim() || null,

@@ -342,10 +342,18 @@ export function computeDocumensoStats(docs: DocumensoDocument[]): DocumensoDocum
  *   3. POST /api/v1/documents/{id}/send-document — wysłanie email z linkami
  *
  * Zwraca documentId + signing URLs per recipient. */
+export interface SignatureFieldBox {
+  /** Procent strony [0-100] origin top-left. */
+  pageX: number;
+  pageY: number;
+  pageWidth: number;
+  pageHeight: number;
+}
+
 export async function createDocumentForSigning(opts: {
   title: string;
   pdfBuffer: Buffer;
-  signers: { name: string; email: string }[];
+  signers: { name: string; email: string; signatureBox?: SignatureFieldBox }[];
   /** Po podpisaniu klient wraca tutaj. Optional. */
   redirectUrl?: string;
   /** Email z którego idą zaproszenia. Kontrolowane przez Documenso config
@@ -359,6 +367,8 @@ export async function createDocumentForSigning(opts: {
   if (!cfg) throw new Error("Documenso not configured");
 
   // 1. Create draft document. Documenso v1 expects flat structure.
+  // signingOrder=SEQUENTIAL: klient dostaje prośbę DOPIERO po podpisie
+  // pracownika. Bez tego oboje sygnatariusze dostają emaile od razu.
   const createPayload = {
     title: opts.title,
     recipients: opts.signers.map((s, i) => ({
@@ -367,16 +377,12 @@ export async function createDocumentForSigning(opts: {
       role: "SIGNER",
       signingOrder: i + 1,
     })),
-    meta: opts.redirectUrl
-      ? {
-          redirectUrl: opts.redirectUrl,
-          subject: opts.title,
-          message: "Prosimy o podpisanie potwierdzenia odbioru urządzenia.",
-        }
-      : {
-          subject: opts.title,
-          message: "Prosimy o podpisanie potwierdzenia odbioru urządzenia.",
-        },
+    meta: {
+      ...(opts.redirectUrl ? { redirectUrl: opts.redirectUrl } : {}),
+      subject: opts.title,
+      message: "Prosimy o podpisanie potwierdzenia odbioru urządzenia.",
+      signingOrder: "SEQUENTIAL",
+    },
   };
 
   // Documenso v1 response: { uploadUrl: string, documentId: number, recipients: [...] }
@@ -415,22 +421,44 @@ export async function createDocumentForSigning(opts: {
   const docDetail = await documensoFetch<{
     recipients?: { id: number; email: string }[];
   }>(`/api/v1/documents/${docId}`);
+  // Match recipientów Documenso z naszymi opts.signers po emailu (Documenso
+  // może zwracać inny order niż podaliśmy). Każdy signer ma swój
+  // signatureBox z rzeczywistych coords PDF (top-left origin, %).
+  const signersByEmail = new Map(
+    opts.signers.map((s) => [s.email.toLowerCase(), s]),
+  );
   for (const rec of docDetail.recipients ?? []) {
-    // Pole na ostatniej stronie potwierdzenia, w sekcji signatures.
-    // Coords w PDF coordinate system (origin bottom-left, jednostki: punkt).
-    // Dla A4 595x842pt: signatures są ~88pt od dołu, lewa kolumna do x=290,
-    // prawa od x=305. Pierwszy signer = pracownik (lewa), drugi = klient (prawa).
-    const isFirst = rec.id === (docDetail.recipients?.[0]?.id ?? -1);
+    const matched = signersByEmail.get(rec.email.toLowerCase());
+    const box = matched?.signatureBox;
+    if (!box) {
+      // Fallback gdy caller nie podał coords — neutralna pozycja na dole
+      // strony (lewa/prawa zależnie od kolejności). Pozycje ze SignatureBox
+      // mają precedence, ten branch jest tylko dla starych callsite'ów.
+      const isFirst = rec.id === (docDetail.recipients?.[0]?.id ?? -1);
+      await documensoFetch<unknown>(`/api/v1/documents/${docId}/fields`, {
+        method: "POST",
+        body: JSON.stringify({
+          recipientId: rec.id,
+          type: "SIGNATURE",
+          pageNumber: 1,
+          pageX: isFirst ? 6 : 56,
+          pageY: 56,
+          pageWidth: 38,
+          pageHeight: 5,
+        }),
+      });
+      continue;
+    }
     await documensoFetch<unknown>(`/api/v1/documents/${docId}/fields`, {
       method: "POST",
       body: JSON.stringify({
         recipientId: rec.id,
         type: "SIGNATURE",
         pageNumber: 1,
-        pageX: isFirst ? 8 : 55,
-        pageY: 88,
-        pageWidth: 32,
-        pageHeight: 6,
+        pageX: box.pageX,
+        pageY: box.pageY,
+        pageWidth: box.pageWidth,
+        pageHeight: box.pageHeight,
       }),
     });
   }

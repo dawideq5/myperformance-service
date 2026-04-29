@@ -8,7 +8,10 @@ import {
   createDocumentForSigning,
   isDocumensoConfigured,
 } from "@/lib/documenso";
-import { renderReceiptPdf, type ReceiptInput } from "@/lib/receipt-pdf";
+import {
+  renderReceiptPdfWithLayout,
+  type ReceiptInput,
+} from "@/lib/receipt-pdf";
 import { getPricelistPriceByCode } from "@/lib/pricelist";
 import { log } from "@/lib/logger";
 
@@ -117,7 +120,7 @@ export async function POST(
   };
 
   try {
-    const pdfBuffer = await renderReceiptPdf(data);
+    const rendered = await renderReceiptPdfWithLayout(data);
     const employeeName = user.name?.trim() || user.preferred_username || user.email;
     const customerName =
       `${service.customerFirstName ?? ""} ${service.customerLastName ?? ""}`.trim() ||
@@ -125,10 +128,18 @@ export async function POST(
 
     const result = await createDocumentForSigning({
       title: `Potwierdzenie ${service.ticketNumber}`,
-      pdfBuffer,
+      pdfBuffer: rendered.buffer,
       signers: [
-        { name: employeeName, email: user.email },
-        { name: customerName, email: service.contactEmail },
+        {
+          name: employeeName,
+          email: user.email,
+          signatureBox: rendered.signatures.employee,
+        },
+        {
+          name: customerName,
+          email: service.contactEmail,
+          signatureBox: rendered.signatures.customer,
+        },
       ],
     });
 

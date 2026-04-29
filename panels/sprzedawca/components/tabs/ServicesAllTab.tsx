@@ -96,6 +96,13 @@ const DEVICE_ICONS: Record<string, React.ComponentType<{ className?: string }>> 
   headphones: TabletSmartphone,
 };
 
+type ToastKind = "success" | "error" | "info";
+interface ToastEntry {
+  id: number;
+  kind: ToastKind;
+  message: string;
+}
+
 export function ServicesAllTab({
   onEdit,
 }: { onEdit?: (id: string) => void } = {}) {
@@ -104,27 +111,57 @@ export function ServicesAllTab({
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState("");
   const [search, setSearch] = useState("");
+  const [toasts, setToasts] = useState<ToastEntry[]>([]);
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const params = new URLSearchParams();
-      if (statusFilter) params.set("status", statusFilter);
-      if (search.trim()) params.set("search", search.trim());
-      const res = await fetch(`/api/relay/services?${params.toString()}`);
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`);
-      setServices(json.services ?? []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Błąd pobierania");
-    } finally {
-      setLoading(false);
-    }
-  }, [statusFilter, search]);
+  const pushToast = useCallback((kind: ToastKind, message: string) => {
+    const id = Date.now() + Math.floor(Math.random() * 1000);
+    setToasts((prev) => [...prev, { id, kind, message }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, kind === "error" ? 6000 : 4000);
+  }, []);
+
+  const refresh = useCallback(
+    async (silent = false) => {
+      if (!silent) setLoading(true);
+      setError(null);
+      try {
+        const params = new URLSearchParams();
+        if (statusFilter) params.set("status", statusFilter);
+        if (search.trim()) params.set("search", search.trim());
+        const res = await fetch(`/api/relay/services?${params.toString()}`);
+        const json = await res.json();
+        if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`);
+        setServices(json.services ?? []);
+      } catch (err) {
+        if (!silent)
+          setError(err instanceof Error ? err.message : "Błąd pobierania");
+      } finally {
+        if (!silent) setLoading(false);
+      }
+    },
+    [statusFilter, search],
+  );
 
   useEffect(() => {
     void refresh();
+  }, [refresh]);
+
+  // Real-time polling (30s) — odświeża listę żeby badge "Wysłane" auto
+  // zmieniał się na "Podpisane" po webhook documenso. Silent = bez
+  // loading flickera. Pause gdy tab niewidoczny (Page Visibility API).
+  useEffect(() => {
+    let active = true;
+    const tick = () => {
+      if (!active) return;
+      if (document.visibilityState !== "visible") return;
+      void refresh(true);
+    };
+    const id = setInterval(tick, 30_000);
+    return () => {
+      active = false;
+      clearInterval(id);
+    };
   }, [refresh]);
 
   const counts = useMemo(() => {
@@ -245,10 +282,52 @@ export function ServicesAllTab({
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
           {services.map((s) => (
-            <ServiceCard key={s.id} service={s} onEdit={onEdit} />
+            <ServiceCard
+              key={s.id}
+              service={s}
+              onEdit={onEdit}
+              onChanged={() => void refresh(true)}
+              pushToast={pushToast}
+            />
           ))}
         </div>
       )}
+
+      {/* Toast stack — top-right, z-index ponad dialog. */}
+      <div className="fixed top-4 right-4 z-[2200] flex flex-col gap-2 max-w-sm w-full pointer-events-none">
+        {toasts.map((t) => (
+          <div
+            key={t.id}
+            className="pointer-events-auto rounded-xl border shadow-2xl px-4 py-3 text-sm flex items-start gap-2 animate-fade-in"
+            style={{
+              background:
+                t.kind === "success"
+                  ? "rgba(34,197,94,0.95)"
+                  : t.kind === "error"
+                    ? "rgba(239,68,68,0.95)"
+                    : "rgba(30,41,59,0.95)",
+              borderColor:
+                t.kind === "success"
+                  ? "#22c55e"
+                  : t.kind === "error"
+                    ? "#ef4444"
+                    : "#334155",
+              color: "#fff",
+              backdropFilter: "blur(12px)",
+            }}
+          >
+            <span className="flex-1">{t.message}</span>
+            <button
+              type="button"
+              onClick={() => setToasts((p) => p.filter((x) => x.id !== t.id))}
+              className="opacity-70 hover:opacity-100"
+              aria-label="Zamknij"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -257,10 +336,12 @@ function ServiceCard({
   service,
   onChanged,
   onEdit,
+  pushToast,
 }: {
   service: ServiceTicket;
   onChanged?: () => void;
   onEdit?: (id: string) => void;
+  pushToast?: (kind: "success" | "error" | "info", message: string) => void;
 }) {
   const status = STATUS_LABELS[service.status] ?? {
     label: service.status,
@@ -291,11 +372,15 @@ function ServiceCard({
       if (r.ok) {
         setEStatus("sent");
         onChanged?.();
-        alert(
-          `Potwierdzenie elektroniczne wysłane do klienta. Documenso doc ID: ${r.documentId}`,
+        pushToast?.(
+          "success",
+          `Potwierdzenie wysłane — czeka na podpis pracownika, potem klienta. (#${r.documentId})`,
         );
       } else {
-        alert(`Błąd wysyłki: ${r.error ?? "nieznany"}`);
+        pushToast?.(
+          "error",
+          `Błąd wysyłki: ${r.error ?? "nieznany"}`,
+        );
       }
     } finally {
       setSendingE(false);
