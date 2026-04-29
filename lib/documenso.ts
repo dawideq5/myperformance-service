@@ -379,13 +379,24 @@ export async function createDocumentForSigning(opts: {
         },
   };
 
+  // Documenso v1 response: { uploadUrl: string, documentId: number, recipients: [...] }
+  // (zmienione w późniejszej wersji — wcześniej było { document: { id } }).
   const created = await documensoFetch<{
     uploadUrl: string;
-    document: { id: number; title?: string };
+    documentId?: number;
+    document?: { id: number; title?: string };
+    recipients?: { id: number; email: string }[];
   }>("/api/v1/documents", {
     method: "POST",
     body: JSON.stringify(createPayload),
   });
+
+  const docId = created.documentId ?? created.document?.id;
+  if (!docId) {
+    throw new Error(
+      `Documenso create response missing documentId. Response: ${JSON.stringify(created).slice(0, 300)}`,
+    );
+  }
 
   // 2. Upload PDF to presigned uploadUrl.
   const uploadResp = await fetch(created.uploadUrl, {
@@ -400,26 +411,23 @@ export async function createDocumentForSigning(opts: {
   }
 
   // 3. Send signing emails.
-  await documensoFetch<unknown>(
-    `/api/v1/documents/${created.document.id}/send-document`,
-    {
-      method: "POST",
-      body: JSON.stringify({ sendEmail: true }),
-    },
-  );
+  await documensoFetch<unknown>(`/api/v1/documents/${docId}/send-document`, {
+    method: "POST",
+    body: JSON.stringify({ sendEmail: true }),
+  });
 
   // Fetch back to get signing URLs.
-  const doc = await getDocument(created.document.id);
+  const doc = await getDocument(docId);
   const signingUrls = (doc?.recipients ?? []).map((r) => ({
     email: r.email,
     url: r.signingUrl ?? null,
   }));
   log.child({ module: "documenso" }).info("document created for signing", {
-    docId: created.document.id,
+    docId,
     title: opts.title,
     signers: opts.signers.length,
   });
-  return { documentId: created.document.id, signingUrls };
+  return { documentId: docId, signingUrls };
 }
 
 /** Lookup service po Documenso doc id (zapisany w mp_services.documenso_id). */

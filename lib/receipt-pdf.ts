@@ -42,53 +42,55 @@ export interface ReceiptInput {
   handover: { choice: "none" | "items"; items: string };
 }
 
+// 1:1 z panel-sprzedawca/components/intake/RatingScale.tsx — pracownik
+// widzi te same opisy w konfiguratorze co klient na PDF.
 const DISPLAY_DESCRIPTIONS: Record<number, string> = {
-  10: "Stan idealny — bez śladów użytkowania.",
-  9: "Lekkie ślady — ledwo widoczne pod kątem.",
-  8: "Drobne rysy widoczne pod światłem.",
-  7: "Widoczne rysy, ekran w pełni czytelny.",
-  6: "Liczne rysy, drobne uszkodzenia powłoki.",
-  5: "Wyraźne rysy, czasem widoczne.",
-  4: "Pęknięty narożnik, ekran działa.",
-  3: "Pęknięty ekran, dotyk reaguje.",
-  2: "Mocno popękany, dotyk zaburzony.",
-  1: "Zniszczony — uszkodzony dotyk.",
+  1: "Roztrzaskany ekran, brak reakcji na dotyk lub obraz fragmentaryczny.",
+  2: "Liczne pęknięcia, dotyk reaguje częściowo.",
+  3: "Wiele pęknięć i głębokich rys, dotyk z perturbacjami.",
+  4: "Pojedyncze pęknięcie, dotyk i obraz w pełni sprawne.",
+  5: "Wyraźne rysy na całej powierzchni, ekran sprawny.",
+  6: "Drobne rysy widoczne pod kątem, ekran w pełni sprawny.",
+  7: "Lekkie ślady użytkowania, mikro-rysy w rogach.",
+  8: "Bardzo dobry stan, kilka mikro-rys widocznych pod lupą.",
+  9: "Praktycznie bez śladów użytkowania.",
+  10: "Stan jak nowy.",
 };
 const BACK_DESCRIPTIONS: Record<number, string> = {
-  10: "Stan idealny.",
-  9: "Lekkie ślady — ledwo widoczne.",
-  8: "Drobne rysy lub mikropęknięcia.",
-  7: "Widoczne rysy, brak pęknięć.",
-  6: "Drobne pęknięcia, panel cały.",
-  5: "Pęknięcia, panel solidny.",
-  4: "Pęknięty, fragmenty na miejscu.",
-  3: "Pęknięty z ubytkami.",
-  2: "Mocno zniszczony, brakujące fragmenty.",
-  1: "Brak panelu lub całkowicie rozbity.",
+  1: "Roztrzaskany panel tylny.",
+  2: "Liczne pęknięcia, panel wymaga wymiany.",
+  3: "Pęknięcia oraz głębokie rysy.",
+  4: "Pojedyncze pęknięcie.",
+  5: "Wyraźne rysy widoczne pod każdym kątem.",
+  6: "Drobne rysy w odbiciu światła.",
+  7: "Lekkie ślady użytkowania.",
+  8: "Bardzo dobry stan, mikro-rysy.",
+  9: "Praktycznie idealny.",
+  10: "Stan jak nowy.",
 };
 const CAMERA_DESCRIPTIONS: Record<number, string> = {
-  10: "Idealne obiektywy i wyspa aparatów.",
-  9: "Lekkie ślady na ramce wyspy.",
-  8: "Drobne rysy na obudowie.",
-  7: "Widoczne rysy ramki, szkła całe.",
-  6: "Mikrorysy szkieł obiektywów.",
-  5: "Rysy szkieł, fotografia OK.",
-  4: "Pęknięte jedno z obiektywów.",
-  3: "Pęknięte szkiełka, plamy na zdjęciach.",
-  2: "Wiele pęknięć, artefakty.",
-  1: "Zniszczone — fotografia niemożliwa.",
+  1: "Roztrzaskane szkiełka obiektywów, aparat nie ostrzy.",
+  2: "Pęknięte szkiełka, plamy widoczne na zdjęciach.",
+  3: "Pęknięte szkiełko jednego z obiektywów.",
+  4: "Głębokie rysy na szkiełkach.",
+  5: "Wyraźne rysy widoczne na zdjęciach pod światło.",
+  6: "Drobne rysy, jakość zdjęć bez zauważalnych problemów.",
+  7: "Lekkie ślady użytkowania, obiektywy sprawne.",
+  8: "Bardzo dobry stan szkiełek.",
+  9: "Praktycznie idealny.",
+  10: "Stan jak nowy.",
 };
 const FRAMES_DESCRIPTIONS: Record<number, string> = {
-  10: "Ramki idealne.",
-  9: "Mikrorysy widoczne pod kątem.",
-  8: "Drobne otarcia na rogach.",
-  7: "Widoczne otarcia, brak deformacji.",
-  6: "Otarcia + drobne wgniecenia.",
-  5: "Wgniecenia, ramki proste.",
-  4: "Wyraźne wgniecenia, lekkie odkształcenie.",
-  3: "Odkształcenia narożników.",
-  2: "Mocno wygięte ramki.",
-  1: "Zniszczone — wpływa na działanie.",
+  1: "Ramka pęknięta lub silnie zdeformowana.",
+  2: "Liczne wgniecenia, deformacja krawędzi.",
+  3: "Głębokie wgniecenia, otarcia powłoki.",
+  4: "Wgniecenia oraz otarcia ramki.",
+  5: "Liczne otarcia w narożach.",
+  6: "Drobne otarcia widoczne pod światło.",
+  7: "Lekkie ślady użytkowania.",
+  8: "Bardzo dobry stan, mikro-otarcia.",
+  9: "Praktycznie idealny.",
+  10: "Stan jak nowy.",
 };
 function ratingDesc(
   cat: "display" | "back" | "camera" | "frames",
@@ -140,46 +142,106 @@ function formatDate(iso: string): string {
 /** Projektuje marker 3D → 2D na phone outline. surface ma priorytet nad
  * geometrią: pewnie wskazuje przód/tył nawet gdy local x nie jest
  * jednoznaczny (np. ramki przebiegają wzdłuż obu stron). */
-function projectMarker(m: {
+type DamageView = "front" | "back" | "top" | "bottom" | "left" | "right";
+
+const VIEW_LABELS: Record<DamageView, string> = {
+  front: "PRZÓD",
+  back: "TYŁ",
+  top: "GÓRNA RAMKA",
+  bottom: "DOLNA RAMKA",
+  left: "LEWA RAMKA",
+  right: "PRAWA RAMKA",
+};
+
+const VIEW_DIMS: Record<DamageView, { w: number; h: number }> = {
+  front: { w: 48, h: 86 },
+  back: { w: 48, h: 86 },
+  top: { w: 86, h: 18 },
+  bottom: { w: 86, h: 18 },
+  left: { w: 18, h: 86 },
+  right: { w: 18, h: 86 },
+};
+
+/** Klasyfikuje marker do widoku po surface label + fallback na coords. */
+function classifyView(m: {
   x: number;
   y: number;
   z: number;
   surface?: string;
-}): { view: "front" | "back"; px: number; py: number } {
-  const Z_RANGE = 0.85;
-  const Y_RANGE = 1.7;
-  // pix coords w viewbox 0..100. Y odwrócone (góra phone = small py).
-  const px = ((m.z + Z_RANGE) / (2 * Z_RANGE)) * 100;
-  const py = ((Y_RANGE - m.y) / (2 * Y_RANGE)) * 100;
+}): DamageView {
   const s = (m.surface ?? "").toLowerCase();
-  // Surface decyduje pierwsze. Lokalne x sign jako fallback dla ramek/edges.
-  let view: "front" | "back" = "front";
+  if (s.includes("górna") || s.includes("góra") || s.includes("głośnik rozmów"))
+    return "top";
   if (
-    s.includes("tylny") ||
+    s.includes("dolna") ||
+    s.includes("dół") ||
+    s.includes("port") ||
+    s.includes("głośnik") // głośniczki dolne
+  )
+    return "bottom";
+  if (s.includes("ramka prawa") || s.includes("prawa")) return "right";
+  if (s.includes("ramka lewa") || s.includes("lewa")) return "left";
+  if (
     s.includes("panel ty") ||
-    s.includes("back") ||
+    s.includes("tylny") ||
+    s.includes("aparat") ||
     s.includes("wyspa") ||
-    s.includes("aparat")
-  ) {
-    view = "back";
-  } else if (
+    s.includes("back")
+  )
+    return "back";
+  if (
     s.includes("wyświetla") ||
-    s.includes("display") ||
     s.includes("ekran") ||
     s.includes("przód") ||
-    s.includes("front") ||
-    s.includes("face") ||
-    s.includes("głośnik rozmów") ||
-    s.includes("rozmów")
-  ) {
-    view = "front";
-  } else if (m.x < -0.02) {
-    view = "back";
+    s.includes("display")
+  )
+    return "front";
+  // Fallback geometric.
+  const Y_RANGE = 1.7;
+  const Z_RANGE = 0.85;
+  if (m.y > Y_RANGE * 0.7) return "top";
+  if (m.y < -Y_RANGE * 0.7) return "bottom";
+  if (m.z > Z_RANGE * 0.6) return "right";
+  if (m.z < -Z_RANGE * 0.6) return "left";
+  return m.x < 0 ? "back" : "front";
+}
+
+/** Pozycja markera w obrębie outline (px,py 0..100). */
+function projectInView(
+  view: DamageView,
+  m: { x: number; y: number; z: number },
+): { px: number; py: number } {
+  const Y_RANGE = 1.7;
+  const Z_RANGE = 0.85;
+  const X_RANGE = 0.12;
+  let px = 50;
+  let py = 50;
+  switch (view) {
+    case "front":
+      px = ((m.z + Z_RANGE) / (2 * Z_RANGE)) * 100;
+      py = ((Y_RANGE - m.y) / (2 * Y_RANGE)) * 100;
+      break;
+    case "back":
+      px = ((Z_RANGE - m.z) / (2 * Z_RANGE)) * 100; // mirror X
+      py = ((Y_RANGE - m.y) / (2 * Y_RANGE)) * 100;
+      break;
+    case "top":
+    case "bottom":
+      px = ((m.z + Z_RANGE) / (2 * Z_RANGE)) * 100;
+      py = ((m.x + X_RANGE) / (2 * X_RANGE)) * 100;
+      break;
+    case "left":
+      px = ((X_RANGE - m.x) / (2 * X_RANGE)) * 100;
+      py = ((Y_RANGE - m.y) / (2 * Y_RANGE)) * 100;
+      break;
+    case "right":
+      px = ((m.x + X_RANGE) / (2 * X_RANGE)) * 100;
+      py = ((Y_RANGE - m.y) / (2 * Y_RANGE)) * 100;
+      break;
   }
   return {
-    view,
-    px: Math.max(10, Math.min(90, px)),
-    py: Math.max(8, Math.min(92, py)),
+    px: Math.max(15, Math.min(85, px)),
+    py: Math.max(15, Math.min(85, py)),
   };
 }
 
@@ -261,30 +323,8 @@ function drawSinglePage(doc: PDFKit.PDFDocument, data: ReceiptInput): void {
   ]);
   y += 80;
 
-  // ===== LOCK BLOCK =====
-  // Wzór NIE jest drukowany na potwierdzeniu (security — sequence dotów
-  // bez wizualizacji nic nie daje, a niesie ryzyko przejęcia urządzenia
-  // przez osobę z dostępem do papieru).
-  if (data.lock.type !== "none") {
-    drawBlock(doc, M, y, W, 22, BG_LIGHT, TEXT);
-    doc
-      .font("R")
-      .fontSize(6.5)
-      .fillColor(MUTED)
-      .text((LOCK_LABELS[data.lock.type] ?? data.lock.type).toUpperCase(), M + 8, y + 4, {
-        characterSpacing: 0.5,
-      });
-    if (data.lock.type === "pattern") {
-      doc
-        .font("R")
-        .fontSize(8)
-        .fillColor(MUTED)
-        .text("(wzór nie jest drukowany na potwierdzeniu)", M + 8, y + 12);
-    } else {
-      doc.font("B").fontSize(10).fillColor(TEXT).text(data.lock.code || "—", M + 8, y + 12);
-    }
-    y += 26;
-  }
+  // Lock block usunięty z potwierdzenia — pracownik wie z systemu, klient
+  // nie powinien widzieć kodu na papierze (security).
 
   // ===== OPIS USTERKI =====
   y = drawSection(doc, M, y, W, "OPIS USTERKI");
@@ -299,57 +339,91 @@ function drawSinglePage(doc: PDFKit.PDFDocument, data: ReceiptInput): void {
   });
   y += descH + 12;
 
-  // ===== TECHNICAL VIEW (if markers) =====
-  const markers = data.visualCondition.damage_markers ?? [];
-  if (markers.length > 0) {
+  // ===== TECHNICAL VIEW: 6 widoków, tylko gdy markery dla danego widoku =====
+  const allMarkers = data.visualCondition.damage_markers ?? [];
+  if (allMarkers.length > 0) {
     y = drawSection(doc, M, y, W, "LOKALIZACJA USZKODZEŃ");
-    const phoneW = 50;
-    const phoneH = 90;
-    drawPhoneOutline(doc, M, y, phoneW, phoneH, "PRZÓD", "front", markers);
-    drawPhoneOutline(
-      doc,
-      M + phoneW + 8,
-      y,
-      phoneW,
-      phoneH,
-      "TYŁ",
+    // Klasyfikuj markery + przypisz globalny numer (1..N w kolejności).
+    const markersWithNum = allMarkers.map((m, i) => ({
+      m,
+      num: i + 1,
+      view: classifyView(m),
+    }));
+    const VIEWS_ORDER: DamageView[] = [
+      "front",
       "back",
-      markers,
+      "top",
+      "bottom",
+      "left",
+      "right",
+    ];
+    const viewsWithMarkers = VIEWS_ORDER.filter((v) =>
+      markersWithNum.some((mn) => mn.view === v),
     );
-    // Lista markerów obok
-    const lx = M + phoneW * 2 + 24;
-    const lw = W - (phoneW * 2 + 24);
-    let ly = y;
-    const maxMarkers = Math.min(markers.length, 6);
-    markers.slice(0, maxMarkers).forEach((m, i) => {
-      doc.circle(lx + 4, ly + 4, 4).fill(TEXT);
+
+    // Layout: do 3 widoków per row, kolejne wiersze poniżej.
+    let rowX = M;
+    let rowMaxH = 0;
+    let curY = y;
+    const GAP = 8;
+    for (const view of viewsWithMarkers) {
+      const dims = VIEW_DIMS[view];
+      const labelH = 8;
+      const totalH = dims.h + labelH + 4;
+      // Wrap to new row if doesn't fit.
+      if (rowX + dims.w > M + W) {
+        rowX = M;
+        curY += rowMaxH + GAP;
+        rowMaxH = 0;
+      }
+      drawDamageViewBox(
+        doc,
+        rowX,
+        curY,
+        view,
+        markersWithNum.filter((mn) => mn.view === view),
+      );
+      rowX += dims.w + GAP;
+      if (totalH > rowMaxH) rowMaxH = totalH;
+    }
+    y = curY + rowMaxH + 6;
+
+    // Lista markerów (numer + powierzchnia + opis) — pełna lista.
+    for (const mn of markersWithNum) {
+      doc.circle(M + 4, y + 4, 4).fill(TEXT);
       doc
         .font("B")
         .fontSize(5.5)
         .fillColor("#fff")
-        .text(String(i + 1), lx, ly + 1.5, { width: 8, align: "center" });
+        .text(String(mn.num), M, y + 1.5, {
+          width: 8,
+          align: "center",
+          lineBreak: false,
+        });
       doc
         .font("B")
-        .fontSize(6.5)
+        .fontSize(7)
         .fillColor(MUTED)
-        .text((m.surface ?? "powierzchnia").toUpperCase(), lx + 12, ly, {
-          width: lw - 12,
+        .text((mn.m.surface ?? "powierzchnia").toUpperCase(), M + 12, y, {
+          width: W - 12,
           characterSpacing: 0.4,
-          height: 8,
+          lineBreak: false,
+          height: 9,
           ellipsis: true,
         });
       doc
         .font("R")
-        .fontSize(7.5)
+        .fontSize(8)
         .fillColor(TEXT)
-        .text(m.description?.trim() || "(brak opisu)", lx + 12, ly + 8, {
-          width: lw - 12,
-          height: 8,
+        .text(mn.m.description?.trim() || "(brak opisu)", M + 12, y + 8, {
+          width: W - 12,
+          lineBreak: false,
+          height: 10,
           ellipsis: true,
         });
-      ly += 18;
-    });
-    y += phoneH + 16;
+      y += 20;
+    }
+    y += 2;
   }
 
   // ===== STAN TECHNICZNY =====
@@ -397,7 +471,7 @@ function drawSinglePage(doc: PDFKit.PDFDocument, data: ReceiptInput): void {
   }
 
   // ===== WYCENA =====
-  y = drawSection(doc, M, y, W, "WYCENA ORIENTACYJNA");
+  y = drawSection(doc, M, y, W, "WYCENA");
   const repair = data.estimate ?? 0;
   const cleaning =
     data.cleaningAccepted && data.cleaningPrice ? data.cleaningPrice : 0;
@@ -608,22 +682,29 @@ function drawBlock(
   }
 }
 
-function drawPhoneOutline(
+function drawDamageViewBox(
   doc: PDFKit.PDFDocument,
   x: number,
   y: number,
-  w: number,
-  h: number,
-  label: string,
-  view: "front" | "back",
-  markers: NonNullable<ReceiptInput["visualCondition"]["damage_markers"]>,
+  view: DamageView,
+  markersForView: { m: { x: number; y: number; z: number }; num: number }[],
 ): void {
-  doc.roundedRect(x, y, w, h, 6).lineWidth(0.8).fillAndStroke("#fafafa", TEXT);
-  doc.roundedRect(x + 3, y + 8, w - 6, h - 16, 2).lineWidth(0.4).fillAndStroke("#ffffff", "#888");
-  doc.circle(x + w / 2, y + 5, 1).fill("#444");
-  markers.forEach((m, i) => {
-    const p = projectMarker(m);
-    if (p.view !== view) return;
+  const { w, h } = VIEW_DIMS[view];
+  // Tło + outline. Zaokrąglone narożniki dla front/back, square dla ramek.
+  const r = view === "front" || view === "back" ? 5 : 2;
+  doc.roundedRect(x, y, w, h, r).lineWidth(0.8).fillAndStroke("#fafafa", TEXT);
+  // Wewnętrzny rect (różny per view — sugestia "ekran" dla front/back).
+  if (view === "front" || view === "back") {
+    doc
+      .roundedRect(x + 3, y + 8, w - 6, h - 16, 2)
+      .lineWidth(0.4)
+      .fillAndStroke("#ffffff", "#888");
+    // Top dot
+    doc.circle(x + w / 2, y + 5, 1).fill("#444");
+  }
+  // Markery w widoku.
+  for (const { m, num } of markersForView) {
+    const p = projectInView(view, m);
     const cx = x + (p.px / 100) * w;
     const cy = y + (p.py / 100) * h;
     doc.circle(cx, cy, 2.8).fill(TEXT);
@@ -631,13 +712,18 @@ function drawPhoneOutline(
       .font("B")
       .fontSize(4.5)
       .fillColor("#fff")
-      .text(String(i + 1), cx - 4, cy - 1.8, { width: 8, align: "center", lineBreak: false });
-  });
+      .text(String(num), cx - 4, cy - 1.8, {
+        width: 8,
+        align: "center",
+        lineBreak: false,
+      });
+  }
+  // Label.
   doc
     .font("B")
     .fontSize(5.5)
     .fillColor(TEXT)
-    .text(label, x, y + h + 1, {
+    .text(VIEW_LABELS[view], x, y + h + 1, {
       width: w,
       align: "center",
       characterSpacing: 0.5,

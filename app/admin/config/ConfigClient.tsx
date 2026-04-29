@@ -39,7 +39,13 @@ import type { Location } from "@/lib/locations";
 import type { CertLinkRow, ConfigOverviewStats } from "@/lib/config-overview";
 import { CertLocationsDialog } from "../certificates/CertLocationsDialog";
 
-type TabId = "overview" | "links" | "locations" | "targets" | "certs";
+type TabId =
+  | "overview"
+  | "links"
+  | "locations"
+  | "targets"
+  | "certs"
+  | "pricelist";
 
 interface TargetGroupDTO {
   id: string;
@@ -92,6 +98,11 @@ const TABS: TabDefinition<TabId>[] = [
     id: "certs",
     label: "Certyfikaty",
     icon: <FileSignature className="w-4 h-4" />,
+  },
+  {
+    id: "pricelist",
+    label: "Cennik",
+    icon: <Tags className="w-4 h-4" />,
   },
 ];
 
@@ -161,8 +172,72 @@ export function ConfigClient({
         <TabPanel tabId="certs" active={tab === "certs"}>
           <CertsSummaryTab />
         </TabPanel>
+
+        <TabPanel tabId="pricelist" active={tab === "pricelist"}>
+          <PricelistSummaryTab />
+        </TabPanel>
       </div>
     </PageShell>
+  );
+}
+
+function PricelistSummaryTab() {
+  return (
+    <Card className="p-6">
+      <div className="flex items-start gap-4">
+        <div
+          className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
+          style={{
+            background: "rgba(34, 197, 94, 0.18)",
+            color: "#22c55e",
+          }}
+        >
+          <Tags className="w-6 h-6" />
+        </div>
+        <div className="flex-1">
+          <h3
+            className="text-lg font-semibold mb-1"
+            style={{ color: "var(--text-main)" }}
+          >
+            Cennik usług serwisowych
+          </h3>
+          <p
+            className="text-sm mb-4"
+            style={{ color: "var(--text-muted)" }}
+          >
+            Zarządzaj pozycjami cennika z targetowaniem marka/model. Cena
+            czyszczenia (CLEANING_INTAKE), ekspertyzy (EXPERTISE) i wszystkie
+            inne usługi widoczne w panelu sprzedawcy.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href="/admin/pricelist"
+              className="px-4 py-2 rounded-xl text-sm font-semibold inline-flex items-center gap-2 transition-all hover:scale-[1.02]"
+              style={{
+                background: "linear-gradient(135deg, #22C55E, #16A34A)",
+                color: "#fff",
+              }}
+            >
+              <ExternalLink className="w-4 h-4" />
+              Otwórz edytor cennika
+            </Link>
+            <a
+              href="https://cms.myperformance.pl/admin/content/mp_pricelist"
+              target="_blank"
+              rel="noreferrer"
+              className="px-4 py-2 rounded-xl text-sm font-semibold border inline-flex items-center gap-2 transition-all hover:bg-[var(--bg-surface)]"
+              style={{
+                borderColor: "var(--border-subtle)",
+                color: "var(--text-main)",
+              }}
+            >
+              <ExternalLink className="w-4 h-4" />
+              Directus (raw)
+            </a>
+          </div>
+        </div>
+      </div>
+    </Card>
   );
 }
 

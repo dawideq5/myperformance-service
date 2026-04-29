@@ -6,9 +6,9 @@ import {
   Cable,
   Camera,
   CheckCircle2,
+  ClipboardList,
   Code,
   Database,
-  Fingerprint,
   HelpCircle,
   KeyRound,
   Mic,
@@ -24,6 +24,7 @@ import {
 /** Predefiniowane typy usterek/usług. NIE zmieniać nazw — to są oficjalne
  * etykiety widoczne na zleceniu. Każda ma ikonę dla szybkiego rozpoznania. */
 export const REPAIR_TYPES: { value: string; label: string; Icon: typeof Smartphone }[] = [
+  { value: "ekspertyza", label: "Ekspertyza", Icon: ClipboardList },
   { value: "wymiana_wyswietlacza", label: "Wymiana wyświetlacza", Icon: Smartphone },
   { value: "wymiana_baterii", label: "Wymiana baterii", Icon: Battery },
   { value: "wymiana_gniazda_ladowania", label: "Wymiana gniazda ładowania", Icon: Cable },
@@ -42,6 +43,7 @@ export const REPAIR_TYPES: { value: string; label: string; Icon: typeof Smartpho
   { value: "inne", label: "Inne", Icon: HelpCircle },
 ];
 
+export const EXPERTISE_VALUE = "ekspertyza";
 const OTHER_VALUE = "inne";
 
 /** Multi-select buttons + opcjonalne pole tekstowe gdy "Inne" wybrane.
@@ -58,11 +60,23 @@ export function DescriptionPicker({
   onChangeCustom: (text: string) => void;
 }) {
   const isOther = selected.includes(OTHER_VALUE);
+  const isExpertise = selected.includes(EXPERTISE_VALUE);
+  /** Ekspertyza = exclusive — wybierając ją usuwamy wszystko inne; wybierając
+   * inne typy usuwamy ekspertyzę. */
   const toggle = (value: string) => {
+    if (value === EXPERTISE_VALUE) {
+      // Toggle ekspertyzy: gdy zaznaczona — odznacz, gdy nie — ustaw jako jedyną.
+      onChange(selected.includes(EXPERTISE_VALUE) ? [] : [EXPERTISE_VALUE]);
+      return;
+    }
+    // Każdy inny typ: usuń ekspertyzę gdy była zaznaczona.
+    const without = selected.filter(
+      (v) => v !== EXPERTISE_VALUE && v !== value,
+    );
     if (selected.includes(value)) {
-      onChange(selected.filter((v) => v !== value));
+      onChange(without);
     } else {
-      onChange([...selected, value]);
+      onChange([...without, value]);
     }
   };
 
@@ -78,12 +92,25 @@ export function DescriptionPicker({
         {REPAIR_TYPES.map((rt) => {
           const Icon = rt.Icon;
           const active = selected.includes(rt.value);
+          // Ekspertyza wyłącza inne typy (wzajemnie wykluczające); inne typy
+          // wyłączone gdy ekspertyza zaznaczona.
+          const disabled =
+            (rt.value !== EXPERTISE_VALUE && isExpertise) ||
+            (rt.value === EXPERTISE_VALUE && !isExpertise && selected.length > 0);
           return (
             <button
               key={rt.value}
               type="button"
               onClick={() => toggle(rt.value)}
-              className="p-2.5 rounded-xl border flex items-center gap-2 transition-all duration-200 hover:scale-[1.02] text-left"
+              disabled={disabled}
+              title={
+                disabled
+                  ? rt.value === EXPERTISE_VALUE
+                    ? "Odznacz inne naprawy by wybrać Ekspertyzę"
+                    : "Ekspertyza jest wyłączna — odznacz ją by wybrać tę naprawę"
+                  : undefined
+              }
+              className="p-2.5 rounded-xl border flex items-center gap-2 transition-all duration-200 hover:scale-[1.02] text-left disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
               style={{
                 background: active
                   ? "linear-gradient(135deg, rgba(59, 130, 246, 0.18), rgba(168, 85, 247, 0.08))"

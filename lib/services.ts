@@ -100,6 +100,13 @@ export interface VisualCondition {
   /** Markery uszkodzeń umieszczone na 3D modelu. */
   damage_markers?: DamageMarker[];
   additional_notes?: string;
+  /** Potwierdzenie odbioru — czy klient pozostawił dodatkowe przedmioty.
+   *   "none" = nic poza urządzeniem
+   *   "items" = wpisane przedmioty (handover_items) */
+  handover?: {
+    choice: "none" | "items";
+    items: string;
+  };
 }
 
 export interface ServiceTicket {

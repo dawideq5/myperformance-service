@@ -42,11 +42,21 @@ export async function GET(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  // Handover passed via query (panel posiada w pamięci po świeżym
-  // utworzeniu). Re-print z listy → defaults to "none".
+  // Handover: priorytet → query string (świeże dane z panel side po
+  // creation), fallback → visualCondition.handover (persisted w DB),
+  // ostatnia opcja → default "none".
+  const persistedHandover = (
+    service.visualCondition as
+      | { handover?: { choice?: "none" | "items"; items?: string } }
+      | null
+      | undefined
+  )?.handover;
   const handoverChoice =
-    (url.searchParams.get("handover_choice") as "none" | "items" | null) ?? "none";
-  const handoverItems = url.searchParams.get("handover_items") ?? "";
+    (url.searchParams.get("handover_choice") as "none" | "items" | null) ??
+    persistedHandover?.choice ??
+    "none";
+  const handoverItems =
+    url.searchParams.get("handover_items") ?? persistedHandover?.items ?? "";
 
   const data: ReceiptInput = {
     ticketNumber: service.ticketNumber ?? "—",

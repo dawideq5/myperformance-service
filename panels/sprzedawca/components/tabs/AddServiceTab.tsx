@@ -25,6 +25,7 @@ import {
 } from "../intake/PhoneConfigurator3D";
 import {
   DescriptionPicker,
+  EXPERTISE_VALUE,
   serializeRepairTypes,
 } from "../intake/DescriptionPicker";
 import { PriceSuggestions } from "../intake/PriceSuggestions";
@@ -69,6 +70,7 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
     handover: { choice: "none" | "items"; items: string };
   } | null>(null);
   const [cleaningPrice, setCleaningPrice] = useState<number | null>(null);
+  const [expertisePrice, setExpertisePrice] = useState<number>(100);
 
   // Sekcje rozwijane — sekwencyjne gating: tylko pierwsza sekcja otwarta na
   // start; kolejne odblokowują się gdy poprzednia jest complete.
@@ -108,16 +110,26 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
     }
   };
 
-  // Pobierz cenę czyszczenia z cennika (mp_pricelist code=CLEANING_INTAKE).
+  // Ekspertyza: gdy wybrana, wymuszamy fixed price (nieedytowalny). Gdy
+  // odznaczona — pozwalamy edytować ręcznie.
+  const isExpertise = repairTypes.includes(EXPERTISE_VALUE);
+  useEffect(() => {
+    if (isExpertise) {
+      setAmountEstimate(expertisePrice.toFixed(2));
+    }
+  }, [isExpertise, expertisePrice]);
+
+  // Pobierz ceny z cennika: CLEANING_INTAKE + EXPERTISE.
   useEffect(() => {
     void (async () => {
       try {
         const r = await fetch("/api/relay/pricelist");
         const json = await r.json();
-        const item = (json.items ?? []).find(
-          (i: { code: string; price: number }) => i.code === "CLEANING_INTAKE",
-        );
-        if (item) setCleaningPrice(Number(item.price));
+        const items = (json.items ?? []) as { code: string; price: number }[];
+        const cleaning = items.find((i) => i.code === "CLEANING_INTAKE");
+        if (cleaning) setCleaningPrice(Number(cleaning.price));
+        const expertise = items.find((i) => i.code === "EXPERTISE");
+        if (expertise) setExpertisePrice(Number(expertise.price));
       } catch {
         /* ignore */
       }
@@ -254,8 +266,18 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
             cleaning_accepted: v.cleaning_accepted,
             damage_markers: v.damage_markers,
             additional_notes: v.additional_notes,
+            // Persist handover w JSON visual_condition — bez schema migration.
+            handover: {
+              choice: handoverChoice ?? "none",
+              items: handoverItems.trim(),
+            },
           }
-        : {};
+        : {
+            handover: {
+              choice: handoverChoice ?? "none",
+              items: handoverItems.trim(),
+            },
+          };
       const body = {
         locationId,
         type: "phone",
@@ -268,13 +290,11 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
         intakeChecklist,
         chargingCurrent: v.charging_current ?? null,
         visualCondition: visualOnly,
-        description:
-          buildFullDescription(
-            repairTypes,
-            customDescription,
-            v.damage_markers ?? [],
-            v.additional_notes,
-          ) || null,
+        // Description = TYLKO wybrane typy napraw + custom text. Markery
+        // mają osobne pole w DB (visual_condition.damage_markers) i są
+        // renderowane w sekcji LOKALIZACJA USZKODZEŃ na PDF — nie miksuj
+        // ich z opisem usterki.
+        description: serializeRepairTypes(repairTypes, customDescription) || null,
         amountEstimate: amountEstimate ? Number(amountEstimate) : null,
         customerFirstName: customerFirstName.trim() || null,
         customerLastName: customerLastName.trim() || null,
@@ -513,6 +533,12 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
               onChangeEstimate={setAmountEstimate}
               cleaningPrice={cleaningPrice}
               cleaningAccepted={!!visualCondition.cleaning_accepted}
+              locked={isExpertise}
+              lockedReason={
+                isExpertise
+                  ? `Ekspertyza — stała cena ${expertisePrice.toFixed(2)} PLN`
+                  : undefined
+              }
             />
           </div>
         </Section>
@@ -916,11 +942,15 @@ function EstimateBlock({
   onChangeEstimate,
   cleaningPrice,
   cleaningAccepted,
+  locked,
+  lockedReason,
 }: {
   amountEstimate: string;
   onChangeEstimate: (v: string) => void;
   cleaningPrice: number | null;
   cleaningAccepted: boolean;
+  locked?: boolean;
+  lockedReason?: string;
 }) {
   const repair = amountEstimate ? Number(amountEstimate) : 0;
   const cleaning = cleaningAccepted && cleaningPrice ? cleaningPrice : 0;
@@ -953,9 +983,14 @@ function EstimateBlock({
           value={amountEstimate}
           onChange={(e) => onChangeEstimate(e.target.value)}
           placeholder="0.00"
-          className="flex-1 px-3 py-2.5 rounded-xl border text-lg font-serif font-semibold outline-none focus:border-[var(--accent)] text-right no-spinner"
+          disabled={locked}
+          readOnly={locked}
+          title={lockedReason}
+          className={`flex-1 px-3 py-2.5 rounded-xl border text-lg font-serif font-semibold outline-none focus:border-[var(--accent)] text-right no-spinner ${
+            locked ? "cursor-not-allowed opacity-80" : ""
+          }`}
           style={{
-            background: "var(--bg-surface)",
+            background: locked ? "rgba(120,120,140,0.15)" : "var(--bg-surface)",
             borderColor: "var(--border-subtle)",
             color: "var(--text-main)",
           }}
@@ -967,6 +1002,14 @@ function EstimateBlock({
           PLN
         </span>
       </div>
+      {locked && lockedReason ? (
+        <p
+          className="text-[10px] italic"
+          style={{ color: "var(--text-muted)" }}
+        >
+          {lockedReason}
+        </p>
+      ) : null}
       <div
         className="text-xs space-y-1 pt-2 border-t"
         style={{ borderColor: "rgba(14, 165, 233, 0.2)" }}
