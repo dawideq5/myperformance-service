@@ -27,7 +27,11 @@ import {
   DescriptionPicker,
   serializeRepairTypes,
 } from "../intake/DescriptionPicker";
-import { openServiceReceipt } from "../../lib/receipt";
+import { PriceSuggestions } from "../intake/PriceSuggestions";
+import {
+  openServiceReceipt,
+  sendElectronicReceipt,
+} from "../../lib/receipt";
 
 export function AddServiceTab({ locationId }: { locationId: string }) {
   const [brand, setBrand] = useState("");
@@ -358,15 +362,26 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
                   </button>
                   <button
                     type="button"
-                    disabled
-                    title="Wymaga konfiguracji Documenso (Faza C)"
-                    className="flex-1 px-4 py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={async () => {
+                      const r = await sendElectronicReceipt(
+                        lastCreated.id,
+                        lastCreated.handover,
+                      );
+                      if (r.ok) {
+                        setSuccess(
+                          `Potwierdzenie elektroniczne wysłane (Documenso doc ${r.documentId})`,
+                        );
+                      } else {
+                        setError(r.error ?? "Błąd wysyłki");
+                      }
+                    }}
+                    className="flex-1 px-4 py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 shadow-md transition-all hover:scale-[1.01]"
                     style={{
-                      background: "rgba(120,120,140,0.4)",
+                      background: "linear-gradient(135deg, #06B6D4, #0891B2)",
                       color: "#fff",
                     }}
                   >
-                    Wyślij elektroniczne (wkrótce)
+                    Wyślij elektroniczne potwierdzenie
                   </button>
                 </div>
               </div>
@@ -486,6 +501,12 @@ export function AddServiceTab({ locationId }: { locationId: string }) {
               customDescription={customDescription}
               onChange={setRepairTypes}
               onChangeCustom={setCustomDescription}
+            />
+            <PriceSuggestions
+              brand={brand}
+              model={model}
+              repairTypes={repairTypes}
+              onApply={(t) => setAmountEstimate(t.toFixed(2))}
             />
             <EstimateBlock
               amountEstimate={amountEstimate}

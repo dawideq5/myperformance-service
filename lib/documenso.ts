@@ -334,3 +334,97 @@ export function computeDocumensoStats(docs: DocumensoDocument[]): DocumensoDocum
   }
   return { total: docs.length, pending, completed, declined, expired };
 }
+
+/** Tworzy dokument do podpisu w Documenso z PDF buffer + listą signers.
+ * Flow:
+ *   1. POST /api/v1/documents — create draft + zwrot uploadUrl
+ *   2. PUT do uploadUrl z PDF bytes
+ *   3. POST /api/v1/documents/{id}/send-document — wysłanie email z linkami
+ *
+ * Zwraca documentId + signing URLs per recipient. */
+export async function createDocumentForSigning(opts: {
+  title: string;
+  pdfBuffer: Buffer;
+  signers: { name: string; email: string }[];
+  /** Po podpisaniu klient wraca tutaj. Optional. */
+  redirectUrl?: string;
+  /** Email z którego idą zaproszenia. Kontrolowane przez Documenso config
+   * (env SMTP_USERNAME/SMTP_FROM). Tu tylko dla audit log. */
+  senderName?: string;
+}): Promise<{
+  documentId: number;
+  signingUrls: Array<{ email: string; url: string | null }>;
+}> {
+  const cfg = getConfig();
+  if (!cfg) throw new Error("Documenso not configured");
+
+  // 1. Create draft document. Documenso v1 expects flat structure.
+  const createPayload = {
+    title: opts.title,
+    recipients: opts.signers.map((s, i) => ({
+      name: s.name,
+      email: s.email,
+      role: "SIGNER",
+      signingOrder: i + 1,
+    })),
+    meta: opts.redirectUrl
+      ? {
+          redirectUrl: opts.redirectUrl,
+          subject: opts.title,
+          message: "Prosimy o podpisanie potwierdzenia odbioru urządzenia.",
+        }
+      : {
+          subject: opts.title,
+          message: "Prosimy o podpisanie potwierdzenia odbioru urządzenia.",
+        },
+  };
+
+  const created = await documensoFetch<{
+    uploadUrl: string;
+    document: { id: number; title?: string };
+  }>("/api/v1/documents", {
+    method: "POST",
+    body: JSON.stringify(createPayload),
+  });
+
+  // 2. Upload PDF to presigned uploadUrl.
+  const uploadResp = await fetch(created.uploadUrl, {
+    method: "PUT",
+    body: new Uint8Array(opts.pdfBuffer),
+    headers: { "Content-Type": "application/pdf" },
+  });
+  if (!uploadResp.ok) {
+    throw new Error(
+      `Documenso upload failed: ${uploadResp.status} ${await uploadResp.text().catch(() => "")}`,
+    );
+  }
+
+  // 3. Send signing emails.
+  await documensoFetch<unknown>(
+    `/api/v1/documents/${created.document.id}/send-document`,
+    {
+      method: "POST",
+      body: JSON.stringify({ sendEmail: true }),
+    },
+  );
+
+  // Fetch back to get signing URLs.
+  const doc = await getDocument(created.document.id);
+  const signingUrls = (doc?.recipients ?? []).map((r) => ({
+    email: r.email,
+    url: r.signingUrl ?? null,
+  }));
+  log.child({ module: "documenso" }).info("document created for signing", {
+    docId: created.document.id,
+    title: opts.title,
+    signers: opts.signers.length,
+  });
+  return { documentId: created.document.id, signingUrls };
+}
+
+/** Lookup service po Documenso doc id (zapisany w mp_services.documenso_id). */
+export async function findServiceByDocumentId(_docId: number): Promise<null> {
+  // TODO: wymaga schema mp_services.documenso_doc_id field.
+  // Webhook handler użyje tej funkcji do mapowania doc → service.
+  return null;
+}
