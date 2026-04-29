@@ -13,6 +13,9 @@ import {
   diffServiceUpdate,
   recordServiceRevision,
 } from "@/lib/service-revisions";
+import { log } from "@/lib/logger";
+
+const logger = log.child({ module: "panel-services-patch" });
 
 export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: PANEL_CORS_HEADERS });
@@ -93,6 +96,12 @@ export async function PATCH(
     );
   }
   const diff = diffServiceUpdate(existing, body);
+  logger.info("PATCH service", {
+    serviceId: id,
+    user: user.email,
+    fields: Object.keys(body),
+    changedFields: Object.keys(diff.changes),
+  });
   try {
     const service = await updateService(id, body);
     // Zapisz rewizję — best-effort, błąd nie blokuje update'u.
@@ -117,11 +126,21 @@ export async function PATCH(
     );
   } catch (err) {
     if (err instanceof StatusTransitionError) {
+      logger.warn("PATCH blocked by transition", {
+        serviceId: id,
+        from: err.from,
+        to: err.to,
+      });
       return NextResponse.json(
         { error: err.message, from: err.from, to: err.to },
         { status: 409, headers: PANEL_CORS_HEADERS },
       );
     }
+    logger.error("PATCH failed", {
+      serviceId: id,
+      err: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack?.slice(0, 500) : undefined,
+    });
     return NextResponse.json(
       { error: err instanceof Error ? err.message : String(err) },
       { status: 400, headers: PANEL_CORS_HEADERS },

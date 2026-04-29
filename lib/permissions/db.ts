@@ -63,22 +63,24 @@ async function ensureSchema(client: PoolClient): Promise<void> {
   // Drop legacy NOT NULL na starych kolumnach (operation, status) oraz
   // legacy CHECK constraint który blokuje nową wartość result. Bez tego
   // każde appendIamAudit() w istniejącej DB rzuca "null value in column
-  // operation violates not-null". DO block — IF EXISTS żeby idempotentnie.
+  // operation violates not-null". Używamy information_schema żeby uniknąć
+  // łapania exception na nieistniejących kolumnach.
   await client.query(`
     DO $$
     BEGIN
-      BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'iam_audit_log' AND column_name = 'operation' AND is_nullable = 'NO'
+      ) THEN
         ALTER TABLE iam_audit_log ALTER COLUMN operation DROP NOT NULL;
-      EXCEPTION WHEN undefined_column OR cannot_alter_relation THEN NULL;
-      END;
-      BEGIN
+      END IF;
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'iam_audit_log' AND column_name = 'status' AND is_nullable = 'NO'
+      ) THEN
         ALTER TABLE iam_audit_log ALTER COLUMN status DROP NOT NULL;
-      EXCEPTION WHEN undefined_column OR cannot_alter_relation THEN NULL;
-      END;
-      BEGIN
-        ALTER TABLE iam_audit_log DROP CONSTRAINT IF EXISTS iam_audit_log_status_check;
-      EXCEPTION WHEN OTHERS THEN NULL;
-      END;
+      END IF;
+      ALTER TABLE iam_audit_log DROP CONSTRAINT IF EXISTS iam_audit_log_status_check;
     END $$;
   `);
 }
