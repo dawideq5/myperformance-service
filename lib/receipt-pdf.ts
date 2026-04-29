@@ -137,6 +137,9 @@ function formatDate(iso: string): string {
   });
 }
 
+/** Projektuje marker 3D → 2D na phone outline. surface ma priorytet nad
+ * geometrią: pewnie wskazuje przód/tył nawet gdy local x nie jest
+ * jednoznaczny (np. ramki przebiegają wzdłuż obu stron). */
 function projectMarker(m: {
   x: number;
   y: number;
@@ -145,15 +148,38 @@ function projectMarker(m: {
 }): { view: "front" | "back"; px: number; py: number } {
   const Z_RANGE = 0.85;
   const Y_RANGE = 1.7;
+  // pix coords w viewbox 0..100. Y odwrócone (góra phone = small py).
   const px = ((m.z + Z_RANGE) / (2 * Z_RANGE)) * 100;
   const py = ((Y_RANGE - m.y) / (2 * Y_RANGE)) * 100;
   const s = (m.surface ?? "").toLowerCase();
-  const view: "front" | "back" =
-    s.includes("tylny") || s.includes("aparat") || m.x < 0 ? "back" : "front";
+  // Surface decyduje pierwsze. Lokalne x sign jako fallback dla ramek/edges.
+  let view: "front" | "back" = "front";
+  if (
+    s.includes("tylny") ||
+    s.includes("panel ty") ||
+    s.includes("back") ||
+    s.includes("wyspa") ||
+    s.includes("aparat")
+  ) {
+    view = "back";
+  } else if (
+    s.includes("wyświetla") ||
+    s.includes("display") ||
+    s.includes("ekran") ||
+    s.includes("przód") ||
+    s.includes("front") ||
+    s.includes("face") ||
+    s.includes("głośnik rozmów") ||
+    s.includes("rozmów")
+  ) {
+    view = "front";
+  } else if (m.x < -0.02) {
+    view = "back";
+  }
   return {
     view,
-    px: Math.max(8, Math.min(92, px)),
-    py: Math.max(6, Math.min(94, py)),
+    px: Math.max(10, Math.min(90, px)),
+    py: Math.max(8, Math.min(92, py)),
   };
 }
 
@@ -236,6 +262,9 @@ function drawSinglePage(doc: PDFKit.PDFDocument, data: ReceiptInput): void {
   y += 80;
 
   // ===== LOCK BLOCK =====
+  // Wzór NIE jest drukowany na potwierdzeniu (security — sequence dotów
+  // bez wizualizacji nic nie daje, a niesie ryzyko przejęcia urządzenia
+  // przez osobę z dostępem do papieru).
   if (data.lock.type !== "none") {
     drawBlock(doc, M, y, W, 22, BG_LIGHT, TEXT);
     doc
@@ -245,7 +274,15 @@ function drawSinglePage(doc: PDFKit.PDFDocument, data: ReceiptInput): void {
       .text((LOCK_LABELS[data.lock.type] ?? data.lock.type).toUpperCase(), M + 8, y + 4, {
         characterSpacing: 0.5,
       });
-    doc.font("B").fontSize(10).fillColor(TEXT).text(data.lock.code || "—", M + 8, y + 12);
+    if (data.lock.type === "pattern") {
+      doc
+        .font("R")
+        .fontSize(8)
+        .fillColor(MUTED)
+        .text("(wzór nie jest drukowany na potwierdzeniu)", M + 8, y + 12);
+    } else {
+      doc.font("B").fontSize(10).fillColor(TEXT).text(data.lock.code || "—", M + 8, y + 12);
+    }
     y += 26;
   }
 
@@ -396,7 +433,7 @@ function drawSinglePage(doc: PDFKit.PDFDocument, data: ReceiptInput): void {
     .font("B")
     .fontSize(10)
     .text(`${total.toFixed(2)} PLN`, M, cy + 3, { width: W - 8, align: "right" });
-  y += totH + 4;
+  y += totH + 8;
 
   // ===== HANDOVER =====
   y = drawSection(doc, M, y, W, "POTWIERDZENIE ODBIORU");
@@ -410,11 +447,13 @@ function drawSinglePage(doc: PDFKit.PDFDocument, data: ReceiptInput): void {
   doc.text(handTxt, M + 8, y + 4, { width: W - 12, height: handH, ellipsis: true });
   y += handH + 12;
 
-  // ===== SIGNATURES =====
-  const sigW = (W - 16) / 2;
+  // ===== SIGNATURES — wyższe pola, więcej miejsca na podpisy ręczne =====
+  const sigW = (W - 24) / 2;
+  const SIG_HEIGHT = 34; // miejsce na rzeczywisty podpis
+  // Lewa: pracownik
   doc
-    .moveTo(M, y + 24)
-    .lineTo(M + sigW, y + 24)
+    .moveTo(M, y + SIG_HEIGHT)
+    .lineTo(M + sigW, y + SIG_HEIGHT)
     .lineWidth(0.8)
     .strokeColor(TEXT)
     .stroke();
@@ -422,48 +461,52 @@ function drawSinglePage(doc: PDFKit.PDFDocument, data: ReceiptInput): void {
     .font("R")
     .fontSize(7)
     .fillColor(MUTED)
-    .text("PODPIS PRACOWNIKA", M, y + 28, {
+    .text("PODPIS PRACOWNIKA", M, y + SIG_HEIGHT + 4, {
       width: sigW,
       align: "center",
       characterSpacing: 0.5,
     });
+  // Prawa: klient
   doc
-    .moveTo(M + sigW + 16, y + 24)
-    .lineTo(M + W, y + 24)
+    .moveTo(M + sigW + 24, y + SIG_HEIGHT)
+    .lineTo(M + W, y + SIG_HEIGHT)
     .lineWidth(0.8)
     .stroke();
-  doc.text("PODPIS KLIENTA", M + sigW + 16, y + 28, {
+  doc.text("PODPIS KLIENTA", M + sigW + 24, y + SIG_HEIGHT + 4, {
     width: sigW,
     align: "center",
     characterSpacing: 0.5,
   });
-  y += 42;
+  y += SIG_HEIGHT + 18;
 
-  // ===== REGULAMIN (compact) =====
-  // Reszta strony do końca minus footer.
-  const FOOTER_H = 24;
+  // ===== REGULAMIN — rozłożony, 2 kolumny, większy font =====
+  const FOOTER_H = 22;
   const regY = y;
-  const regH = PH - regY - M - FOOTER_H - 4;
+  const regAvailH = PH - regY - M - FOOTER_H - 4;
   doc
     .font("B")
-    .fontSize(7)
+    .fontSize(7.5)
     .fillColor(TEXT)
     .text("REGULAMIN ŚWIADCZENIA USŁUG SERWISOWYCH", M, regY, {
       width: W,
-      characterSpacing: 0.5,
+      characterSpacing: 0.6,
     });
-  // 2-column small print
-  const colGap = 8;
+  // 2-col, bigger font (6.5pt), więcej line-gap żeby tekst oddychał.
+  const colGap = 14;
   const regColW = (W - colGap) / 2;
-  doc.font("R").fontSize(5.7).fillColor("#333").text(REGULATIONS_TEXT, M, regY + 10, {
-    width: regColW,
-    height: regH - 10,
-    columns: 2,
-    columnGap: colGap,
-    lineGap: 0.3,
-    align: "justify",
-    ellipsis: true,
-  });
+  doc
+    .font("R")
+    .fontSize(6.5)
+    .fillColor("#333")
+    .text(REGULATIONS_TEXT, M, regY + 12, {
+      width: regColW,
+      height: regAvailH - 12,
+      columns: 2,
+      columnGap: colGap,
+      lineGap: 1.2,
+      align: "justify",
+      ellipsis: true,
+    });
 
   // ===== FOOTER =====
   const fy = PH - M - FOOTER_H;
