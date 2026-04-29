@@ -2714,6 +2714,50 @@ export const COLLECTION_SPECS: CollectionSpec[] = [
     ],
   },
 
+  // === Podpisy pracowników (per-user, embed w PDF) ===
+  // Każdy sprzedawca konfiguruje swój podpis raz w panelu (rysowany lub
+  // tekstowy) i jest on automatycznie embedowany we wszystkie generowane
+  // PDF potwierdzeń. Klient podpisuje swój przez Documenso.
+  {
+    collection: "mp_user_signatures",
+    meta: {
+      icon: "draw",
+      note: "Podpisy pracowników — embed w PDF potwierdzeń. 1 rekord per email.",
+      display_template: "{{user_email}} — {{signed_name}}",
+      sort_field: "-updated_at",
+    },
+    fields: [
+      {
+        field: "id",
+        type: "uuid",
+        schema: { is_primary_key: true },
+        meta: { hidden: true, readonly: true, special: ["uuid"] },
+      },
+      {
+        field: "user_email",
+        type: "string",
+        schema: { is_nullable: false, is_unique: true },
+        meta: { interface: "input", required: true, width: "half" },
+      },
+      {
+        field: "signed_name",
+        type: "string",
+        meta: { interface: "input", width: "half", note: "Imię i nazwisko widoczne pod podpisem" },
+      },
+      {
+        field: "png_data_url",
+        type: "text",
+        schema: { is_nullable: false },
+        meta: { interface: "input-multiline", required: true, hidden: true, note: "Base64 PNG — embed w PDF" },
+      },
+      {
+        field: "updated_at",
+        type: "timestamp",
+        meta: { interface: "datetime", readonly: true, width: "half", special: ["date-updated"] },
+      },
+    ],
+  },
+
   // === Action log — akcje na serwisach ===
   // Każda akcja na zleceniu (podpis, wysyłka, druk, ponowna wysyłka) loguje
   // wpis tutaj. Pozwala na pełen audit trail w widoku /serwis/[id] —

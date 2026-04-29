@@ -38,6 +38,7 @@ import { ClaimsTab } from "./tabs/ClaimsTab";
 import { PricelistTab } from "./tabs/PricelistTab";
 import { DeliveryTab } from "./tabs/DeliveryTab";
 import { ToastProvider } from "./ToastProvider";
+import { SignatureSetup } from "./SignatureSetup";
 
 const STORAGE_KEY = "panel-sprzedawca:selected-location";
 const TAB_STORAGE_KEY = "panel-sprzedawca:active-tab";
@@ -337,6 +338,7 @@ export function PanelHome({
   // ── Wybrany punkt: pulpit z headerem ────────────────────────────────────
   return (
     <ToastProvider>
+    <SignatureSetup userLabel={userLabel} userEmail={userEmail} />
     <div
       className="min-h-screen flex flex-col"
       style={{ background: "var(--bg-main)" }}

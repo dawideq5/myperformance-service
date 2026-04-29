@@ -14,6 +14,7 @@ import {
 } from "@/lib/receipt-pdf";
 import { getPricelistPriceByCode } from "@/lib/pricelist";
 import { logServiceAction } from "@/lib/service-actions";
+import { getUserSignature } from "@/lib/user-signatures";
 import { log } from "@/lib/logger";
 import { createHash } from "node:crypto";
 
@@ -92,9 +93,21 @@ export async function POST(
     );
   }
 
-  // Sequential signing przez Documenso: pracownik podpisuje pierwszy
-  // (signingOrder=1), klient drugi (signingOrder=2). Bez embed PNG —
-  // każdy signer dodaje swój podpis przez Documenso UI/iframe.
+  // Auto-sign przez pracownika: bierzemy jego per-user signature z DB
+  // i embedujemy jako PNG w PDF (na linii PODPIS PRACOWNIKA). Documenso
+  // wysyła tylko klientowi do podpisu — workflow "1 klik = wysłane".
+  const employeeSig = await getUserSignature(user.email);
+  if (!employeeSig) {
+    return NextResponse.json(
+      {
+        error:
+          "Brak skonfigurowanego podpisu pracownika. Otwórz ustawienia panelu i zapisz swój podpis — będzie automatycznie używany w potwierdzeniach.",
+        code: "EMPLOYEE_SIGNATURE_NOT_CONFIGURED",
+      },
+      { status: 412 },
+    );
+  }
+
   const data: ReceiptInput = {
     ticketNumber: service.ticketNumber ?? "—",
     createdAt: service.createdAt ?? new Date().toISOString(),
@@ -112,8 +125,8 @@ export async function POST(
     },
     lock: { type: service.lockType ?? "none", code: service.lockCode ?? "" },
     description: service.description ?? "",
-    employeeName: user.name?.trim() || user.preferred_username || user.email,
-    employeeSignaturePng: null,
+    employeeName: employeeSig.signedName,
+    employeeSignaturePng: employeeSig.pngDataUrl,
     visualCondition: {
       ...(service.visualCondition ?? {}),
       ...(service.intakeChecklist ?? {}),
@@ -140,33 +153,20 @@ export async function POST(
       `${service.customerFirstName ?? ""} ${service.customerLastName ?? ""}`.trim() ||
       "Klient";
 
-    // Sequential signing przez Documenso:
-    //  1. Pracownik (signingOrder=1) — dostaje email + frontend embeduje
-    //     signing URL w panelu pracownika.
-    //  2. Klient (signingOrder=2) — dostaje email DOPIERO po podpisie
-    //     pracownika.
-    // Redirect po podpisaniu — pracownik wraca do panelu sprzedawca,
-    // klient na potwierdzenie (publiczne, bez auth).
-    const panelOrigin =
-      process.env.PANEL_SPRZEDAWCA_URL?.replace(/\/$/, "") ||
-      "https://panelsprzedawcy.myperformance.pl";
-    const employeeRedirectUrl = `${panelOrigin}/serwis/${id}?signed=employee`;
+    // Documenso recipient = TYLKO klient. Pracownik już podpisał (PNG
+    // embedded w PDF z mp_user_signatures), więc klient widzi gotowy
+    // dokument do swojego podpisu. "1 klik = wysłane" workflow.
+    void employeeName;
 
     const result = await createDocumentForSigning({
       title: force
         ? `Potwierdzenie ${service.ticketNumber} — aktualizacja`
         : `Potwierdzenie ${service.ticketNumber}`,
       pdfBuffer: rendered.buffer,
-      redirectUrl: employeeRedirectUrl,
       message: force
-        ? "Aktualizacja potwierdzenia odbioru urządzenia po edycji warunków. Prosimy o ponowny podpis."
+        ? "Aktualizacja potwierdzenia odbioru urządzenia po edycji warunków. Prosimy o podpis."
         : "Prosimy o podpisanie potwierdzenia odbioru urządzenia.",
       signers: [
-        {
-          name: employeeName,
-          email: user.email,
-          signatureBox: rendered.signatures.employee,
-        },
         {
           name: customerName,
           email: service.contactEmail,
@@ -175,10 +175,7 @@ export async function POST(
       ],
     });
 
-    const employeeSigningUrl =
-      result.signingUrls.find(
-        (s) => s.email.toLowerCase() === user.email.toLowerCase(),
-      )?.url ?? result.signingUrls[0]?.url ?? null;
+    const employeeSigningUrl: string | null = null;
 
     const previousDocIds = (() => {
       const cur = service.visualCondition?.documenso;

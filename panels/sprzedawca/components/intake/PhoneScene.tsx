@@ -140,7 +140,7 @@ export default function PhoneScene({
       />
 
       <group ref={groupRef}>
-        <Suspense fallback={<PhonePlaceholder brandColor={brandColor} />}>
+        <Suspense fallback={null}>
           <PhoneGLB
             highlight={highlight}
             damageMarkers={damageMarkers}

@@ -444,9 +444,10 @@ export function AddServiceTab({
       } catch {
         /* localStorage may be disabled */
       }
-      const target = `/serwis/${serviceId}?action=sign${
-        significant ? "&resign=1" : ""
-      }`;
+      // BEZ auto-flow: redirect do widoku serwisu, user decyduje co robić
+      // (drukuj papier, wyślij elektronicznie, edytuj). Bez auto-trigger
+      // wysyłki Documenso.
+      const target = `/serwis/${serviceId}${significant ? "?resign=1" : ""}`;
       window.location.href = target;
       return;
     } catch (err) {
@@ -651,12 +652,14 @@ export function AddServiceTab({
               onChange={setRepairTypes}
               onChangeCustom={setCustomDescription}
             />
-            <PriceSuggestions
-              brand={brand}
-              model={model}
-              repairTypes={repairTypes}
-              onApply={(t) => setAmountEstimate(t.toFixed(2))}
-            />
+            {repairTypes.length > 0 && (
+              <PriceSuggestions
+                brand={brand}
+                model={model}
+                repairTypes={repairTypes}
+                onApply={(t) => setAmountEstimate(t.toFixed(2))}
+              />
+            )}
             <EstimateBlock
               amountEstimate={amountEstimate}
               onChangeEstimate={setAmountEstimate}

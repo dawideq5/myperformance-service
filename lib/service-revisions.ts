@@ -86,6 +86,21 @@ const FIELD_LABEL: Partial<Record<keyof UpdateServiceInput, string>> = {
 
 /** Buduje diff między aktualnym service a UpdateServiceInput. Zwraca też
  * isSignificant=true gdy zmiana dotyczy któregokolwiek SIGNIFICANT_FIELDS. */
+function fmtValue(v: unknown): string {
+  if (v == null) return "—";
+  if (typeof v === "string") {
+    const t = v.trim();
+    return t.length > 60 ? t.slice(0, 57) + "…" : t || "—";
+  }
+  if (typeof v === "number") return String(v);
+  if (typeof v === "boolean") return v ? "Tak" : "Nie";
+  // JSONB obiekty (visualCondition, intakeChecklist) — nie wstawiamy
+  // surowego JSON do summary, tylko skrócony znacznik. UI history
+  // może wyświetlić kluczowe pola osobno.
+  if (typeof v === "object") return "[obiekt]";
+  return String(v);
+}
+
 export function diffServiceUpdate(
   before: ServiceTicket,
   input: UpdateServiceInput,
@@ -105,7 +120,17 @@ export function diffServiceUpdate(
     if (deepEqual(oldVal, newVal)) continue;
     changes[key as string] = { before: oldVal, after: newVal };
     const label = FIELD_LABEL[key] ?? (key as string);
-    summaryParts.push(label);
+    // Konkretne wartości w summary — np. "kwota wyceny: 100 → 150 PLN".
+    if (
+      typeof newVal !== "object" &&
+      typeof oldVal !== "object" &&
+      key !== "visualCondition" &&
+      key !== "intakeChecklist"
+    ) {
+      summaryParts.push(`${label}: ${fmtValue(oldVal)} → ${fmtValue(newVal)}`);
+    } else {
+      summaryParts.push(label);
+    }
     if (SIGNIFICANT_FIELDS.has(key)) isSignificant = true;
   }
 
@@ -114,7 +139,7 @@ export function diffServiceUpdate(
     summary:
       summaryParts.length === 0
         ? "Brak zmian"
-        : `Zmieniono: ${summaryParts.join(", ")}`,
+        : summaryParts.join(" • "),
     isSignificant,
   };
 }

@@ -23,6 +23,7 @@ const ALLOWED_PREFIXES = new Set([
   "protections",
   "pricelist",
   "transport-jobs",
+  "me",
 ]);
 
 async function handle(

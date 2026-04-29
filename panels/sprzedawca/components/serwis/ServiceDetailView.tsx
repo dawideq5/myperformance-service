@@ -64,27 +64,27 @@ const DOCUMENSO_STATUS_PHRASES: Record<
   { label: string; color: string; description: string }
 > = {
   sent: {
-    label: "Oczekiwanie na podpis pracownika",
+    label: "Oczekiwanie na podpis klienta",
     color: "#06B6D4",
     description: "",
   },
   employee_signed: {
     label: "Oczekiwanie na podpis klienta",
-    color: "#A855F7",
+    color: "#06B6D4",
     description: "",
   },
   signed: {
-    label: "Dokument zatwierdzony",
+    label: "Klient podpisał",
     color: "#22C55E",
     description: "",
   },
   rejected: {
-    label: "Odrzucone przez klienta",
+    label: "Klient odrzucił dokument",
     color: "#EF4444",
     description: "",
   },
   expired: {
-    label: "Unieważnione",
+    label: "Unieważnione po edycji",
     color: "#F59E0B",
     description: "",
   },
@@ -231,17 +231,9 @@ function ServiceDetailInner({
     ? `/api/relay/services/${service.id}/signed-pdf`
     : undefined;
 
-  // Auto-flow: gdy URL ma ?action=sign i potwierdzenie nie zostało
-  // jeszcze wysłane do Documenso → wywołaj wysyłkę automatycznie.
-  // Po wysyłce status zmieni się na "sent" + pojawi się signing URL
-  // pracownika do otwarcia w iframe/nowej karcie.
-  useEffect(() => {
-    if (!service) return;
-    if (initialAction === "sign" && eDocStatus === "none") {
-      void handleEmail(false);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialAction, service?.id]);
+  // Auto-flow USUNIĘTY — sprzedawca decyduje kiedy wysłać dokument.
+  // Bez automatycznej wysyłki bez user gestu.
+  void initialAction;
 
   // Detect ?signed=employee w URL (po powrocie z Documenso po podpisie
   // pracownika) — toast confirmation + clean param + force refresh.
@@ -426,13 +418,8 @@ function ServiceDetailInner({
               {service.ticketNumber}
             </p>
           </div>
-          <span
-            className="text-[10px] uppercase tracking-wider"
-            style={{ color: "var(--text-muted)" }}
-            title="Status aktualizowany automatycznie"
-          >
-            • na żywo
-          </span>
+          <span />
+
         </div>
       </header>
 
@@ -566,31 +553,7 @@ function DocumentSigningCard({
             {meta.label}
           </p>
           <div className="flex flex-wrap gap-2 mt-3">
-            {(status === "sent" || status === "employee_signed") &&
-              employeeSigningUrl && (
-                <a
-                  href={employeeSigningUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5"
-                  style={{
-                    background:
-                      status === "sent"
-                        ? "linear-gradient(135deg, #06B6D4, #0891B2)"
-                        : "transparent",
-                    color: status === "sent" ? "#fff" : meta.color,
-                    border:
-                      status === "sent"
-                        ? "none"
-                        : `1px solid ${meta.color}55`,
-                  }}
-                >
-                  <Pen className="w-3 h-3" />
-                  {status === "sent"
-                    ? "Złóż podpis pracownika"
-                    : "Otwórz dokument w Documenso"}
-                </a>
-              )}
+            {void employeeSigningUrl}
             {signedPdfUrl && (
               <a
                 href={signedPdfUrl}
