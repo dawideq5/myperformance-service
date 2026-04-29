@@ -432,24 +432,22 @@ function DamagePin({ x, y, z }: { x: number; y: number; z: number }) {
 
   return (
     <group ref={groupRef} position={[x, y, z]}>
-      <mesh ref={dotRef}>
-        {/* segments 16→8 — dla mikrokropki różnica niewidoczna. */}
-        <sphereGeometry args={[0.006, 8, 8]} />
-        <meshStandardMaterial
+      <mesh ref={dotRef} renderOrder={999}>
+        <sphereGeometry args={[0.06, 12, 12]} />
+        <meshBasicMaterial
           color="#ff2020"
-          emissive={new THREE.Color("#ff0000")}
-          emissiveIntensity={1.6}
-          roughness={0.3}
+          depthTest={false}
+          transparent={false}
         />
       </mesh>
-      <mesh ref={ringRef}>
-        {/* ringGeometry 32→16 segments. */}
-        <ringGeometry args={[0.0085, 0.0107, 16]} />
+      <mesh ref={ringRef} renderOrder={998}>
+        <ringGeometry args={[0.085, 0.107, 24]} />
         <meshBasicMaterial
           color="#ff3030"
           transparent
           opacity={0.55}
           side={THREE.DoubleSide}
+          depthTest={false}
           depthWrite={false}
         />
       </mesh>

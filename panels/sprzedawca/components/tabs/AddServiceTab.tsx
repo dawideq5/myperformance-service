@@ -814,7 +814,13 @@ export function AddServiceTab({
         >
           <button
             type="button"
-            onClick={reset}
+            onClick={() => {
+              if (editingServiceId && onEditDone) {
+                onEditDone();
+              } else {
+                reset();
+              }
+            }}
             disabled={saving}
             className="px-4 py-2 rounded-xl text-sm font-medium border transition-colors hover:bg-[var(--bg-surface)]"
             style={{
@@ -823,7 +829,7 @@ export function AddServiceTab({
               color: "var(--text-muted)",
             }}
           >
-            Wyczyść
+            {editingServiceId ? "Anuluj" : "Wyczyść"}
           </button>
           <button
             type="submit"
@@ -846,7 +852,11 @@ export function AddServiceTab({
             ) : (
               <CheckCircle2 className="w-4 h-4" />
             )}
-            {saving ? "Zapisywanie…" : "Utwórz zlecenie"}
+            {saving
+              ? "Zapisywanie…"
+              : editingServiceId
+                ? "Zapisz edycję"
+                : "Utwórz zlecenie"}
           </button>
         </div>
       </form>
@@ -1336,9 +1346,9 @@ function VisualConditionSummary({
             </ul>
           </div>
         )}
-        {cleaningSelected > 0 && cleaningPrice != null && (
+        {cleaningSelected > 0 && (
           <div className="text-xs" style={{ color: "#22c55e" }}>
-            ✓ Czyszczenie: <strong>+{cleaningPrice} PLN</strong>
+            ✓ Czyszczenie urządzenia
           </div>
         )}
         {condition.additional_notes && (

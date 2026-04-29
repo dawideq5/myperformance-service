@@ -9,6 +9,7 @@ import {
   isDocumensoConfigured,
 } from "@/lib/documenso";
 import { renderReceiptPdf, type ReceiptInput } from "@/lib/receipt-pdf";
+import { getPricelistPriceByCode } from "@/lib/pricelist";
 import { log } from "@/lib/logger";
 
 const logger = log.child({ module: "send-electronic" });
@@ -90,7 +91,12 @@ export async function POST(
     },
     estimate:
       typeof service.amountEstimate === "number" ? service.amountEstimate : null,
-    cleaningPrice: null,
+    cleaningPrice: service.visualCondition?.cleaning_accepted
+      ? await getPricelistPriceByCode("CLEANING_INTAKE", {
+          brand: service.brand,
+          model: service.model,
+        })
+      : null,
     cleaningAccepted: !!service.visualCondition?.cleaning_accepted,
     handover: { choice: handoverChoice, items: handoverItems },
   };

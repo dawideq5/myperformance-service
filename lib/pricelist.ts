@@ -184,3 +184,22 @@ export async function updatePricelistItem(
 export async function deletePricelistItem(id: string): Promise<void> {
   await deleteItem("mp_pricelist", id);
 }
+
+/** Zwraca cenę pozycji o danym `code` z pricelist (np. CLEANING_INTAKE,
+ * EXPERTISE) najlepiej dopasowaną do brand+model. Brak dopasowania → null. */
+export async function getPricelistPriceByCode(
+  code: string,
+  device: { brand?: string | null; model?: string | null } = {},
+): Promise<number | null> {
+  const items = await listPricelist({ enabledOnly: true });
+  const matches = items.filter(
+    (i) => i.code === code && matchesPricelist(i, device),
+  );
+  if (matches.length === 0) return null;
+  matches.sort((a, b) => {
+    const ax = (a.brand ? 1 : 0) + (a.modelPattern ? 1 : 0);
+    const bx = (b.brand ? 1 : 0) + (b.modelPattern ? 1 : 0);
+    return bx - ax;
+  });
+  return matches[0]?.price ?? null;
+}
