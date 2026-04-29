@@ -269,6 +269,37 @@ function ServiceDetailInner({
     openServiceReceipt(service.id, service.visualCondition?.handover);
   }, [service]);
 
+  const handleInvalidate = useCallback(async () => {
+    if (!service) return;
+    if (
+      !window.confirm(
+        "Unieważnić podpisany dokument? Po tym możesz wysłać nowy z aktualnymi danymi.",
+      )
+    )
+      return;
+    setBusy(true);
+    try {
+      const r = await fetch(
+        `/api/relay/services/${service.id}/invalidate-electronic`,
+        { method: "POST" },
+      );
+      const j = await r.json();
+      if (!r.ok) throw new Error(j?.error ?? `HTTP ${r.status}`);
+      toast.push({
+        kind: "success",
+        message: "Dokument unieważniony. Możesz wysłać nowy.",
+      });
+      await refresh();
+    } catch (e) {
+      toast.push({
+        kind: "error",
+        message: e instanceof Error ? e.message : "Błąd unieważnienia",
+      });
+    } finally {
+      setBusy(false);
+    }
+  }, [refresh, service, toast]);
+
   const handlePaperSigned = useCallback(async () => {
     if (!service) return;
     setBusy(true);
@@ -450,6 +481,7 @@ function ServiceDetailInner({
             onPrint={handlePrint}
             onEmail={() => void handleEmail(false)}
             onResend={() => void handleEmail(true)}
+            onInvalidate={() => void handleInvalidate()}
             signedPdfUrl={signedPdfUrl}
             paperSigned={!!service.visualCondition?.paperSigned}
             paperSignedAt={service.visualCondition?.paperSigned?.signedAt}
@@ -634,6 +666,7 @@ function ActionsCard({
   onPrint,
   onEmail,
   onResend,
+  onInvalidate,
   signedPdfUrl,
   paperSigned,
   paperSignedAt,
@@ -645,6 +678,7 @@ function ActionsCard({
   onPrint: () => void;
   onEmail: () => void;
   onResend: () => void;
+  onInvalidate?: () => void;
   signedPdfUrl?: string;
   paperSigned?: boolean;
   paperSignedAt?: string;
@@ -654,6 +688,7 @@ function ActionsCard({
     eDocStatus === "sent" ||
     eDocStatus === "employee_signed" ||
     eDocStatus === "signed";
+  const isSigned = eDocStatus === "signed" || !!signedPdfUrl;
   return (
     <div
       className="p-4 rounded-2xl border"
@@ -684,19 +719,37 @@ function ActionsCard({
         />
         <ActionButton
           icon={<Mail className="w-4 h-4" />}
-          label={eAlready ? "Wyślij ponownie" : "Podpis elektroniczny"}
+          label={
+            isSigned
+              ? "Wyślij ponownie"
+              : eAlready
+                ? "Wyślij ponownie"
+                : "Podpis elektroniczny"
+          }
           hint={
             !hasEmail
               ? "Wymagany adres email klienta"
-              : eAlready
-                ? "Przypomnienie do klienta"
-                : "Email z linkiem do podpisu"
+              : isSigned
+                ? "Najpierw unieważnij podpisany dokument"
+                : eAlready
+                  ? "Przypomnienie do klienta"
+                  : "Email z linkiem do podpisu"
           }
-          onClick={eAlready ? onResend : onEmail}
-          disabled={!hasEmail || busy || paperSigned || !!signedPdfUrl}
+          onClick={eAlready && !isSigned ? onResend : onEmail}
+          disabled={!hasEmail || busy || paperSigned || isSigned}
           color={eAlready ? "#f59e0b" : "#06B6D4"}
         />
-        {!paperSigned && !signedPdfUrl && onPaperSigned && (
+        {isSigned && onInvalidate && (
+          <ActionButton
+            icon={<AlertCircle className="w-4 h-4" />}
+            label="Unieważnij dokument"
+            hint="Anuluje podpisany dokument — odblokowuje ponowną wysyłkę"
+            onClick={onInvalidate}
+            disabled={busy}
+            color="#ef4444"
+          />
+        )}
+        {!paperSigned && !isSigned && onPaperSigned && (
           <ActionButton
             icon={<CheckCircle2 className="w-4 h-4" />}
             label="Podpisano (papier)"
@@ -708,8 +761,8 @@ function ActionsCard({
         )}
         {signedPdfUrl && (
           <ActionButton
-            icon={<CheckCircle2 className="w-4 h-4" />}
-            label="Pobierz podpisany dokument"
+            icon={<FileText className="w-4 h-4" />}
+            label="Otwórz podpisany dokument"
             hint="PDF z podpisem klienta z Documenso"
             onClick={() => window.open(signedPdfUrl, "_blank", "noopener")}
             disabled={busy}
