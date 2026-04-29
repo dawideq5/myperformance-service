@@ -295,19 +295,12 @@ function ServiceDetailInner({
         if (r.ok) {
           toast.update(toastId, {
             kind: "success",
-            title: "Dokument przekazany do podpisu",
-            message: "Otwieram panel podpisu pracownika.",
+            title: "Wysłano do klienta",
+            message: `Klient otrzyma email z linkiem do podpisu (#${r.documentId}).`,
             sticky: false,
             progress: 100,
           });
           await refresh();
-          // Auto-otwórz signing URL pracownika w nowej karcie. Documenso
-          // hostowane na sign.zlecenieserwisowe.pl. Po podpisie redirect
-          // wraca do panelu z ?signed=employee.
-          const url = r.signingUrls?.[0]?.url;
-          if (url) {
-            window.open(url, "_blank", "noopener,noreferrer");
-          }
         } else {
           toast.update(toastId, {
             kind: "error",
