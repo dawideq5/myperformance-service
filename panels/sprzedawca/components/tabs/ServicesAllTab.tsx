@@ -563,6 +563,7 @@ function ServiceDetailDialog({
         ) : (
           <div className="p-5 space-y-3">
             <DetailGrid data={data} />
+            <RevisionsList serviceId={serviceId} />
             <div className="flex flex-wrap gap-2 pt-3 border-t border-[var(--border-subtle)]">
               <button
                 type="button"
@@ -597,6 +598,71 @@ function ServiceDetailDialog({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function RevisionsList({ serviceId }: { serviceId: string }) {
+  const [revs, setRevs] = useState<
+    Array<{
+      id: string;
+      summary: string;
+      isSignificant: boolean;
+      changeKind: string;
+      editedByName: string | null;
+      createdAt: string;
+    }>
+  >([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    void (async () => {
+      try {
+        const r = await fetch(`/api/relay/services/${serviceId}/revisions`);
+        const j = await r.json();
+        setRevs((j.revisions ?? []) as typeof revs);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [serviceId]);
+  if (loading) return null;
+  if (revs.length === 0) return null;
+  return (
+    <div
+      className="rounded-xl border p-3"
+      style={{ borderColor: "var(--border-subtle)" }}
+    >
+      <p
+        className="text-[10px] uppercase tracking-wide font-semibold mb-2"
+        style={{ color: "var(--text-muted)" }}
+      >
+        Historia edycji ({revs.length})
+      </p>
+      <ul className="space-y-1.5">
+        {revs.slice(0, 10).map((r) => (
+          <li
+            key={r.id}
+            className="flex items-start gap-2 text-xs"
+            style={{ color: "var(--text-main)" }}
+          >
+            <span
+              className="mt-0.5 shrink-0 inline-block w-1.5 h-1.5 rounded-full"
+              style={{ background: r.isSignificant ? "#f59e0b" : "#64748b" }}
+              title={r.isSignificant ? "Istotna zmiana (aneks)" : "Edycja"}
+            />
+            <div className="flex-1 min-w-0">
+              <p className="truncate">{r.summary}</p>
+              <p
+                className="text-[10px]"
+                style={{ color: "var(--text-muted)" }}
+              >
+                {new Date(r.createdAt).toLocaleString("pl-PL")}
+                {r.editedByName ? ` · ${r.editedByName}` : ""}
+              </p>
+            </div>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

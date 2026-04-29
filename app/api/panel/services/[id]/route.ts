@@ -9,6 +9,10 @@ import {
   StatusTransitionError,
   type UpdateServiceInput,
 } from "@/lib/services";
+import {
+  diffServiceUpdate,
+  recordServiceRevision,
+} from "@/lib/service-revisions";
 
 export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: PANEL_CORS_HEADERS });
@@ -88,9 +92,29 @@ export async function PATCH(
       { status: 400, headers: PANEL_CORS_HEADERS },
     );
   }
+  const diff = diffServiceUpdate(existing, body);
   try {
     const service = await updateService(id, body);
-    return NextResponse.json({ service }, { headers: PANEL_CORS_HEADERS });
+    // Zapisz rewizję — best-effort, błąd nie blokuje update'u.
+    void recordServiceRevision({
+      service: existing,
+      input: body,
+      editor: {
+        email: user.email,
+        name: user.name?.trim() || user.preferred_username || user.email,
+      },
+    });
+    return NextResponse.json(
+      {
+        service,
+        revision: {
+          significant: diff.isSignificant,
+          summary: diff.summary,
+          changedFields: Object.keys(diff.changes),
+        },
+      },
+      { headers: PANEL_CORS_HEADERS },
+    );
   } catch (err) {
     if (err instanceof StatusTransitionError) {
       return NextResponse.json(

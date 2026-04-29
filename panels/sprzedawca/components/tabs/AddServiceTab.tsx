@@ -79,6 +79,13 @@ export function AddServiceTab({
   } | null>(null);
   const [cleaningPrice, setCleaningPrice] = useState<number | null>(null);
   const [expertisePrice, setExpertisePrice] = useState<number>(100);
+  // Dialog "Wystawić aneks?" pokazywany po edycji która zmieniła pole
+  // significant (kwota wyceny, diagnoza, gwarancja). Decyzja: pobierz PDF
+  // (przyciski drukuj/wyślij), albo pomiń.
+  const [annexPrompt, setAnnexPrompt] = useState<{
+    serviceId: string;
+    ticketNumber: string;
+  } | null>(null);
 
   // Sekcje rozwijane — sekwencyjne gating: tylko pierwsza sekcja otwarta na
   // start; kolejne odblokowują się gdy poprzednia jest complete.
@@ -394,6 +401,13 @@ export function AddServiceTab({
           : `Utworzono zlecenie ${ticketNumber}`,
       );
       if (isEdit) {
+        const significant = json.revision?.significant === true;
+        if (significant) {
+          setAnnexPrompt({ serviceId, ticketNumber });
+          // Nie resetujemy formularza ani nie wracamy do listy — czekamy
+          // aż user zdecyduje co zrobić z aneksem.
+          return;
+        }
         // Reset back to list view after edit done.
         setTimeout(() => onEditDone?.(), 1500);
       }
@@ -872,6 +886,17 @@ export function AddServiceTab({
             setVisualCondition(state);
             setVisualCompleted(true);
             setShowConfigurator(false);
+          }}
+        />
+      )}
+      {annexPrompt && (
+        <AnnexPromptDialog
+          ticketNumber={annexPrompt.ticketNumber}
+          serviceId={annexPrompt.serviceId}
+          onClose={() => {
+            setAnnexPrompt(null);
+            reset();
+            onEditDone?.();
           }}
         />
       )}
@@ -1451,6 +1476,125 @@ function ChecklistInfoCompact({ condition }: { condition: VisualConditionState }
           </span>
         </div>
       ))}
+    </div>
+  );
+}
+
+/** Dialog po edycji znaczącej (cena, diagnoza). Pyta co zrobić z aneksem:
+ * pobrać/wydrukować PDF, lub pomiń. */
+function AnnexPromptDialog({
+  ticketNumber,
+  serviceId,
+  onClose,
+}: {
+  ticketNumber: string;
+  serviceId: string;
+  onClose: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const openPdf = async (mode: "view" | "print") => {
+    setBusy(true);
+    setError(null);
+    try {
+      const url = `/api/relay/services/${serviceId}/annex`;
+      const res = await fetch(url);
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j?.error ?? `HTTP ${res.status}`);
+      }
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const w = window.open(blobUrl, "_blank");
+      if (!w) {
+        const a = document.createElement("a");
+        a.href = blobUrl;
+        a.download = `aneks-${ticketNumber}.pdf`;
+        a.click();
+      } else if (mode === "print") {
+        w.addEventListener("load", () => {
+          try {
+            w.focus();
+            w.print();
+          } catch {
+            /* ignore */
+          }
+        });
+      }
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Nie udało się pobrać aneksu");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
+      <div
+        className="rounded-2xl border shadow-2xl max-w-md w-full p-5"
+        style={{
+          background: "var(--bg-surface)",
+          borderColor: "var(--border-subtle)",
+        }}
+      >
+        <h3
+          className="text-lg font-semibold mb-1"
+          style={{ color: "var(--text-main)" }}
+        >
+          Wystawić aneks?
+        </h3>
+        <p className="text-sm mb-4" style={{ color: "var(--text-muted)" }}>
+          Edycja zlecenia <strong>{ticketNumber}</strong> dotyczy istotnych
+          warunków (kwota / diagnoza / gwarancja). Możesz wystawić aneks dla
+          klienta — dokument PDF z porównaniem stanu przed i po.
+        </p>
+        {error && (
+          <div
+            className="text-xs mb-3 px-3 py-2 rounded-lg"
+            style={{ background: "rgba(239,68,68,0.12)", color: "#ef4444" }}
+          >
+            {error}
+          </div>
+        )}
+        <div className="flex flex-col gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => openPdf("view")}
+            className="px-4 py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2"
+            style={{
+              background: "linear-gradient(135deg, var(--accent), #2563eb)",
+              color: "#fff",
+            }}
+          >
+            Otwórz aneks (PDF)
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => openPdf("print")}
+            className="px-4 py-2.5 rounded-xl text-sm font-medium border"
+            style={{
+              background: "transparent",
+              borderColor: "var(--border-subtle)",
+              color: "var(--text-main)",
+            }}
+          >
+            Otwórz i wydrukuj
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onClose}
+            className="px-4 py-2 rounded-xl text-xs"
+            style={{ color: "var(--text-muted)" }}
+          >
+            Pomiń
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

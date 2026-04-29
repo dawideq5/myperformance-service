@@ -502,6 +502,7 @@ export async function createService(
 export interface UpdateServiceInput {
   status?: ServiceStatus;
   diagnosis?: string | null;
+  description?: string | null;
   amountEstimate?: number | null;
   amountFinal?: number | null;
   assignedTechnician?: string | null;
@@ -515,6 +516,11 @@ export interface UpdateServiceInput {
   contactEmail?: string | null;
   photos?: string[];
   serviceLocationId?: string | null;
+  type?: ServiceType | string | null;
+  brand?: string | null;
+  model?: string | null;
+  imei?: string | null;
+  color?: string | null;
   lockType?: LockType;
   lockCode?: string | null;
   signedInAccount?: string | null;
@@ -608,6 +614,13 @@ export async function updateService(
   if (input.photos !== undefined) patch.photos = input.photos.slice(0, 10);
   if (input.serviceLocationId !== undefined)
     patch.service_location = input.serviceLocationId;
+  if (input.type !== undefined) patch.type = input.type;
+  if (input.brand !== undefined) patch.brand = input.brand;
+  if (input.model !== undefined) patch.model = input.model;
+  if (input.imei !== undefined)
+    patch.imei = input.imei ? input.imei.toUpperCase() : null;
+  if (input.color !== undefined) patch.color = input.color;
+  if (input.description !== undefined) patch.description = input.description;
   if (input.lockType !== undefined) patch.lock_type = input.lockType;
   if (input.lockCode !== undefined) patch.lock_code = input.lockCode;
   if (input.signedInAccount !== undefined)

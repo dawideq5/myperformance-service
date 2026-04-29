@@ -2629,6 +2629,91 @@ export const COLLECTION_SPECS: CollectionSpec[] = [
     ],
   },
 
+  // === Historia edycji serwisu ===
+  // Każda zmiana w mp_services rejestrowana jako revision row. Pozwala
+  // na audit (kto, co, kiedy zmienił) + generację aneksu gdy zmiana
+  // dotyczy istotnych pól (cena, opis, zakres usług). Brak FK do
+  // mp_services (Directus REST nie wspiera ON DELETE CASCADE z UI),
+  // service_id trzymane jako uuid + handler purge przy delete service.
+  {
+    collection: "mp_service_revisions",
+    meta: {
+      icon: "history",
+      note: "Historia edycji zleceń serwisowych — kto, kiedy i jakie pola zmienił. Tylko-do-odczytu.",
+      display_template: "{{ticket_number}} — {{edited_by_name}} ({{created_at}})",
+      sort_field: "-created_at",
+    },
+    fields: [
+      {
+        field: "id",
+        type: "uuid",
+        schema: { is_primary_key: true },
+        meta: { hidden: true, readonly: true, special: ["uuid"] },
+      },
+      {
+        field: "service_id",
+        type: "uuid",
+        schema: { is_nullable: false },
+        meta: { interface: "input", readonly: true, width: "half", note: "ID zlecenia serwisowego (mp_services.id)." },
+      },
+      {
+        field: "ticket_number",
+        type: "string",
+        meta: { interface: "input", readonly: true, width: "half", options: { font: "monospace" } },
+      },
+      {
+        field: "edited_by_email",
+        type: "string",
+        meta: { interface: "input", readonly: true, width: "half" },
+      },
+      {
+        field: "edited_by_name",
+        type: "string",
+        meta: { interface: "input", readonly: true, width: "half" },
+      },
+      {
+        field: "change_kind",
+        type: "string",
+        schema: { default_value: "edit" },
+        meta: {
+          interface: "select-dropdown",
+          readonly: true,
+          width: "half",
+          options: {
+            choices: [
+              { text: "Edycja", value: "edit" },
+              { text: "Zmiana statusu", value: "status_change" },
+              { text: "Aneks wystawiony", value: "annex_issued" },
+              { text: "Documenso", value: "documenso" },
+            ],
+          },
+        },
+      },
+      {
+        field: "is_significant",
+        type: "boolean",
+        schema: { default_value: false },
+        meta: { interface: "boolean", readonly: true, width: "half", note: "Wymaga aneksu (zmiana ceny/opisu/zakresu)." },
+      },
+      {
+        field: "summary",
+        type: "text",
+        meta: { interface: "input-multiline", readonly: true, width: "full", note: "Czytelny opis zmian (po polsku)." },
+      },
+      {
+        field: "changes",
+        type: "json",
+        meta: { interface: "input-code", readonly: true, width: "full", options: { language: "json" }, note: "Diff JSON {field: {before, after}}." },
+      },
+      {
+        field: "created_at",
+        type: "timestamp",
+        schema: { default_value: "now()" },
+        meta: { interface: "datetime", readonly: true, width: "half", special: ["date-created"] },
+      },
+    ],
+  },
+
   // === Transport / dostawa (panel kierowcy) ===
   // Każde zlecenie transportu ma source + destination location, status, kierowcę,
   // ETA, podpis odbioru. Powiązany m2o z mp_services (które urządzenie wozimy).
