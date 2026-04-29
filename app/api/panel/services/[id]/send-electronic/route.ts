@@ -145,11 +145,19 @@ export async function POST(
     //     signing URL w panelu pracownika.
     //  2. Klient (signingOrder=2) — dostaje email DOPIERO po podpisie
     //     pracownika.
+    // Redirect po podpisaniu — pracownik wraca do panelu sprzedawca,
+    // klient na potwierdzenie (publiczne, bez auth).
+    const panelOrigin =
+      process.env.PANEL_SPRZEDAWCA_URL?.replace(/\/$/, "") ||
+      "https://panelsprzedawcy.myperformance.pl";
+    const employeeRedirectUrl = `${panelOrigin}/serwis/${id}?signed=employee`;
+
     const result = await createDocumentForSigning({
       title: force
         ? `Potwierdzenie ${service.ticketNumber} — aktualizacja`
         : `Potwierdzenie ${service.ticketNumber}`,
       pdfBuffer: rendered.buffer,
+      redirectUrl: employeeRedirectUrl,
       message: force
         ? "Aktualizacja potwierdzenia odbioru urządzenia po edycji warunków. Prosimy o ponowny podpis."
         : "Prosimy o podpisanie potwierdzenia odbioru urządzenia.",
