@@ -299,14 +299,22 @@ export function PhoneGLB({
           if (e.delta > 5) return;
           e.stopPropagation();
           if (!groupRef.current) return;
-          // Klasyfikacja w WORLD coords — phone jest auto-skalowany do
-          // maxDim 3.5 i wycentrowany w (0,0,0), więc world coords są
-          // bezpośrednio relatywne do telefonu (X±0.09 thin, Y±1.7 long,
-          // Z±0.85 wide). Local coords by były w GLB internal scale (duże
-          // liczby) — użycie world dla klasyfikacji jest poprawne.
+          // Marker coords MUSZĄ być w OUTER-group frame (gdzie phone ma
+          // znormalizowany scale 3.5 maxDim, X±0.09, Y±1.7, Z±0.85).
+          // worldToLocal na groupRef (INNER group) dawał coords w INTERNAL
+          // GLB scale (przed normalize.scale) — wszystkie markery wyglądały
+          // jak w środku po projekcji, bo zakres był ~25× za duży.
+          // Outer group = inner.parent. Bierzemy worldToLocal stamtąd —
+          // identity transform (lub rotacja gdy display↔back step) →
+          // znormalizowany frame.
+          const outerGroup = groupRef.current.parent;
           const worldP = e.point.clone();
-          const local = groupRef.current.worldToLocal(e.point.clone());
-          onModelClick(local, classifyDamageZones(worldP));
+          const localOuter = outerGroup
+            ? outerGroup.worldToLocal(e.point.clone())
+            : worldP.clone();
+          // Klasyfikacja stref: używamy world coords (matchują static
+          // ranges 1.25/0.55 hardcoded w classifyDamageZones).
+          onModelClick(localOuter, classifyDamageZones(worldP));
         }}
       />
       {/* Markery — TYLKO gdy nie disassembly (ukrywamy podczas rozkładania). */}

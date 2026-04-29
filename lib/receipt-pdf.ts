@@ -206,14 +206,18 @@ function classifyView(m: {
   return m.x < 0 ? "back" : "front";
 }
 
-/** Pozycja markera w obrębie outline (px,py 0..100). */
+/** Pozycja markera w obrębie outline (px,py 0..100). Zakresy dopasowane
+ * do faktycznego extent phone w outer-group frame (worldToLocal):
+ *   Y±1.4 (visible long axis, classifyDamageZones używa 1.25 boundary)
+ *   Z±0.55 (faktyczne ramki boczne, classifyDamageZones używa 0.55)
+ *   X±0.09 (cienka głębokość) */
 function projectInView(
   view: DamageView,
   m: { x: number; y: number; z: number },
 ): { px: number; py: number } {
-  const Y_RANGE = 1.7;
-  const Z_RANGE = 0.85;
-  const X_RANGE = 0.12;
+  const Y_RANGE = 1.4;
+  const Z_RANGE = 0.55;
+  const X_RANGE = 0.09;
   let px = 50;
   let py = 50;
   switch (view) {
@@ -693,15 +697,54 @@ function drawDamageViewBox(
   // Tło + outline. Zaokrąglone narożniki dla front/back, square dla ramek.
   const r = view === "front" || view === "back" ? 5 : 2;
   doc.roundedRect(x, y, w, h, r).lineWidth(0.8).fillAndStroke("#fafafa", TEXT);
-  // Wewnętrzny rect (różny per view — sugestia "ekran" dla front/back).
-  if (view === "front" || view === "back") {
+
+  // Visualne odróżnienie front vs back vs ramki:
+  if (view === "front") {
+    // Ekran rect + notch (dynamic island/kamerka)
     doc
       .roundedRect(x + 3, y + 8, w - 6, h - 16, 2)
       .lineWidth(0.4)
       .fillAndStroke("#ffffff", "#888");
-    // Top dot
-    doc.circle(x + w / 2, y + 5, 1).fill("#444");
+    // Notch w środku górnej krawędzi
+    doc.roundedRect(x + w / 2 - 6, y + 4, 12, 3, 1.5).fill("#222");
+  } else if (view === "back") {
+    // Wyspa aparatów (camera bump) — kwadrat w prawym górnym rogu
+    const camX = x + 5;
+    const camY = y + 5;
+    const camS = 14;
+    doc
+      .roundedRect(camX, camY, camS, camS, 3)
+      .lineWidth(0.4)
+      .fillAndStroke("#e5e5e5", "#888");
+    // 3 obiektywy (małe okręgi)
+    doc.circle(camX + 4, camY + 4, 2).fill("#1a1a1a");
+    doc.circle(camX + 10, camY + 4, 2).fill("#1a1a1a");
+    doc.circle(camX + 4, camY + 10, 2).fill("#1a1a1a");
+    // Logo placeholder w środku
+    doc.circle(x + w / 2, y + h / 2, 4).lineWidth(0.4).stroke("#bbb");
+  } else if (view === "top" || view === "bottom") {
+    // Ramka pozioma — pokażmy gniazda jak port ładowania (dla bottom)
+    if (view === "bottom") {
+      // Port + głośniki
+      doc.rect(x + w / 2 - 5, y + h / 2 - 1.5, 10, 3).fill("#888");
+      doc.rect(x + w / 2 - 18, y + h / 2 - 1, 6, 2).fill("#888");
+      doc.rect(x + w / 2 + 12, y + h / 2 - 1, 6, 2).fill("#888");
+    } else {
+      // Top: głośnik rozmów
+      doc.rect(x + w / 2 - 6, y + h / 2 - 1, 12, 2).fill("#888");
+    }
+  } else {
+    // Left/right ramka — przyciski głośność/power
+    if (view === "left") {
+      // Volume up/down
+      doc.rect(x + w / 2 - 1.5, y + 18, 3, 8).fill("#888");
+      doc.rect(x + w / 2 - 1.5, y + 30, 3, 8).fill("#888");
+    } else {
+      // Power button + (na S23) bixby
+      doc.rect(x + w / 2 - 1.5, y + 25, 3, 10).fill("#888");
+    }
   }
+
   // Markery w widoku.
   for (const { m, num } of markersForView) {
     const p = projectInView(view, m);
@@ -718,16 +761,23 @@ function drawDamageViewBox(
         lineBreak: false,
       });
   }
-  // Label.
+
+  // Label — rozdzielamy ręcznie (PRZÓD / TYŁ jednowyrazowe; ramki:
+  // "GÓRNA RAMKA" → 2 wiersze "GÓRNA\nRAMKA"). Width szeroki na cały
+  // wiersz nawet dla wąskich widoków (left/right ramka), żeby nie łamać
+  // wewnątrz wyrazu.
+  const label = VIEW_LABELS[view];
+  const labelLines = label.includes(" ") ? label.split(" ") : [label];
+  const labelText = labelLines.join("\n");
   doc
     .font("B")
     .fontSize(5.5)
     .fillColor(TEXT)
-    .text(VIEW_LABELS[view], x, y + h + 1, {
-      width: w,
+    .text(labelText, x - 10, y + h + 1, {
+      width: w + 20, // szeroka kolumna żeby pomieścić "GÓRNA" / "RAMKA"
       align: "center",
       characterSpacing: 0.5,
-      lineBreak: false,
+      lineGap: 1,
     });
 }
 

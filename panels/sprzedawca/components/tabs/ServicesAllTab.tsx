@@ -5,19 +5,22 @@ import {
   AlertCircle,
   Clock,
   Cpu,
+  Eye,
   FileText,
   Loader2,
+  Mail,
   Package,
-  Pencil,
   Phone,
   RefreshCw,
   Search,
+  Send,
   Smartphone,
   Tablet,
   TabletSmartphone,
   Wrench,
+  X,
 } from "lucide-react";
-import { openServiceReceipt } from "../../lib/receipt";
+import { openServiceReceipt, sendElectronicReceipt } from "../../lib/receipt";
 
 interface ServiceTicket {
   id: string;
@@ -30,6 +33,7 @@ interface ServiceTicket {
   customerFirstName: string | null;
   customerLastName: string | null;
   contactPhone: string | null;
+  contactEmail?: string | null;
   description: string | null;
   amountEstimate: number | null;
   amountFinal: number | null;
@@ -38,6 +42,19 @@ interface ServiceTicket {
   photos: string[];
   accessories: string[];
 }
+
+type EReceiptStatus = "none" | "sent" | "signed" | "rejected" | "expired";
+
+const ERECEIPT_BADGES: Record<
+  EReceiptStatus,
+  { label: string; bg: string; color: string }
+> = {
+  none: { label: "Brak", bg: "rgba(120,120,140,0.18)", color: "#aaa" },
+  sent: { label: "Wysłane", bg: "rgba(14, 165, 233, 0.18)", color: "#0EA5E9" },
+  signed: { label: "Podpisane", bg: "rgba(34, 197, 94, 0.18)", color: "#22C55E" },
+  rejected: { label: "Odrzucone", bg: "rgba(239, 68, 68, 0.18)", color: "#EF4444" },
+  expired: { label: "Wygasłe", bg: "rgba(245, 158, 11, 0.18)", color: "#F59E0B" },
+};
 
 const STATUS_LABELS: Record<
   string,
@@ -226,7 +243,13 @@ export function ServicesAllTab() {
   );
 }
 
-function ServiceCard({ service }: { service: ServiceTicket }) {
+function ServiceCard({
+  service,
+  onChanged,
+}: {
+  service: ServiceTicket;
+  onChanged?: () => void;
+}) {
   const status = STATUS_LABELS[service.status] ?? {
     label: service.status,
     color: "#64748B",
@@ -238,6 +261,31 @@ function ServiceCard({ service }: { service: ServiceTicket }) {
       .filter(Boolean)
       .join(" ") || "—";
   const isReceived = service.status === "received";
+  const hasEmail = !!(service.contactEmail ?? "").trim();
+  const [eStatus, setEStatus] = useState<EReceiptStatus>("none");
+  const [sendingE, setSendingE] = useState(false);
+  const [showDetail, setShowDetail] = useState(false);
+
+  const eBadge = ERECEIPT_BADGES[eStatus];
+
+  const handleSendElectronic = async () => {
+    if (!hasEmail) return;
+    setSendingE(true);
+    try {
+      const r = await sendElectronicReceipt(service.id);
+      if (r.ok) {
+        setEStatus("sent");
+        onChanged?.();
+        alert(
+          `Potwierdzenie elektroniczne wysłane do klienta. Documenso doc ID: ${r.documentId}`,
+        );
+      } else {
+        alert(`Błąd wysyłki: ${r.error ?? "nieznany"}`);
+      }
+    } finally {
+      setSendingE(false);
+    }
+  };
 
   return (
     <div
@@ -348,30 +396,225 @@ function ServiceCard({ service }: { service: ServiceTicket }) {
             <span className="hidden sm:inline">Potwierdzenie</span>
             <span className="sm:hidden">PDF</span>
           </button>
-          {isReceived && (
-            <button
-              type="button"
-              onClick={() => {
-                // Edycja przed obróbką — w P30-B otworzy AddServiceTab w trybie
-                // edit z prefill. Na razie placeholder.
-                alert(
-                  "Edycja zlecenia — implementacja w toku. Na razie skontaktuj się z administratorem.",
-                );
-              }}
-              className="px-2 py-1.5 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1 border transition-all hover:scale-[1.02]"
-              style={{
-                background: "var(--bg-surface)",
-                borderColor: "var(--border-subtle)",
-                color: "var(--text-main)",
-              }}
-              title="Edytuj zlecenie (tylko Przyjęty)"
-            >
-              <Pencil className="w-3 h-3" />
-              <span className="hidden sm:inline">Edytuj</span>
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={handleSendElectronic}
+            disabled={!hasEmail || sendingE}
+            className="px-2 py-1.5 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1 transition-all hover:scale-[1.02] disabled:cursor-not-allowed disabled:hover:scale-100"
+            style={{
+              background: hasEmail
+                ? "linear-gradient(135deg, #06B6D4, #0891B2)"
+                : "rgba(120,120,140,0.4)",
+              color: "#fff",
+              opacity: hasEmail ? 1 : 0.6,
+            }}
+            title={
+              hasEmail
+                ? "Wyślij elektroniczne potwierdzenie do klienta"
+                : "Brak adresu email klienta — wyślij papierowe lub uzupełnij dane"
+            }
+          >
+            {sendingE ? (
+              <Loader2 className="w-3 h-3 animate-spin" />
+            ) : (
+              <Mail className="w-3 h-3" />
+            )}
+            <span className="hidden md:inline">E-mail</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowDetail(true)}
+            className="px-2 py-1.5 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1 border transition-all hover:scale-[1.02]"
+            style={{
+              background: "var(--bg-surface)",
+              borderColor: "var(--border-subtle)",
+              color: "var(--text-main)",
+            }}
+            title={isReceived ? "Edytuj zlecenie" : "Szczegóły zlecenia"}
+          >
+            <Eye className="w-3 h-3" />
+            <span className="hidden md:inline">{isReceived ? "Edytuj" : "Szczegóły"}</span>
+          </button>
+        </div>
+        {/* E-receipt status badge */}
+        <div className="flex items-center justify-end mt-1">
+          <span
+            className="text-[9px] uppercase font-bold px-1.5 py-0.5 rounded-full flex items-center gap-1"
+            style={{ background: eBadge.bg, color: eBadge.color }}
+            title="Status potwierdzenia elektronicznego"
+          >
+            <Send className="w-2.5 h-2.5" />
+            {eBadge.label}
+          </span>
         </div>
       </div>
+      {showDetail && (
+        <ServiceDetailDialog
+          serviceId={service.id}
+          onClose={() => setShowDetail(false)}
+          onSendElectronic={hasEmail ? handleSendElectronic : undefined}
+          isReceived={isReceived}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Read-only widok szczegółów zlecenia. Fetch /api/relay/services/{id} +
+ * pokazanie wszystkich danych. Dla status=received pozwala wysłać
+ * elektroniczne potwierdzenie. */
+function ServiceDetailDialog({
+  serviceId,
+  onClose,
+  onSendElectronic,
+  isReceived,
+}: {
+  serviceId: string;
+  onClose: () => void;
+  onSendElectronic?: () => void;
+  isReceived: boolean;
+}) {
+  const [data, setData] = useState<Record<string, unknown> | null>(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    void (async () => {
+      try {
+        const r = await fetch(`/api/relay/services/${serviceId}`);
+        const j = await r.json();
+        setData(j.service ?? j.data?.service ?? null);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [serviceId]);
+
+  return (
+    <div
+      className="fixed inset-0 z-[2100] flex items-center justify-center p-4 animate-fade-in"
+      style={{ background: "rgba(0,0,0,0.7)" }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div
+        className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl border shadow-2xl"
+        style={{
+          background: "var(--bg-card)",
+          borderColor: "var(--border-subtle)",
+          color: "var(--text-main)",
+        }}
+      >
+        <div
+          className="sticky top-0 px-5 py-3 border-b backdrop-blur-md flex items-center justify-between"
+          style={{
+            background: "var(--bg-header)",
+            borderColor: "var(--border-subtle)",
+          }}
+        >
+          <div>
+            <p className="text-base font-semibold">
+              {isReceived ? "Edycja zlecenia" : "Szczegóły zlecenia"}
+            </p>
+            <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+              {(data?.ticketNumber as string) ?? "…"}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 rounded-lg hover:bg-white/10"
+            aria-label="Zamknij"
+          >
+            <X className="w-5 h-5" style={{ color: "var(--text-muted)" }} />
+          </button>
+        </div>
+        {loading ? (
+          <div className="p-12 text-center">
+            <Loader2
+              className="w-6 h-6 animate-spin mx-auto"
+              style={{ color: "var(--text-muted)" }}
+            />
+          </div>
+        ) : !data ? (
+          <div className="p-6 text-center text-sm" style={{ color: "#ef4444" }}>
+            Nie udało się pobrać szczegółów zlecenia.
+          </div>
+        ) : (
+          <div className="p-5 space-y-3">
+            <DetailGrid data={data} />
+            <div className="flex flex-wrap gap-2 pt-3 border-t border-[var(--border-subtle)]">
+              <button
+                type="button"
+                onClick={() => openServiceReceipt(serviceId)}
+                className="px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2"
+                style={{
+                  background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+                  color: "#fff",
+                }}
+              >
+                <FileText className="w-4 h-4" />
+                Otwórz potwierdzenie
+              </button>
+              {onSendElectronic && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onSendElectronic();
+                    onClose();
+                  }}
+                  className="px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2"
+                  style={{
+                    background: "linear-gradient(135deg, #06B6D4, #0891B2)",
+                    color: "#fff",
+                  }}
+                >
+                  <Mail className="w-4 h-4" />
+                  Wyślij elektroniczne
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DetailGrid({ data }: { data: Record<string, unknown> }) {
+  const fields: { label: string; value: unknown }[] = [
+    { label: "Numer", value: data.ticketNumber },
+    { label: "Status", value: data.status },
+    { label: "Marka", value: data.brand },
+    { label: "Model", value: data.model },
+    { label: "Kolor", value: data.color },
+    { label: "IMEI", value: data.imei },
+    { label: "Imię klienta", value: data.customerFirstName },
+    { label: "Nazwisko klienta", value: data.customerLastName },
+    { label: "Telefon", value: data.contactPhone },
+    { label: "Email", value: data.contactEmail },
+    { label: "Wycena (PLN)", value: data.amountEstimate },
+    {
+      label: "Opis usterki",
+      value: data.description,
+    },
+  ];
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      {fields.map((f) => (
+        <div key={f.label}>
+          <p
+            className="text-[10px] uppercase tracking-wide font-semibold mb-0.5"
+            style={{ color: "var(--text-muted)" }}
+          >
+            {f.label}
+          </p>
+          <p className="text-sm" style={{ color: "var(--text-main)" }}>
+            {f.value != null && f.value !== ""
+              ? String(f.value)
+              : "—"}
+          </p>
+        </div>
+      ))}
     </div>
   );
 }

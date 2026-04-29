@@ -410,8 +410,34 @@ export async function createDocumentForSigning(opts: {
     );
   }
 
-  // 3. Send signing emails.
-  await documensoFetch<unknown>(`/api/v1/documents/${docId}/send-document`, {
+  // 2b. Documenso wymaga signature field dla każdego signera. Pobieramy
+  // recipients (z ich id po stronie DocumDoc) i dodajemy SIGNATURE field.
+  const docDetail = await documensoFetch<{
+    recipients?: { id: number; email: string }[];
+  }>(`/api/v1/documents/${docId}`);
+  for (const rec of docDetail.recipients ?? []) {
+    // Pole na ostatniej stronie potwierdzenia, w sekcji signatures.
+    // Coords w PDF coordinate system (origin bottom-left, jednostki: punkt).
+    // Dla A4 595x842pt: signatures są ~88pt od dołu, lewa kolumna do x=290,
+    // prawa od x=305. Pierwszy signer = pracownik (lewa), drugi = klient (prawa).
+    const isFirst = rec.id === (docDetail.recipients?.[0]?.id ?? -1);
+    await documensoFetch<unknown>(`/api/v1/documents/${docId}/fields`, {
+      method: "POST",
+      body: JSON.stringify({
+        recipientId: rec.id,
+        type: "SIGNATURE",
+        pageNumber: 1,
+        pageX: isFirst ? 8 : 55,
+        pageY: 88,
+        pageWidth: 32,
+        pageHeight: 6,
+      }),
+    });
+  }
+
+  // 3. Send. Documenso v1 endpoint: POST /api/v1/documents/{id}/send
+  // (nie /send-document — to było w starszych wersjach API).
+  await documensoFetch<unknown>(`/api/v1/documents/${docId}/send`, {
     method: "POST",
     body: JSON.stringify({ sendEmail: true }),
   });

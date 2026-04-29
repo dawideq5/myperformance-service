@@ -20,15 +20,24 @@ interface PricelistItem {
 /** Mapowanie kategorii cennika ←→ kody typów napraw z DescriptionPicker.
  * Pomaga sugerować pricelist items na podstawie wybranych przez sprzedawcę
  * typów napraw. */
+/** Mapowanie repair type values (z DescriptionPicker) → kategorie cennika.
+ * Pozwala filtrować pricelist po wybranych typach napraw. */
 const REPAIR_TYPE_TO_CATEGORY: Record<string, string[]> = {
-  display_replace: ["screen"],
-  back_glass_replace: ["screen"],
-  battery_replace: ["battery"],
-  charging_port_repair: ["port"],
-  water_damage: ["water_damage"],
-  motherboard_repair: ["logic_board"],
-  diagnosis: ["diagnostic"],
-  cleaning: ["protection"],
+  ekspertyza: ["diagnostic"],
+  wymiana_wyswietlacza: ["screen"],
+  wymiana_baterii: ["battery"],
+  wymiana_gniazda_ladowania: ["port"],
+  wymiana_panelu_tylnego: ["screen"],
+  wymiana_glosnika_rozmow: ["other"],
+  wymiana_glosnika_multimedialnego: ["other"],
+  wymiana_szkla_aparatu: ["screen"],
+  wymiana_korpusu: ["other"],
+  wymiana_mikrofonu: ["other"],
+  wymiana_tacki_sim: ["other"],
+  odzysk_danych: ["other"],
+  usterka_oprogramowania: ["other"],
+  nieznany_wzor_kod_blokady: ["other"],
+  frp_usuniecie_blokady_google: ["other"],
 };
 
 function matchesDevice(
