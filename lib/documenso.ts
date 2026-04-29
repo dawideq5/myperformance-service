@@ -201,11 +201,36 @@ export async function getDocument(id: number): Promise<DocumensoDocument | null>
 export async function downloadDocumentPdf(id: number): Promise<Response> {
   const cfg = getConfig();
   if (!cfg) throw new Error("Documenso not configured");
-  const res = await fetch(`${cfg.baseUrl}/api/v1/documents/${id}/download`, {
-    headers: { Authorization: cfg.apiKey },
-    cache: "no-store",
-  });
-  return res;
+  // Documenso v3 zwraca JSON {downloadUrl} (presigned S3) — fetchujemy
+  // tę URL żeby otrzymać binary PDF i forward'ujemy do klienta.
+  const meta = await fetch(
+    `${cfg.baseUrl}/api/v1/documents/${id}/download`,
+    {
+      headers: { Authorization: cfg.apiKey },
+      cache: "no-store",
+    },
+  );
+  if (!meta.ok) return meta;
+  const ct = meta.headers.get("content-type") ?? "";
+  if (ct.startsWith("application/pdf")) {
+    // Stary v1/v2 — direct PDF.
+    return meta;
+  }
+  // v3: parse JSON, fetch downloadUrl.
+  try {
+    const j = (await meta.json()) as { downloadUrl?: string };
+    if (!j.downloadUrl) {
+      return new Response("Missing downloadUrl in Documenso response", {
+        status: 502,
+      });
+    }
+    const pdf = await fetch(j.downloadUrl, { cache: "no-store" });
+    return pdf;
+  } catch (err) {
+    return new Response(`Download parse failed: ${String(err)}`, {
+      status: 502,
+    });
+  }
 }
 
 export interface DocumensoDocumentStats {

@@ -568,24 +568,7 @@ function DocumentSigningCard({
           >
             {meta.label}
           </p>
-          <div className="flex flex-wrap gap-2 mt-3">
-            {void employeeSigningUrl}
-            {signedPdfUrl && (
-              <a
-                href={signedPdfUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5"
-                style={{
-                  background: "linear-gradient(135deg, #22c55e, #16a34a)",
-                  color: "#fff",
-                }}
-              >
-                <FileText className="w-3 h-3" />
-                Pobierz podpisany dokument
-              </a>
-            )}
-          </div>
+          {void employeeSigningUrl}
         </div>
       </div>
     </div>
@@ -690,9 +673,13 @@ function ActionsCard({
         <ActionButton
           icon={<Printer className="w-4 h-4" />}
           label="Wersja papierowa"
-          hint="Wydruk z miejscem na ręczne podpisy"
+          hint={
+            signedPdfUrl
+              ? "Klient podpisał elektronicznie — pobierz finalny PDF"
+              : "Wydruk z miejscem na ręczne podpisy"
+          }
           onClick={onPrint}
-          disabled={busy}
+          disabled={busy || !!signedPdfUrl}
           color="#6366f1"
         />
         <ActionButton
@@ -702,19 +689,29 @@ function ActionsCard({
             !hasEmail
               ? "Wymagany adres email klienta"
               : eAlready
-                ? "Nowy dokument do podpisu"
-                : "Documenso — pracownik, następnie klient"
+                ? "Przypomnienie do klienta"
+                : "Email z linkiem do podpisu"
           }
           onClick={eAlready ? onResend : onEmail}
-          disabled={!hasEmail || busy || paperSigned}
+          disabled={!hasEmail || busy || paperSigned || !!signedPdfUrl}
           color={eAlready ? "#f59e0b" : "#06B6D4"}
         />
-        {!paperSigned && onPaperSigned && (
+        {!paperSigned && !signedPdfUrl && onPaperSigned && (
           <ActionButton
             icon={<CheckCircle2 className="w-4 h-4" />}
             label="Podpisano (papier)"
-            hint="Klient podpisał papierową wersję — unieważnij elektroniczną"
+            hint="Klient podpisał wydrukowaną wersję"
             onClick={onPaperSigned}
+            disabled={busy}
+            color="#22c55e"
+          />
+        )}
+        {signedPdfUrl && (
+          <ActionButton
+            icon={<CheckCircle2 className="w-4 h-4" />}
+            label="Pobierz podpisany dokument"
+            hint="PDF z podpisem klienta z Documenso"
+            onClick={() => window.open(signedPdfUrl, "_blank", "noopener")}
             disabled={busy}
             color="#22c55e"
           />
@@ -733,39 +730,17 @@ function ActionsCard({
               style={{ color: "#22c55e" }}
             >
               <CheckCircle2 className="w-4 h-4" />
-              <span className="text-sm font-semibold">
-                Podpisano papierowo
-              </span>
+              <span className="text-sm font-semibold">Podpisano papierowo</span>
             </div>
             {paperSignedAt && (
-              <p className="text-[11px] mt-1" style={{ color: "var(--text-muted)" }}>
+              <p
+                className="text-[11px] mt-1"
+                style={{ color: "var(--text-muted)" }}
+              >
                 {new Date(paperSignedAt).toLocaleString("pl-PL")}
               </p>
             )}
           </div>
-        )}
-        {signedPdfUrl && (
-          <a
-            href={signedPdfUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="p-3 rounded-xl border text-left transition-all hover:scale-[1.02] sm:col-span-2"
-            style={{
-              background:
-                "linear-gradient(135deg, rgba(34,197,94,0.18), rgba(34,197,94,0.08))",
-              borderColor: "rgba(34,197,94,0.4)",
-            }}
-          >
-            <div
-              className="flex items-center gap-2"
-              style={{ color: "#22c55e" }}
-            >
-              <CheckCircle2 className="w-4 h-4" />
-              <span className="text-sm font-semibold">
-                Pobierz dokument z podpisami
-              </span>
-            </div>
-          </a>
         )}
       </div>
     </div>
