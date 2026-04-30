@@ -6,6 +6,26 @@
  */
 export async function register(): Promise<void> {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
+
+  // ── OpenTelemetry — startujemy NAJWCZEŚNIEJ żeby auto-instr łapało
+  //    wszystkie późniejsze importy (pg, mysql2, fetch, http).
+  //    Fail-closed: jeśli `OTEL_EXPORTER_OTLP_ENDPOINT` nieskonfigurowane,
+  //    SDK nie startuje, brak overhead.
+  try {
+    const { startOtel } = await import("@/lib/observability/otel");
+    const result = await startOtel();
+    if (result.enabled) {
+      // eslint-disable-next-line no-console
+      console.log("[instrumentation] OpenTelemetry enabled");
+    }
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      "[instrumentation] OTel init failed (non-fatal):",
+      err instanceof Error ? err.message : err,
+    );
+  }
+
   // Lazy imports — instrumentation może być wywołane przed pełną inicjalizacją.
   try {
     const { withEmailClient, ensureDefaultLayout, ensureDefaultSmtpConfig } =
