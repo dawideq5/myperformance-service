@@ -33,16 +33,32 @@ async function sendSignedReceiptToCustomer(
     });
     return;
   }
-  const dl = await downloadDocumentPdf(documentId);
-  if (!dl.ok) {
-    logger.warn("download signed PDF failed", {
+  // Documenso emituje DOCUMENT_SIGNED zaraz po podpisie ostatniego
+  // signera; seal-document trwa kilka sekund. Retry z backoff 2s/5s/10s
+  // żeby pobrać sealed PDF a nie 400 "Document not completed".
+  let buffer: Buffer | null = null;
+  const delays = [0, 2000, 5000, 10_000];
+  for (const delay of delays) {
+    if (delay > 0) await new Promise((r) => setTimeout(r, delay));
+    const dl = await downloadDocumentPdf(documentId);
+    if (dl.ok) {
+      buffer = Buffer.from(await dl.arrayBuffer());
+      break;
+    }
+    logger.info("download signed PDF retry", {
       serviceId,
       documentId,
       status: dl.status,
+      delayMs: delay,
+    });
+  }
+  if (!buffer) {
+    logger.warn("download signed PDF failed after retries", {
+      serviceId,
+      documentId,
     });
     return;
   }
-  const buffer = Buffer.from(await dl.arrayBuffer());
   const serviceLocation = serviceLocationId
     ? await getLocation(serviceLocationId).catch(() => null)
     : null;
@@ -65,6 +81,7 @@ async function sendSignedReceiptToCustomer(
     fromName,
     fromAddress,
     replyTo: fromAddress,
+    transport: "confirmation",
     attachments: [
       {
         filename: `Potwierdzenie-${ticketNumber ?? documentId}.pdf`,
