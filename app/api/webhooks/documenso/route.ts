@@ -7,8 +7,74 @@ import { log } from "@/lib/logger";
 import { getUserIdByEmail, notifyUser } from "@/lib/notify";
 import { findServiceByDocumensoId, updateService } from "@/lib/services";
 import { logServiceAction } from "@/lib/service-actions";
+import { downloadDocumentPdf } from "@/lib/documenso";
+import { sendMail } from "@/lib/smtp";
+import { getBrandName } from "@/lib/service-config";
 
 const logger = log.child({ module: "documenso-webhook" });
+
+/** Po DOCUMENT_COMPLETED elektronicznym wyślij klientowi kopię
+ * podpisanego dokumentu jako załącznik PDF. Idempotent best-effort. */
+async function sendSignedReceiptToCustomer(
+  serviceId: string,
+  ticketNumber: string | null,
+  customerEmail: string | null,
+  customerFirstName: string | null,
+  documentId: number,
+): Promise<void> {
+  if (!customerEmail) {
+    logger.info("send signed receipt skipped — brak emaila klienta", {
+      serviceId,
+    });
+    return;
+  }
+  const dl = await downloadDocumentPdf(documentId);
+  if (!dl.ok) {
+    logger.warn("download signed PDF failed", {
+      serviceId,
+      documentId,
+      status: dl.status,
+    });
+    return;
+  }
+  const buffer = Buffer.from(await dl.arrayBuffer());
+  const brand = getBrandName();
+  const greeting = customerFirstName?.trim()
+    ? `Witaj ${customerFirstName.trim()},`
+    : "Dzień dobry,";
+  const subject = ticketNumber
+    ? `${brand} — kopia podpisanego potwierdzenia ${ticketNumber}`
+    : `${brand} — kopia podpisanego potwierdzenia`;
+  const html = `<!DOCTYPE html><html lang="pl"><body style="font-family:system-ui,Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;color:#1a1a1a;">
+<p>${greeting}</p>
+<p>W załączniku znajduje się podpisana wersja potwierdzenia odbioru urządzenia${
+    ticketNumber ? ` <strong>${ticketNumber}</strong>` : ""
+  }.</p>
+<p>Dziękujemy za zaufanie i potwierdzenie warunków zlecenia.</p>
+<p style="color:#666;margin-top:24px;font-size:13px;">${brand}</p>
+</body></html>`;
+  const text = `${greeting}\n\nW załączniku znajduje się podpisana wersja potwierdzenia odbioru urządzenia${
+    ticketNumber ? ` ${ticketNumber}` : ""
+  }.\n\nDziękujemy za zaufanie.\n\n${brand}`;
+  await sendMail({
+    to: customerEmail,
+    subject,
+    html,
+    text,
+    attachments: [
+      {
+        filename: `Potwierdzenie-${ticketNumber ?? documentId}.pdf`,
+        content: buffer,
+        contentType: "application/pdf",
+      },
+    ],
+  });
+  logger.info("signed receipt sent to customer", {
+    serviceId,
+    customerEmail,
+    documentId,
+  });
+}
 
 /**
  * Documenso webhook receiver. Documenso wysyła:
@@ -221,6 +287,19 @@ export async function POST(req: Request) {
               payload: {
                 documentId: Number(doc.id),
               },
+            });
+            // Wyślij klientowi kopię podpisanego dokumentu mailem.
+            void sendSignedReceiptToCustomer(
+              service.id,
+              service.ticketNumber,
+              service.contactEmail,
+              service.customerFirstName,
+              Number(doc.id),
+            ).catch((e) => {
+              logger.warn("send signed receipt failed", {
+                serviceId: service.id,
+                err: e instanceof Error ? e.message : String(e),
+              });
             });
           }
         } catch (e) {
