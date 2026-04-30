@@ -569,29 +569,25 @@ export async function autoSignAsEmployee(opts: {
 }): Promise<{ ok: boolean; signed: number; error?: string }> {
   const cfg = getConfig();
   if (!cfg) return { ok: false, signed: 0, error: "Documenso not configured" };
-  // 1. Pobierz fields dokumentu — filtrujemy SIGNATURE należące do pracownika.
-  // Documenso v1 może zwrócić array bezpośrednio LUB obiekt z `fields` /
-  // `data` — normalizujemy oba kształty defensively.
+  // 1. Pobierz fields dokumentu. Documenso v3 NIE eksponuje
+  // `/documents/{id}/fields` — pola są w response GET /documents/{id}
+  // razem z recipients. Wyciągamy `fields` z głównego document detail.
   type FieldRow = { id: number; type: string; recipientId: number };
-  let fieldsRaw: unknown = null;
+  let docDetail: { fields?: FieldRow[]; recipients?: unknown };
   try {
-    fieldsRaw = await documensoFetch<unknown>(
-      `/api/v1/documents/${opts.documentId}/fields`,
+    docDetail = await documensoFetch<{ fields?: FieldRow[]; recipients?: unknown }>(
+      `/api/v1/documents/${opts.documentId}`,
     );
   } catch (err) {
-    logger.warn("autoSignAsEmployee fields fetch failed", {
+    logger.warn("autoSignAsEmployee document fetch failed", {
       docId: opts.documentId,
       err: err instanceof Error ? err.message : String(err),
     });
-    return { ok: false, signed: 0, error: "Cannot fetch fields" };
+    return { ok: false, signed: 0, error: "Cannot fetch document" };
   }
-  const fields: FieldRow[] = Array.isArray(fieldsRaw)
-    ? (fieldsRaw as FieldRow[])
-    : Array.isArray((fieldsRaw as { fields?: unknown })?.fields)
-      ? ((fieldsRaw as { fields: FieldRow[] }).fields)
-      : Array.isArray((fieldsRaw as { data?: unknown })?.data)
-        ? ((fieldsRaw as { data: FieldRow[] }).data)
-        : [];
+  const fields: FieldRow[] = Array.isArray(docDetail.fields)
+    ? docDetail.fields
+    : [];
   const employeeFields = fields.filter(
     (f) =>
       f.recipientId === opts.employeeRecipientId &&
