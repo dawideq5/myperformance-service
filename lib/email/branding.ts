@@ -25,11 +25,30 @@ interface PropagationTarget {
   requiresRedeploy: boolean;
 }
 
+/**
+ * Resolves Coolify application UUID from env var. Logs warning + uses fallback
+ * for backward-compat gdy env brak — ale per faza-1 cleanup planowane jest
+ * full migration na env-only (fallbacks do usunięcia po weryfikacji prod
+ * deployu z env-vars setniętymi).
+ */
+function resolveCoolifyUuid(envName: string, fallback: string): string {
+  const fromEnv = getOptionalEnv(envName);
+  if (fromEnv) return fromEnv;
+  logger.warn("Coolify UUID env not set — falling back to hardcoded value", {
+    envName,
+    fallback,
+  });
+  return fallback;
+}
+
 const TARGETS: PropagationTarget[] = [
   {
     appId: "documenso",
     appLabel: "Documenso",
-    coolifyUuid: "c9dxxjvb3rskueiuguudbqgb",
+    coolifyUuid: resolveCoolifyUuid(
+      "COOLIFY_DOCUMENSO_UUID",
+      "c9dxxjvb3rskueiuguudbqgb",
+    ),
     envMapping: {
       brandName: "NEXT_PUBLIC_BRANDING_BRAND_NAME",
       brandUrl: "NEXT_PUBLIC_BRANDING_BRAND_URL",
@@ -41,7 +60,10 @@ const TARGETS: PropagationTarget[] = [
   {
     appId: "chatwoot",
     appLabel: "Chatwoot",
-    coolifyUuid: "zdlueek1sg2dgdbi7nk5xrh5",
+    coolifyUuid: resolveCoolifyUuid(
+      "COOLIFY_CHATWOOT_UUID",
+      "zdlueek1sg2dgdbi7nk5xrh5",
+    ),
     envMapping: {
       brandName: "INSTALLATION_NAME",
       brandUrl: "BRAND_URL",
@@ -52,7 +74,10 @@ const TARGETS: PropagationTarget[] = [
   {
     appId: "outline",
     appLabel: "Outline",
-    coolifyUuid: "o4roacrk9qxh08gwv37iphd1",
+    coolifyUuid: resolveCoolifyUuid(
+      "COOLIFY_OUTLINE_UUID",
+      "o4roacrk9qxh08gwv37iphd1",
+    ),
     envMapping: {
       brandName: "TEAM_LOGO",
     },
@@ -61,7 +86,10 @@ const TARGETS: PropagationTarget[] = [
   {
     appId: "directus",
     appLabel: "Directus",
-    coolifyUuid: "pu8b37hw19akg5gx1445j3f2",
+    coolifyUuid: resolveCoolifyUuid(
+      "COOLIFY_DIRECTUS_UUID",
+      "pu8b37hw19akg5gx1445j3f2",
+    ),
     envMapping: {
       brandName: "PROJECT_NAME",
       brandLogoUrl: "PROJECT_LOGO",
@@ -72,7 +100,10 @@ const TARGETS: PropagationTarget[] = [
   {
     appId: "moodle",
     appLabel: "Moodle",
-    coolifyUuid: "upzcjtn9rcswer2vg2vey5d3",
+    coolifyUuid: resolveCoolifyUuid(
+      "COOLIFY_MOODLE_UUID",
+      "upzcjtn9rcswer2vg2vey5d3",
+    ),
     envMapping: {
       brandName: "MOODLE_SITE_NAME",
     },
@@ -81,7 +112,10 @@ const TARGETS: PropagationTarget[] = [
   {
     appId: "dashboard",
     appLabel: "Dashboard",
-    coolifyUuid: "cft13k98wnuqm4u8p6freksn",
+    coolifyUuid: resolveCoolifyUuid(
+      "COOLIFY_DASHBOARD_UUID",
+      "cft13k98wnuqm4u8p6freksn",
+    ),
     envMapping: {
       brandName: "NEXT_PUBLIC_BRAND_NAME",
       brandLogoUrl: "NEXT_PUBLIC_BRAND_LOGO",

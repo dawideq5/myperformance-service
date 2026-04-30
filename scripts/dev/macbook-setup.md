@@ -23,8 +23,8 @@ mkdir -p ~/MyPerformance-Backups
 
 ```bash
 # Z root repo (myperformance-service):
-cp scripts/macbook-backup-pull.sh ~/Library/Application\ Scripts/
-cp scripts/macbook-restore.sh ~/MyPerformance-Backups/restore.sh
+cp scripts/dev/macbook-backup-pull.sh ~/Library/Application\ Scripts/
+cp scripts/dev/macbook-restore.sh ~/MyPerformance-Backups/restore.sh
 chmod +x ~/Library/Application\ Scripts/macbook-backup-pull.sh
 chmod +x ~/MyPerformance-Backups/restore.sh
 ```

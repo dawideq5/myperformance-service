@@ -327,9 +327,6 @@ export const canAccessInfrastructure = (s: Session | null | undefined) =>
 export const canAccessEmail = (s: Session | null | undefined) =>
   hasArea(s, "email-admin", { min: 90 });
 
-/** @deprecated security panel zmergowany z infrastructure (2026-04-26). */
-export const canAccessSecurity = canAccessInfrastructure;
-
 export const canAccessDirectus = (s: Session | null | undefined) =>
   hasArea(s, "directus", { min: 90 });
 
@@ -340,10 +337,6 @@ export const canAccessDocumensoAsManager = (s: Session | null | undefined) =>
   hasArea(s, "documenso", { min: 50 });
 export const canAccessDocumensoAsAdmin = (s: Session | null | undefined) =>
   hasArea(s, "documenso", { min: 90 });
-/** @deprecated — zachowane dla kompatybilności callsite'ów. */
-export const canAccessDocumensoAsUser = canAccessDocumensoAsMember;
-/** @deprecated — handler = manager lub admin. */
-export const canAccessDocumensoAsHandler = canAccessDocumensoAsManager;
 
 // ─── Chatwoot ─────────────────────────────────────────────────────────────
 export const canAccessChatwootAsAgent = (s: Session | null | undefined) =>
@@ -450,18 +443,6 @@ export function requireEmail(
   if (!canAccessEmail(session)) {
     throw ApiError.forbidden("Missing role: email_admin");
   }
-}
-
-/**
- * @deprecated security panel został zmergowany z infrastructure — używa
- * teraz `infrastructure_admin`. Eksport zachowany dla backward-compat
- * istniejących handlerów (nie alias-const, bo TS asserts wymaga pełnej
- * deklaracji funkcji).
- */
-export function requireSecurity(
-  session: Session | null | undefined,
-): asserts session is Session & { accessToken: string } {
-  requireInfrastructure(session);
 }
 
 export function requireCertificates(

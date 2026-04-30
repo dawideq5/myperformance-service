@@ -12,8 +12,14 @@
  * pełnej infrastruktury templating engine na webhook hot-path.
  */
 
+import { getRequiredEnv } from "@/lib/env";
+
 const BRAND_NAME = "Serwis Telefonów by Caseownia";
-const BRAND_URL = "https://zlecenieserwisowe.pl";
+// Fail-closed: brak BRAND_URL = wywal explicit error przy renderze maila
+// (lepiej zwrócić 500 niż wysłać mail z linkiem do losowego URL).
+function brandUrl(): string {
+  return getRequiredEnv("BRAND_URL");
+}
 // Logo serwowane przez dashboard (publiczne /logos/*). Klient maila
 // załaduje obraz po otwarciu wiadomości.
 const LOGO_URL = "https://myperformance.pl/logos/serwis-by-caseownia.png";
@@ -40,6 +46,7 @@ export interface RenderedEmail {
 export function renderSignedReceiptEmail(
   input: SignedReceiptEmailInput,
 ): RenderedEmail {
+  const url = brandUrl();
   const greeting = input.customerFirstName?.trim()
     ? `Witaj ${input.customerFirstName.trim()},`
     : "Dzień dobry,";
@@ -53,13 +60,13 @@ export function renderSignedReceiptEmail(
   const phoneBlock = input.serviceLocationPhone
     ? `<p style="margin:0 0 8px;color:${TEXT_COLOR};font-size:15px;line-height:1.6;">
   Status zlecenia możesz śledzić na
-  <a href="${BRAND_URL}" style="color:${PRIMARY_COLOR};text-decoration:none;font-weight:600;">${stripScheme(BRAND_URL)}</a>
+  <a href="${url}" style="color:${PRIMARY_COLOR};text-decoration:none;font-weight:600;">${stripScheme(url)}</a>
   lub skontaktować się pod numerem
   <a href="tel:${digitsOnly(input.serviceLocationPhone)}" style="color:${PRIMARY_COLOR};text-decoration:none;font-weight:600;">${escapeHtml(input.serviceLocationPhone)}</a>.
 </p>`
     : `<p style="margin:0 0 8px;color:${TEXT_COLOR};font-size:15px;line-height:1.6;">
   Status zlecenia możesz śledzić na
-  <a href="${BRAND_URL}" style="color:${PRIMARY_COLOR};text-decoration:none;font-weight:600;">${stripScheme(BRAND_URL)}</a>.
+  <a href="${url}" style="color:${PRIMARY_COLOR};text-decoration:none;font-weight:600;">${stripScheme(url)}</a>.
 </p>`;
 
   const html = `<!DOCTYPE html>
@@ -114,7 +121,7 @@ export function renderSignedReceiptEmail(
       input.ticketNumber ? ` ${input.ticketNumber}` : ""
     }.`,
     "",
-    `Status zlecenia możesz śledzić na ${stripScheme(BRAND_URL)}${phoneText}.`,
+    `Status zlecenia możesz śledzić na ${stripScheme(url)}${phoneText}.`,
     "",
     BRAND_NAME,
   ].join("\n");

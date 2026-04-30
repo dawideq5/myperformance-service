@@ -40,8 +40,8 @@ import {
   canAccessChatwootAsAgent,
   canAccessDirectus,
   canAccessDocumensoAsAdmin,
-  canAccessDocumensoAsHandler,
-  canAccessDocumensoAsUser,
+  canAccessDocumensoAsManager,
+  canAccessDocumensoAsMember,
   canAccessEmail,
   canAccessInfrastructure,
   canAccessKadromierz,
@@ -110,11 +110,11 @@ function TileGrid() {
   const showCalendar = canAccessCalendar(session);
   const showKadromierz = canAccessKadromierz(session);
   const showDirectus = canAccessDirectus(session);
-  const showDocumensoUser = canAccessDocumensoAsUser(session);
-  const showDocumensoHandler = canAccessDocumensoAsHandler(session);
+  const showDocumensoMember = canAccessDocumensoAsMember(session);
+  const showDocumensoManager = canAccessDocumensoAsManager(session);
   const showDocumensoAdmin = canAccessDocumensoAsAdmin(session);
   const showDocumenso =
-    showDocumensoUser || showDocumensoHandler || showDocumensoAdmin;
+    showDocumensoMember || showDocumensoManager || showDocumensoAdmin;
 
   const showMoodleStudent = canAccessMoodleAsStudent(session);
   const showMoodleTeacher = canAccessMoodleAsTeacher(session);
@@ -292,7 +292,7 @@ function TileGrid() {
             description={
               showDocumensoAdmin
                 ? "Pełna konsola Documenso — szablony, webhooki, użytkownicy"
-                : showDocumensoHandler
+                : showDocumensoManager
                   ? "Obieg dokumentów organizacji — wysyłka, status, podpisy"
                   : "Twoje dokumenty do podpisu i już podpisane"
             }

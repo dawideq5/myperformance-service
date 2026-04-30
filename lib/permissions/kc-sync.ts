@@ -24,8 +24,8 @@ import { getProvider } from "./registry";
  *      roles tej apki — dzięki temu admini mogą nadawać uprawnienia
  *      również poprzez dodanie usera do grupy w KC Console (enterprise
  *      group-based RBAC).
- *   4. Usuwa legacy realm roles, których już nie ma w specyfikacji
- *      (match po prefiksie `<areaId>_` albo `LEGACY_ROLE_REMAP`).
+ *   4. Usuwa realm roles, których już nie ma w specyfikacji
+ *      (match po prefiksie `<areaId>_`).
  *
  * Wywoływane:
  *   - przy starcie serwera (background, non-fatal — błąd loguje się),

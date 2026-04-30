@@ -18,7 +18,7 @@ import { log } from "@/lib/logger";
  * aplikacje mają nieświeże dane (np. historycznie user został utworzony
  * w Chatwoocie z innym imieniem niż w KC).
  *
- * Nie zmienia ról — tylko profile. Jest ortogonalne do migrate-legacy-roles.
+ * Nie zmienia ról — tylko profile.
  */
 
 interface Payload {

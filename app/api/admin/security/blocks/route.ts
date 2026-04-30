@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
-import { requireSecurity } from "@/lib/admin-auth";
+import { requireInfrastructure } from "@/lib/admin-auth";
 import { listBlockedIps, blockIp, unblockIp } from "@/lib/security/db";
 import { recordEvent } from "@/lib/security/db";
 import {
@@ -14,7 +14,7 @@ import {
 export async function GET() {
   try {
     const session = await getServerSession(authOptions);
-    requireSecurity(session);
+    requireInfrastructure(session);
     const blocks = await listBlockedIps();
     return createSuccessResponse({ blocks });
   } catch (error) {
@@ -31,7 +31,7 @@ interface PostPayload {
 export async function POST(req: Request) {
   try {
     const session = await getServerSession(authOptions);
-    requireSecurity(session);
+    requireInfrastructure(session);
     const body = (await req.json().catch(() => null)) as PostPayload | null;
     if (!body?.ip || !body?.reason) {
       throw ApiError.badRequest("ip + reason required");
@@ -62,7 +62,7 @@ export async function POST(req: Request) {
 export async function DELETE(req: Request) {
   try {
     const session = await getServerSession(authOptions);
-    requireSecurity(session);
+    requireInfrastructure(session);
     const url = new URL(req.url);
     const ip = url.searchParams.get("ip");
     if (!ip) throw ApiError.badRequest("ip required");

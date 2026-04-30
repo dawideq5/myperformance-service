@@ -16,9 +16,25 @@
  *     również poprzez członkostwo w grupie w KC Console,
  *   - role legacy, których nie ma ani w seedzie ani w provider-dynamic,
  *     są usuwane z realmu.
+ *
+ * Service URLs są wczytywane z env (NEXT_PUBLIC_<APP>_URL) z hardkodowanym
+ * fallback na produkcyjny URL — fail-soft, bo nativeAdminUrl jest tylko
+ * UI hint dla admina (link otwiera natywny panel do konfiguracji
+ * fine-grained), a nie ścieżka krytyczna do działania apki.
  */
 
 export type AreaProviderKind = "keycloak-only" | "native";
+
+/**
+ * Resolve nativeAdminUrl z env z fallback na hardkodowane prod URL.
+ * Plus tail path dla głębokich linków (agents, admin/users itd.).
+ */
+function nativeUrl(envName: string, fallbackBase: string, tail = ""): string {
+  const fromEnv =
+    typeof process !== "undefined" ? process.env[envName]?.trim() : "";
+  const base = (fromEnv || fallbackBase).replace(/\/$/, "");
+  return tail ? `${base}${tail.startsWith("/") ? tail : `/${tail}`}` : base;
+}
 
 export interface AreaRoleSeed {
   /** Realm role name (np. `chatwoot_admin`, `documenso_manager`). */
@@ -68,7 +84,11 @@ export const AREAS: PermissionArea[] = [
     provider: "native",
     nativeProviderId: "chatwoot",
     icon: "MessageSquare",
-    nativeAdminUrl: "https://chat.myperformance.pl/app/accounts/1/agents",
+    nativeAdminUrl: nativeUrl(
+      "NEXT_PUBLIC_CHATWOOT_URL",
+      "https://chat.myperformance.pl",
+      "/app/accounts/1/agents",
+    ),
     kcRoles: [
       {
         name: "chatwoot_agent",
@@ -93,7 +113,11 @@ export const AREAS: PermissionArea[] = [
     provider: "native",
     nativeProviderId: "moodle",
     icon: "GraduationCap",
-    nativeAdminUrl: "https://moodle.myperformance.pl/admin/roles/manage.php",
+    nativeAdminUrl: nativeUrl(
+      "NEXT_PUBLIC_MOODLE_URL",
+      "https://moodle.myperformance.pl",
+      "/admin/roles/manage.php",
+    ),
     dynamicRoles: true,
     kcRoles: [
       {
@@ -119,7 +143,11 @@ export const AREAS: PermissionArea[] = [
     provider: "native",
     nativeProviderId: "directus",
     icon: "Database",
-    nativeAdminUrl: "https://cms.myperformance.pl/admin/users",
+    nativeAdminUrl: nativeUrl(
+      "NEXT_PUBLIC_DIRECTUS_URL",
+      "https://cms.myperformance.pl",
+      "/admin/users",
+    ),
     kcRoles: [
       {
         name: "directus_admin",
@@ -137,7 +165,11 @@ export const AREAS: PermissionArea[] = [
     provider: "native",
     nativeProviderId: "documenso",
     icon: "FileSignature",
-    nativeAdminUrl: "https://sign.myperformance.pl/admin/users",
+    nativeAdminUrl: nativeUrl(
+      "NEXT_PUBLIC_DOCUMENSO_URL",
+      "https://sign.myperformance.pl",
+      "/admin/users",
+    ),
     kcRoles: [
       {
         name: "documenso_member",
@@ -170,7 +202,11 @@ export const AREAS: PermissionArea[] = [
     provider: "native",
     nativeProviderId: "outline",
     icon: "BookOpen",
-    nativeAdminUrl: "https://knowledge.myperformance.pl/settings/members",
+    nativeAdminUrl: nativeUrl(
+      "NEXT_PUBLIC_OUTLINE_URL",
+      "https://knowledge.myperformance.pl",
+      "/settings/members",
+    ),
     kcRoles: [
       {
         name: "knowledge_viewer",
@@ -202,7 +238,11 @@ export const AREAS: PermissionArea[] = [
     provider: "native",
     nativeProviderId: "postal",
     icon: "Mail",
-    nativeAdminUrl: "https://postal.myperformance.pl/users",
+    nativeAdminUrl: nativeUrl(
+      "NEXT_PUBLIC_POSTAL_URL",
+      "https://postal.myperformance.pl",
+      "/users",
+    ),
     kcRoles: [
       {
         name: "postal_admin",
@@ -325,7 +365,10 @@ export const AREAS: PermissionArea[] = [
       "VPS, DNS, snapshoty, backupy, monitoring zasobów, bezpieczeństwo/SIEM, Wazuh dashboard (panel /admin/infrastructure + https://wazuh.myperformance.pl).",
     provider: "keycloak-only",
     icon: "Server",
-    nativeAdminUrl: "https://wazuh.myperformance.pl",
+    nativeAdminUrl: nativeUrl(
+      "NEXT_PUBLIC_WAZUH_URL",
+      "https://wazuh.myperformance.pl",
+    ),
     kcRoles: [
       {
         name: "infrastructure_admin",
@@ -463,31 +506,3 @@ export function isCustomRoleKcName(name: string): boolean {
   return /^[a-z][a-z0-9_]*_custom_[a-z0-9_]+$/.test(name);
 }
 
-/**
- * Mapping legacy → nowych ról. Używane przez
- * `scripts/migrate-roles-2026-04.mjs`.
- */
-export const LEGACY_ROLE_REMAP: Record<string, string> = {
-  // Chatwoot — `chatwoot_user` → `chatwoot_agent`
-  chatwoot_user: "chatwoot_agent",
-  chatwoot_administrator: "chatwoot_admin",
-
-  // Moodle — seed user/admin → student/manager
-  moodle_user: "moodle_student",
-  moodle_admin: "moodle_manager",
-  moodle_editingteacher: "moodle_editingteacher", // no-op, just validate
-  moodle_teacher: "moodle_teacher",
-
-  // Documenso — member/admin zostają, admin bez zmian
-  documenso_user: "documenso_member",
-  documenso_handler: "documenso_manager",
-
-  // Outline — stary pojedynczy user/admin → viewer/editor/admin
-  knowledge_user: "knowledge_editor",
-
-  // Directus — removed _user (admin-only app)
-  directus_user: "__removed__",
-
-  // Postal — removed _user (admin-only app)
-  postal_user: "__removed__",
-};

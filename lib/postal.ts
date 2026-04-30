@@ -16,10 +16,10 @@ export interface PostalMessage {
 }
 
 function getConfig(): { baseUrl: string; apiKey: string; serverId: number } | null {
-  const baseUrl = getOptionalEnv("POSTAL_API_URL") || "https://postal.myperformance.pl";
+  const baseUrl = getOptionalEnv("POSTAL_API_URL");
   const apiKey = getOptionalEnv("POSTAL_SERVER_API_KEY");
   const sid = getOptionalEnv("POSTAL_SERVER_ID");
-  if (!apiKey || !sid) return null;
+  if (!baseUrl || !apiKey || !sid) return null;
   const serverId = Number(sid);
   if (!Number.isFinite(serverId)) return null;
   return { baseUrl: baseUrl.replace(/\/$/, ""), apiKey, serverId };

@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
-import { requireSecurity } from "@/lib/admin-auth";
+import { requireInfrastructure } from "@/lib/admin-auth";
 import { withClient } from "@/lib/db";
 import { getOptionalEnv } from "@/lib/env";
 import { createSuccessResponse, handleApiError } from "@/lib/api-utils";
@@ -35,7 +35,7 @@ interface WazuhStatus {
 export async function GET() {
   try {
     const session = await getServerSession(authOptions);
-    requireSecurity(session);
+    requireInfrastructure(session);
 
     return await withClient(async (c) => {
       const ev24h = await c.query<{ severity: string; count: string }>(
@@ -106,11 +106,18 @@ export async function GET() {
       }));
 
       const arWebhook = !!getOptionalEnv("WAZUH_AR_SECRET").trim();
+      const wazuhUrl = getOptionalEnv("NEXT_PUBLIC_WAZUH_URL");
+      if (!wazuhUrl) {
+        throw new Error(
+          "NEXT_PUBLIC_WAZUH_URL not configured — Wazuh status panel disabled",
+        );
+      }
+      const wazuhBase = wazuhUrl.replace(/\/$/, "");
 
       const status: WazuhStatus = {
         deployed: true,
-        dashboardUrl: "https://wazuh.myperformance.pl",
-        oidcLoginUrl: "https://wazuh.myperformance.pl/auth/openid/login",
+        dashboardUrl: wazuhBase,
+        oidcLoginUrl: `${wazuhBase}/auth/openid/login`,
         integration: {
           arWebhook,
           iptablesSync: true,
