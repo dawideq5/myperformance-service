@@ -304,21 +304,26 @@ export class MoodleProvider implements PermissionProvider {
     }
   }
 
-  createRole(): Promise<NativeRole> {
+  // Moodle WS nie ma natywnego endpoint'u do tworzenia/edycji/usuwania ról
+  // poza UI (Site administration → Users → Permissions → Define roles). Te
+  // metody są deklarowane przez interface PermissionProvider, więc muszą
+  // istnieć — ale rzucamy ProviderUnsupportedError jako odrzuconą Promise
+  // (NIE synchronicznie — to naruszało interface contract Promise-based).
+  async createRole(): Promise<NativeRole> {
     throw new ProviderUnsupportedError(
       "moodle",
       "createRole wymaga rozszerzenia pluginu local_mpkc_sync",
     );
   }
 
-  updateRole(): Promise<NativeRole> {
+  async updateRole(): Promise<NativeRole> {
     throw new ProviderUnsupportedError(
       "moodle",
       "updateRole wymaga rozszerzenia pluginu local_mpkc_sync",
     );
   }
 
-  deleteRole(): Promise<void> {
+  async deleteRole(): Promise<void> {
     throw new ProviderUnsupportedError(
       "moodle",
       "deleteRole wymaga rozszerzenia pluginu local_mpkc_sync",

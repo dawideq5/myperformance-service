@@ -385,15 +385,13 @@ describe("moodle provider — config + capabilities", () => {
     );
     const p = new MoodleProvider();
     expect(p.supportsCustomRoles()).toBe(false);
-    // ⚠ Bug-discovery (cosmetic): create/update/deleteRole rzucają SYNCHRONICZNIE
-    // mimo deklaracji `Promise<...>` — co technically narusza interfejs
-    // PermissionProvider (powinno być async). Caller, który nie wraperuje try
-    // dostanie unhandled error zamiast Promise rejection. Test używa `expect ... toThrow`
-    // (sync), nie `rejects.toThrow`. Zalecane: oznaczyć metody `async` lub
-    // zwrócić `Promise.reject(new ...)`.
-    expect(() => p.createRole()).toThrow(/local_mpkc_sync/);
-    expect(() => p.updateRole()).toThrow(/local_mpkc_sync/);
-    expect(() => p.deleteRole()).toThrow(/local_mpkc_sync/);
+    // FIX (faza-6 follow-up): create/update/deleteRole są teraz async
+    // (poprzednio rzucały synchronicznie, co naruszało interfejs Promise-based
+    // PermissionProvider). Caller bez try/catch dostaje rejected Promise,
+    // nie unhandled exception.
+    await expect(p.createRole()).rejects.toThrow(/local_mpkc_sync/);
+    await expect(p.updateRole()).rejects.toThrow(/local_mpkc_sync/);
+    await expect(p.deleteRole()).rejects.toThrow(/local_mpkc_sync/);
   });
 
   it("getUserRole zwraca shortname o najwyższym priorytecie", async () => {
