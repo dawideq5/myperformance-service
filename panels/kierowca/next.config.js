@@ -8,6 +8,9 @@ const keycloakOrigin = (() => {
 })();
 const kc = keycloakOrigin ? ` ${keycloakOrigin}` : "";
 const scriptSrc = isDev ? "'self' 'unsafe-inline' 'unsafe-eval'" : "'self' 'unsafe-inline'";
+// Leaflet — kafelki CARTO dark + ikony pinezek z unpkg.
+const mapTilesSrc = "https://*.basemaps.cartocdn.com";
+const leafletAssetsSrc = "https://unpkg.com";
 
 const securityHeaders = [
   { key: "X-Frame-Options", value: "DENY" },
@@ -33,7 +36,7 @@ const securityHeaders = [
       `connect-src 'self'${kc}`,
       `script-src ${scriptSrc}`,
       "style-src 'self' 'unsafe-inline'",
-      "img-src 'self' data: blob:",
+      `img-src 'self' data: blob: ${mapTilesSrc} ${leafletAssetsSrc}`,
       "font-src 'self' data:",
       `frame-src 'self'${kc}`,
       `form-action 'self'${kc}`,
