@@ -115,6 +115,9 @@ export interface VisualCondition {
      *  - sent: wysłany do pracownika do podpisu
      *  - employee_signed: pracownik podpisał, czeka na klienta
      *  - signed: klient podpisał (= COMPLETED)
+     *  - paper_pending: pracownik podpisał elektronicznie, ścieżka papierowa,
+     *    czeka na ręczny podpis klienta (klik Podpisano)
+     *  - paper_signed: ścieżka papierowa zakończona (klient podpisał ręcznie)
      *  - rejected: ktoś odrzucił
      *  - expired: unieważniony (po edycji istotnej)
      */
@@ -122,6 +125,8 @@ export interface VisualCondition {
       | "sent"
       | "employee_signed"
       | "signed"
+      | "paper_pending"
+      | "paper_signed"
       | "rejected"
       | "expired";
     sentAt: string;

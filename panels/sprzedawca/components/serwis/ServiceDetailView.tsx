@@ -6,7 +6,6 @@ import {
   CheckCircle2,
   FileText,
   Mail,
-  Pen,
   Printer,
   Loader2,
   AlertCircle,
@@ -22,7 +21,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { ToastProvider, useToast } from "../ToastProvider";
-import { sendElectronicReceipt, openServiceReceipt } from "../../lib/receipt";
+import { sendElectronicReceipt } from "../../lib/receipt";
 
 interface ServiceDetail {
   id: string;
@@ -46,6 +45,8 @@ interface ServiceDetail {
         | "sent"
         | "employee_signed"
         | "signed"
+        | "paper_pending"
+        | "paper_signed"
         | "rejected"
         | "expired";
       sentAt: string;
@@ -264,10 +265,40 @@ function ServiceDetailInner({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handlePrint = useCallback(() => {
+  const handleSignPaper = useCallback(async () => {
     if (!service) return;
-    openServiceReceipt(service.id, service.visualCondition?.handover);
-  }, [service]);
+    setBusy(true);
+    try {
+      const handover = service.visualCondition?.handover;
+      const params = new URLSearchParams();
+      if (handover) {
+        params.set("handover_choice", handover.choice);
+        if (handover.items) params.set("handover_items", handover.items);
+      }
+      const qs = params.toString();
+      const r = await fetch(
+        `/api/relay/services/${service.id}/sign-paper${qs ? `?${qs}` : ""}`,
+        { method: "POST" },
+      );
+      const j = await r.json();
+      if (!r.ok) throw new Error(j?.error ?? `HTTP ${r.status}`);
+      // Otwórz podpisany PDF w nowej karcie do druku.
+      window.open(j.signedPdfUrl, "_blank", "noopener");
+      toast.push({
+        kind: "success",
+        title: "Dokument gotowy do druku",
+        message: "Pracownik podpisany. Wydrukuj i daj klientowi do podpisu.",
+      });
+      await refresh();
+    } catch (e) {
+      toast.push({
+        kind: "error",
+        message: e instanceof Error ? e.message : "Błąd przygotowania PDF",
+      });
+    } finally {
+      setBusy(false);
+    }
+  }, [refresh, service, toast]);
 
   const handleInvalidate = useCallback(async () => {
     if (!service) return;
@@ -288,6 +319,37 @@ function ServiceDetailInner({
       toast.push({
         kind: "success",
         message: "Dokument unieważniony. Możesz wysłać nowy.",
+      });
+      await refresh();
+    } catch (e) {
+      toast.push({
+        kind: "error",
+        message: e instanceof Error ? e.message : "Błąd unieważnienia",
+      });
+    } finally {
+      setBusy(false);
+    }
+  }, [refresh, service, toast]);
+
+  const handleInvalidatePaper = useCallback(async () => {
+    if (!service) return;
+    if (
+      !window.confirm(
+        "Unieważnić podpis papierowy? Wrócisz do wyboru wersji papierowej / elektronicznej.",
+      )
+    )
+      return;
+    setBusy(true);
+    try {
+      const r = await fetch(
+        `/api/relay/services/${service.id}/invalidate-paper`,
+        { method: "POST" },
+      );
+      const j = await r.json();
+      if (!r.ok) throw new Error(j?.error ?? `HTTP ${r.status}`);
+      toast.push({
+        kind: "success",
+        message: "Wersja papierowa unieważniona.",
       });
       await refresh();
     } catch (e) {
@@ -464,8 +526,7 @@ function ServiceDetailInner({
       <main className="mx-auto w-full max-w-6xl px-4 sm:px-6 py-6 grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* LEWA — info + akcje */}
         <section className="lg:col-span-2 space-y-4">
-          {eDocStatus !== "none" &&
-            eDocStatus !== "expired" &&
+          {(eDocStatus === "sent" || eDocStatus === "employee_signed") &&
             !service.visualCondition?.paperSigned && (
               <DocumentSigningCard
                 status={eDocStatus}
@@ -478,10 +539,11 @@ function ServiceDetailInner({
             eDocStatus={eDocStatus}
             hasEmail={!!service.contactEmail}
             busy={busy}
-            onPrint={handlePrint}
+            onSignPaper={() => void handleSignPaper()}
             onEmail={() => void handleEmail(false)}
             onResend={() => void handleEmail(true)}
-            onInvalidate={() => void handleInvalidate()}
+            onInvalidateElectronic={() => void handleInvalidate()}
+            onInvalidatePaper={() => void handleInvalidatePaper()}
             signedPdfUrl={signedPdfUrl}
             paperSigned={!!service.visualCondition?.paperSigned}
             paperSignedAt={service.visualCondition?.paperSigned?.signedAt}
@@ -663,10 +725,11 @@ function ActionsCard({
   eDocStatus,
   hasEmail,
   busy,
-  onPrint,
+  onSignPaper,
   onEmail,
   onResend,
-  onInvalidate,
+  onInvalidateElectronic,
+  onInvalidatePaper,
   signedPdfUrl,
   paperSigned,
   paperSignedAt,
@@ -675,20 +738,29 @@ function ActionsCard({
   eDocStatus: string;
   hasEmail: boolean;
   busy: boolean;
-  onPrint: () => void;
+  onSignPaper: () => void;
   onEmail: () => void;
   onResend: () => void;
-  onInvalidate?: () => void;
+  onInvalidateElectronic: () => void;
+  onInvalidatePaper: () => void;
   signedPdfUrl?: string;
   paperSigned?: boolean;
   paperSignedAt?: string;
-  onPaperSigned?: () => void;
+  onPaperSigned: () => void;
 }) {
-  const eAlready =
-    eDocStatus === "sent" ||
-    eDocStatus === "employee_signed" ||
-    eDocStatus === "signed";
-  const isSigned = eDocStatus === "signed" || !!signedPdfUrl;
+  // State machine — wybiera content na podstawie aktualnego stanu flow.
+  // Priorytet: paper_signed > paper_pending > signed > sent/employee_signed > none.
+  const flowState: "none" | "paper_pending" | "paper_signed" | "electronic_pending" | "electronic_signed" =
+    paperSigned
+      ? "paper_signed"
+      : eDocStatus === "paper_pending"
+        ? "paper_pending"
+        : eDocStatus === "signed"
+          ? "electronic_signed"
+          : eDocStatus === "sent" || eDocStatus === "employee_signed"
+            ? "electronic_pending"
+            : "none";
+
   return (
     <div
       className="p-4 rounded-2xl border"
@@ -705,95 +777,156 @@ function ActionsCard({
         Potwierdzenie odbioru
       </h3>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        <ActionButton
-          icon={<Printer className="w-4 h-4" />}
-          label="Wersja papierowa"
-          hint={
-            signedPdfUrl
-              ? "Klient podpisał elektronicznie — pobierz finalny PDF"
-              : "Wydruk z miejscem na ręczne podpisy"
-          }
-          onClick={onPrint}
-          disabled={busy || !!signedPdfUrl}
-          color="#6366f1"
-        />
-        <ActionButton
-          icon={<Mail className="w-4 h-4" />}
-          label={
-            isSigned
-              ? "Wyślij ponownie"
-              : eAlready
-                ? "Wyślij ponownie"
-                : "Podpis elektroniczny"
-          }
-          hint={
-            !hasEmail
-              ? "Wymagany adres email klienta"
-              : isSigned
-                ? "Najpierw unieważnij podpisany dokument"
-                : eAlready
-                  ? "Przypomnienie do klienta"
-                  : "Email z linkiem do podpisu"
-          }
-          onClick={eAlready && !isSigned ? onResend : onEmail}
-          disabled={!hasEmail || busy || paperSigned || isSigned}
-          color={eAlready ? "#f59e0b" : "#06B6D4"}
-        />
-        {isSigned && onInvalidate && (
-          <ActionButton
-            icon={<AlertCircle className="w-4 h-4" />}
-            label="Unieważnij dokument"
-            hint="Anuluje podpisany dokument — odblokowuje ponowną wysyłkę"
-            onClick={onInvalidate}
-            disabled={busy}
-            color="#ef4444"
-          />
+        {flowState === "none" && (
+          <>
+            <ActionButton
+              icon={<Printer className="w-4 h-4" />}
+              label="Wersja papierowa"
+              hint="Pracownik podpisuje, wydruk dla klienta do podpisu ręcznego"
+              onClick={onSignPaper}
+              disabled={busy}
+              color="#6366f1"
+            />
+            <ActionButton
+              icon={<Mail className="w-4 h-4" />}
+              label="Wersja elektroniczna"
+              hint={
+                hasEmail
+                  ? "Pracownik podpisuje, klient dostaje email z linkiem"
+                  : "Wymagany adres email klienta"
+              }
+              onClick={onEmail}
+              disabled={!hasEmail || busy}
+              color="#06B6D4"
+            />
+          </>
         )}
-        {!paperSigned && !isSigned && onPaperSigned && (
-          <ActionButton
-            icon={<CheckCircle2 className="w-4 h-4" />}
-            label="Podpisano (papier)"
-            hint="Klient podpisał wydrukowaną wersję"
-            onClick={onPaperSigned}
-            disabled={busy}
-            color="#22c55e"
-          />
+
+        {flowState === "paper_pending" && (
+          <>
+            <ActionButton
+              icon={<FileText className="w-4 h-4" />}
+              label="Otwórz dokument do druku"
+              hint="PDF z podpisem pracownika"
+              onClick={() =>
+                signedPdfUrl &&
+                window.open(signedPdfUrl, "_blank", "noopener")
+              }
+              disabled={busy || !signedPdfUrl}
+              color="#6366f1"
+            />
+            <ActionButton
+              icon={<CheckCircle2 className="w-4 h-4" />}
+              label="Podpisano"
+              hint="Klient podpisał wersję papierową"
+              onClick={onPaperSigned}
+              disabled={busy}
+              color="#22c55e"
+            />
+            <ActionButton
+              icon={<AlertCircle className="w-4 h-4" />}
+              label="Unieważnij dokument"
+              hint="Anuluj wersję papierową — wróć do wyboru"
+              onClick={onInvalidatePaper}
+              disabled={busy}
+              color="#ef4444"
+            />
+          </>
         )}
-        {signedPdfUrl && (
-          <ActionButton
-            icon={<FileText className="w-4 h-4" />}
-            label="Otwórz podpisany dokument"
-            hint="PDF z podpisem klienta z Documenso"
-            onClick={() => window.open(signedPdfUrl, "_blank", "noopener")}
-            disabled={busy}
-            color="#22c55e"
-          />
-        )}
-        {paperSigned && (
-          <div
-            className="p-3 rounded-xl border sm:col-span-2"
-            style={{
-              background:
-                "linear-gradient(135deg, rgba(34,197,94,0.15), rgba(34,197,94,0.05))",
-              borderColor: "rgba(34,197,94,0.4)",
-            }}
-          >
-            <div
-              className="flex items-center gap-2"
-              style={{ color: "#22c55e" }}
-            >
-              <CheckCircle2 className="w-4 h-4" />
-              <span className="text-sm font-semibold">Podpisano papierowo</span>
-            </div>
+
+        {flowState === "paper_signed" && (
+          <>
+            <ActionButton
+              icon={<FileText className="w-4 h-4" />}
+              label="Otwórz podpisany dokument"
+              hint="PDF z podpisem pracownika"
+              onClick={() =>
+                signedPdfUrl &&
+                window.open(signedPdfUrl, "_blank", "noopener")
+              }
+              disabled={busy || !signedPdfUrl}
+              color="#22c55e"
+            />
+            <ActionButton
+              icon={<AlertCircle className="w-4 h-4" />}
+              label="Unieważnij podpisany dokument w wersji papierowej"
+              hint="Wróć do wyboru wersji"
+              onClick={onInvalidatePaper}
+              disabled={busy}
+              color="#ef4444"
+            />
             {paperSignedAt && (
-              <p
-                className="text-[11px] mt-1"
-                style={{ color: "var(--text-muted)" }}
+              <div
+                className="p-3 rounded-xl border sm:col-span-2"
+                style={{
+                  background:
+                    "linear-gradient(135deg, rgba(34,197,94,0.15), rgba(34,197,94,0.05))",
+                  borderColor: "rgba(34,197,94,0.4)",
+                }}
               >
-                {new Date(paperSignedAt).toLocaleString("pl-PL")}
-              </p>
+                <div
+                  className="flex items-center gap-2"
+                  style={{ color: "#22c55e" }}
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span className="text-sm font-semibold">
+                    Podpisano papierowo
+                  </span>
+                </div>
+                <p
+                  className="text-[11px] mt-1"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  {new Date(paperSignedAt).toLocaleString("pl-PL")}
+                </p>
+              </div>
             )}
-          </div>
+          </>
+        )}
+
+        {flowState === "electronic_pending" && (
+          <>
+            <ActionButton
+              icon={<Mail className="w-4 h-4" />}
+              label="Wyślij ponownie"
+              hint="Przypomnienie do klienta"
+              onClick={onResend}
+              disabled={!hasEmail || busy}
+              color="#f59e0b"
+            />
+            <ActionButton
+              icon={<AlertCircle className="w-4 h-4" />}
+              label="Unieważnij dokument elektroniczny"
+              hint="Anuluj — wróć do wyboru wersji"
+              onClick={onInvalidateElectronic}
+              disabled={busy}
+              color="#ef4444"
+            />
+          </>
+        )}
+
+        {flowState === "electronic_signed" && (
+          <>
+            <ActionButton
+              icon={<FileText className="w-4 h-4" />}
+              label="Otwórz podpisany dokument"
+              hint="PDF z podpisami pracownika i klienta"
+              onClick={() =>
+                signedPdfUrl &&
+                window.open(signedPdfUrl, "_blank", "noopener")
+              }
+              disabled={busy || !signedPdfUrl}
+              color="#22c55e"
+            />
+            <ActionButton
+              icon={<AlertCircle className="w-4 h-4" />}
+              label="Unieważnij podpisany dokument"
+              hint="Anuluj — wróć do wyboru wersji"
+              onClick={onInvalidateElectronic}
+              disabled={busy}
+              color="#ef4444"
+            />
+          </>
         )}
       </div>
     </div>

@@ -388,6 +388,11 @@ export async function createDocumentForSigning(opts: {
   senderName?: string;
   /** Treść emaila do recipientów. Default: "Prosimy o podpisanie..." */
   message?: string;
+  /** Czy Documenso ma wysłać email "podpisz dokument" do PIERWSZEGO
+   * signera po `send`. SEQUENTIAL: tylko 1szy dostaje email, kolejni
+   * dostaną automatycznie po podpisaniu poprzedniego. `false` = nie
+   * wysyłaj nikomu — używane gdy auto-podpisujemy 1szego sami. */
+  sendEmail?: boolean;
 }): Promise<{
   documentId: number;
   signingUrls: Array<{ email: string; url: string | null }>;
@@ -424,13 +429,21 @@ export async function createDocumentForSigning(opts: {
     },
   };
 
-  // Documenso v1 response: { uploadUrl: string, documentId: number, recipients: [...] }
-  // (zmienione w późniejszej wersji — wcześniej było { document: { id } }).
+  // Documenso v1 response: `recipients` zawiera `recipientId` + `token` +
+  // `signingOrder` w tej samej kolejności co request. Używamy tej kolejności
+  // zamiast match'owania po emailu — gdy pracownik testuje używając tego
+  // samego emaila dla siebie i klienta, Map<email, signer> nadpisywała
+  // pracownika klientem (root cause: pole pracownika w pozycji klienta).
   const created = await documensoFetch<{
     uploadUrl: string;
     documentId?: number;
     document?: { id: number; title?: string };
-    recipients?: { id: number; email: string }[];
+    recipients?: {
+      recipientId: number;
+      email: string;
+      token: string;
+      signingOrder?: number;
+    }[];
   }>("/api/v1/documents", {
     method: "POST",
     body: JSON.stringify(createPayload),
@@ -455,35 +468,21 @@ export async function createDocumentForSigning(opts: {
     );
   }
 
-  // 2b. Documenso wymaga signature field dla każdego signera. Pobieramy
-  // recipients (z ich id po stronie DocumDoc) i dodajemy SIGNATURE field.
-  // Token recipientów jest potrzebny do auto-podpisu pracownika via trpc.
-  const docDetail = await documensoFetch<{
-    recipients?: {
-      id: number;
-      email: string;
-      token?: string;
-      signingOrder?: number;
-    }[];
-  }>(`/api/v1/documents/${docId}`);
-  // Match recipientów Documenso z naszymi opts.signers po emailu (Documenso
-  // może zwracać inny order niż podaliśmy). Każdy signer ma swój
-  // signatureBox z rzeczywistych coords PDF (top-left origin, %).
-  const signersByEmail = new Map(
-    opts.signers.map((s) => [s.email.toLowerCase(), s]),
-  );
-  for (const rec of docDetail.recipients ?? []) {
-    const matched = signersByEmail.get(rec.email.toLowerCase());
-    const box = matched?.signatureBox;
+  // 2b. Mapowanie signers ↔ created.recipients PO INDEKSIE / signingOrder.
+  // Documenso zwraca recipients w tej samej kolejności co request, więc
+  // signers[i] pasuje do created.recipients[i] (i odpowiada signingOrder=i+1).
+  // Każdy signer ma swój signatureBox z rzeczywistych coords PDF.
+  const createdRecipients = created.recipients ?? [];
+  for (let i = 0; i < createdRecipients.length; i++) {
+    const rec = createdRecipients[i];
+    const signer = opts.signers[i];
+    const box = signer?.signatureBox;
     if (!box) {
-      // Fallback gdy caller nie podał coords — neutralna pozycja na dole
-      // strony (lewa/prawa zależnie od kolejności). Pozycje ze SignatureBox
-      // mają precedence, ten branch jest tylko dla starych callsite'ów.
-      const isFirst = rec.id === (docDetail.recipients?.[0]?.id ?? -1);
+      const isFirst = i === 0;
       await documensoFetch<unknown>(`/api/v1/documents/${docId}/fields`, {
         method: "POST",
         body: JSON.stringify({
-          recipientId: rec.id,
+          recipientId: rec.recipientId,
           type: "SIGNATURE",
           pageNumber: 1,
           pageX: isFirst ? 6 : 56,
@@ -497,7 +496,7 @@ export async function createDocumentForSigning(opts: {
     await documensoFetch<unknown>(`/api/v1/documents/${docId}/fields`, {
       method: "POST",
       body: JSON.stringify({
-        recipientId: rec.id,
+        recipientId: rec.recipientId,
         type: "SIGNATURE",
         pageNumber: 1,
         pageX: box.pageX,
@@ -508,23 +507,25 @@ export async function createDocumentForSigning(opts: {
     });
   }
 
-  // 3. Send. Documenso v1 endpoint: POST /api/v1/documents/{id}/send
-  // (nie /send-document — to było w starszych wersjach API).
+  // 3. Send — sendEmail: false gdy auto-podpisujemy pracownika (Documenso
+  // wyśle do klienta dopiero po completeDocumentWithToken). Document staje
+  // się PENDING, co umożliwia signFieldWithToken.
+  const sendEmailFlag = opts.sendEmail ?? false;
   await documensoFetch<unknown>(`/api/v1/documents/${docId}/send`, {
     method: "POST",
-    body: JSON.stringify({ sendEmail: true }),
+    body: JSON.stringify({ sendEmail: sendEmailFlag }),
   });
 
-  // Fetch back to get signing URLs + tokens (potrzebne do autoSignAsEmployee).
+  // Fetch back to get signing URLs (z normalized getDocument).
   const doc = await getDocument(docId);
   const signingUrls = (doc?.recipients ?? []).map((r) => ({
     email: r.email,
     url: r.signingUrl ?? null,
   }));
-  const recipientsWithTokens = (docDetail.recipients ?? []).map((r, i) => ({
-    id: r.id,
+  const recipientsWithTokens = createdRecipients.map((r, i) => ({
+    id: r.recipientId,
     email: r.email,
-    token: r.token ?? null,
+    token: r.token,
     signingOrder: r.signingOrder ?? i + 1,
   }));
   log.child({ module: "documenso" }).info("document created for signing", {

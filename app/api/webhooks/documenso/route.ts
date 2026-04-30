@@ -158,38 +158,49 @@ export async function POST(req: Request) {
     if (doc?.id != null) {
       const service = await findServiceByDocumensoId(doc.id);
       if (service) {
-        // Marker że PDF jest dostępny — frontend buduje URL przez relay
-        // panelu (/api/relay/services/{id}/signed-pdf). Pole truthy = link
-        // pokazany w UI; pusty string = nie pobieraj.
+        // Paper-flow detection: jeśli aktualny status to paper_pending lub
+        // paper_signed, NIE zmieniamy statusu na "signed" (paper flow ma
+        // własny stan). Tylko ustawiamy signedPdfUrl marker żeby UI mógł
+        // otworzyć PDF z podpisem pracownika.
+        const cur = service.visualCondition?.documenso;
+        const isPaperFlow =
+          cur?.status === "paper_pending" || cur?.status === "paper_signed";
         const signedPdfUrl = "available";
         try {
           await updateService(service.id, {
             visualCondition: {
               ...(service.visualCondition ?? {}),
               documenso: {
-                ...(service.visualCondition?.documenso ?? { docId: Number(doc.id), sentAt: new Date().toISOString() }),
+                ...(cur ?? {
+                  docId: Number(doc.id),
+                  sentAt: new Date().toISOString(),
+                }),
                 docId: Number(doc.id),
-                status: "signed",
-                completedAt: new Date().toISOString(),
+                ...(isPaperFlow
+                  ? {} // zachowaj paper_pending/paper_signed status
+                  : { status: "signed", completedAt: new Date().toISOString() }),
                 signedPdfUrl,
               },
             } as typeof service.visualCondition,
           });
-          logger.info("documenso status persisted as signed", {
+          logger.info("documenso status persisted", {
             serviceId: service.id,
             docId: doc.id,
+            isPaperFlow,
           });
-          void logServiceAction({
-            serviceId: service.id,
-            ticketNumber: service.ticketNumber,
-            action: "client_signed",
-            actor: { name: "Klient" },
-            summary:
-              "Klient podpisał dokument elektronicznie — potwierdzenie zatwierdzone",
-            payload: {
-              documentId: Number(doc.id),
-            },
-          });
+          if (!isPaperFlow) {
+            void logServiceAction({
+              serviceId: service.id,
+              ticketNumber: service.ticketNumber,
+              action: "client_signed",
+              actor: { name: "Klient" },
+              summary:
+                "Klient podpisał dokument elektronicznie — potwierdzenie zatwierdzone",
+              payload: {
+                documentId: Number(doc.id),
+              },
+            });
+          }
         } catch (e) {
           logger.warn("failed to persist signed status", {
             serviceId: service.id,

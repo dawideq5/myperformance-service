@@ -183,16 +183,18 @@ export async function POST(
       `${service.customerFirstName ?? ""} ${service.customerLastName ?? ""}`.trim() ||
       "Klient";
 
-    // Sequential 2-recipient flow:
+    // Sequential 2-recipient flow z sendEmail=false na `send`:
     //   1. Pracownik (signingOrder=1) — auto-signed przez autoSignAsEmployee
-    //      typed signature (cursive font z imieniem + audit log Documenso).
-    //   2. Klient (signingOrder=2) — Documenso wysyła email po podpisaniu
-    //      pracownika.
+    //      (typed signature lub uploaded PNG z mp_user_signatures).
+    //   2. Klient (signingOrder=2) — dostanie email DOPIERO po
+    //      completeDocumentWithToken pracownika. Pracownik nie dostaje
+    //      maila wcale (sendEmail=false na send-document).
     const result = await createDocumentForSigning({
       title: force
         ? `Potwierdzenie ${service.ticketNumber} — aktualizacja`
         : `Potwierdzenie ${service.ticketNumber}`,
       pdfBuffer: rendered.buffer,
+      sendEmail: false,
       message: force
         ? "Aktualizacja potwierdzenia odbioru urządzenia po edycji warunków. Prosimy o podpis."
         : "Prosimy o podpisanie potwierdzenia odbioru urządzenia.",
@@ -210,10 +212,9 @@ export async function POST(
       ],
     });
 
-    // Auto-podpis pracownika: typed signature z imieniem przez trpc.
-    const employeeRecipient = result.recipients.find(
-      (r) => r.email.toLowerCase() === user.email.toLowerCase(),
-    );
+    // Pracownik = signingOrder=1 = result.recipients[0]. Mapping po INDEKSIE
+    // (nie po emailu) bo emaile mogą się powtarzać podczas testów.
+    const employeeRecipient = result.recipients[0];
     let autoSignOk = false;
     if (employeeRecipient?.token) {
       const signRes = await autoSignAsEmployee({
@@ -225,7 +226,8 @@ export async function POST(
       });
       autoSignOk = signRes.ok;
       if (!signRes.ok) {
-        logger.warn("autoSignAsEmployee failed — klient i tak otrzyma email po SEQUENTIAL", {
+        // Fallback: ręcznie wyślij przypomnienie żeby klient i tak dostał email.
+        logger.warn("autoSignAsEmployee failed — fallback resend reminder", {
           serviceId: id,
           docId: result.documentId,
           err: signRes.error,
@@ -239,9 +241,7 @@ export async function POST(
     }
 
     const employeeSigningUrl: string | null =
-      result.signingUrls.find(
-        (u) => u.email.toLowerCase() === user.email.toLowerCase(),
-      )?.url ?? null;
+      result.signingUrls[0]?.url ?? null;
 
     const previousDocIds = (() => {
       const cur = service.visualCondition?.documenso;

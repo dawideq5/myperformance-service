@@ -4,6 +4,7 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { PANEL_CORS_HEADERS, getPanelUserFromRequest } from "@/lib/panel-auth";
 import { getService, updateService } from "@/lib/services";
+import { deleteDocument } from "@/lib/documenso";
 import { logServiceAction } from "@/lib/service-actions";
 
 export async function OPTIONS() {
@@ -24,10 +25,9 @@ function userOwns(
   return false;
 }
 
-/** Oznacza paper-flow jako podpisany przez klienta na wydrukowanym PDF.
- * Wymaga że pracownik wcześniej wywołał /sign-paper (utworzył dokument
- * Documenso z swoim podpisem, status = paper_pending). Po kliknięciu
- * Podpisano: status → paper_signed, paperSigned timestamp ustawiony. */
+/** Unieważnia ścieżkę papierową: usuwa dokument Documenso i czyści
+ * paperSigned + documenso w visualCondition. UI wraca do widoku
+ * "Wersja papierowa / Wersja elektroniczna". */
 export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -53,42 +53,34 @@ export async function POST(
       { status: 403, headers: PANEL_CORS_HEADERS },
     );
   }
-
   const cur = service.visualCondition?.documenso;
-  const employeeName =
-    user.name?.trim() || user.preferred_username || user.email;
-  try {
-    await updateService(id, {
-      visualCondition: {
-        ...(service.visualCondition ?? {}),
-        paperSigned: {
-          signedAt: new Date().toISOString(),
-          signedBy: employeeName,
-          ...(cur?.docId ? { invalidatedDocId: cur.docId } : {}),
-        },
-        documenso: cur
-          ? { ...cur, status: "paper_signed" }
-          : cur,
-      } as typeof service.visualCondition,
-    });
-    void logServiceAction({
-      serviceId: id,
-      ticketNumber: service.ticketNumber,
-      action: "other",
-      actor: { email: user.email, name: employeeName },
-      summary: cur?.docId
-        ? `Klient podpisał papierowo — dokument #${cur.docId} kompletny`
-        : "Klient podpisał papierowo",
-      payload: { documentId: cur?.docId },
-    });
-    return NextResponse.json(
-      { ok: true, documentId: cur?.docId },
-      { headers: PANEL_CORS_HEADERS },
-    );
-  } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : String(err) },
-      { status: 500, headers: PANEL_CORS_HEADERS },
-    );
+  const docId = cur?.docId;
+  let deletedFromDocumenso = false;
+  if (docId) {
+    deletedFromDocumenso = await deleteDocument(docId);
   }
+  await updateService(id, {
+    visualCondition: {
+      ...(service.visualCondition ?? {}),
+      paperSigned: null as unknown as undefined,
+      documenso: null as unknown as undefined,
+    } as typeof service.visualCondition,
+  });
+  void logServiceAction({
+    serviceId: id,
+    ticketNumber: service.ticketNumber,
+    action: "other",
+    actor: {
+      email: user.email,
+      name: user.name?.trim() || user.preferred_username || user.email,
+    },
+    summary: docId
+      ? `Unieważniono ścieżkę papierową — dokument #${docId}`
+      : "Unieważniono ścieżkę papierową",
+    payload: { documentId: docId, deletedFromDocumenso },
+  });
+  return NextResponse.json(
+    { ok: true, invalidatedDocId: docId },
+    { headers: PANEL_CORS_HEADERS },
+  );
 }
