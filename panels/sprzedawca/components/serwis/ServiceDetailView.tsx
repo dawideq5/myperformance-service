@@ -37,6 +37,8 @@ interface ServiceDetail {
   contactEmail: string | null;
   description: string | null;
   amountEstimate: number | null;
+  locationId: string | null;
+  serviceLocationId: string | null;
   createdAt: string | null;
   visualCondition?: {
     documenso?: {
@@ -208,6 +210,32 @@ function ServiceDetailInner({
       setLoading(false);
     }
   }, [serviceId]);
+
+  // Mapa serwisów (id → label) dla resolvera UUID w historii edycji.
+  const [serviceLocationsById, setServiceLocationsById] = useState<
+    Record<string, string>
+  >({});
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const r = await fetch("/api/relay/service-locations");
+        if (!r.ok) return;
+        const j = (await r.json()) as {
+          services: Array<{ id: string; name: string }>;
+        };
+        if (!alive) return;
+        const m: Record<string, string> = {};
+        for (const s of j.services ?? []) m[s.id] = s.name;
+        setServiceLocationsById(m);
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   useEffect(() => {
     void refresh();
@@ -599,6 +627,40 @@ function ServiceDetailInner({
               </div>
             )}
           </Card>
+
+          {(service.serviceLocationId || service.locationId) && (
+            <Card icon={<Send className="w-4 h-4" />} title="Dostawa">
+              {service.locationId && (
+                <Row
+                  label="Punkt sprzedaży"
+                  value={
+                    serviceLocationsById[service.locationId] ??
+                    service.locationId
+                  }
+                />
+              )}
+              {service.serviceLocationId && (
+                <Row
+                  label="Punkt serwisowy"
+                  value={
+                    serviceLocationsById[service.serviceLocationId] ??
+                    service.serviceLocationId
+                  }
+                />
+              )}
+              {service.locationId &&
+                service.serviceLocationId &&
+                service.serviceLocationId !== service.locationId && (
+                  <p
+                    className="text-[11px] mt-2"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    Zlecenie zostało skierowane na punkt serwisowy inny niż
+                    domyślny — odbiór realizuje kierowca.
+                  </p>
+                )}
+            </Card>
+          )}
         </section>
 
         {/* PRAWA — historia, status documenso */}
@@ -610,7 +672,10 @@ function ServiceDetailInner({
           )}
           <ActionsLogCard actions={actions} />
           <MailHistoryCard messages={mailMessages} />
-          <HistoryCard revisions={revisions} />
+          <HistoryCard
+            revisions={revisions}
+            serviceLocationsById={serviceLocationsById}
+          />
         </aside>
       </main>
 
@@ -1170,11 +1235,22 @@ const FIELD_LABELS_PL: Record<string, string> = {
   lockCode: "Kod blokady",
   visualCondition: "Stan wizualny",
   intakeChecklist: "Checklist przyjęcia",
+  serviceLocationId: "Punkt serwisowy (Dostawa)",
+  locationId: "Punkt sprzedaży",
 };
 
-function fmtChangeValue(v: unknown): string {
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function fmtChangeValue(
+  v: unknown,
+  resolveUuid?: (id: string) => string | null,
+): string {
   if (v == null || v === "") return "—";
   if (typeof v === "string") {
+    if (resolveUuid && UUID_RE.test(v)) {
+      const resolved = resolveUuid(v);
+      if (resolved) return resolved;
+    }
     return v.length > 60 ? v.slice(0, 57) + "…" : v;
   }
   if (typeof v === "number") return String(v);
@@ -1182,7 +1258,15 @@ function fmtChangeValue(v: unknown): string {
   return "[obiekt]";
 }
 
-function HistoryCard({ revisions }: { revisions: Revision[] }) {
+function HistoryCard({
+  revisions,
+  serviceLocationsById,
+}: {
+  revisions: Revision[];
+  serviceLocationsById?: Record<string, string>;
+}) {
+  const resolveUuid = (id: string): string | null =>
+    serviceLocationsById?.[id] ?? null;
   return (
     <Card icon={<History className="w-4 h-4" />} title="Historia edycji">
       {revisions.length === 0 ? (
@@ -1215,8 +1299,8 @@ function HistoryCard({ revisions }: { revisions: Revision[] }) {
                       {changeKeys.map((k) => {
                         const ch = r.changes![k]!;
                         const label = FIELD_LABELS_PL[k] ?? k;
-                        const before = fmtChangeValue(ch.before);
-                        const after = fmtChangeValue(ch.after);
+                        const before = fmtChangeValue(ch.before, resolveUuid);
+                        const after = fmtChangeValue(ch.after, resolveUuid);
                         const isDelete = ch.after == null || ch.after === "";
                         const isAdd = ch.before == null || ch.before === "";
                         return (

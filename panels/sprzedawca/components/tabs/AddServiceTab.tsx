@@ -1745,8 +1745,7 @@ function ServiceLocationPicker({
             </p>
             <p style={{ color: "rgba(245, 158, 11, 0.85)" }}>
               Przygotuj urządzenie do wysyłki — zostanie odebrane przez
-              kierowcę. Zlecenie odbioru zostanie automatycznie utworzone w
-              panelu kierowcy.
+              kierowcę.
             </p>
           </div>
         </div>
