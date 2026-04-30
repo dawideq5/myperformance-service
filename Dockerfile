@@ -82,8 +82,8 @@ COPY --from=builder --chown=nextjs:nodejs /app/public          ./public
 USER nextjs
 EXPOSE 3000
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD curl -fsS -o /dev/null "http://127.0.0.1:${PORT}/api/health" || exit 1
+HEALTHCHECK --interval=30s --timeout=15s --start-period=90s --retries=5 \
+  CMD curl -fsS --max-time 10 -o /dev/null "http://127.0.0.1:${PORT}/api/health" || exit 1
 
 ENTRYPOINT ["/sbin/tini", "--"]
 CMD ["node", "server.js"]
