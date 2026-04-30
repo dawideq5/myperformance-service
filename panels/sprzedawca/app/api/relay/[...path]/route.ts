@@ -24,6 +24,8 @@ const ALLOWED_PREFIXES = new Set([
   "pricelist",
   "transport-jobs",
   "me",
+  "repair-types",
+  "quote",
 ]);
 
 async function handle(

@@ -221,6 +221,17 @@ function PricelistSummaryTab() {
               <ExternalLink className="w-4 h-4" />
               Otwórz edytor cennika
             </Link>
+            <Link
+              href="/admin/repair-types"
+              className="px-4 py-2 rounded-xl text-sm font-semibold inline-flex items-center gap-2 transition-all hover:scale-[1.02]"
+              style={{
+                background: "linear-gradient(135deg, #3b82f6, #6366f1)",
+                color: "#fff",
+              }}
+            >
+              <ExternalLink className="w-4 h-4" />
+              Typy napraw — reguły łączenia
+            </Link>
             <a
               href="https://cms.myperformance.pl/admin/content/mp_pricelist"
               target="_blank"

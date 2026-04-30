@@ -26,9 +26,11 @@ import {
 import {
   DescriptionPicker,
   EXPERTISE_VALUE,
+  CLEANING_VALUE,
+  deserializeRepairTypes,
   serializeRepairTypes,
 } from "../intake/DescriptionPicker";
-import { PriceSuggestions } from "../intake/PriceSuggestions";
+import { QuotePreview } from "../intake/QuotePreview";
 import {
   openServiceReceipt,
   sendElectronicReceipt,
@@ -166,12 +168,17 @@ export function AddServiceTab({
           });
           setVisualCompleted(true);
         }
-        // Description = repair types — try to parse back: split by ' · '
+        // Deserialize description "Wymiana wyświetlacza · Bateria · Inne: ..."
+        // do tablicy kodów + customText, żeby chips były pre-zaznaczone.
         const desc = s.description ?? "";
         if (desc) {
-          // Best-effort parse: znajdź repair types pasujące do labels.
-          // Inne wartości idą do customDescription.
-          setCustomDescription(desc);
+          const { codes, customText } = deserializeRepairTypes(desc);
+          if (codes.length > 0) {
+            setRepairTypes(codes);
+            setCustomDescription(customText);
+          } else {
+            setCustomDescription(desc);
+          }
         }
         setAmountEstimate(s.amountEstimate?.toString() ?? "");
         setCustomerFirstName(s.customerFirstName ?? "");
@@ -661,19 +668,41 @@ export function AddServiceTab({
         >
           <div className="space-y-3">
             <DescriptionPicker
-              selected={repairTypes}
+              selected={
+                visualCondition.cleaning_accepted &&
+                !repairTypes.includes(CLEANING_VALUE)
+                  ? [...repairTypes, CLEANING_VALUE]
+                  : repairTypes
+              }
               customDescription={customDescription}
-              onChange={setRepairTypes}
+              onChange={(next) => {
+                // Czyszczenie chip ↔ visualCondition.cleaning_accepted
+                // (back-compat: cleaning_accepted to istniejący flag w
+                // intakeChecklist używany przez QuotePreview/PDF). Toggle
+                // chipa CLEANING aktualizuje visualCondition.
+                const cleaningOn = next.includes(CLEANING_VALUE);
+                if (cleaningOn !== !!visualCondition.cleaning_accepted) {
+                  setVisualCondition((v) => ({
+                    ...v,
+                    cleaning_accepted: cleaningOn,
+                  }));
+                }
+                setRepairTypes(next.filter((c) => c !== CLEANING_VALUE));
+              }}
               onChangeCustom={setCustomDescription}
             />
-            {repairTypes.length > 0 && (
-              <PriceSuggestions
-                brand={brand}
-                model={model}
-                repairTypes={repairTypes}
-                onApply={(t) => setAmountEstimate(t.toFixed(2))}
-              />
-            )}
+            <QuotePreview
+              brand={brand}
+              model={model}
+              repairTypes={repairTypes}
+              cleaningSelected={!!visualCondition.cleaning_accepted}
+              cleaningPrice={cleaningPrice}
+              onSuggestedTotal={(t) => {
+                if (t != null && !amountEstimate) {
+                  setAmountEstimate(t.toFixed(2));
+                }
+              }}
+            />
             <EstimateBlock
               amountEstimate={amountEstimate}
               onChangeEstimate={setAmountEstimate}

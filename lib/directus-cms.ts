@@ -2557,6 +2557,115 @@ export const COLLECTION_SPECS: CollectionSpec[] = [
     ],
   },
 
+  // === Typy napraw (skalowalna definicja katalogu usług) ===
+  // Każda pozycja to rodzaj naprawy (np. "Wymiana wyświetlacza") z:
+  // - default_warranty_months: gwarancja (null = brak)
+  // - time_min/max + time_unit: zakres czasu naprawy
+  // - combinable_mode + combinable_with: kogo można łączyć z tą naprawą
+  // - sums_mode + sums_with: czy łączenie sumuje cenę (alternatywa: "skontaktuj się z serwisantem")
+  // - icon: nazwa lucide (np. "Battery", "Wrench")
+  // mp_pricelist linkuje przez `repair_type_code` (string FK).
+  {
+    collection: "mp_repair_types",
+    meta: {
+      icon: "build",
+      note: "Katalog rodzajów napraw — etykiety, ikony, gwarancja, czas, reguły łączenia z innymi naprawami.",
+      display_template: "{{label}} ({{code}})",
+      sort_field: "sort_order",
+      archive_field: "is_active",
+      archive_value: "false",
+      unarchive_value: "true",
+    },
+    fields: [
+      {
+        field: "id",
+        type: "uuid",
+        schema: { is_primary_key: true },
+        meta: { hidden: true, readonly: true, special: ["uuid"] },
+      },
+      {
+        field: "code",
+        type: "string",
+        schema: { is_nullable: false, is_unique: true },
+        meta: {
+          interface: "input",
+          required: true,
+          width: "half",
+          options: { iconLeft: "tag", font: "monospace" },
+          note: "Stabilny identyfikator (np. SCREEN_REPLACEMENT). A-Z 0-9 _",
+        },
+      },
+      { field: "label", type: "string", schema: { is_nullable: false }, meta: { interface: "input", required: true, width: "half", note: "Polska etykieta widoczna w UI." } },
+      { field: "icon", type: "string", schema: { default_value: "Wrench" }, meta: { interface: "input", width: "half", note: "Nazwa ikony lucide (Battery, Camera, Wrench...)." } },
+      { field: "color", type: "string", schema: { default_value: "#3b82f6" }, meta: { interface: "select-color", width: "half" } },
+      { field: "description", type: "text", meta: { interface: "input-multiline", width: "full", note: "Opis dla pracownika (kiedy używać)." } },
+      // Gwarancja (per typ naprawy — nadrzędne nad mp_pricelist).
+      { field: "default_warranty_months", type: "integer", schema: { is_nullable: true }, meta: { interface: "input", width: "third", note: "Domyślna gwarancja w miesiącach. Puste = brak gwarancji." } },
+      // Czas naprawy.
+      { field: "time_min", type: "integer", schema: { is_nullable: true }, meta: { interface: "input", width: "third", note: "Min czas (w wybranej jednostce)." } },
+      { field: "time_max", type: "integer", schema: { is_nullable: true }, meta: { interface: "input", width: "third", note: "Max czas." } },
+      {
+        field: "time_unit",
+        type: "string",
+        schema: { default_value: "minutes" },
+        meta: {
+          interface: "select-dropdown",
+          width: "third",
+          options: {
+            choices: [
+              { text: "minuty", value: "minutes" },
+              { text: "godziny", value: "hours" },
+              { text: "dni", value: "days" },
+            ],
+          },
+        },
+      },
+      // Reguły łączenia.
+      {
+        field: "combinable_mode",
+        type: "string",
+        schema: { default_value: "yes" },
+        meta: {
+          interface: "select-dropdown",
+          width: "half",
+          options: {
+            choices: [
+              { text: "Tak — łącz z każdym", value: "yes" },
+              { text: "Nie — naprawa wyłączna", value: "no" },
+              { text: "Tylko z wybranymi", value: "only_with" },
+              { text: "Z każdym z wyjątkiem", value: "except" },
+            ],
+          },
+          note: "Czy ta naprawa może być łączona z innymi w jednym zleceniu.",
+        },
+      },
+      { field: "combinable_with", type: "json", schema: { default_value: "[]" }, meta: { interface: "list", width: "half", note: "Tablica kodów napraw (relevant gdy only_with/except)." } },
+      // Reguły sumowania ceny.
+      {
+        field: "sums_mode",
+        type: "string",
+        schema: { default_value: "yes" },
+        meta: {
+          interface: "select-dropdown",
+          width: "half",
+          options: {
+            choices: [
+              { text: "Tak — sumuj cenę", value: "yes" },
+              { text: "Nie — kontakt z serwisantem", value: "no" },
+              { text: "Tylko z wybranymi", value: "only_with" },
+              { text: "Z każdym z wyjątkiem", value: "except" },
+            ],
+          },
+          note: "Czy łączenie z innymi sumuje cenę (no = wymagany kontakt z serwisantem).",
+        },
+      },
+      { field: "sums_with", type: "json", schema: { default_value: "[]" }, meta: { interface: "list", width: "half", note: "Tablica kodów (relevant gdy only_with/except)." } },
+      // Meta.
+      { field: "is_active", type: "boolean", schema: { default_value: true }, meta: { interface: "boolean", width: "half" } },
+      { field: "sort_order", type: "integer", schema: { default_value: 0 }, meta: { interface: "input", width: "half" } },
+    ],
+  },
+
   // === Cennik ===
   // Pozycje cennika edytowane przez admin /admin/config (read-only w panelach).
   {

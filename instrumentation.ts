@@ -491,9 +491,19 @@ export async function register(): Promise<void> {
         panelsPushed++;
       }
 
+      // Seed default repair types do mp_repair_types (idempotent).
+      let repairsCreated = 0;
+      try {
+        const { seedDefaultRepairTypes } = await import("@/lib/repair-types");
+        const res = await seedDefaultRepairTypes();
+        repairsCreated = res.created;
+      } catch {
+        /* ignore — table może nie istnieć przy pierwszym deploy */
+      }
+
       // eslint-disable-next-line no-console
       console.log(
-        `[instrumentation] Directus initial push: branding + ${tpls.length} templates + ${appsPushed} apps + ${areasPushed} areas + ${notifPushed} notif + ${layoutsPushed} layouts + ${smtpsPushed} smtps + ${certsPushed} certs + ${blocksPushed} blocks + 1 ovh + ${panelsPushed} panels`,
+        `[instrumentation] Directus initial push: branding + ${tpls.length} templates + ${appsPushed} apps + ${areasPushed} areas + ${notifPushed} notif + ${layoutsPushed} layouts + ${smtpsPushed} smtps + ${certsPushed} certs + ${blocksPushed} blocks + 1 ovh + ${panelsPushed} panels + ${repairsCreated} repair types`,
       );
     }
   } catch (err) {

@@ -372,7 +372,6 @@ function PricelistDialog({
   const [durationMinutes, setDurationMinutes] = useState(
     item?.durationMinutes?.toString() ?? "",
   );
-  const [sort, setSort] = useState(item?.sort?.toString() ?? "0");
   const [enabled, setEnabled] = useState(item?.enabled ?? true);
 
   const submit = (e: React.FormEvent) => {
@@ -387,7 +386,6 @@ function PricelistDialog({
       description: description.trim() || null,
       warrantyMonths: warrantyMonths ? Number(warrantyMonths) : null,
       durationMinutes: durationMinutes ? Number(durationMinutes) : null,
-      sort: sort ? Number(sort) : 0,
       enabled,
     };
     onSave(input);
@@ -478,28 +476,36 @@ function PricelistDialog({
           onChange={(e) => setDescription(e.target.value)}
           rows={2}
         />
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 gap-3">
           <Input
-            label="Gwarancja (mc)"
+            label="Gwarancja (mc) — override dla tej pozycji"
             type="number"
             min="0"
             value={warrantyMonths}
             onChange={(e) => setWarrantyMonths(e.target.value)}
+            placeholder="dziedziczy z typu naprawy"
           />
           <Input
-            label="Czas (min)"
+            label="Czas (min) — override"
             type="number"
             min="0"
             value={durationMinutes}
             onChange={(e) => setDurationMinutes(e.target.value)}
-          />
-          <Input
-            label="Sort"
-            type="number"
-            value={sort}
-            onChange={(e) => setSort(e.target.value)}
+            placeholder="dziedziczy z typu naprawy"
           />
         </div>
+        <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+          Gwarancja, czas i reguły łączenia są zarządzane w
+          <a
+            href="/admin/repair-types"
+            className="ml-1 underline"
+            style={{ color: "#3b82f6" }}
+          >
+            Typach napraw
+          </a>
+          . Pola powyżej (jeśli wypełnione) nadpisują domyślne wartości
+          dla konkretnej pozycji cennika.
+        </p>
         <label className="flex items-center gap-2 cursor-pointer">
           <input
             type="checkbox"
