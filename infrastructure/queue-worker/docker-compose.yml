@@ -1,0 +1,61 @@
+# MyPerformance — Queue Worker (osobny serwis Coolify)
+#
+# Cel: standalone proces Node który subskrybuje BullMQ i procesuje IAM jobs
+# z lib/permissions/queue.ts (profile.propagate, role.assign, user.deprovision).
+# Dashboard sam jest tylko producerem.
+#
+# TODO (network-segmentation §3): docelowo →
+#   queue-worker → mp_auth (do KC admin API) + mp_data_iam-queue (do Redis)
+# Patrz infrastructure/network-segmentation.md
+#
+# Deployment: patrz README.md w tym katalogu.
+
+services:
+  queue-worker:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.worker
+    container_name: myperformance_queue_worker
+    restart: always
+    # env_file: dodaj `.env` w tym katalogu jeśli deployment local; w Coolify
+    # envy są wstrzykiwane bezpośrednio przez Service env-vars, więc pusta
+    # lista jest OK dla compose config validate.
+    environment:
+      - NODE_ENV=production
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      # IAM_QUEUE_REDIS_URL=redis://redis-queue:6379
+      # — gdy ustawione, worker subskrybuje BullMQ; bez tego idle-loop.
+      - IAM_QUEUE_REDIS_URL=${IAM_QUEUE_REDIS_URL:-}
+      # DATABASE_URL — ten sam co w dashboardzie (mp_data_dashboard PG)
+      - DATABASE_URL=${DATABASE_URL}
+      # KC creds — worker potrzebuje admin tokenów do role-assign / profile sync
+      - KEYCLOAK_URL=${KEYCLOAK_URL:-https://auth.myperformance.pl}
+      - KEYCLOAK_REALM=${KEYCLOAK_REALM:-MyPerformance}
+      - KEYCLOAK_SERVICE_CLIENT_ID=${KEYCLOAK_SERVICE_CLIENT_ID:-myperformance-service}
+      - KEYCLOAK_SERVICE_CLIENT_SECRET=${KEYCLOAK_SERVICE_CLIENT_SECRET}
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f queue-worker >/dev/null || exit 1"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: "512M"
+        reservations:
+          cpus: "0.1"
+          memory: "128M"
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+        window: 120s
+
+networks:
+  backend:
+    external: true
+    name: myperformance_backend

@@ -1,5 +1,10 @@
 # chat.myperformance.pl — Chatwoot v4 z natywnym OIDC SSO (Keycloak)
 #
+# TODO (network-segmentation §3): migrate
+#   chatwoot rails/sidekiq → mp_auth + mp_data_chatwoot
+#   postgres/redis         → mp_data_chatwoot (internal: true)
+# Patrz infrastructure/network-segmentation.md
+#
 # Clean reinstall (2026-04):
 #   - Fresh Postgres + Redis wolumeny (żadnej migracji danych)
 #   - OIDC omniauth skonfigurowany od pierwszego startu

@@ -1,5 +1,10 @@
 # moodle.myperformance.pl — MyPerformance Academy (Moodle 5.0 LTS)
 #
+# TODO (network-segmentation §3): migrate
+#   moodle app → mp_auth + mp_data_moodle
+#   mariadb    → mp_data_moodle (internal: true)
+# Patrz infrastructure/network-segmentation.md
+#
 # Clean reinstall (2026-04):
 #   - Fresh MariaDB (brand-new DB, bez migracji)
 #   - Bitnami Moodle obraz automatycznie wykonuje install.php przy pierwszym

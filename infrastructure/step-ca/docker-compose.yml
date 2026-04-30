@@ -1,3 +1,7 @@
+# TODO (network-segmentation §3): migrate step-ca → mp_admin
+# (i opcjonalnie attach do mp_auth dla cert issuance z dashboarda).
+# Patrz infrastructure/network-segmentation.md
+
 services:
   step-ca:
     image: 'smallstep/step-ca:0.27.5'

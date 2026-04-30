@@ -16,6 +16,11 @@
 #   2. W Settings → Access Control → Single Sign-On → skonfiguruj
 #      "keycloak" z mapowaniem roli realm `directus_admin` → Directus role
 #      Administrator.
+#
+# TODO (network-segmentation §3): migrate
+#   directus app  → mp_auth + mp_data_directus
+#   database/cache → mp_data_directus (internal: true)
+# Patrz infrastructure/network-segmentation.md
 
 services:
   database:

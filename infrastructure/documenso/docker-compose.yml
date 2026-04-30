@@ -1,5 +1,10 @@
 # sign.myperformance.pl — Documenso z Keycloak SSO
 #
+# TODO (network-segmentation §3): migrate
+#   documenso app → mp_auth + mp_data_documenso
+#   postgres      → mp_data_documenso (internal: true)
+# Patrz infrastructure/network-segmentation.md
+#
 # Clean reinstall (2026-04):
 #   - Fresh Postgres (zero dokumentów, zero podpisów, zero team/org)
 #   - OIDC od pierwszego startu

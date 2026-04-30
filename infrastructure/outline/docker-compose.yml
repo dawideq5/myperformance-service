@@ -1,5 +1,10 @@
 # knowledge.myperformance.pl — Outline wiki (Keycloak SSO)
 #
+# TODO (network-segmentation §3): migrate
+#   outline app    → mp_auth + mp_data_outline
+#   postgres/redis → mp_data_outline (internal: true)
+# Patrz infrastructure/network-segmentation.md
+#
 # Clean reinstall (2026-04):
 #   - Fresh Postgres + Redis
 #   - OIDC od pierwszego startu (client_id=outline)

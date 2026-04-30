@@ -24,9 +24,10 @@ Razem ~30-200 MB na backup. Retencja domyślna: 7 dni lokalnie.
 
 ## Pliki w tym katalogu
 
-- `myperformance-backup.sh` — główny skrypt backup. Idempotentny, side-effect free.
-- `myperformance-backup.cron` — unit cron'a (codziennie 23:00).
-- `myperformance-backup.containers.example` — szablon konfiguracji nazw kontenerów (skopiuj do `/etc/myperformance-backup.containers` na VPS i wypełnij).
+- [`myperformance-backup.sh`](./myperformance-backup.sh) — główny skrypt backup. Idempotentny, side-effect free.
+- [`s3-sync.sh`](./s3-sync.sh) — off-site sync `/backups/myperformance/` → OVH Object Storage (rclone). Uruchamiany 30 min po backup.
+- [`myperformance-backup.cron`](./myperformance-backup.cron) — unit cron'a (23:00 backup + 23:30 S3 sync).
+- [`myperformance-backup.containers.example`](./myperformance-backup.containers.example) — szablon konfiguracji nazw kontenerów (skopiuj do `/etc/myperformance-backup.containers` na VPS i wypełnij).
 
 ## Deployment na VPS
 
@@ -88,24 +89,83 @@ Sprawdź:
 - Czy `manifest.json` parsuje się jako JSON (`jq . manifest.json`).
 - Czy webhook do dashboarda dotarł (sprawdź `/admin/infrastructure` → tab Backup, lub `mp_security_events` table z eventem `backup.completed` / `backup.failed`).
 
-## Off-site sync (zalecane)
+## S3 sync (zalecane: OVH Object Storage)
 
-Lokalny backup nie chroni przed zniszczeniem VPS. Opcje (patrz `docs/plan_enterprise_infrastructure.md` §D):
+Lokalny backup nie chroni przed zniszczeniem VPS. Skrypt [`s3-sync.sh`](./s3-sync.sh) realizuje off-site sync na OVH Object Storage (S3-compatible) przez rclone. Cron entry 23:30 (30 min po backup, żeby pliki były spójne).
 
-### Opcja 1 (zalecane): OVH Object Storage S3
+### 1. Stwórz bucket w OVH Public Cloud
+
+- OVH Manager → Public Cloud → wybierz projekt → Object Storage → Create container.
+- Region: zalecany `GRA` lub `SBG` (Polska/Niemcy — niska latencja z VPS w Europie).
+- Type: **High Performance** (S3-compatible) — NIE Swift Storage.
+- Bucket name np. `myperformance-backups`.
+
+### 2. Wygeneruj S3 credentials
+
+W OVH Manager → wybrany projekt → Users & Roles → wybierz user-a (lub stwórz dedykowanego `myperformance-backup-bot`) → "Generate S3 credentials". Notuj `Access Key ID` + `Secret Access Key`.
+
+Przyznaj rolę `ObjectStore_operator` na projekt — bez tego rclone dostanie 403 przy upload-ach.
+
+### 3. Konfiguracja rclone na VPS
 
 ```bash
-# Po backup → rclone sync
 sudo apt install rclone
-rclone config  # ustaw remote 'ovh-s3' z S3 keys
-
-# Dodaj do /etc/cron.d/myperformance-backup po linii 23:00:
-30 23 * * * root rclone sync /backups/myperformance/ ovh-s3:myperf-backups/ \
-  --max-age 7d --transfers 4 \
-  >> /var/log/myperformance-backup-sync.log 2>&1
+sudo rclone config
 ```
 
-### Opcja 2: SSH pull z MacBook
+W interactive prompt:
+```
+n) New remote
+name> ovh-s3
+Storage> s3
+provider> Other
+env_auth> false
+access_key_id> <Access Key ID>
+secret_access_key> <Secret Access Key>
+region>           # zostaw puste (OVH ignoruje)
+endpoint> s3.<region>.cloud.ovh.net   # np. s3.gra.cloud.ovh.net
+location_constraint> <region>          # np. gra
+acl> private
+```
+
+Test:
+```bash
+sudo rclone lsd ovh-s3:                  # listuje buckety
+sudo rclone mkdir ovh-s3:myperformance-backups  # idempotent
+```
+
+### 4. Dodaj S3_BUCKET do `/etc/myperformance-backup.containers`
+
+```bash
+sudo tee -a /etc/myperformance-backup.containers <<'EOF'
+
+# === S3 off-site sync ===
+S3_BUCKET="myperformance-backups"
+# Opcjonalne — domyślnie ovh-s3, "":
+S3_REMOTE="ovh-s3"
+S3_PREFIX=""
+S3_MAX_AGE="7d"
+S3_TRANSFERS="4"
+EOF
+```
+
+### 5. Zainstaluj `s3-sync.sh` + cron
+
+```bash
+sudo cp infrastructure/backup/s3-sync.sh /usr/local/bin/myperformance-backup-s3-sync.sh
+sudo chmod +x /usr/local/bin/myperformance-backup-s3-sync.sh
+# myperformance-backup.cron już zawiera entry 23:30 (po Step 1 deploymentu).
+```
+
+Test-run:
+```bash
+sudo -E /usr/local/bin/myperformance-backup-s3-sync.sh
+sudo rclone lsl ovh-s3:myperformance-backups/  # weryfikacja
+```
+
+### Alternatywa: SSH pull z MacBook
+
+Niezalecane jako jedyna kopia (MacBook może być offline tygodniami) — ale OK jako secondary:
 
 ```bash
 # Cron na MacBook (LaunchAgent, patrz scripts/dev/macbook-setup.md):

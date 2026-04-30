@@ -50,3 +50,11 @@ DASHBOARD_URL="https://myperformance.pl"
 # === Retention ===
 RETENTION_DAYS="7"
 BACKUP_ROOT="/backups/myperformance"
+
+# === Off-site S3 sync (OVH Object Storage) ===
+# Wymaga rclone + skonfigurowanego remote ovh-s3 (patrz README §S3 sync)
+S3_BUCKET="myperformance-backups"
+S3_REMOTE="ovh-s3"
+S3_PREFIX=""
+S3_MAX_AGE="7d"
+S3_TRANSFERS="4"

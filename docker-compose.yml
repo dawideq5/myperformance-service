@@ -25,6 +25,8 @@ services:
       - KEYCLOAK_SERVICE_CLIENT_ID=${KEYCLOAK_SERVICE_CLIENT_ID:-myperformance-service}
       - LOG_LEVEL=${LOG_LEVEL:-info}
     networks:
+      # TODO: migrate to mp_auth + mp_data_dashboard + mp_data_iam-queue
+      # (patrz infrastructure/network-segmentation.md §3, §5)
       - proxy-network
       - backend
     labels:

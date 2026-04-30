@@ -13,6 +13,9 @@ Reference docker-compose files and Docker build contexts for every self-hosted s
 | `postal/docker-compose.yml` | Postal (web + smtp + worker) + MariaDB transactional mail server. Subdomain `postal.myperformance.pl`. Native OIDC SSO against Keycloak `postal` client (local auth disabled). SMTP ports 25/465/587 via explicit host port bindings. | Coolify Service. |
 | `step-ca/docker-compose.yml` | Smallstep step-ca — internal CA that issues browser client certificates for cert-gated panels. Subdomain `ca.myperformance.pl`. | Coolify Service. |
 | `traefik/dynamic-mtls.yml` | Traefik v3 dynamic config enabling mTLS middleware + TLS options for the four cert-gated subdomains (`panelsprzedawcy`, `panelserwisanta`, `panelkierowcy`, `dokumenty`). | Dropped into Traefik's dynamic provider directory on the VPS. |
+| [`network-segmentation.md`](./network-segmentation.md) | Design doc — 4 trust zones (auth/data/admin/public) + Coolify rolling migration plan. Compose'y mają `# TODO: migrate to <zone>` komentarze. | Reference only (design); migration TBD. |
+| [`backup/`](./backup/README.md) | Daily DB + filesystem backup (8 baz + Coolify data + Traefik certs). 23:00 lokalnie + 23:30 off-site sync na OVH Object Storage S3 (rclone). | Cron na VPS host (nie kontener). |
+| [`queue-worker/docker-compose.yml`](./queue-worker/README.md) | Standalone IAM queue worker (BullMQ subscriber) — odciążenie `lib/permissions/queue.ts` od dashboardu. | Coolify Service (osobny od dashboardu). |
 
 ## Enterprise conventions
 

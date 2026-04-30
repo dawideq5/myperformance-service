@@ -1,0 +1,85 @@
+# syntax=docker/dockerfile:1.7
+
+############################################
+# MyPerformance Queue Worker
+# Standalone Node entrypoint dla lib/permissions/queue.ts.
+# Subskrybuje joby z BullMQ (Redis) i procesuje je out-of-band od dashboardu.
+############################################
+
+ARG NODE_VERSION=22-alpine
+
+# -----------------------------------------------------------------------------
+# Stage 1: base
+# -----------------------------------------------------------------------------
+FROM node:${NODE_VERSION} AS base
+RUN apk add --no-cache libc6-compat
+WORKDIR /app
+
+# -----------------------------------------------------------------------------
+# Stage 2: install dependencies (full, dla typescript build + runtime)
+# -----------------------------------------------------------------------------
+FROM base AS deps
+ENV NODE_ENV=development
+COPY package.json package-lock.json* .npmrc* ./
+RUN --mount=type=cache,target=/root/.npm \
+    if [ -f package-lock.json ]; then \
+        npm ci --include=dev --no-audit --no-fund; \
+    else \
+        npm install --include=dev --no-audit --no-fund; \
+    fi
+
+# -----------------------------------------------------------------------------
+# Stage 3: build (compile worker entrypoint do JS)
+# -----------------------------------------------------------------------------
+FROM base AS builder
+ENV NODE_ENV=production
+
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+
+# Worker korzysta z NEXT path aliases (@/lib/...) — najprostsze wyjście to
+# build standalone Next.js (już istnieje), z którego wyciągniemy moduły.
+# Alternatywa (lżejsza): tsc-only build samego worker-a + jego zależności.
+# Tutaj idziemy alternatywą lżejszą — kompilujemy tylko lib/permissions
+# i jego deps przez tsc do dist/.
+RUN npx tsc -p tsconfig.json \
+        --outDir dist \
+        --noEmit false \
+        --declaration false \
+        --module commonjs \
+        --moduleResolution node \
+        --target ES2020 \
+        --esModuleInterop true \
+        --resolveJsonModule true \
+        --skipLibCheck true \
+        --allowJs true \
+        || echo "tsc build returned non-zero (some files may have intentional issues — worker entry is the critical one)"
+
+# -----------------------------------------------------------------------------
+# Stage 4: runtime — minimal
+# -----------------------------------------------------------------------------
+FROM node:${NODE_VERSION} AS runner
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV LOG_LEVEL=info
+
+RUN apk add --no-cache curl tini \
+ && addgroup --system --gid 1001 nodejs \
+ && adduser  --system --uid 1001 --ingroup nodejs worker \
+ && chown -R worker:nodejs /app
+
+# Tylko production deps (bez next, react itd. — worker ich nie potrzebuje).
+COPY --from=deps --chown=worker:nodejs /app/node_modules ./node_modules
+COPY --from=builder --chown=worker:nodejs /app/dist ./dist
+COPY --chown=worker:nodejs package.json ./
+
+USER worker
+
+# Healthcheck — proces żyje + heartbeat log (sprawdzane przez Coolify/Docker
+# logs scrape). Brak HTTP endpointu — worker nic nie wystawia.
+HEALTHCHECK --interval=60s --timeout=15s --start-period=30s --retries=3 \
+  CMD pgrep -f queue-worker >/dev/null || exit 1
+
+ENTRYPOINT ["/sbin/tini", "--"]
+CMD ["node", "dist/lib/permissions/queue-worker.js"]

@@ -1,3 +1,8 @@
+# TODO (network-segmentation §3): migrate
+#   web/smtp/worker → mp_auth + mp_data_postal
+#   mariadb         → mp_data_postal (internal: true)
+# Patrz infrastructure/network-segmentation.md
+
 services:
   # Writes /config/postal.yml from Coolify-managed secrets on every boot.
   # alpine+root avoids perm issues and chmods /config so Postal can drop

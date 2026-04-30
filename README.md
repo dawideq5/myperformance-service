@@ -231,6 +231,7 @@ Wszystkie skrypty produkcyjne w `scripts/`. Dev-only / scratch w `scripts/dev/`.
 | `postal-propagate-smtp.mjs` | Push SMTP creds z Postal do wszystkich Coolify env | TAK | TAK |
 | `stepca-oidc-setup.mjs`, `stepca-add-oidc.sh` | OIDC provisioner config dla step-ca | TAK | TAK |
 | `render-traefik-config.sh` | Render `wazuh-webhook.yml.template` z $COOLIFY_DASHBOARD_UUID | TAK | TAK |
+| `ovh-rotate-keys.mjs` | Interaktywna rotacja OVH app/consumer keys + Coolify env update + redeploy | TAK | częściowo (krok 2 generuje nowy CK) |
 
 ### Migracje (one-off, post-2026-04 historia)
 
