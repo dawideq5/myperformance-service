@@ -426,6 +426,21 @@ export async function createDocumentForSigning(opts: {
       signingOrder: "SEQUENTIAL",
       typedSignatureEnabled: true,
       drawSignatureEnabled: true,
+      // Wyłącz wszystkie automatyczne maile od Documenso poza
+      // recipientSigningRequest (to jedyny mail którego klient potrzebuje
+      // — z linkiem do podpisu). Pozostałe (X has signed, document
+      // completed) są spamem dla naszego use case.
+      emailSettings: {
+        recipientSigningRequest: true,
+        recipientRemoved: false,
+        recipientSigned: false,
+        documentPending: false,
+        documentCompleted: false,
+        documentDeleted: false,
+        ownerDocumentCompleted: false,
+        ownerRecipientExpired: false,
+        ownerDocumentCreated: false,
+      },
     },
   };
 

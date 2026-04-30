@@ -4,19 +4,8 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { PANEL_CORS_HEADERS, getPanelUserFromRequest } from "@/lib/panel-auth";
 import { getService, updateService } from "@/lib/services";
-import {
-  autoSignAsEmployee,
-  createDocumentForSigning,
-  isDocumensoConfigured,
-} from "@/lib/documenso";
-import {
-  renderReceiptPdfWithLayout,
-  type ReceiptInput,
-} from "@/lib/receipt-pdf";
-import { getPricelistPriceByCode } from "@/lib/pricelist";
 import { logServiceAction } from "@/lib/service-actions";
 import { log } from "@/lib/logger";
-import { createHash } from "node:crypto";
 
 const logger = log.child({ module: "sign-paper" });
 
@@ -38,11 +27,11 @@ function userOwns(
   return false;
 }
 
-/** Wersja papierowa: tworzy dokument Documenso z 1 recipientem (pracownik),
- * auto-podpisuje go, dokument staje się COMPLETED (single-signer). Klient
- * podpisze ręcznie na wydruku, potem klik "Podpisano" oznaczy stan
- * paperSigned. Documenso przechowuje audit log + signed PDF z podpisem
- * pracownika. */
+/** Wersja papierowa — BEZ Documenso. Pracownik klika "Wersja papierowa",
+ * backend ustawia status=paper_pending + handover. UI otwiera
+ * /api/relay/services/{id}/signed-pdf które renderuje PDF z embed
+ * cursive PNG pracownika (z mp_user_signatures). Klient podpisuje
+ * ręcznie na wydruku → klik "Podpisano" → status=paper_signed. */
 export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -52,12 +41,6 @@ export async function POST(
     return NextResponse.json(
       { error: "Unauthorized" },
       { status: 401, headers: PANEL_CORS_HEADERS },
-    );
-  }
-  if (!isDocumensoConfigured()) {
-    return NextResponse.json(
-      { error: "Documenso nie jest skonfigurowane" },
-      { status: 503, headers: PANEL_CORS_HEADERS },
     );
   }
   const { id } = await params;
@@ -93,163 +76,48 @@ export async function POST(
     );
   }
 
-  // Email pracownika UKRYTY: systemowy serwis@caseownia.pl. Imię z KC
-  // widoczne jako recipient name + typed signature (cursive font Documenso).
   const employeeDisplayName =
     user.name?.trim() || user.preferred_username || user.email;
-  const SERVICE_SIGNER_EMAIL = "caseownia@zlecenieserwisowe.pl";
 
-  const data: ReceiptInput = {
-    ticketNumber: service.ticketNumber ?? "—",
-    createdAt: service.createdAt ?? new Date().toISOString(),
-    customer: {
-      firstName: service.customerFirstName ?? "",
-      lastName: service.customerLastName ?? "",
-      phone: service.contactPhone ?? "",
-      email: service.contactEmail ?? "",
-    },
-    device: {
-      brand: service.brand ?? "",
-      model: service.model ?? "",
-      imei: service.imei ?? "",
-      color: service.color ?? "",
-    },
-    lock: { type: service.lockType ?? "none", code: service.lockCode ?? "" },
-    description: service.description ?? "",
-    employeeName: employeeDisplayName,
-    employeeSignaturePng: null,
-    visualCondition: {
-      ...(service.visualCondition ?? {}),
-      ...(service.intakeChecklist ?? {}),
-      charging_current: service.chargingCurrent ?? undefined,
-    },
-    estimate:
-      typeof service.amountEstimate === "number" ? service.amountEstimate : null,
-    cleaningPrice: service.visualCondition?.cleaning_accepted
-      ? await getPricelistPriceByCode("CLEANING_INTAKE", {
-          brand: service.brand,
-          model: service.model,
-        })
-      : null,
-    cleaningAccepted: !!service.visualCondition?.cleaning_accepted,
-    handover: { choice: handoverChoice, items: handoverItems },
-  };
-
+  // Wirtualny dokument bez Documenso. docId=0 jako sentinel — UI traktuje
+  // jako "paper-flow" i pobiera PDF z lokalnego receipt endpoint.
   try {
-    const rendered = await renderReceiptPdfWithLayout(data);
-    const pdfHash = createHash("sha256").update(rendered.buffer).digest("hex");
-
-    // Single-signer flow: tylko pracownik podpisuje przez Documenso.
-    // Klient podpisze ręcznie na wydrukowanym PDF.
-    const result = await createDocumentForSigning({
-      title: `Potwierdzenie ${service.ticketNumber} (papierowe)`,
-      pdfBuffer: rendered.buffer,
-      sendEmail: false,
-      message:
-        "Wewnętrzny dokument — podpis pracownika do druku. Klient podpisuje na wydruku.",
-      signers: [
-        {
-          name: employeeDisplayName,
-          email: SERVICE_SIGNER_EMAIL,
-          signatureBox: rendered.signatures.employee,
+    await updateService(id, {
+      visualCondition: {
+        ...(service.visualCondition ?? {}),
+        employeeSignature: null as unknown as undefined,
+        handover: { choice: handoverChoice, items: handoverItems },
+        documenso: {
+          docId: 0,
+          status: "paper_pending",
+          sentAt: new Date().toISOString(),
+          employeeSignedAt: new Date().toISOString(),
+          previousDocIds: [],
+          signedPdfUrl: "available",
         },
-      ],
+      } as typeof service.visualCondition,
     });
-
-    const employeeRecipient = result.recipients[0];
-    if (!employeeRecipient?.token) {
-      return NextResponse.json(
-        { error: "Documenso nie zwrócił tokena pracownika" },
-        { status: 502, headers: PANEL_CORS_HEADERS },
-      );
-    }
-
-    // typed signature: Documenso renderuje cursive font z imienia.
-    const signRes = await autoSignAsEmployee({
-      documentId: result.documentId,
-      employeeToken: employeeRecipient.token,
-      employeeFullName: employeeDisplayName,
-      employeeRecipientId: employeeRecipient.id,
-    });
-    if (!signRes.ok) {
-      return NextResponse.json(
-        {
-          error: "Auto-podpis pracownika nie powiódł się",
-          detail: signRes.error,
-        },
-        { status: 502, headers: PANEL_CORS_HEADERS },
-      );
-    }
-
-    try {
-      await updateService(id, {
-        visualCondition: {
-          ...(service.visualCondition ?? {}),
-          employeeSignature: null as unknown as undefined,
-          documenso: {
-            docId: result.documentId,
-            // paper_pending = pracownik podpisał elektronicznie, czeka na
-            // podpis klienta na wydruku. Przejdzie w paper_signed po
-            // kliknięciu Podpisano.
-            status: "paper_pending",
-            sentAt: new Date().toISOString(),
-            employeeSignedAt: new Date().toISOString(),
-            pdfHash,
-            previousDocIds: [],
-            // Document COMPLETED bo single signer = signed PDF dostępny.
-            signedPdfUrl: "available",
-          },
-        } as typeof service.visualCondition,
-      });
-    } catch (e) {
-      logger.warn("paper-flow status persist failed", {
-        serviceId: id,
-        err: e instanceof Error ? e.message : String(e),
-      });
-    }
-
-    logger.info("paper flow document signed by employee", {
+  } catch (e) {
+    logger.warn("paper-flow status persist failed", {
       serviceId: id,
-      ticket: service.ticketNumber,
-      documensoDocId: result.documentId,
-      pdfHash: pdfHash.slice(0, 16),
+      err: e instanceof Error ? e.message : String(e),
     });
-    void logServiceAction({
-      serviceId: id,
-      ticketNumber: service.ticketNumber,
-      action: "employee_sign",
-      actor: {
-        email: user.email,
-        name: employeeDisplayName,
-      },
-      summary: `Pracownik podpisał elektronicznie wersję papierową #${result.documentId}`,
-      payload: {
-        documentId: result.documentId,
-        pdfHash: pdfHash.slice(0, 16),
-        flow: "paper",
-      },
-    });
-
-    return NextResponse.json(
-      {
-        ok: true,
-        documentId: result.documentId,
-        signedPdfUrl: `/api/relay/services/${encodeURIComponent(id)}/signed-pdf`,
-        pdfHash,
-      },
-      { status: 200, headers: PANEL_CORS_HEADERS },
-    );
-  } catch (err) {
-    logger.error("sign-paper failed", {
-      serviceId: id,
-      err: err instanceof Error ? err.message : String(err),
-    });
-    return NextResponse.json(
-      {
-        error: "Utworzenie dokumentu papierowego nie powiodło się",
-        detail: err instanceof Error ? err.message : String(err),
-      },
-      { status: 500, headers: PANEL_CORS_HEADERS },
-    );
   }
+
+  void logServiceAction({
+    serviceId: id,
+    ticketNumber: service.ticketNumber,
+    action: "employee_sign",
+    actor: { email: user.email, name: employeeDisplayName },
+    summary: "Pracownik wystawił wersję papierową do druku",
+    payload: { flow: "paper" },
+  });
+
+  return NextResponse.json(
+    {
+      ok: true,
+      signedPdfUrl: `/api/relay/services/${encodeURIComponent(id)}/signed-pdf`,
+    },
+    { status: 200, headers: PANEL_CORS_HEADERS },
+  );
 }

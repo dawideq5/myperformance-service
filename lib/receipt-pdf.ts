@@ -547,11 +547,27 @@ function drawSinglePage(
 
   // ===== SIGNATURES — wyższe pola, więcej miejsca na podpisy ręczne =====
   const sigW = (W - 24) / 2;
-  const SIG_HEIGHT = 34; // miejsce na rzeczywisty podpis
-  const sigTopY = y; // top sygnatur (pole Documenso od top do linii)
-  // Pola podpisów pozostają puste w PDF — Documenso renderuje typed
-  // signature pracownika (cursive font + audit log) w polu SIGNATURE
-  // poprzez autoSignAsEmployee. Klient podpisuje w swoim polu.
+  const SIG_HEIGHT = 34;
+  const sigTopY = y;
+  // Embed cursive PNG pracownika gdy podany (paper-flow: PDF
+  // generowany lokalnie z gotowym podpisem). Dla elektronicznego flow
+  // employeeSignaturePng=null — Documenso wstawia typed signature.
+  if (data.employeeSignaturePng) {
+    try {
+      const base64 = data.employeeSignaturePng.replace(
+        /^data:image\/[a-z]+;base64,/,
+        "",
+      );
+      const buf = Buffer.from(base64, "base64");
+      doc.image(buf, M + 4, y + 2, {
+        fit: [sigW - 8, SIG_HEIGHT - 4],
+        align: "center",
+        valign: "center",
+      });
+    } catch {
+      /* malformed PNG — pozostaw puste pole */
+    }
+  }
   doc
     .moveTo(M, y + SIG_HEIGHT)
     .lineTo(M + sigW, y + SIG_HEIGHT)

@@ -45,12 +45,12 @@ export function QuotePreview({
   const [quote, setQuote] = useState<Quote | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Wirtualnie dodajemy CLEANING gdy zostało wybrane oddzielnie (visual
-  // condition), nawet jeśli nie ma kodu w repairTypes — back-compat dla
-  // VisualConditionConfigurator który ustawia osobny flag.
-  const codes = cleaningSelected && !repairTypes.includes("CLEANING")
-    ? [...repairTypes, "CLEANING"]
-    : repairTypes;
+  // Czyszczenie = zwykły chip (CLEANING). Brak wirtualnego dodawania —
+  // jeśli sprzedawca wybrał chip, jest w repairTypes; jeśli flagę
+  // visualCondition.cleaning_accepted ustawia 3D walkthrough,
+  // synchronizujemy w AddServiceTab przed przekazaniem repairTypes.
+  void cleaningSelected;
+  const codes = repairTypes;
 
   useEffect(() => {
     if (codes.length === 0) {
@@ -177,12 +177,8 @@ export function QuotePreview({
               <p className="font-semibold">
                 Skontaktuj się z serwisantem w celu ustalenia kwoty zlecenia.
               </p>
-              {quote.reason && (
-                <p className="text-[11px] opacity-80">{quote.reason}</p>
-              )}
               <p className="text-[11px] opacity-80">
-                W przypadku naprawy łączonej (poza czyszczeniem) wymagana
-                indywidualna wycena.
+                W przypadku naprawy łączonej wymagana indywidualna wycena.
               </p>
             </div>
           </div>

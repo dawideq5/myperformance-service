@@ -397,8 +397,10 @@ export const DEFAULT_REPAIR_TYPES: RepairTypeInput[] = [
     timeMin: 30,
     timeMax: 120,
     timeUnit: "minutes",
-    combinableMode: "no",
-    sumsMode: "no",
+    combinableMode: "only_with",
+    combinableWith: ["CLEANING"],
+    sumsMode: "only_with",
+    sumsWith: ["CLEANING"],
     sortOrder: 1,
   },
   {

@@ -26,7 +26,7 @@ import {
 /** Fallback typy napraw — używane gdy mp_repair_types pusta lub fetch
  * failuje. Po seed w produkcji DB powinien zawierać te same wpisy. */
 const FALLBACK_REPAIR_TYPES: RepairTypeApi[] = [
-  { code: "EXPERTISE", label: "Ekspertyza", icon: "ClipboardList", color: "#06B6D4", combinableMode: "no", combinableWith: [], sumsMode: "no", sumsWith: [], sortOrder: 1 },
+  { code: "EXPERTISE", label: "Ekspertyza", icon: "ClipboardList", color: "#06B6D4", combinableMode: "only_with", combinableWith: ["CLEANING"], sumsMode: "only_with", sumsWith: ["CLEANING"], sortOrder: 1 },
   { code: "SCREEN_REPLACEMENT", label: "Wymiana wyświetlacza", icon: "Smartphone", color: "#3b82f6", combinableMode: "yes", combinableWith: [], sumsMode: "only_with", sumsWith: ["CLEANING"], sortOrder: 10 },
   { code: "BATTERY_REPLACEMENT", label: "Wymiana baterii", icon: "Battery", color: "#22c55e", combinableMode: "yes", combinableWith: [], sumsMode: "only_with", sumsWith: ["CLEANING"], sortOrder: 20 },
   { code: "CHARGING_PORT_REPLACEMENT", label: "Wymiana gniazda ładowania", icon: "Cable", color: "#f59e0b", combinableMode: "yes", combinableWith: [], sumsMode: "only_with", sumsWith: ["CLEANING"], sortOrder: 30 },
