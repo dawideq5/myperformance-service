@@ -584,37 +584,56 @@ async function deprovisionUserInternal(args: {
   email: string;
   previousEmail?: string;
 }): Promise<UserDeprovisionResult[]> {
-  const results: UserDeprovisionResult[] = [];
-  // Dedup providers — wiele AREAS może mapować do jednego providera (np.
-  // chatwoot ma kilka area-rol). Wystarczy jeden delete na provider.
+  // Fan-out delete do różnych providerów — różne systemy, brak współdzielonego
+  // state, więc wszystkie mogą iść równolegle. Wcześniej sequential 6× ~500ms
+  // = ~3s; teraz Promise.allSettled = ~500ms.
   const seen = new Set<string>();
+  const tasks: Array<{
+    areaId: string;
+    op: () => Promise<UserDeprovisionResult>;
+  }> = [];
+
   for (const area of AREAS) {
-    if (area.provider !== "native") continue;
+    if (area.provider !== "native") {
+      continue;
+    }
     const provider = getProvider(area.nativeProviderId);
     if (!provider || !provider.isConfigured()) {
-      results.push({ areaId: area.id, status: "skipped" });
+      tasks.push({
+        areaId: area.id,
+        op: async () => ({ areaId: area.id, status: "skipped" }),
+      });
       continue;
     }
     if (seen.has(provider.id)) {
-      results.push({ areaId: area.id, status: "skipped" });
+      tasks.push({
+        areaId: area.id,
+        op: async () => ({ areaId: area.id, status: "skipped" }),
+      });
       continue;
     }
     seen.add(provider.id);
-    try {
-      await provider.deleteUser({
-        email: args.email,
-        previousEmail: args.previousEmail,
-      });
-      results.push({ areaId: area.id, status: "ok" });
-    } catch (err) {
-      results.push({
-        areaId: area.id,
-        status: "failed",
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
+    tasks.push({
+      areaId: area.id,
+      op: async () => {
+        try {
+          await provider.deleteUser({
+            email: args.email,
+            previousEmail: args.previousEmail,
+          });
+          return { areaId: area.id, status: "ok" };
+        } catch (err) {
+          return {
+            areaId: area.id,
+            status: "failed",
+            error: err instanceof Error ? err.message : String(err),
+          };
+        }
+      },
+    });
   }
-  return results;
+
+  return Promise.all(tasks.map((t) => t.op()));
 }
 
 /**
@@ -673,17 +692,30 @@ export async function reconcileUsers(opts: {
     const deleted: string[] = [];
     const failed: Array<{ email: string; error: string }> = [];
     if (opts.apply) {
-      for (const email of drifted) {
-        try {
-          await provider.deleteUser({ email });
-          deleted.push(email);
-        } catch (err) {
-          failed.push({
-            email,
-            error: err instanceof Error ? err.message : String(err),
-          });
+      // Bounded concurrency 3 — pozwala 3× szybszy delete dla 50+ drift userów,
+      // bez zagrożenia rate-limitów natywnego API providera. Wcześniej
+      // sequential = O(n) × latency. Teraz O(n/3).
+      const CONCURRENCY = 3;
+      const queue = [...drifted];
+      const localProvider = provider;
+      async function worker(): Promise<void> {
+        for (;;) {
+          const email = queue.shift();
+          if (!email) return;
+          try {
+            await localProvider.deleteUser({ email });
+            deleted.push(email);
+          } catch (err) {
+            failed.push({
+              email,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
         }
       }
+      await Promise.all(
+        Array.from({ length: Math.min(CONCURRENCY, drifted.length) }, worker),
+      );
     }
     results.push({
       providerId: provider.id,
