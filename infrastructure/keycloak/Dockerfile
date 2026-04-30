@@ -8,6 +8,8 @@ RUN /opt/keycloak/bin/kc.sh build --db=postgres --health-enabled=true --metrics-
 
 FROM quay.io/keycloak/keycloak:26.6.1
 
+# runs as user 'keycloak' (uid 1000) by default — base image od KC 18+ ma USER 1000.
+# NIE nadpisujemy go (żaden USER root / USER 0).
 COPY --from=builder /opt/keycloak/ /opt/keycloak/
 
 ENTRYPOINT ["/opt/keycloak/bin/kc.sh"]

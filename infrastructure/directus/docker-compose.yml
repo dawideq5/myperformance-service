@@ -33,6 +33,19 @@ services:
       timeout: 5s
       retries: 12
       start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: "2G"
+        reservations:
+          cpus: "0.25"
+          memory: "256M"
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+        window: 120s
 
   cache:
     image: 'redis:7-alpine'
@@ -47,6 +60,19 @@ services:
       interval: 5s
       timeout: 5s
       retries: 12
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: "2G"
+        reservations:
+          cpus: "0.25"
+          memory: "256M"
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+        window: 120s
 
   directus:
     image: 'directus/directus:11'
@@ -122,6 +148,19 @@ services:
       timeout: 10s
       retries: 10
       start_period: 90s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"
+          memory: "1G"
+        reservations:
+          cpus: "0.25"
+          memory: "256M"
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+        window: 120s
 
 volumes:
   directus-postgres-data:

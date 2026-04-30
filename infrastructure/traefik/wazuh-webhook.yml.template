@@ -2,10 +2,10 @@
 # Aplikuje IP allowlist + rate-limit + secure-headers. Priorytet 1000
 # wygrywa nad docker-provider router Coolify.
 #
-# UWAGA: alias `cft13k98wnuqm4u8p6freksn` to Coolify DNS dashboardu.
-# Po zmianie UUID dashboardu (re-create) zaktualizuj go ręcznie.
-# Wartość pochodzi z `$COOLIFY_DASHBOARD_UUID` w .env. Najprostsza
-# regeneracja przez `scripts/render-traefik-config.sh`.
+# TEMPLATE: ${COOLIFY_DASHBOARD_UUID} jest substytuowany przez
+# `scripts/render-traefik-config.sh` na bazie wartości z .env. Plik
+# wynikowy `wazuh-webhook.yml` jest deployowany na VPS — NIE edytuj go
+# ręcznie, edytuj template + uruchom skrypt render.
 http:
   routers:
     wazuh-webhook-route:
@@ -26,6 +26,6 @@ http:
         servers:
           # Coolify deploy container ma sufix -<timestamp> który zmienia się
           # przy każdym redeploy. Zamiast hardcoded sufix, używamy alias
-          # przez Coolify network DNS — `cft13k98wnuqm4u8p6freksn` rozwija
-          # do current container w docker network.
-          - url: "http://cft13k98wnuqm4u8p6freksn:3000"
+          # przez Coolify network DNS — UUID dashboardu rozwija się do
+          # current container w docker network.
+          - url: "http://${COOLIFY_DASHBOARD_UUID}:3000"

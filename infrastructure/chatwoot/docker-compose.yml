@@ -39,6 +39,19 @@ services:
       timeout: 10s
       retries: 12
       start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: "2G"
+        reservations:
+          cpus: "0.25"
+          memory: "256M"
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+        window: 120s
 
   redis:
     image: 'redis:7-alpine'
@@ -53,6 +66,19 @@ services:
       interval: 5s
       timeout: 10s
       retries: 12
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: "2G"
+        reservations:
+          cpus: "0.25"
+          memory: "256M"
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+        window: 120s
 
   # Wspólny zestaw envów dla rails + sidekiq + bootstrap. Używamy yaml
   # anchors (&env) bo Chatwoot wymaga IDENTYCZNEJ listy envów w każdym
@@ -117,6 +143,19 @@ services:
       timeout: 10s
       retries: 20
       start_period: 180s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"
+          memory: "1G"
+        reservations:
+          cpus: "0.25"
+          memory: "256M"
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+        window: 120s
 
   chatwoot-sidekiq:
     image: 'chatwoot/chatwoot:v4.1.0'
@@ -128,6 +167,19 @@ services:
     depends_on:
       chatwoot-rails:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"
+          memory: "1G"
+        reservations:
+          cpus: "0.25"
+          memory: "256M"
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+        window: 120s
 
   # Jednorazowy sidecar — po pierwszym starcie rails-a:
   #   1. Tworzy PlatformApp "MyPerformance Dashboard" z access_token,
@@ -163,6 +215,15 @@ services:
         puts "Skopiuj powyższe 3 envy do Coolify /"
         puts "myperformance-service i zredeploy dashboardu."
         RUBY
+    # Sidecar one-shot — Rails runner ładuje pełny stack, więc minimum 512M.
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: "512M"
+        reservations:
+          cpus: "0.25"
+          memory: "128M"
 
 volumes:
   chatwoot-postgres-data:

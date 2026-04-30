@@ -39,6 +39,19 @@ services:
       timeout: 10s
       retries: 3
       start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"
+          memory: "1G"
+        reservations:
+          cpus: "0.25"
+          memory: "256M"
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+        window: 120s
 
 networks:
   proxy-network:

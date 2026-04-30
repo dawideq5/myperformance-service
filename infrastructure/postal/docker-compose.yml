@@ -75,6 +75,14 @@ services:
     volumes:
       - 'postal-config:/config'
     restart: 'no'
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: "128M"
+        reservations:
+          cpus: "0.25"
+          memory: "128M"
 
   mariadb:
     image: 'mariadb:10.11'
@@ -96,6 +104,20 @@ services:
       timeout: 5s
       retries: 12
       start_period: 60s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: "2G"
+        reservations:
+          cpus: "0.25"
+          memory: "256M"
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+        window: 120s
 
   # One-shot migrator. `postal initialize` creates/updates main_db + message_db schemas.
   migrator:
@@ -109,6 +131,15 @@ services:
     volumes:
       - 'postal-config:/config'
     restart: 'no'
+    # Sidecar one-shot — Rails CLI ładuje pełny stack, więc 512M minimum.
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: "512M"
+        reservations:
+          cpus: "0.25"
+          memory: "128M"
 
   # Postal web-server. Service is named `web` because Coolify's FQDN binding
   # (postal.myperformance.pl → web:5000) was established under this name;
@@ -136,6 +167,19 @@ services:
       retries: 12
       start_period: 60s
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"
+          memory: "1G"
+        reservations:
+          cpus: "0.25"
+          memory: "256M"
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+        window: 120s
 
   smtp:
     image: 'ghcr.io/postalserver/postal:3.3.5'
@@ -152,6 +196,19 @@ services:
     volumes:
       - 'postal-config:/config'
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"
+          memory: "1G"
+        reservations:
+          cpus: "0.25"
+          memory: "256M"
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+        window: 120s
 
   worker:
     image: 'ghcr.io/postalserver/postal:3.3.5'
@@ -162,6 +219,19 @@ services:
     volumes:
       - 'postal-config:/config'
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"
+          memory: "1G"
+        reservations:
+          cpus: "0.25"
+          memory: "256M"
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+        window: 120s
 
 volumes:
   postal-config:
