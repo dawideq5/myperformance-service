@@ -2,6 +2,9 @@ import { getServerSession } from "next-auth/next";
 import { NextRequest, NextResponse } from "next/server";
 import { authOptions } from "@/app/auth";
 import { keycloak } from "@/lib/keycloak";
+import { log } from "@/lib/logger";
+
+const logger = log.child({ module: "google-connect" });
 
 const ALLOWED_FEATURES = new Set([
   "email_verification",
@@ -29,15 +32,12 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json().catch(() => ({}));
-    console.log("[Google Connect] Request body:", JSON.stringify(body));
     const rawFeatures: unknown = body?.features;
     const features = Array.isArray(rawFeatures)
       ? rawFeatures
           .filter((feature): feature is string => typeof feature === "string")
           .filter((feature) => ALLOWED_FEATURES.has(feature))
       : [];
-
-    console.log("[Google Connect] Filtered features:", features);
 
     if (features.length === 0) {
       return NextResponse.json(
@@ -49,16 +49,17 @@ export async function POST(request: NextRequest) {
     const userId = await keycloak.getUserIdFromToken(session.accessToken);
     const serviceToken = await keycloak.getServiceAccountToken();
 
-    console.log("[Google Connect] Saving features for user:", userId, features);
     await keycloak.updateUserAttributes(serviceToken, userId, {
       google_features_requested: features,
       google_features_requested_at: [new Date().toISOString()],
     });
 
-    console.log("[Google Connect] Features saved successfully");
+    logger.info("google features saved", { userId, featureCount: features.length });
     return NextResponse.json({ success: true, features });
   } catch (error) {
-    console.error("[Google Connect] Error:", error);
+    logger.error("connect failed", {
+      err: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

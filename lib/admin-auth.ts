@@ -300,14 +300,20 @@ export function isAreaAdmin(
 }
 
 /**
- * "Dowolny panel admin" — true gdy user ma którąkolwiek admin role.
- * Implementacja używa `isAnyAdmin` derywujące z AREAS, więc dodanie
- * nowego area auto-rozszerza ten check.
+ * Brama wejściowa do `/admin/*` — wymaga roli `keycloak_admin` (lub super-admina).
+ *
+ * Wcześniej delegowała do `isAnyAdmin` (jakakolwiek admin role wystarczy),
+ * co naruszało least-privilege: user z rolą np. `documenso_admin` widział panel
+ * `/admin/users` mimo że nie powinien zarządzać KC realmem (AUDIT.md 1.3.1, 2.1.1).
+ *
+ * Sub-areas (Documenso/Chatwoot/Postal/Moodle/...) nie potrzebują tej bramy —
+ * mają własne `canAccessXxx` checki. Ekrany typu "moja organizacja w Documenso"
+ * używają `canAccessDocumensoAsAdmin`, nie tego helpera.
  */
 export function canAccessAdminPanel(
   session: Session | null | undefined,
 ): boolean {
-  return isAnyAdmin(session);
+  return canAccessKeycloakAdmin(session);
 }
 
 // ── Per-area access checks (cienkie wrappery na hasArea) ──────────────────

@@ -112,6 +112,18 @@ describe("admin-auth", () => {
       expect(canAccessAdminPanel(sessionWith([ROLES.APP_USER]))).toBe(false);
       expect(canAccessKeycloakAdmin(sessionWith([ROLES.KEYCLOAK_ADMIN]))).toBe(true);
     });
+
+    it("canAccessAdminPanel rejects sub-area admins (least-privilege)", () => {
+      // Po fix AUDIT.md 1.3.1: admini sub-obszarów (Documenso, Chatwoot, ...)
+      // NIE powinni mieć dostępu do bramy /admin — używają własnych canAccessXxx.
+      expect(canAccessAdminPanel(sessionWith(["documenso_admin"]))).toBe(false);
+      expect(canAccessAdminPanel(sessionWith(["chatwoot_administrator"]))).toBe(false);
+      expect(canAccessAdminPanel(sessionWith(["postal_admin"]))).toBe(false);
+      expect(canAccessAdminPanel(sessionWith(["directus_admin"]))).toBe(false);
+      // Super-admini (realm-admin / manage-realm / admin) zawsze przechodzą.
+      expect(canAccessAdminPanel(sessionWith(["realm-admin"]))).toBe(true);
+      expect(canAccessAdminPanel(sessionWith(["admin"]))).toBe(true);
+    });
   });
 
   describe("requireAdminPanel", () => {

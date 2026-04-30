@@ -35,7 +35,6 @@ import { AccountProvider, useAccount } from "@/app/account/AccountProvider";
 import { KadromierzWorkWidget } from "./components/KadromierzWorkWidget";
 import { useAuthRedirect } from "@/hooks/useAuthRedirect";
 import {
-  canAccessAdminPanel,
   canAccessCalendar,
   canAccessChatwootAsAdmin,
   canAccessChatwootAsAgent,

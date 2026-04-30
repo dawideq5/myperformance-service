@@ -108,16 +108,6 @@ export async function GET(
 
   try {
     const pdfBuffer = await renderReceiptPdf(data);
-    console.log(
-      `[receipt] PDF generated, size=${pdfBuffer.length} bytes for ${service.ticketNumber}`,
-    );
-    // Diag: zapisz ostatni PDF do /tmp żeby porównać z tym co browser dostaje.
-    try {
-      const fsLocal = await import("fs");
-      fsLocal.writeFileSync("/tmp/last-receipt.pdf", pdfBuffer);
-    } catch {
-      /* ignore */
-    }
     if (!previewMode) {
       void logServiceAction({
         serviceId: id,
