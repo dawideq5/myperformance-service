@@ -1,6 +1,49 @@
 /**
  * Rejestr obszarów uprawnień (areas) — SoT dla ról per aplikacja.
  *
+ * ## Config-driven od FAZA 4 (Wave 2)
+ *
+ * Lista areas jest ładowana z `config/areas.json` przy module-init przez
+ * `loadAreasConfig()`. Plik JSON jest pojedynczym źródłem prawdy dla
+ * obszarów uprawnień; modyfikacje (label, opis, role, priority,
+ * native URL) NIE wymagają zmiany kodu — wystarczy edycja JSON
+ * + restart aplikacji.
+ *
+ * ### Workflow zmian
+ *
+ *   1. Edytuj `config/areas.json`
+ *   2. Restart aplikacji (Next.js)
+ *   3. AREAS jest reloadowany z fallback na `DEFAULT_AREAS` jeśli
+ *      schema mismatch / parse error
+ *
+ * ### Struktura JSON (per area)
+ *
+ *   - `id` (string, unique)
+ *   - `label` / `description` (PL)
+ *   - `provider`: "keycloak-only" | "native"
+ *   - `nativeProviderId?`: id zarejestrowanego providera (np. "moodle")
+ *   - `icon?`: nazwa ikony (lucide-react)
+ *   - `dynamicRoles?`: bool — czy dociągać role z `provider.listRoles()`
+ *   - `nativeAdminUrlEnv?`: nazwa env var dla URL providera
+ *   - `nativeAdminUrlFallback?`: hardcoded URL fallback
+ *   - `nativeAdminUrlTail?`: deep-link path (doklejany do base URL)
+ *   - `kcRoles[]`: lista seedów ról (name, label, description, priority,
+ *     nativeRoleId?)
+ *
+ * ### Fail-closed na schema mismatch
+ *
+ * Jeśli `loadAreasConfig()` napotka:
+ *   - JSON parse error
+ *   - Brakujące wymagane pola
+ *   - Duplikaty `id`
+ *   - Pustą listę `areas`
+ *
+ * → fallback na compile-time `DEFAULT_AREAS` (identyczne z config/areas.json
+ * pod commit'em wave-4). Logowany jest warning, ale aplikacja startuje
+ * z bezpiecznym defaultem zamiast crashować.
+ *
+ * ## Architektura runtime (kontekst)
+ *
  * Każdy obszar deklaruje zestaw ról dostępnych do przypisania userowi
  * z dashboardu. Provider natywny (Chatwoot, Moodle, Documenso, Outline,
  * Directus, Postal) konsumuje native role id, a Keycloak realm role
@@ -76,7 +119,42 @@ export interface PermissionArea {
   dynamicRoles?: boolean;
 }
 
-export const AREAS: PermissionArea[] = [
+/**
+ * Raw shape ze schematu JSON — surowy obiekt area zanim
+ * `nativeAdminUrl` zostanie zresolvowany przez `nativeUrl()`.
+ */
+interface RawAreaConfig {
+  id: string;
+  label: string;
+  description: string;
+  provider: AreaProviderKind;
+  nativeProviderId?: string;
+  icon?: string;
+  dynamicRoles?: boolean;
+  /** ENV var name dla URL providera. */
+  nativeAdminUrlEnv?: string;
+  /** Hardcoded fallback URL gdy env nie ustawiony. */
+  nativeAdminUrlFallback?: string;
+  /** Deep-link path (np. /admin/users) doklejany do base. */
+  nativeAdminUrlTail?: string;
+  kcRoles: AreaRoleSeed[];
+}
+
+interface RawAreasFile {
+  version?: number;
+  areas: RawAreaConfig[];
+}
+
+/**
+ * Compile-time fallback — identyczna struktura z `config/areas.json`
+ * pod commit'em FAZA 4. Trzymana w kodzie aby aplikacja startowała
+ * nawet jeśli plik JSON zostanie usunięty / uszkodzony.
+ *
+ * UWAGA: nie usuwać tej stałej. Edycje merytoryczne należy robić
+ * w `config/areas.json` — tutaj dotykamy tylko gdy zmienia się
+ * kontrakt typu `PermissionArea`.
+ */
+const DEFAULT_AREAS: PermissionArea[] = [
   {
     id: "chatwoot",
     label: "Chatwoot",
@@ -440,6 +518,243 @@ export const AREAS: PermissionArea[] = [
   },
 ];
 
+/**
+ * Walidacja seeda roli — fail-closed. Zwraca string z błędem albo null.
+ */
+function validateRoleSeed(
+  raw: unknown,
+  ctx: string,
+): { ok: true; role: AreaRoleSeed } | { ok: false; error: string } {
+  if (typeof raw !== "object" || raw === null) {
+    return { ok: false, error: `${ctx}: role is not an object` };
+  }
+  const r = raw as Record<string, unknown>;
+  if (typeof r.name !== "string" || r.name.length === 0) {
+    return { ok: false, error: `${ctx}: role.name must be non-empty string` };
+  }
+  if (typeof r.label !== "string" || r.label.length === 0) {
+    return { ok: false, error: `${ctx}: role.label must be non-empty string` };
+  }
+  if (typeof r.description !== "string") {
+    return { ok: false, error: `${ctx}: role.description must be string` };
+  }
+  if (typeof r.priority !== "number" || !Number.isFinite(r.priority) || r.priority <= 0) {
+    return { ok: false, error: `${ctx}: role.priority must be positive number` };
+  }
+  const role: AreaRoleSeed = {
+    name: r.name,
+    label: r.label,
+    description: r.description,
+    priority: r.priority,
+  };
+  if ("nativeRoleId" in r) {
+    const v = r.nativeRoleId;
+    if (v !== null && v !== undefined && typeof v !== "string") {
+      return {
+        ok: false,
+        error: `${ctx}: role.nativeRoleId must be string|null|undefined`,
+      };
+    }
+    role.nativeRoleId = (v as string | null | undefined) ?? null;
+  }
+  return { ok: true, role };
+}
+
+/**
+ * Walidacja pojedynczej area + materializacja `nativeAdminUrl` z env.
+ */
+function materializeArea(
+  raw: unknown,
+  idx: number,
+): { ok: true; area: PermissionArea } | { ok: false; error: string } {
+  if (typeof raw !== "object" || raw === null) {
+    return { ok: false, error: `areas[${idx}]: not an object` };
+  }
+  const r = raw as Record<string, unknown>;
+  if (typeof r.id !== "string" || r.id.length === 0) {
+    return { ok: false, error: `areas[${idx}]: id must be non-empty string` };
+  }
+  if (typeof r.label !== "string" || r.label.length === 0) {
+    return { ok: false, error: `areas[${idx}]: label must be non-empty string` };
+  }
+  if (typeof r.description !== "string") {
+    return { ok: false, error: `areas[${idx}]: description must be string` };
+  }
+  if (r.provider !== "keycloak-only" && r.provider !== "native") {
+    return {
+      ok: false,
+      error: `areas[${idx}]: provider must be "keycloak-only" or "native"`,
+    };
+  }
+  if (!Array.isArray(r.kcRoles) || r.kcRoles.length === 0) {
+    return { ok: false, error: `areas[${idx}]: kcRoles must be non-empty array` };
+  }
+
+  const kcRoles: AreaRoleSeed[] = [];
+  for (let i = 0; i < r.kcRoles.length; i++) {
+    const res = validateRoleSeed(r.kcRoles[i], `areas[${idx}]:${r.id}.kcRoles[${i}]`);
+    if (!res.ok) return res;
+    kcRoles.push(res.role);
+  }
+
+  const area: PermissionArea = {
+    id: r.id,
+    label: r.label,
+    description: r.description,
+    provider: r.provider,
+    kcRoles,
+  };
+  if (typeof r.nativeProviderId === "string" && r.nativeProviderId.length > 0) {
+    area.nativeProviderId = r.nativeProviderId;
+  }
+  if (typeof r.icon === "string" && r.icon.length > 0) {
+    area.icon = r.icon;
+  }
+  if (r.dynamicRoles === true) {
+    area.dynamicRoles = true;
+  }
+
+  // Resolve nativeAdminUrl z (env, fallback, tail) — z fallbackiem na
+  // bezpośrednie pole `nativeAdminUrl` jeżeli ktoś go nadał na sztywno
+  // w JSON (back-compat).
+  if (typeof r.nativeAdminUrl === "string" && r.nativeAdminUrl.length > 0) {
+    area.nativeAdminUrl = r.nativeAdminUrl;
+  } else if (
+    typeof r.nativeAdminUrlFallback === "string" &&
+    r.nativeAdminUrlFallback.length > 0
+  ) {
+    const envName =
+      typeof r.nativeAdminUrlEnv === "string" ? r.nativeAdminUrlEnv : "";
+    const tail =
+      typeof r.nativeAdminUrlTail === "string" ? r.nativeAdminUrlTail : "";
+    area.nativeAdminUrl = nativeUrl(envName, r.nativeAdminUrlFallback, tail);
+  }
+
+  return { ok: true, area };
+}
+
+/**
+ * Próbuje załadować `config/areas.json` przez różne strategie:
+ *  1. Statyczny ESM-import (resolveJsonModule) — działa w Next.js bundler
+ *     i w vitest gdy plik istnieje pod ścieżką @/config/areas.json.
+ *  2. Node CJS require z absolutną ścieżką resolved przez `process.cwd()`
+ *     — fallback gdy bundler nie inline-uje JSON (test runtime, dev server).
+ *  3. Filesystem read przez `fs.readFileSync` — last resort.
+ *
+ * Wszystkie ścieżki opakowane w try/catch — fail-closed na DEFAULT_AREAS.
+ */
+function readRawAreasJson(): unknown | null {
+  // Strategia 1 — static ESM import (Next.js bundler, vitest z resolve.alias)
+  try {
+    // Inline static import — TypeScript widzi to jako require z aliasem @/.
+    // Vitest CJS resolver może to odrzucić; Next.js bundler inlinuje JSON.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mod = require("@/config/areas.json");
+    if (mod && typeof mod === "object") {
+      // ESM JSON może być pod default, CJS pod root.
+      return (mod as { default?: unknown }).default ?? mod;
+    }
+  } catch {
+    // ignore — try next strategy
+  }
+
+  // Strategia 2 — fs.readFileSync z absolutną ścieżką wyliczoną z cwd.
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fs = require("fs") as typeof import("fs");
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const path = require("path") as typeof import("path");
+    const candidates = [
+      path.resolve(process.cwd(), "config", "areas.json"),
+      path.resolve(__dirname, "..", "..", "config", "areas.json"),
+    ];
+    for (const p of candidates) {
+      try {
+        if (fs.existsSync(p)) {
+          const text = fs.readFileSync(p, "utf-8");
+          return JSON.parse(text);
+        }
+      } catch {
+        // try next candidate
+      }
+    }
+  } catch {
+    // fs/path not available — Edge runtime?
+  }
+
+  return null;
+}
+
+/**
+ * Główny loader — czyta `config/areas.json`, waliduje, materializuje
+ * URL-e. Fail-closed: jeśli cokolwiek pójdzie źle → fallback na
+ * `DEFAULT_AREAS` + console.warn.
+ */
+export function loadAreasConfig(): PermissionArea[] {
+  const raw = readRawAreasJson();
+  if (raw === null) {
+    if (typeof console !== "undefined") {
+      console.warn(
+        "[areas] failed to load config/areas.json (no strategy succeeded) — falling back to DEFAULT_AREAS",
+      );
+    }
+    return DEFAULT_AREAS;
+  }
+
+  if (typeof raw !== "object" || raw === null) {
+    if (typeof console !== "undefined") {
+      console.warn(
+        "[areas] config/areas.json: root must be object — falling back to DEFAULT_AREAS",
+      );
+    }
+    return DEFAULT_AREAS;
+  }
+
+  const file = raw as RawAreasFile;
+  if (!Array.isArray(file.areas) || file.areas.length === 0) {
+    if (typeof console !== "undefined") {
+      console.warn(
+        "[areas] config/areas.json: `areas` must be non-empty array — falling back to DEFAULT_AREAS",
+      );
+    }
+    return DEFAULT_AREAS;
+  }
+
+  const out: PermissionArea[] = [];
+  const seenIds = new Set<string>();
+  for (let i = 0; i < file.areas.length; i++) {
+    const res = materializeArea(file.areas[i], i);
+    if (!res.ok) {
+      if (typeof console !== "undefined") {
+        console.warn(
+          `[areas] config/areas.json invalid: ${res.error} — falling back to DEFAULT_AREAS`,
+        );
+      }
+      return DEFAULT_AREAS;
+    }
+    if (seenIds.has(res.area.id)) {
+      if (typeof console !== "undefined") {
+        console.warn(
+          `[areas] config/areas.json: duplicate area id "${res.area.id}" — falling back to DEFAULT_AREAS`,
+        );
+      }
+      return DEFAULT_AREAS;
+    }
+    seenIds.add(res.area.id);
+    out.push(res.area);
+  }
+  return out;
+}
+
+/**
+ * Zarejestrowane areas — wynik `loadAreasConfig()` przy module init.
+ *
+ * Kontrakt API jest niezmieniony — kod konsumujący `AREAS` jako
+ * `PermissionArea[]` nie wymaga modyfikacji. Reload wymaga restartu
+ * aplikacji (Next.js server) — config jest cache'owany przez require.
+ */
+export const AREAS: PermissionArea[] = loadAreasConfig();
+
 export function getArea(id: string): PermissionArea | null {
   return AREAS.find((a) => a.id === id) ?? null;
 }
@@ -506,3 +821,17 @@ export function isCustomRoleKcName(name: string): boolean {
   return /^[a-z][a-z0-9_]*_custom_[a-z0-9_]+$/.test(name);
 }
 
+/**
+ * Eksport DEFAULT_AREAS dla testów (sprawdzić że fallback działa).
+ * @internal
+ */
+export const __DEFAULT_AREAS_FOR_TESTS: PermissionArea[] = DEFAULT_AREAS;
+
+/**
+ * Eksport walidatorów dla testów config-driven loading.
+ * @internal
+ */
+export const __INTERNAL_FOR_TESTS = {
+  materializeArea,
+  validateRoleSeed,
+};

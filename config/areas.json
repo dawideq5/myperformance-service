@@ -1,0 +1,342 @@
+{
+  "$schema": "./areas.schema.json",
+  "version": 1,
+  "areas": [
+    {
+      "id": "chatwoot",
+      "label": "Chatwoot",
+      "description": "Live-chat klientów, email, kanały social.",
+      "provider": "native",
+      "nativeProviderId": "chatwoot",
+      "icon": "MessageSquare",
+      "nativeAdminUrlEnv": "NEXT_PUBLIC_CHATWOOT_URL",
+      "nativeAdminUrlFallback": "https://chat.myperformance.pl",
+      "nativeAdminUrlTail": "/app/accounts/1/agents",
+      "kcRoles": [
+        {
+          "name": "chatwoot_agent",
+          "label": "Agent",
+          "description": "Agent obsługi klienta — obsługuje rozmowy.",
+          "priority": 10,
+          "nativeRoleId": "agent"
+        },
+        {
+          "name": "chatwoot_admin",
+          "label": "Administrator",
+          "description": "Administrator Chatwoota — konfiguracja, webhooki, integracje.",
+          "priority": 90,
+          "nativeRoleId": "administrator"
+        }
+      ]
+    },
+    {
+      "id": "moodle",
+      "label": "MyPerformance — Akademia (Moodle)",
+      "description": "LMS — szkolenia, kursy, certyfikaty.",
+      "provider": "native",
+      "nativeProviderId": "moodle",
+      "icon": "GraduationCap",
+      "nativeAdminUrlEnv": "NEXT_PUBLIC_MOODLE_URL",
+      "nativeAdminUrlFallback": "https://moodle.myperformance.pl",
+      "nativeAdminUrlTail": "/admin/roles/manage.php",
+      "dynamicRoles": true,
+      "kcRoles": [
+        {
+          "name": "moodle_student",
+          "label": "Student",
+          "description": "Dostęp do kursów (rola domyślna).",
+          "priority": 10,
+          "nativeRoleId": "student"
+        },
+        {
+          "name": "moodle_manager",
+          "label": "Menedżer",
+          "description": "Manager Moodla — konfiguracja instancji, pluginy, użytkownicy.",
+          "priority": 90,
+          "nativeRoleId": "manager"
+        }
+      ]
+    },
+    {
+      "id": "directus",
+      "label": "Directus CMS",
+      "description": "Treści i dane aplikacji.",
+      "provider": "native",
+      "nativeProviderId": "directus",
+      "icon": "Database",
+      "nativeAdminUrlEnv": "NEXT_PUBLIC_DIRECTUS_URL",
+      "nativeAdminUrlFallback": "https://cms.myperformance.pl",
+      "nativeAdminUrlTail": "/admin/users",
+      "kcRoles": [
+        {
+          "name": "directus_admin",
+          "label": "Administrator",
+          "description": "Administrator Directusa — role, permissions, kolekcje.",
+          "priority": 90,
+          "nativeRoleId": null
+        }
+      ]
+    },
+    {
+      "id": "documenso",
+      "label": "Dokumenty (Documenso)",
+      "description": "E-podpis i obieg dokumentów.",
+      "provider": "native",
+      "nativeProviderId": "documenso",
+      "icon": "FileSignature",
+      "nativeAdminUrlEnv": "NEXT_PUBLIC_DOCUMENSO_URL",
+      "nativeAdminUrlFallback": "https://sign.myperformance.pl",
+      "nativeAdminUrlTail": "/admin/users",
+      "kcRoles": [
+        {
+          "name": "documenso_member",
+          "label": "Użytkownik",
+          "description": "Pracownik — podpisuje własne dokumenty.",
+          "priority": 10,
+          "nativeRoleId": "MEMBER"
+        },
+        {
+          "name": "documenso_manager",
+          "label": "Menedżer",
+          "description": "Zarządza członkami zespołu i ma wgląd w dokumenty restricted-to-manager.",
+          "priority": 50,
+          "nativeRoleId": "MANAGER"
+        },
+        {
+          "name": "documenso_admin",
+          "label": "Administrator",
+          "description": "Administrator Documenso — użytkownicy, szablony, webhooki.",
+          "priority": 90,
+          "nativeRoleId": "ADMIN"
+        }
+      ]
+    },
+    {
+      "id": "knowledge",
+      "label": "Baza wiedzy (Outline)",
+      "description": "Wewnętrzna wiki — procedury, zasady, how-to.",
+      "provider": "native",
+      "nativeProviderId": "outline",
+      "icon": "BookOpen",
+      "nativeAdminUrlEnv": "NEXT_PUBLIC_OUTLINE_URL",
+      "nativeAdminUrlFallback": "https://knowledge.myperformance.pl",
+      "nativeAdminUrlTail": "/settings/members",
+      "kcRoles": [
+        {
+          "name": "knowledge_viewer",
+          "label": "Widz",
+          "description": "Tylko do odczytu — nie może tworzyć ani edytować dokumentów.",
+          "priority": 10,
+          "nativeRoleId": "viewer"
+        },
+        {
+          "name": "knowledge_editor",
+          "label": "Edytor",
+          "description": "Tworzy i edytuje dokumenty oraz kolekcje.",
+          "priority": 50,
+          "nativeRoleId": "member"
+        },
+        {
+          "name": "knowledge_admin",
+          "label": "Administrator",
+          "description": "Administrator Outline — użytkownicy, grupy, integracje.",
+          "priority": 90,
+          "nativeRoleId": "admin"
+        }
+      ]
+    },
+    {
+      "id": "postal",
+      "label": "Postal",
+      "description": "Transactional + newsletter mail sender.",
+      "provider": "native",
+      "nativeProviderId": "postal",
+      "icon": "Mail",
+      "nativeAdminUrlEnv": "NEXT_PUBLIC_POSTAL_URL",
+      "nativeAdminUrlFallback": "https://postal.myperformance.pl",
+      "nativeAdminUrlTail": "/users",
+      "kcRoles": [
+        {
+          "name": "postal_admin",
+          "label": "Administrator",
+          "description": "Administrator Postal — serwery, domeny, polityki.",
+          "priority": 90,
+          "nativeRoleId": "admin"
+        }
+      ]
+    },
+    {
+      "id": "certificates",
+      "label": "Certyfikaty klienckie",
+      "description": "Wydawanie i odwoływanie certyfikatów mTLS (step-ca).",
+      "provider": "keycloak-only",
+      "icon": "ShieldCheck",
+      "kcRoles": [
+        {
+          "name": "certificates_admin",
+          "label": "Administrator",
+          "description": "Wydawanie i odwoływanie certyfikatów klienckich.",
+          "priority": 90
+        }
+      ]
+    },
+    {
+      "id": "stepca",
+      "label": "step-ca (PKI)",
+      "description": "Konsola administracyjna urzędu certyfikacji.",
+      "provider": "keycloak-only",
+      "icon": "Shield",
+      "kcRoles": [
+        {
+          "name": "stepca_admin",
+          "label": "Administrator",
+          "description": "Administrator step-ca — provisionery, polityki, root.",
+          "priority": 90
+        }
+      ]
+    },
+    {
+      "id": "keycloak",
+      "label": "Keycloak",
+      "description": "Konsola administracyjna IdP.",
+      "provider": "keycloak-only",
+      "icon": "Key",
+      "kcRoles": [
+        {
+          "name": "keycloak_admin",
+          "label": "Administrator",
+          "description": "Administrator Keycloak — klienci, realm settings, flows.",
+          "priority": 90
+        }
+      ]
+    },
+    {
+      "id": "kadromierz",
+      "label": "Kadromierz",
+      "description": "Grafik i ewidencja czasu pracy.",
+      "provider": "keycloak-only",
+      "icon": "Clock",
+      "kcRoles": [
+        {
+          "name": "kadromierz_user",
+          "label": "Użytkownik",
+          "description": "Dostęp do grafiku i ewidencji czasu.",
+          "priority": 10
+        }
+      ]
+    },
+    {
+      "id": "panel-sprzedawca",
+      "label": "Panel Sprzedawca",
+      "description": "Cert-gated panel sprzedaży (mTLS).",
+      "provider": "keycloak-only",
+      "icon": "ShoppingCart",
+      "kcRoles": [
+        {
+          "name": "sprzedawca",
+          "label": "Użytkownik",
+          "description": "Dostęp do panelu sprzedawcy.",
+          "priority": 10
+        }
+      ]
+    },
+    {
+      "id": "panel-serwisant",
+      "label": "Panel Serwisant",
+      "description": "Cert-gated panel serwisu (mTLS).",
+      "provider": "keycloak-only",
+      "icon": "Wrench",
+      "kcRoles": [
+        {
+          "name": "serwisant",
+          "label": "Użytkownik",
+          "description": "Dostęp do panelu serwisanta.",
+          "priority": 10
+        }
+      ]
+    },
+    {
+      "id": "panel-kierowca",
+      "label": "Panel Kierowca",
+      "description": "Cert-gated panel kierowcy (mTLS).",
+      "provider": "keycloak-only",
+      "icon": "Truck",
+      "kcRoles": [
+        {
+          "name": "kierowca",
+          "label": "Użytkownik",
+          "description": "Dostęp do panelu kierowcy.",
+          "priority": 10
+        }
+      ]
+    },
+    {
+      "id": "infrastructure",
+      "label": "Infrastruktura serwera",
+      "description": "VPS, DNS, snapshoty, backupy, monitoring zasobów, bezpieczeństwo/SIEM, Wazuh dashboard (panel /admin/infrastructure + https://wazuh.myperformance.pl).",
+      "provider": "keycloak-only",
+      "icon": "Server",
+      "nativeAdminUrlEnv": "NEXT_PUBLIC_WAZUH_URL",
+      "nativeAdminUrlFallback": "https://wazuh.myperformance.pl",
+      "kcRoles": [
+        {
+          "name": "infrastructure_admin",
+          "label": "Administrator",
+          "description": "Pełny dostęp: OVH API (VPS, DNS, snapshot, backup), monitoring zasobów (CPU/RAM/Disk per kontener), security events, blokady IP, Wazuh SIEM (agenty, reguły, polityki, użytkownicy).",
+          "priority": 90
+        },
+        {
+          "name": "wazuh_admin",
+          "label": "Wazuh OpenSearch (alias)",
+          "description": "Mapuje na all_access w Wazuh OpenSearch Dashboards (roles_mapping.yml). Auto-przypisywane razem z infrastructure_admin.",
+          "priority": 90
+        }
+      ]
+    },
+    {
+      "id": "config-hub",
+      "label": "Zarządzanie konfiguracją",
+      "description": "Centralna konfiguracja: punkty sprzedaży/serwisu, certyfikaty mTLS, powiązania, grupy targetowe i progi punktowe (panel /admin/config).",
+      "provider": "keycloak-only",
+      "icon": "Settings",
+      "kcRoles": [
+        {
+          "name": "config_admin",
+          "label": "Administrator",
+          "description": "Pełny dostęp do panelu Zarządzanie konfiguracją: edycja punktów, grup targetowych, progów, powiązań cert↔punkt.",
+          "priority": 90
+        }
+      ]
+    },
+    {
+      "id": "email-admin",
+      "label": "Email — centralne zarządzanie",
+      "description": "Branding, szablony Keycloak, Postal admin, catalog (panel /admin/email).",
+      "provider": "keycloak-only",
+      "icon": "Mail",
+      "kcRoles": [
+        {
+          "name": "email_admin",
+          "label": "Administrator",
+          "description": "Zarządzanie centralnym brandingiem, szablonami KC, Postal, mass-send.",
+          "priority": 90
+        }
+      ]
+    },
+    {
+      "id": "core",
+      "label": "Dostęp do platformy",
+      "description": "Bazowa rola — auto-przypisywana każdemu zalogowanemu userowi.",
+      "provider": "keycloak-only",
+      "icon": "LogIn",
+      "kcRoles": [
+        {
+          "name": "app_user",
+          "label": "Użytkownik",
+          "description": "Dostęp do dashboardu (domyślna).",
+          "priority": 1
+        }
+      ]
+    }
+  ]
+}
