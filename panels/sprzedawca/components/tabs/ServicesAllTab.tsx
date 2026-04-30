@@ -59,7 +59,15 @@ interface ServiceTicket {
   };
 }
 
-type EReceiptStatus = "none" | "sent" | "signed" | "rejected" | "expired";
+type EReceiptStatus =
+  | "none"
+  | "sent"
+  | "employee_signed"
+  | "signed"
+  | "paper_pending"
+  | "paper_signed"
+  | "rejected"
+  | "expired";
 
 const ERECEIPT_BADGES: Record<
   EReceiptStatus,
@@ -67,7 +75,26 @@ const ERECEIPT_BADGES: Record<
 > = {
   none: { label: "Brak", bg: "rgba(120,120,140,0.18)", color: "#aaa" },
   sent: { label: "Wysłane", bg: "rgba(14, 165, 233, 0.18)", color: "#0EA5E9" },
-  signed: { label: "Podpisane", bg: "rgba(34, 197, 94, 0.18)", color: "#22C55E" },
+  employee_signed: {
+    label: "Czeka na klienta",
+    bg: "rgba(14, 165, 233, 0.18)",
+    color: "#0EA5E9",
+  },
+  signed: {
+    label: "Podpisane",
+    bg: "rgba(34, 197, 94, 0.18)",
+    color: "#22C55E",
+  },
+  paper_pending: {
+    label: "Papier — czeka",
+    bg: "rgba(99, 102, 241, 0.18)",
+    color: "#6366F1",
+  },
+  paper_signed: {
+    label: "Papier — podpisane",
+    bg: "rgba(34, 197, 94, 0.18)",
+    color: "#22C55E",
+  },
   rejected: { label: "Odrzucone", bg: "rgba(239, 68, 68, 0.18)", color: "#EF4444" },
   expired: { label: "Wygasłe", bg: "rgba(245, 158, 11, 0.18)", color: "#F59E0B" },
 };
@@ -304,7 +331,9 @@ function ServiceCard({
   const isReceived = service.status === "received";
   const hasEmail = !!(service.contactEmail ?? "").trim();
   const persistedStatus = service.visualCondition?.documenso?.status ?? "none";
-  const eBadge = ERECEIPT_BADGES[persistedStatus as EReceiptStatus];
+  const eBadge =
+    ERECEIPT_BADGES[persistedStatus as EReceiptStatus] ??
+    ERECEIPT_BADGES.none;
   const hasSignature =
     !!service.visualCondition?.employeeSignature?.pngDataUrl;
 
