@@ -697,11 +697,7 @@ export function AddServiceTab({
               repairTypes={repairTypes}
               cleaningSelected={!!visualCondition.cleaning_accepted}
               cleaningPrice={cleaningPrice}
-              onSuggestedTotal={(t) => {
-                if (t != null && !amountEstimate) {
-                  setAmountEstimate(t.toFixed(2));
-                }
-              }}
+              onApplyTotal={(t) => setAmountEstimate(t.toFixed(2))}
             />
             <EstimateBlock
               amountEstimate={amountEstimate}
@@ -1138,28 +1134,22 @@ function buildFullDescription(
   return parts.join("\n").trim();
 }
 
-/** Wycena orientacyjna z osobną prezentacją, sumą + kosztem czyszczenia.
- * Wyróżnione tło żeby pole nie ginęło wśród innych inputów. */
+/** Wycena finalna sprzedawcy. Pole pojedyncze + label PLN. Rozbicie cen
+ * po usługach renderuje QuotePreview (powyżej w sekcji Opis usterki). */
 function EstimateBlock({
   amountEstimate,
   onChangeEstimate,
-  cleaningPrice,
-  cleaningAccepted,
-  suggestion,
 }: {
   amountEstimate: string;
   onChangeEstimate: (v: string) => void;
-  cleaningPrice: number | null;
-  cleaningAccepted: boolean;
-  /** Optional suggestion z cennika — pokazujemy text + button "Użyj". */
-  suggestion?: { label: string; value: number };
+  /* eslint-disable @typescript-eslint/no-unused-vars */
+  cleaningPrice?: number | null;
+  cleaningAccepted?: boolean;
+  /* eslint-enable @typescript-eslint/no-unused-vars */
 }) {
-  const repair = amountEstimate ? Number(amountEstimate) : 0;
-  const cleaning = cleaningAccepted && cleaningPrice ? cleaningPrice : 0;
-  const total = (Number.isFinite(repair) ? repair : 0) + cleaning;
   return (
     <div
-      className="rounded-2xl border p-4 space-y-3"
+      className="rounded-2xl border p-4 space-y-2"
       style={{
         background:
           "linear-gradient(135deg, rgba(14, 165, 233, 0.08), rgba(14, 165, 233, 0.02))",
@@ -1198,69 +1188,6 @@ function EstimateBlock({
         >
           PLN
         </span>
-      </div>
-      {suggestion ? (
-        <div
-          className="rounded-lg border p-2 flex items-center justify-between gap-2 text-xs"
-          style={{
-            background: "rgba(34, 197, 94, 0.08)",
-            borderColor: "rgba(34, 197, 94, 0.3)",
-          }}
-        >
-          <span style={{ color: "#16A34A" }}>{suggestion.label}</span>
-          <button
-            type="button"
-            onClick={() => onChangeEstimate(suggestion.value.toFixed(2))}
-            className="px-2 py-1 rounded-md text-[11px] font-semibold transition-all hover:scale-105"
-            style={{ background: "#22C55E", color: "#fff" }}
-          >
-            Użyj
-          </button>
-        </div>
-      ) : null}
-      <div
-        className="text-xs space-y-1 pt-2 border-t"
-        style={{ borderColor: "rgba(14, 165, 233, 0.2)" }}
-      >
-        <div className="flex items-center justify-between">
-          <span style={{ color: "var(--text-muted)" }}>Naprawa</span>
-          <span
-            className="font-semibold"
-            style={{ color: "var(--text-main)" }}
-          >
-            {repair.toFixed(2)} PLN
-          </span>
-        </div>
-        {cleaningAccepted && cleaningPrice != null && (
-          <div className="flex items-center justify-between">
-            <span style={{ color: "var(--text-muted)" }}>
-              + Czyszczenie urządzenia
-            </span>
-            <span
-              className="font-serif"
-              style={{ color: "var(--text-main)" }}
-            >
-              {cleaningPrice.toFixed(2)} PLN
-            </span>
-          </div>
-        )}
-        <div
-          className="flex items-center justify-between pt-1.5 mt-1.5 border-t"
-          style={{ borderColor: "rgba(14, 165, 233, 0.2)" }}
-        >
-          <span
-            className="font-semibold uppercase tracking-wide text-[10px]"
-            style={{ color: "#0EA5E9" }}
-          >
-            Razem orientacyjnie
-          </span>
-          <span
-            className="font-bold text-sm"
-            style={{ color: "#0EA5E9" }}
-          >
-            {total.toFixed(2)} PLN
-          </span>
-        </div>
       </div>
     </div>
   );

@@ -73,30 +73,42 @@ const ERECEIPT_BADGES: Record<
   EReceiptStatus,
   { label: string; bg: string; color: string }
 > = {
-  none: { label: "Brak", bg: "rgba(120,120,140,0.18)", color: "#aaa" },
-  sent: { label: "Wysłane", bg: "rgba(14, 165, 233, 0.18)", color: "#0EA5E9" },
+  none: { label: "Bez podpisu", bg: "rgba(120,120,140,0.18)", color: "#aaa" },
+  sent: {
+    label: "Oczekuje na podpis klienta",
+    bg: "rgba(14, 165, 233, 0.18)",
+    color: "#0EA5E9",
+  },
   employee_signed: {
-    label: "Czeka na klienta",
+    label: "Oczekuje na podpis klienta",
     bg: "rgba(14, 165, 233, 0.18)",
     color: "#0EA5E9",
   },
   signed: {
-    label: "Podpisane",
+    label: "Podpisane elektronicznie",
     bg: "rgba(34, 197, 94, 0.18)",
     color: "#22C55E",
   },
   paper_pending: {
-    label: "Papier — czeka",
+    label: "Wersja papierowa — do druku",
     bg: "rgba(99, 102, 241, 0.18)",
     color: "#6366F1",
   },
   paper_signed: {
-    label: "Papier — podpisane",
+    label: "Podpisane papierowo",
     bg: "rgba(34, 197, 94, 0.18)",
     color: "#22C55E",
   },
-  rejected: { label: "Odrzucone", bg: "rgba(239, 68, 68, 0.18)", color: "#EF4444" },
-  expired: { label: "Wygasłe", bg: "rgba(245, 158, 11, 0.18)", color: "#F59E0B" },
+  rejected: {
+    label: "Odrzucone przez klienta",
+    bg: "rgba(239, 68, 68, 0.18)",
+    color: "#EF4444",
+  },
+  expired: {
+    label: "Unieważnione",
+    bg: "rgba(245, 158, 11, 0.18)",
+    color: "#F59E0B",
+  },
 };
 
 const STATUS_LABELS: Record<
@@ -456,12 +468,17 @@ function ServiceCard({
               </span>
             )}
           </div>
-          <div className="text-sm font-semibold flex items-center gap-2 flex-shrink-0">
+          <div className="font-bold flex items-center gap-2 flex-shrink-0">
             {service.amountFinal != null ? (
-              <span style={{ color: "#22C55E" }}>{service.amountFinal} PLN</span>
+              <span className="text-base" style={{ color: "#22C55E" }}>
+                {service.amountFinal.toFixed(2)} PLN
+              </span>
             ) : service.amountEstimate != null ? (
-              <span style={{ color: "var(--text-muted)" }}>
-                ~{service.amountEstimate} PLN
+              <span
+                className="text-base"
+                style={{ color: "#ffffff" }}
+              >
+                {service.amountEstimate.toFixed(2)} PLN
               </span>
             ) : null}
             {isReceived && onEdit && (

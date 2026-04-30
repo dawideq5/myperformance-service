@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertTriangle, Check, Tag } from "lucide-react";
+import { AlertTriangle, ArrowDownToLine, Tag } from "lucide-react";
 
 interface QuoteLine {
   code: string;
@@ -34,6 +34,7 @@ export function QuotePreview({
   cleaningSelected,
   cleaningPrice,
   onSuggestedTotal,
+  onApplyTotal,
 }: {
   brand: string;
   model: string;
@@ -41,6 +42,9 @@ export function QuotePreview({
   cleaningSelected?: boolean;
   cleaningPrice?: number | null;
   onSuggestedTotal?: (total: number | null) => void;
+  /** Wywoływane gdy user klika "Zastosuj wycenę" — przenosi total do
+   * pola amountEstimate w EstimateBlock. */
+  onApplyTotal?: (total: number) => void;
 }) {
   const [quote, setQuote] = useState<Quote | null>(null);
   const [loading, setLoading] = useState(false);
@@ -184,31 +188,36 @@ export function QuotePreview({
           </div>
         ) : quote.total != null ? (
           <div
-            className="flex items-center justify-between pt-2 mt-1 border-t text-sm"
+            className="pt-2 mt-1 border-t space-y-2"
             style={{ borderColor: "var(--border-subtle)" }}
           >
-            <span
-              className="font-semibold uppercase tracking-wide text-[11px]"
-              style={{ color: "var(--text-muted)" }}
-            >
-              Razem
-            </span>
-            <span
-              className="font-bold"
-              style={{ color: "#0EA5E9" }}
-            >
-              {quote.total.toFixed(2)} PLN
-            </span>
+            <div className="flex items-center justify-between text-sm">
+              <span
+                className="font-semibold uppercase tracking-wide text-[11px]"
+                style={{ color: "var(--text-muted)" }}
+              >
+                Razem
+              </span>
+              <span className="font-bold" style={{ color: "#0EA5E9" }}>
+                {quote.total.toFixed(2)} PLN
+              </span>
+            </div>
+            {onApplyTotal && (
+              <button
+                type="button"
+                onClick={() => quote.total != null && onApplyTotal(quote.total)}
+                className="w-full px-3 py-2 rounded-lg text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-all hover:scale-[1.01]"
+                style={{
+                  background: "linear-gradient(135deg, #0EA5E9, #0284C7)",
+                  color: "#fff",
+                }}
+              >
+                <ArrowDownToLine className="w-3.5 h-3.5" />
+                Zastosuj wycenę
+              </button>
+            )}
           </div>
-        ) : (
-          <div
-            className="text-[11px] flex items-center gap-1.5"
-            style={{ color: "var(--text-muted)" }}
-          >
-            <Check className="w-3 h-3" />
-            Po uzupełnieniu cennika cena pojawi się automatycznie.
-          </div>
-        )}
+        ) : null}
       </div>
     </div>
   );

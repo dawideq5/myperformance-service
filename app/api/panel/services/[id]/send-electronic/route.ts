@@ -16,6 +16,7 @@ import {
 } from "@/lib/receipt-pdf";
 import { getPricelistPriceByCode } from "@/lib/pricelist";
 import { logServiceAction } from "@/lib/service-actions";
+import { getServiceSignerEmail } from "@/lib/service-config";
 import { log } from "@/lib/logger";
 import { createHash } from "node:crypto";
 
@@ -129,12 +130,11 @@ export async function POST(
   // Pracownik podpisuje przez Documenso typed signature (cursive font
   // generowany server-side przez Documenso — taki sam jak dla klienta).
   // Email pracownika UKRYTY przed klientem: używamy systemowego maila
-  // serwis@caseownia.pl. Imię + nazwisko pracownika (z KC) widoczne jako
-  // "name" recipienta i jako podpis (cursive). Documenso nie wysyła emaila
+  // (env SERVICE_SIGNER_EMAIL z fallback). Documenso nie wysyła emaila
   // do tego adresu (sendEmail=false na send-document).
   const employeeDisplayName =
     user.name?.trim() || user.preferred_username || user.email;
-  const SERVICE_SIGNER_EMAIL = "caseownia@zlecenieserwisowe.pl";
+  const SERVICE_SIGNER_EMAIL = getServiceSignerEmail();
 
   const data: ReceiptInput = {
     ticketNumber: service.ticketNumber ?? "—",

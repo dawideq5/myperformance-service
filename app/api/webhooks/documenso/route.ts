@@ -217,8 +217,7 @@ export async function POST(req: Request) {
               ticketNumber: service.ticketNumber,
               action: "client_signed",
               actor: { name: "Klient" },
-              summary:
-                "Klient podpisał dokument elektronicznie — potwierdzenie zatwierdzone",
+              summary: "",
               payload: {
                 documentId: Number(doc.id),
               },

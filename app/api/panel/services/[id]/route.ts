@@ -107,10 +107,7 @@ export async function GET(
               ticketNumber: service.ticketNumber,
               action: newStatus === "signed" ? "client_signed" : "client_rejected",
               actor: { name: "Klient" },
-              summary:
-                newStatus === "signed"
-                  ? "Klient podpisał dokument elektronicznie (sync z Documenso)"
-                  : "Klient odrzucił dokument (sync z Documenso)",
+              summary: "",
               payload: { documentId: cur.docId },
             });
             // Refresh fetched service żeby zwrócić nowy status w response.

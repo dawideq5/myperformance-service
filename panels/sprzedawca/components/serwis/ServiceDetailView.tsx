@@ -578,21 +578,25 @@ function ServiceDetailInner({
               {service.description ?? "—"}
             </p>
             {service.amountEstimate != null && (
-              <p
-                className="text-sm mt-3 pt-3 border-t flex justify-between items-center"
+              <div
+                className="mt-3 pt-3 border-t flex justify-between items-center"
                 style={{
                   borderColor: "var(--border-subtle)",
-                  color: "var(--text-muted)",
                 }}
               >
-                <span>Wycena</span>
                 <span
-                  className="font-bold"
-                  style={{ color: "var(--text-main)" }}
+                  className="text-xs uppercase tracking-wider font-semibold"
+                  style={{ color: "var(--text-muted)" }}
                 >
-                  {service.amountEstimate} PLN
+                  Wycena
                 </span>
-              </p>
+                <span
+                  className="text-2xl font-bold"
+                  style={{ color: "#ffffff" }}
+                >
+                  {service.amountEstimate.toFixed(2)} PLN
+                </span>
+              </div>
             )}
           </Card>
         </section>
@@ -985,10 +989,13 @@ function DocumensoStatusCard({
     );
   }
   const STATUS_TXT: Record<string, { label: string; color: string }> = {
-    sent: { label: "Wysłano — czeka na podpis", color: "#06B6D4" },
-    signed: { label: "Podpisane przez klienta", color: "#22C55E" },
+    sent: { label: "Oczekiwanie na podpis klienta", color: "#06B6D4" },
+    employee_signed: { label: "Oczekiwanie na podpis klienta", color: "#06B6D4" },
+    signed: { label: "Podpisane elektronicznie", color: "#22C55E" },
+    paper_pending: { label: "Wersja papierowa — do druku", color: "#6366F1" },
+    paper_signed: { label: "Podpisane papierowo", color: "#22C55E" },
     rejected: { label: "Odrzucone przez klienta", color: "#EF4444" },
-    expired: { label: "Unieważnione (po edycji)", color: "#F59E0B" },
+    expired: { label: "Unieważnione", color: "#F59E0B" },
   };
   const s = STATUS_TXT[documenso.status] ?? {
     label: documenso.status,
@@ -1066,9 +1073,11 @@ function ActionsLogCard({ actions }: { actions: ServiceActionEntry[] }) {
                   <p className="font-semibold" style={{ color: meta.color }}>
                     {meta.label}
                   </p>
-                  <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
-                    {a.summary}
-                  </p>
+                  {a.summary?.trim() && (
+                    <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+                      {a.summary}
+                    </p>
+                  )}
                   <p
                     className="text-[10px] mt-0.5"
                     style={{ color: "var(--text-muted)" }}
