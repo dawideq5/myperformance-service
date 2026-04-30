@@ -97,7 +97,7 @@ export async function POST(
   // widoczne jako recipient name + typed signature (cursive font Documenso).
   const employeeDisplayName =
     user.name?.trim() || user.preferred_username || user.email;
-  const SERVICE_SIGNER_EMAIL = "serwis@caseownia.pl";
+  const SERVICE_SIGNER_EMAIL = "caseownia@zlecenieserwisowe.pl";
 
   const data: ReceiptInput = {
     ticketNumber: service.ticketNumber ?? "—",

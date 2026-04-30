@@ -134,7 +134,7 @@ export async function POST(
   // do tego adresu (sendEmail=false na send-document).
   const employeeDisplayName =
     user.name?.trim() || user.preferred_username || user.email;
-  const SERVICE_SIGNER_EMAIL = "serwis@caseownia.pl";
+  const SERVICE_SIGNER_EMAIL = "caseownia@zlecenieserwisowe.pl";
 
   const data: ReceiptInput = {
     ticketNumber: service.ticketNumber ?? "—",

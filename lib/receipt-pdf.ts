@@ -588,17 +588,20 @@ function drawSinglePage(
   y += SIG_HEIGHT + 18;
 
   // === SIGNATURE BOX coords w procentach strony (Documenso convention).
-  // Origin top-left, jednostki: % strony (0-100). Pole pokrywa obszar nad
-  // linią "PODPIS …" — od top sigTopY do linii (sigTopY + SIG_HEIGHT).
+  // Origin top-left, jednostki: % strony (0-100). Lift -8pt — Documenso
+  // wyśrodkowuje podpis w polu, więc lekkie przesunięcie w górę zapobiega
+  // nachodzeniu podpisu na linię "PODPIS …" pod spodem.
+  const SIG_LIFT_PT = 8;
+  const sigBoxY = sigTopY - SIG_LIFT_PT;
   const employeeBox: SignatureBox = {
     pageX: (M / PW) * 100,
-    pageY: (sigTopY / PH) * 100,
+    pageY: (sigBoxY / PH) * 100,
     pageWidth: (sigW / PW) * 100,
     pageHeight: (SIG_HEIGHT / PH) * 100,
   };
   const customerBox: SignatureBox = {
     pageX: ((M + sigW + 24) / PW) * 100,
-    pageY: (sigTopY / PH) * 100,
+    pageY: (sigBoxY / PH) * 100,
     pageWidth: (sigW / PW) * 100,
     pageHeight: (SIG_HEIGHT / PH) * 100,
   };

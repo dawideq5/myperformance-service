@@ -1156,7 +1156,7 @@ function EstimateBlock({
           value={amountEstimate}
           onChange={(e) => onChangeEstimate(e.target.value)}
           placeholder="0.00"
-          className="flex-1 px-3 py-2.5 rounded-xl border text-lg font-serif font-semibold outline-none focus:border-[var(--accent)] text-right no-spinner"
+          className="flex-1 px-3 py-2.5 rounded-xl border text-lg font-semibold outline-none focus:border-[var(--accent)] text-right no-spinner"
           style={{
             background: "var(--bg-surface)",
             borderColor: "var(--border-subtle)",
@@ -1164,7 +1164,7 @@ function EstimateBlock({
           }}
         />
         <span
-          className="text-base font-serif font-semibold"
+          className="text-base font-semibold"
           style={{ color: "var(--text-muted)" }}
         >
           PLN
@@ -1196,7 +1196,7 @@ function EstimateBlock({
         <div className="flex items-center justify-between">
           <span style={{ color: "var(--text-muted)" }}>Naprawa</span>
           <span
-            className="font-serif"
+            className="font-semibold"
             style={{ color: "var(--text-main)" }}
           >
             {repair.toFixed(2)} PLN
@@ -1226,7 +1226,7 @@ function EstimateBlock({
             Razem orientacyjnie
           </span>
           <span
-            className="font-serif font-bold text-sm"
+            className="font-bold text-sm"
             style={{ color: "#0EA5E9" }}
           >
             {total.toFixed(2)} PLN
