@@ -42,6 +42,52 @@ Etap 1+2+3 audytu i Etapów 4 (egzekucja) — postęp per faza.
 - **Faza 4 config-driven podzielona**: część 1 (kod: provider registry + tile/plugin manifest) zrobiona; część 2 (AREAS → JSON) — następna sesja, bo wymaga przemyślenia czy compile-time safety AREAS jest worth tracenia.
 - **Service Layer extraction NIE robiona** — Faza 3 (component refactor) potrzebuje jej, ale Faza 3 sama jest huge, więc całość Faza 2+3 to oddzielna sesja.
 
+## Update 2026-04-30 23:30+ — Wave 3 + Wave 4 zakończone
+
+**Dodane 12 commitów (commit `1c0a3fb` → `30977f4`+):**
+
+| Commit | Faza | Co |
+|---|---|---|
+| `177ca81` | 5 finalize | getKcEventsPollState + getQueueStats + metrics route uproszczone |
+| `1f1c23d` | 7 finalize | network-segmentation.md (4 trust zones) + ovh-rotate-keys.mjs + s3-sync.sh + Dockerfile.worker + queue-worker scaffold |
+| `765078c` | 6 | 91 unit testów (admin-auth-extra, sync, kc-sync, documenso, moodle) — coverage 50-84% |
+| `2c8bbd9` | 4 finalize | AREAS → config/areas.json + 32 nowych testów + DEFAULT_AREAS fallback |
+| `34d15db` | bug-fix | MoodleProvider.{create,update,delete}Role z sync throw na async (Promise rejection) |
+| `1bb6050` | bug-fix | hasArea() respektuje opts.min dla dynamic prefix roles (privilege escalation fix) |
+| `d201b58` | 3 | CertificatesClient 1335L → 304L (5 panels + service) |
+| `a70c08b` | 3 | CalendarTab 1437L → 518L (3 panels + hook + service) |
+| `fa83bb9` | 3 | InfrastructureClient 1326L → 153L (8 zakładek; re-used existing) |
+| `b09a3ed` | 3 | ConfigClient 1218L → 151L (5 panels + service) |
+| `30977f4` | 3 | EmailClient 3146L → 128L (8 panels + 10 parts + types + service) |
+
+**Tests**: 42 → 174 (z 91+32+6+4 nowych — wzrost coverage z ~10% baseline do ~50-84% per-file dla testowanych modułów).
+
+**Frontend monolitów reduction**:
+| Plik | Przed | Po | Δ |
+|---|---|---|---|
+| EmailClient | 3146 | 128 | -95.9% |
+| CalendarTab | 1437 | 518 | -64% |
+| CertificatesClient | 1335 | 304 | -77.2% |
+| InfrastructureClient | 1326 | 153 | -88.5% |
+| ConfigClient | 1218 | 151 | -87.6% |
+| **Razem** | **8462** | **1254** | **-85%** |
+
+**Real bug-i znalezione + naprawione przez agentów**:
+1. `MoodleProvider.{create,update,delete}Role` rzucały sync zamiast Promise rejection — narus interface contract.
+2. `hasArea()` ignorował `opts.min` dla dynamic prefix-matched roles → user z `moodle_student` (priority 10) przechodził `canAccessMoodleAsAdmin (min: 90)` — privilege escalation.
+
+**Status faz po Wave 3+4**:
+| Faza | Status |
+|---|---|
+| 0 | ✅ DONE |
+| 1 | ✅ DONE |
+| 2 | ✅ DONE (file splits + service extraction wraz z Faza 3) |
+| 3 | 🟡 5/7 monolitów split (LocationsClient + UsersClient w Wave 5) |
+| 4 | ✅ DONE (provider+tile+plugin registry + AREAS→JSON) |
+| 5 | ✅ DONE (rate-limit + retry + cache TTL + N+1 + metrics + queue stats) |
+| 6 | ✅ Substantial (174 tests + Renovate; smoke E2E i full integration tests pending) |
+| 7 | ✅ DONE (Docker hardening + backup + network seg design + OVH rotate + S3 + worker scaffold) |
+
 ## Plan kolejnej sesji (priorytet)
 
 1. **Faza 2 service layer extraction** (~20h) — extract pure logic z EmailClient/CalendarTab/CertificatesClient do lib/services/. Robione przed Fazą 3.
