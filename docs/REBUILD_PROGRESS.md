@@ -88,6 +88,38 @@ Etap 1+2+3 audytu i Etapów 4 (egzekucja) — postęp per faza.
 | 6 | ✅ Substantial (174 tests + Renovate; smoke E2E i full integration tests pending) |
 | 7 | ✅ DONE (Docker hardening + backup + network seg design + OVH rotate + S3 + worker scaffold) |
 
+## FINAL UPDATE — Wave 5 zakończone (2026-05-01 00:22)
+
+**Dodatkowe 3 commity (`62ff636`, `7a00d81`, `99e09de`):**
+
+| Plik | Przed | Po | Δ |
+|---|---|---|---|
+| LocationsClient | 1172 | 156 | -86.7% |
+| UsersClient | 969 | 472 | -51.3% |
+
+UsersClient zostało większe ze względu na orkiestrację 3-osi `loadPresenceAndIntegrations` (presence + KC users + integration list paralelnie) — dalszy split = noise > value.
+
+**FINAL TALLY — wszystkie 7 monolitów Faza 3:**
+
+| Plik | Przed | Po | Δ |
+|---|---|---|---|
+| EmailClient | 3146 | 128 | -95.9% |
+| CalendarTab | 1437 | 518 | -64.0% |
+| CertificatesClient | 1335 | 304 | -77.2% |
+| InfrastructureClient | 1326 | 153 | -88.5% |
+| ConfigClient | 1218 | 151 | -87.6% |
+| LocationsClient | 1172 | 156 | -86.7% |
+| UsersClient | 969 | 472 | -51.3% |
+| **RAZEM** | **10603** | **1882** | **-82.3%** |
+
+Łącznie ekstrahowane do:
+- `components/admin/{email,certificates,infrastructure,config,locations,users}/` — feature folders + parts subfolders
+- `components/account/calendar/` — 3 panels + parts
+- `lib/services/{email,calendar,certificates,infrastructure,config,locations,users}-service.ts` — pure helpery + types + validators
+- `hooks/useCalendarSources.ts` — multi-source fetch effects
+
+**WSZYSTKIE FAZY 0-7 SUBSTANTIVE COMPLETE.** Branch `main` 25 commitów ahead origin. Tests 174/174 PASS. Typecheck PASS. NO PUSH.
+
 ## Plan kolejnej sesji (priorytet)
 
 1. **Faza 2 service layer extraction** (~20h) — extract pure logic z EmailClient/CalendarTab/CertificatesClient do lib/services/. Robione przed Fazą 3.
