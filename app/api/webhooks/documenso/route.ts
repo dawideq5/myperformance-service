@@ -20,8 +20,9 @@ const logger = log.child({ module: "documenso-webhook" });
  *   document.sent + targetEmail = signer    → documents.signature.requested
  *   document.signed + uploaderEmail         → documents.signature.completed
  *
- * Auth: HMAC-SHA256 signature (header X-Documenso-Signature) z secretem
- * w DOCUMENSO_WEBHOOK_SECRET.
+ * Auth: Documenso v3 wysyła RAW secret w headerze `X-Documenso-Secret`,
+ * porównywany timing-safe z `DOCUMENSO_WEBHOOK_SECRET`. (Stare wersje
+ * używały HMAC `X-Documenso-Signature` — pozostawiamy fallback).
  */
 
 interface DocumensoPayload {
@@ -39,23 +40,45 @@ interface DocumensoPayload {
   };
 }
 
-function verifySignature(rawBody: string, signature: string | null): boolean {
+function verifyAuth(
+  rawBody: string,
+  rawSecret: string | null,
+  hmacSignature: string | null,
+): boolean {
   const secret = process.env.DOCUMENSO_WEBHOOK_SECRET?.trim();
-  if (!secret || !signature) return false;
-  const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
-  const provided = signature.replace(/^sha256=/, "").trim();
-  if (provided.length !== expected.length) return false;
-  try {
-    return timingSafeEqual(Buffer.from(expected, "hex"), Buffer.from(provided, "hex"));
-  } catch {
-    return false;
+  if (!secret) return false;
+  // Documenso v3: raw secret in X-Documenso-Secret header — timing-safe.
+  if (rawSecret) {
+    const provided = rawSecret.trim();
+    if (provided.length !== secret.length) return false;
+    try {
+      return timingSafeEqual(Buffer.from(provided), Buffer.from(secret));
+    } catch {
+      return false;
+    }
   }
+  // Legacy HMAC fallback for older Documenso versions.
+  if (hmacSignature) {
+    const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
+    const provided = hmacSignature.replace(/^sha256=/, "").trim();
+    if (provided.length !== expected.length) return false;
+    try {
+      return timingSafeEqual(
+        Buffer.from(expected, "hex"),
+        Buffer.from(provided, "hex"),
+      );
+    } catch {
+      return false;
+    }
+  }
+  return false;
 }
 
 export async function POST(req: Request) {
   const rawBody = await req.text();
-  const signature = req.headers.get("x-documenso-signature");
-  if (!verifySignature(rawBody, signature)) {
+  const rawSecret = req.headers.get("x-documenso-secret");
+  const hmacSignature = req.headers.get("x-documenso-signature");
+  if (!verifyAuth(rawBody, rawSecret, hmacSignature)) {
     return NextResponse.json({ error: "Bad signature" }, { status: 401 });
   }
 

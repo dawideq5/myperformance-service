@@ -15,7 +15,6 @@ import {
 } from "@/lib/receipt-pdf";
 import { getPricelistPriceByCode } from "@/lib/pricelist";
 import { logServiceAction } from "@/lib/service-actions";
-import { getUserSignature } from "@/lib/user-signatures";
 import { log } from "@/lib/logger";
 import { createHash } from "node:crypto";
 
@@ -94,12 +93,11 @@ export async function POST(
     );
   }
 
+  // Email pracownika UKRYTY: systemowy serwis@caseownia.pl. Imię z KC
+  // widoczne jako recipient name + typed signature (cursive font Documenso).
   const employeeDisplayName =
     user.name?.trim() || user.preferred_username || user.email;
-  const employeeSig = await getUserSignature(user.email);
-  // Documenso v3 (skia-canvas) wymaga PEŁNEGO data URL z prefix
-  // `data:image/png;base64,...`.
-  const employeeSignaturePngBase64 = employeeSig?.pngDataUrl ?? undefined;
+  const SERVICE_SIGNER_EMAIL = "serwis@caseownia.pl";
 
   const data: ReceiptInput = {
     ticketNumber: service.ticketNumber ?? "—",
@@ -152,7 +150,7 @@ export async function POST(
       signers: [
         {
           name: employeeDisplayName,
-          email: user.email,
+          email: SERVICE_SIGNER_EMAIL,
           signatureBox: rendered.signatures.employee,
         },
       ],
@@ -166,12 +164,12 @@ export async function POST(
       );
     }
 
+    // typed signature: Documenso renderuje cursive font z imienia.
     const signRes = await autoSignAsEmployee({
       documentId: result.documentId,
       employeeToken: employeeRecipient.token,
       employeeFullName: employeeDisplayName,
       employeeRecipientId: employeeRecipient.id,
-      employeeSignaturePngBase64,
     });
     if (!signRes.ok) {
       return NextResponse.json(

@@ -697,17 +697,55 @@ export async function resendDocumentReminder(
   }
 }
 
-/** Usuwa dokument z Documenso (cancel signing flow). Used przy podpisie
- * papierowym — elektroniczna ścieżka anulowana, klient nie może już
- * podpisać. */
+/** Usuwa dokument z Documenso (cancel signing flow). Po skasowaniu klient
+ * nie może otworzyć linka do podpisu — Documenso zwraca 404 dla
+ * envelope.deletedAt != null. Używane przy unieważnieniu papierowej
+ * lub elektronicznej ścieżki.
+ *
+ * Implementacja: Documenso v3 DELETE /api/v1/documents/{id} REGULARNIE
+ * zwraca 500 dla SEQUENTIAL envelope z fields (bug). Stąd fallback na
+ * direct DB update ustawiający `deletedAt` + `status = CANCELLED`. */
 export async function deleteDocument(id: number): Promise<boolean> {
+  // Próba 1: oficjalny REST endpoint (działa dla niektórych envelope).
   try {
     await documensoFetch<unknown>(`/api/v1/documents/${id}`, {
       method: "DELETE",
     });
     return true;
   } catch (err) {
-    logger.warn("deleteDocument failed", {
+    logger.info("deleteDocument REST failed, trying DB fallback", {
+      docId: id,
+      err: err instanceof Error ? err.message : String(err),
+    });
+  }
+  // Próba 2: direct DB soft-delete. Ustawiamy deletedAt + status=CANCELLED
+  // — Documenso UI/API traktuje envelope.deletedAt !== null jako 404, więc
+  // klient nie zobaczy dokumentu po kliknięciu w signing link.
+  if (!isDocumensoDbConfigured()) {
+    logger.warn("deleteDocument DB fallback unavailable (DOCUMENSO_DB_URL not set)", {
+      docId: id,
+    });
+    return false;
+  }
+  try {
+    return await withExternalClient("DOCUMENSO_DB_URL", async (client) => {
+      // DocumentStatus enum nie ma 'CANCELLED' — wystarczy `deletedAt`,
+      // Documenso filtruje po `deletedAt IS NULL` w GET/sign endpoints.
+      const res = await client.query(
+        `UPDATE "Envelope"
+            SET "deletedAt" = NOW()
+          WHERE "secondaryId" = $1`,
+        [`document_${id}`],
+      );
+      if ((res.rowCount ?? 0) > 0) {
+        logger.info("deleteDocument DB soft-delete ok", { docId: id });
+        return true;
+      }
+      logger.warn("deleteDocument DB no rows matched", { docId: id });
+      return false;
+    });
+  } catch (err) {
+    logger.warn("deleteDocument DB fallback failed", {
       docId: id,
       err: err instanceof Error ? err.message : String(err),
     });

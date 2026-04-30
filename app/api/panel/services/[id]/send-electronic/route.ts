@@ -16,7 +16,6 @@ import {
 } from "@/lib/receipt-pdf";
 import { getPricelistPriceByCode } from "@/lib/pricelist";
 import { logServiceAction } from "@/lib/service-actions";
-import { getUserSignature } from "@/lib/user-signatures";
 import { log } from "@/lib/logger";
 import { createHash } from "node:crypto";
 
@@ -127,19 +126,15 @@ export async function POST(
     });
   }
 
-  // Auto-sign pracownika: typed/uploaded signature przez Documenso. Gdy
-  // pracownik ma zarejestrowany cursive PNG w mp_user_signatures (per-user
-  // signature pad), Documenso renderuje PNG w polu SIGNATURE (pewny
-  // visual). Fallback: typed signature z imieniem (cursive font Documenso).
-  // W obu trybach audit log zawiera signedAt + IP. Po podpisaniu pracownika
-  // Documenso wysyła klientowi email (SEQUENTIAL signing).
+  // Pracownik podpisuje przez Documenso typed signature (cursive font
+  // generowany server-side przez Documenso — taki sam jak dla klienta).
+  // Email pracownika UKRYTY przed klientem: używamy systemowego maila
+  // serwis@caseownia.pl. Imię + nazwisko pracownika (z KC) widoczne jako
+  // "name" recipienta i jako podpis (cursive). Documenso nie wysyła emaila
+  // do tego adresu (sendEmail=false na send-document).
   const employeeDisplayName =
     user.name?.trim() || user.preferred_username || user.email;
-  const employeeSig = await getUserSignature(user.email);
-  // Documenso v3 (skia-canvas) wymaga PEŁNEGO data URL z prefix
-  // `data:image/png;base64,...` — bez prefixu seal-document failuje
-  // ze `TypeError: Expected a valid data URL string`.
-  const employeeSignaturePngBase64 = employeeSig?.pngDataUrl ?? undefined;
+  const SERVICE_SIGNER_EMAIL = "serwis@caseownia.pl";
 
   const data: ReceiptInput = {
     ticketNumber: service.ticketNumber ?? "—",
@@ -202,7 +197,7 @@ export async function POST(
       signers: [
         {
           name: employeeDisplayName,
-          email: user.email,
+          email: SERVICE_SIGNER_EMAIL,
           signatureBox: rendered.signatures.employee,
         },
         {
@@ -218,12 +213,13 @@ export async function POST(
     const employeeRecipient = result.recipients[0];
     let autoSignOk = false;
     if (employeeRecipient?.token) {
+      // typed signature: value=name, isBase64=false → Documenso renderuje
+      // cursive font (taki sam jak klient gdy wpisuje swoje imię w UI).
       const signRes = await autoSignAsEmployee({
         documentId: result.documentId,
         employeeToken: employeeRecipient.token,
         employeeFullName: employeeDisplayName,
         employeeRecipientId: employeeRecipient.id,
-        employeeSignaturePngBase64,
       });
       autoSignOk = signRes.ok;
       if (!signRes.ok) {
