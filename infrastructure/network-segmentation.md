@@ -161,7 +161,72 @@ Dashboards/panele attachują się do **dwóch sieci**: `mp_auth` (do KC) i `mp_d
 |---|---|---|
 | 7.6.0 | Design doc (ten plik) | DONE |
 | 7.6.1 | Per-compose `# TODO: migrate to <zone>` comments | DONE |
-| 7.6.2 | Skrypt `infrastructure/network-segmentation-create.sh` (idempotentne `docker network create`) | TODO |
-| 7.6.3 | Coolify GUI walk-through w docs (screenshoty) | TODO |
-| 7.6.4 | Production rollout per-app (Step 1-5 powyżej) | TODO — wymaga deploy window |
-| 7.6.5 | Wazuh AR rule: alert gdy kontener attaches się do "obcej" sieci | TODO |
+| 7.6.2 | Skrypt `infrastructure/network-segmentation-create.sh` (idempotentne `docker network create`) | DONE |
+| 7.6.3 | Skrypt `infrastructure/network-segmentation-rollback.sh` (disconnect + rm wszystkich `mp_*`) | DONE |
+| 7.6.4 | Coolify GUI walk-through w docs (screenshoty) | TODO — operator dodaje po pierwszym rollout |
+| 7.6.5 | Production rollout per-app (Step 1-5 powyżej) | TODO — wymaga deploy window, **operator-only** |
+| 7.6.6 | Wazuh AR rule: alert gdy kontener attaches się do "obcej" sieci | TODO — po Step 4 |
+
+## 9. Operator runbook (pierwsze wdrożenie — single VPS)
+
+Wymaga SSH access do VPS + docker group membership.
+
+### Pre-check
+```bash
+# Sprawdź czy obecne sieci istnieją (powinny):
+docker network inspect proxy-network myperformance_backend >/dev/null && echo OK
+
+# Sprawdź czy żadna mp_* sieć już nie wisi (może z poprzedniej iteracji):
+docker network ls | grep mp_ || echo "no mp_ networks — clean state"
+```
+
+### Krok 1 — utworzenie sieci (idempotentne)
+```bash
+cd /path/to/myperformance-service
+sudo bash infrastructure/network-segmentation-create.sh
+```
+Verify: `docker network ls --filter label=myperformance.zone` → 11 sieci.
+
+### Krok 2-4 — migracja serwisu po serwisie
+Per app (zaczynaj od najmniej krytycznego, np. Outline):
+
+```bash
+APP=outline   # lub directus, chatwoot, documenso, postal, moodle, keycloak (LAST)
+
+# 2a. Connect new networks (parallel — bez downtime)
+docker network connect mp_auth ${APP}-app-container
+docker network connect mp_data_${APP} ${APP}-db-container
+docker network connect mp_data_${APP} ${APP}-app-container
+
+# 2b. Verify pakiety w obu sieciach (curl z app do DB):
+docker exec ${APP}-app-container nslookup ${APP}-db-container
+
+# 2c. Po 1h obserwacji (Wazuh tail dla anomalii):
+docker network disconnect myperformance_backend ${APP}-app-container
+docker network disconnect myperformance_backend ${APP}-db-container
+```
+
+### Krok 5 — usunięcie legacy sieci (po migracji wszystkich apek)
+```bash
+# Tylko po confirming że nic już nie jest w starej sieci
+docker network inspect myperformance_backend --format '{{len .Containers}}'  # → 0
+docker network rm myperformance_backend
+```
+
+### Awaryjny rollback (jeśli Step 4 polał krew):
+```bash
+sudo bash infrastructure/network-segmentation-rollback.sh --dry-run  # podgląd
+sudo bash infrastructure/network-segmentation-rollback.sh             # exec
+```
+
+### Wazuh integration (Step 7.6.6)
+Po finalnym rollout — w `/var/ossec/etc/rules/local_rules.xml` dodaj:
+```xml
+<rule id="100850" level="10">
+  <if_sid>87800</if_sid>
+  <match>network connect</match>
+  <description>MyPerformance: kontener attached do obcej sieci (poza mp_*)</description>
+  <group>myperformance,network_segmentation,</group>
+</rule>
+```
+Plus AR webhook: jak w `lib/security/wazuh-active-response.ts` — alert do dashboarda.
