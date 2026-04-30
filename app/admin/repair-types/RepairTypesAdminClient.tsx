@@ -271,7 +271,7 @@ export function RepairTypesAdminClient({
                 color: "var(--text-muted)",
               }}
             >
-              Brak typów napraw. Kliknij „Dodaj typ naprawy".
+              Brak typów napraw. Kliknij „Dodaj typ naprawy&rdquo;.
             </div>
           )}
           {types

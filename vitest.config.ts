@@ -8,7 +8,13 @@ export default defineConfig({
     environment: "node",
     globals: true,
     include: ["**/__tests__/**/*.test.ts", "**/*.test.ts"],
-    exclude: ["node_modules", ".next", "build_keycloak", "dist_keycloak_theme"],
+    exclude: [
+      "**/node_modules/**",
+      "**/.next/**",
+      "build_keycloak",
+      "dist_keycloak_theme",
+      "panels/*/node_modules/**",
+    ],
     coverage: {
       provider: "v8",
       reporter: ["text", "lcov"],
