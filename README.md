@@ -209,3 +209,50 @@ healthcheck.
 Instrukcja krok po kroku (build JAR-a, deploy do `/opt/keycloak/providers/`,
 migracja ról, aktywacja `loginTheme=myperformance`) — zobacz
 [`infrastructure/keycloak/DEPLOYMENT.md`](infrastructure/keycloak/DEPLOYMENT.md).
+
+## Skrypty operacyjne
+
+Wszystkie skrypty produkcyjne w `scripts/`. Dev-only / scratch w `scripts/dev/`.
+
+### Aktywne (prod)
+
+| Skrypt | Co robi | Bezpieczne dla prod | Idempotentny |
+|---|---|---|---|
+| `keycloak-seed.mjs` | Seed realm: clients + role + grupy + composite roles | TAK | TAK |
+| `seed-area-roles.mjs` | Seed realm roles z `lib/permissions/areas.ts` | TAK | TAK |
+| `directus-seed-clients.mjs` | Seed Directus collection `mp_app_catalog_cms` | TAK | TAK |
+| `sync-all-users.mjs` | Bulk KC → native apps user/role sync | TAK | TAK |
+| `iam-verify.mjs` | Audit consistency KC vs code (provider readiness) | TAK | n/a (read-only) |
+| `iam-sync-oidc-secrets.mjs` | Propagacja OIDC secret z KC → Coolify env per app | TAK | TAK |
+| `coolify-deploy.sh` | Trigger Coolify redeploy przez API | TAK | TAK |
+| `coolify-deploy-keycloak-theme.sh` | Build + push KC theme JAR + redeploy | TAK | TAK |
+| `apply-realm-changes.sh` | Import realm.json z `infrastructure/keycloak/` | TAK | TAK |
+| `update-mtls-bundle.sh` | Wyciąga CA certs z step-ca → Traefik certs dir + HUP | TAK | TAK |
+| `postal-propagate-smtp.mjs` | Push SMTP creds z Postal do wszystkich Coolify env | TAK | TAK |
+| `stepca-oidc-setup.mjs`, `stepca-add-oidc.sh` | OIDC provisioner config dla step-ca | TAK | TAK |
+| `render-traefik-config.sh` | Render `wazuh-webhook.yml.template` z $COOLIFY_DASHBOARD_UUID | TAK | TAK |
+
+### Migracje (one-off, post-2026-04 historia)
+
+W `scripts/migrations/`:
+
+| Skrypt | Co robi | Status |
+|---|---|---|
+| `kc-enforce-mfa-for-admins.mjs` | Ustawia CONFIGURE_TOTP requiredAction dla userów z rolą admin | NOWY (Faza 0) |
+| `keycloak-delete-legacy-roles.mjs` | Usunięcie obsolete realm roles | wykonane 2026-04-24 |
+| `migrate-roles-2026-04.mjs` | Rename ról: documenso_user → member, etc. | wykonane 2026-04-24 |
+| `migrate-single-role-per-area.mjs` | Wymuszenie 0..1 roli per area na każdym userze | wykonane 2026-04-24 |
+| `rename-kc-roles.mjs` | Generic rename helper | wykonane 2026-04-24 |
+| `migrate-roles-simplify.mjs` | Documenso/Outline 3-tier consolidation | wykonane 2026-04-24 |
+
+### Dev-only (NIE uruchamiać w prod)
+
+W `scripts/dev/`:
+
+| Skrypt | Co robi | Kontekst |
+|---|---|---|
+| `macbook-backup-pull.sh` | rsync backup z VPS na lokalny MacBook | local backup poza S3 |
+| `macbook-restore.sh` | Restore z lokalnego backup | disaster recovery dev |
+| `macbook-setup.md` | Setup LaunchAgent dla auto-pull co 6h | dokumentacja |
+| `seed-directus-public-photos.mjs` | Wgrywa stock photos do Directus | one-shot dev setup |
+| `chatwoot-bootstrap-platform-app.sh` | Bootstrap Platform App w Chatwoot | non-idempotent |
