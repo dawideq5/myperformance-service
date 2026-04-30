@@ -120,6 +120,23 @@ UsersClient zostało większe ze względu na orkiestrację 3-osi `loadPresenceAn
 
 **WSZYSTKIE FAZY 0-7 SUBSTANTIVE COMPLETE.** Branch `main` 25 commitów ahead origin. Tests 174/174 PASS. Typecheck PASS. NO PUSH.
 
+## STRETCH GOALS — Wave 6 (2026-05-01 00:30+)
+
+Wszystkie 4 opcjonalne polish zadania z poprzedniej sekcji wykonane:
+
+| Commit | Stretch | Co |
+|---|---|---|
+| `066d6f3` | 1/4 | eslint-config-next 14.2 → 15.5 + queue-worker.ts fix (prefer-const + module declaration) |
+| `e00e0ee` | 2/4 | OpenTelemetry SDK foundation — `lib/observability/otel.ts` + auto-instr fetch/http/pg/mysql/dns. Fail-closed bez `OTEL_EXPORTER_OTLP_ENDPOINT`. SIGTERM flush. |
+| `4f...` | 3/4 | Playwright E2E scaffold — `playwright.config.ts` + `e2e/{login,health}.spec.ts` + `.github/workflows/e2e.yml` (separate workflow). |
+| `365661b` | 4/4 | Network segmentation execution — `infrastructure/network-segmentation-{create,rollback}.sh` + operator runbook §9 z pre-check + Krok 1-5. |
+
+**Faza 5 OTel**: ✅ DONE (foundation — operator dodaje endpoint env var aby aktywować)
+**Faza 6 E2E**: ✅ Scaffold (smoke testy gotowe, KC-authed pending E2E_KC_AVAILABLE=1)
+**Faza 7 Network seg**: ✅ Design + scripts + runbook — production rollout jest **operator-only** (wymaga SSH + deploy window)
+
+**Total session: 30 commitów na main, NO PUSH.** Tests 174/174 PASS, typecheck PASS, lint 0 errors.
+
 ## Plan kolejnej sesji (priorytet)
 
 1. **Faza 2 service layer extraction** (~20h) — extract pure logic z EmailClient/CalendarTab/CertificatesClient do lib/services/. Robione przed Fazą 3.
