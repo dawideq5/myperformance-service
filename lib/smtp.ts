@@ -34,6 +34,10 @@ export interface SendMailInput {
   subject: string;
   html: string;
   text?: string;
+  /** Override sender. Default = CERT_EMAIL_FROM_* env vars. */
+  fromName?: string;
+  fromAddress?: string;
+  replyTo?: string;
   attachments?: Array<{
     filename: string;
     content: Buffer;
@@ -42,14 +46,18 @@ export interface SendMailInput {
 }
 
 export async function sendMail(input: SendMailInput): Promise<{ messageId: string }> {
-  const fromName = getOptionalEnv("CERT_EMAIL_FROM_NAME", "MyPerformance");
-  const fromAddr = getOptionalEnv("CERT_EMAIL_FROM_ADDRESS", "noreply@myperformance.pl");
+  const fromName =
+    input.fromName ?? getOptionalEnv("CERT_EMAIL_FROM_NAME", "MyPerformance");
+  const fromAddr =
+    input.fromAddress ??
+    getOptionalEnv("CERT_EMAIL_FROM_ADDRESS", "noreply@myperformance.pl");
   const info = await getTransporter().sendMail({
     from: `"${fromName}" <${fromAddr}>`,
     to: input.to,
     subject: input.subject,
     html: input.html,
     text: input.text,
+    replyTo: input.replyTo,
     attachments: input.attachments,
   });
   return { messageId: info.messageId };

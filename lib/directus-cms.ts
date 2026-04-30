@@ -1944,6 +1944,17 @@ export const COLLECTION_SPECS: CollectionSpec[] = [
         },
       },
       {
+        field: "requires_transport",
+        type: "boolean",
+        schema: { default_value: false },
+        meta: {
+          interface: "boolean",
+          width: "half",
+          options: { label: "Wymaga transportu kurierskiego" },
+          note: "TYLKO dla type=sales: zlecenia z tego punktu zawsze wymagają transportu przez kierowcę (nawet do powiązanego punktu serwisowego). Bez tego flagi transport tworzy się tylko gdy sprzedawca wybrał inny serwis niż domyślny.",
+        },
+      },
+      {
         field: "enabled",
         type: "boolean",
         schema: { default_value: true },

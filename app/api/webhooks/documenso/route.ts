@@ -9,18 +9,23 @@ import { findServiceByDocumensoId, updateService } from "@/lib/services";
 import { logServiceAction } from "@/lib/service-actions";
 import { downloadDocumentPdf } from "@/lib/documenso";
 import { sendMail } from "@/lib/smtp";
-import { getBrandName } from "@/lib/service-config";
+import { renderSignedReceiptEmail } from "@/lib/email/signed-receipt";
+import { getLocation } from "@/lib/locations";
+import { getOptionalEnv } from "@/lib/env";
 
 const logger = log.child({ module: "documenso-webhook" });
 
 /** Po DOCUMENT_COMPLETED elektronicznym wyślij klientowi kopię
- * podpisanego dokumentu jako załącznik PDF. Idempotent best-effort. */
+ * podpisanego dokumentu jako załącznik PDF. Email wysyłany z systemowego
+ * adresu CONFIRMATION_EMAIL_FROM (default caseownia@zlecenieserwisowe.pl)
+ * z brandowanym layoutem (logo + telefon punktu serwisowego). */
 async function sendSignedReceiptToCustomer(
   serviceId: string,
   ticketNumber: string | null,
   customerEmail: string | null,
   customerFirstName: string | null,
   documentId: number,
+  serviceLocationId: string | null,
 ): Promise<void> {
   if (!customerEmail) {
     logger.info("send signed receipt skipped — brak emaila klienta", {
@@ -38,29 +43,28 @@ async function sendSignedReceiptToCustomer(
     return;
   }
   const buffer = Buffer.from(await dl.arrayBuffer());
-  const brand = getBrandName();
-  const greeting = customerFirstName?.trim()
-    ? `Witaj ${customerFirstName.trim()},`
-    : "Dzień dobry,";
-  const subject = ticketNumber
-    ? `${brand} — kopia podpisanego potwierdzenia ${ticketNumber}`
-    : `${brand} — kopia podpisanego potwierdzenia`;
-  const html = `<!DOCTYPE html><html lang="pl"><body style="font-family:system-ui,Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;color:#1a1a1a;">
-<p>${greeting}</p>
-<p>W załączniku znajduje się podpisana wersja potwierdzenia odbioru urządzenia${
-    ticketNumber ? ` <strong>${ticketNumber}</strong>` : ""
-  }.</p>
-<p>Dziękujemy za zaufanie i potwierdzenie warunków zlecenia.</p>
-<p style="color:#666;margin-top:24px;font-size:13px;">${brand}</p>
-</body></html>`;
-  const text = `${greeting}\n\nW załączniku znajduje się podpisana wersja potwierdzenia odbioru urządzenia${
-    ticketNumber ? ` ${ticketNumber}` : ""
-  }.\n\nDziękujemy za zaufanie.\n\n${brand}`;
+  const serviceLocation = serviceLocationId
+    ? await getLocation(serviceLocationId).catch(() => null)
+    : null;
+  const { subject, html, text } = renderSignedReceiptEmail({
+    customerFirstName,
+    ticketNumber,
+    serviceLocationPhone: serviceLocation?.phone ?? null,
+  });
+  const fromAddress =
+    getOptionalEnv("CONFIRMATION_EMAIL_FROM", "").trim() ||
+    "caseownia@zlecenieserwisowe.pl";
+  const fromName =
+    getOptionalEnv("CONFIRMATION_EMAIL_FROM_NAME", "").trim() ||
+    "Serwis Telefonów by Caseownia";
   await sendMail({
     to: customerEmail,
     subject,
     html,
     text,
+    fromName,
+    fromAddress,
+    replyTo: fromAddress,
     attachments: [
       {
         filename: `Potwierdzenie-${ticketNumber ?? documentId}.pdf`,
@@ -295,6 +299,7 @@ export async function POST(req: Request) {
               service.contactEmail,
               service.customerFirstName,
               Number(doc.id),
+              service.serviceLocationId ?? service.locationId,
             ).catch((e) => {
               logger.warn("send signed receipt failed", {
                 serviceId: service.id,

@@ -42,6 +42,11 @@ export interface Location {
   serviceId: string | null;
   /** TYLKO dla type=service: UUID-y podległych sklepów. */
   salesIds: string[];
+  /** TYLKO dla type=sales: czy ten punkt sprzedaży WYMAGA transportu
+   * przez kierowcę nawet gdy zlecenie trafia do "domyślnego" punktu
+   * serwisowego (bez tego flagą tworzymy transport job tylko gdy
+   * sprzedawca wybrał inny serwis). */
+  requiresTransport: boolean;
   enabled: boolean;
   createdAt: string | null;
   updatedAt: string | null;
@@ -63,6 +68,7 @@ interface DirectusLocationRow {
   budget_plan?: string | number | null;
   service_id?: string | null;
   sales_ids?: string[] | string | null;
+  requires_transport?: boolean | null;
   enabled?: boolean;
   created_at?: string | null;
   updated_at?: string | null;
@@ -98,6 +104,7 @@ function mapRow(r: DirectusLocationRow): Location {
     budgetPlan: r.budget_plan == null ? null : Number(r.budget_plan),
     serviceId: r.service_id ?? null,
     salesIds: parseJson<string[]>(r.sales_ids, []),
+    requiresTransport: r.requires_transport === true,
     enabled: r.enabled !== false,
     createdAt: r.created_at ?? null,
     updatedAt: r.updated_at ?? null,
@@ -190,6 +197,7 @@ export interface LocationInput {
   budgetPlan?: number | null;
   serviceId?: string | null;
   salesIds?: string[];
+  requiresTransport?: boolean;
   enabled?: boolean;
 }
 
@@ -209,6 +217,8 @@ function inputToDirectus(input: LocationInput): Record<string, unknown> {
     budget_plan: input.budgetPlan ?? null,
     service_id: input.type === "sales" ? (input.serviceId ?? null) : null,
     sales_ids: input.type === "service" ? (input.salesIds ?? []) : [],
+    requires_transport:
+      input.type === "sales" ? (input.requiresTransport ?? false) : false,
     enabled: input.enabled !== false,
     updated_at: new Date().toISOString(),
   };
@@ -252,6 +262,8 @@ export async function updateLocation(
   if (input.budgetPlan !== undefined) patch.budget_plan = input.budgetPlan ?? null;
   if (input.serviceId !== undefined) patch.service_id = input.serviceId ?? null;
   if (input.salesIds !== undefined) patch.sales_ids = input.salesIds;
+  if (input.requiresTransport !== undefined)
+    patch.requires_transport = input.requiresTransport;
   if (input.enabled !== undefined) patch.enabled = input.enabled;
 
   const updated = await updateItem<DirectusLocationRow>(
