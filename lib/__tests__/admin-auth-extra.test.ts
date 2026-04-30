@@ -83,21 +83,29 @@ describe("admin-auth — extra coverage", () => {
       expect(canAccessMoodleAsTeacher(sessionWith(["moodle_random"]))).toBe(false);
     });
 
-    it("canAccessMoodleAsAdmin: hasArea bug — dynamicRoles prefix bypass min", () => {
-      // ⚠ Discovered bug: hasArea() ignores `opts.min` for dynamic-prefix roles.
-      // Dynamic match (admin-auth.ts:193-198) returns true for ANY moodle_*
-      // role regardless of priority threshold. So technically every Moodle user
-      // (np. moodle_student) passes canAccessMoodleAsAdmin. To fix:
-      // dynamic loop must call ensureRealmRoleFromArea/check kc-sync priority,
-      // ale obecnie nie ma metadata po stronie hasArea — wymagałoby fetchu.
-      // Test dokumentuje obecny stan; PR poprawiający w followup.
+    it("canAccessMoodleAsAdmin: priority bypass FIXED (faza-6 followup)", () => {
+      // FIX (post-audit): hasArea() teraz respektuje `opts.min` dla dynamic-prefix
+      // roles przez warunek `minPriority <= 50` (default priority dla custom).
+      // Dla min:90 (admin) tylko seed roles z priority>=90 przechodzą — dynamic
+      // prefix match jest pomijany. Bez fix-a `moodle_student` (priority 10)
+      // przeszedłby canAccessMoodleAsAdmin → privilege escalation.
       expect(canAccessMoodleAsAdmin(sessionWith([ROLES.MOODLE_MANAGER]))).toBe(true);
-      // BUG: powinno być false, ale prefix match bypass-uje min:90.
-      expect(canAccessMoodleAsAdmin(sessionWith([ROLES.MOODLE_STUDENT]))).toBe(true);
-      expect(canAccessMoodleAsAdmin(sessionWith(["moodle_editingteacher"]))).toBe(true);
-      // No moodle_* prefix → false, jak oczekiwano.
+      // FIX: seed priority 10 < min 90 → false (poprzednio bug-true).
+      expect(canAccessMoodleAsAdmin(sessionWith([ROLES.MOODLE_STUDENT]))).toBe(false);
+      // FIX: dynamic-only role (poza seedem) nie spełnia min:90 → false.
+      expect(canAccessMoodleAsAdmin(sessionWith(["moodle_editingteacher"]))).toBe(false);
       expect(canAccessMoodleAsAdmin(sessionWith([ROLES.APP_USER]))).toBe(false);
       expect(canAccessMoodleAsAdmin(sessionWith([]))).toBe(false);
+    });
+
+    it("canAccessMoodleAsStudent: dynamic prefix STILL works dla niskich priority", () => {
+      // Dla min:10 (student) dynamic prefix match nadal przechodzi (custom
+      // priority default = 50, 50 ≥ 10). Custom Moodle role (np. moodle_xyz
+      // dodana ręcznie w Moodle UI) daje dostęp do "student-tier" funkcji.
+      expect(canAccessMoodleAsStudent(sessionWith([ROLES.MOODLE_STUDENT]))).toBe(true);
+      expect(canAccessMoodleAsStudent(sessionWith(["moodle_editingteacher"]))).toBe(true);
+      expect(canAccessMoodleAsStudent(sessionWith(["moodle_xyz_custom"]))).toBe(true);
+      expect(canAccessMoodleAsStudent(sessionWith([ROLES.APP_USER]))).toBe(false);
     });
   });
 

@@ -189,11 +189,20 @@ export function hasArea(
   for (const r of area.kcRoles) {
     if (r.priority >= minPriority && userRoles.has(r.name)) return true;
   }
-  // Match po prefixie (dynamiczne role np. moodle_*) — dla area z dynamicRoles
-  if (area.dynamicRoles) {
+  // Match po prefixie (dynamiczne role np. moodle_*) — dla area z dynamicRoles.
+  // Dynamic role discovered via prefix bez explicit priority assigned przyjmuje
+  // domyślny priority 50 (per AREAS docs: "custom spoza seed ma priorytet 50").
+  // Bez tego sprawdzenia użytkownik z `moodle_student` (seed priority 10)
+  // przeszedłby canAccessMoodleAsAdmin (min: 90) gdy dynamicRoles=true —
+  // privilege escalation. Fix: prefix-match wymaga minPriority ≤ 50.
+  if (area.dynamicRoles && minPriority <= 50) {
     const prefix = `${area.id.replace(/-/g, "_")}_`;
     for (const r of userRoles) {
-      if (r.startsWith(prefix)) return true;
+      if (!r.startsWith(prefix)) continue;
+      // Jeśli rola jest w seedzie — już sprawdzona w pętli wyżej z poprawnym
+      // priority. Tu obsługujemy TYLKO role spoza seed (custom Moodle role).
+      if (area.kcRoles.some((s) => s.name === r)) continue;
+      return true;
     }
   }
   return false;
