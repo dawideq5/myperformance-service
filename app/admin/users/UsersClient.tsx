@@ -1,64 +1,52 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
-import {
-  AlertTriangle,
-  Ban,
-  Check,
-  ExternalLink,
-  Loader2,
-  Search,
-  Shield,
-  Trash2,
-  Unlock,
-  UserPlus,
-  X,
-} from "lucide-react";
+import { UserPlus } from "lucide-react";
 
 import {
   Alert,
-  Badge,
   Button,
-  Card,
-  Dialog,
-  FieldWrapper,
-  Input,
   OnboardingCard,
   PageShell,
 } from "@/components/ui";
 import { AppHeader } from "@/components/AppHeader";
 import { ApiRequestError } from "@/lib/api-client";
 import {
-  adminGroupService,
   adminUserService,
   permissionAreaService,
-  type AdminGroup,
-  type AdminIntegrationStatus,
   type AdminUserSummary,
   type AreaSummary,
 } from "@/app/account/account-service";
+import {
+  PAGE_SIZE,
+  PRESENCE_POLL_MS,
+  toggleAllSelection,
+  toggleSelection,
+  type IntegrationsMap,
+  type LockMap,
+  type PresenceMap,
+} from "@/lib/services/users-service";
+import { UsersFilters } from "@/components/admin/users/UsersFilters";
+import { UsersList } from "@/components/admin/users/UsersList";
+import {
+  BulkGroupDialog,
+  UsersBulkBar,
+} from "@/components/admin/users/UsersBulkActions";
 
 import { InviteDialog } from "./InviteDialog";
 import { GroupsClient } from "../groups/GroupsClient";
 
 /**
- * Zakładka /admin/users — przebudowana od zera (2026-04-23).
+ * Zakładka /admin/users — przebudowana od zera (2026-04-23), faza-3 split
+ * (2026-04-30): shell trzyma state + dispatch; rendering deleguje do
+ * `components/admin/users/{UsersFilters,UsersList,UsersBulkActions}`.
  *
- * Clean enterprise-grade listing:
- *   - Lista userów z wyszukiwarką, paginacją, statusami (aktywny, email,
- *     integracje Google/Kadromierz, brute-force lock).
- *   - Akcje szybkie inline: Otwórz (→ /admin/users/[id]), Zablokuj/
- *     Odblokuj, Usuń, Odblokuj brute-force.
- *   - Bulk: zaznaczenie userów → modal przypisania roli.
- *   - Sekcja "Narzędzia IAM" z syncem KC, resync profili, migracją legacy
- *     i diagnostyką providerów.
+ * Pure helpery (formatDate, fullName, pagination, presence, selection)
+ * mieszkają w `lib/services/users-service.ts`.
  *
- * Co jest dostępne w /admin/users/[id] (zamiast duplikować w modalach):
+ * Co jest w `/admin/users/[id]/PermissionsPanel.tsx` (NIE TYKAMY):
  *   - edycja profilu, role per aplikacja, reset hasła, sesje, 2FA,
  *     WebAuthn, integracje Google/Kadromierz, activity log, send actions.
- *
- * Jeden plik, jeden widok — żadnych zagnieżdżonych dialog'ów edytujących.
  */
 
 interface UsersClientProps {
@@ -66,35 +54,6 @@ interface UsersClientProps {
   userLabel?: string;
   userEmail?: string;
 }
-
-const PAGE_SIZE = 25;
-const ONLINE_WINDOW_MS = 5 * 60 * 1000;
-const PRESENCE_POLL_MS = 60 * 1000;
-
-function formatDate(ts: number | null): string {
-  if (!ts) return "—";
-  const ms = ts > 100_000_000_000 ? ts : ts * 1000;
-  return new Date(ms).toLocaleString("pl-PL", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function fullName(u: AdminUserSummary): string {
-  return (
-    [u.firstName, u.lastName].filter(Boolean).join(" ").trim() || u.username
-  );
-}
-
-type PresenceMap = Record<string, number>;
-type IntegrationsMap = Record<string, AdminIntegrationStatus>;
-type LockMap = Record<
-  string,
-  { numFailures: number; disabled: boolean; lastFailure: number | null }
->;
 
 export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) {
   // Data
@@ -328,38 +287,16 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
     }
   }, []);
 
-  const pages = useMemo(
-    () => ({
-      start: total > 0 ? first + 1 : 0,
-      end: Math.min(first + PAGE_SIZE, total),
-      total,
-      hasPrev: first > 0,
-      hasNext: first + PAGE_SIZE < total,
-    }),
-    [first, total],
-  );
-
   const toggleSelect = useCallback((id: string) => {
-    setSelectedIds((p) => {
-      const n = new Set(p);
-      if (n.has(id)) n.delete(id);
-      else n.add(id);
-      return n;
-    });
+    setSelectedIds((p) => toggleSelection(p, id));
   }, []);
 
   const toggleAll = useCallback(() => {
-    setSelectedIds((p) => {
-      const ids = users.map((u) => u.id);
-      const allSel = ids.every((i) => p.has(i));
-      const n = new Set(p);
-      if (allSel) for (const i of ids) n.delete(i);
-      else for (const i of ids) n.add(i);
-      return n;
-    });
+    setSelectedIds((p) => toggleAllSelection(p, users.map((u) => u.id)));
   }, [users]);
 
-  const allSelected = users.length > 0 && users.every((u) => selectedIds.has(u.id));
+  const allSelected =
+    users.length > 0 && users.every((u) => selectedIds.has(u.id));
   const someSelected = users.some((u) => selectedIds.has(u.id));
 
   const selectedUsers = useMemo(
@@ -422,548 +359,114 @@ export function UsersClient({ selfId, userLabel, userEmail }: UsersClientProps) 
       )}
 
       {activeTab === "users" && (
-      <>
-      <section className="mb-6 flex flex-wrap items-start justify-between gap-4">
-        <div className="max-w-2xl">
-          <p className="text-sm text-[var(--text-muted)]">
-            Zarządzaj kontami użytkowników realmu Keycloak — zaproś nowych,
-            przypisz role per aplikacja, wyślij akcje profilowe. Kliknij
-            &bdquo;Otwórz&rdquo; aby edytować dane usera (rolę, hasło,
-            sesje, integracje).
-          </p>
-        </div>
-        <div className="flex gap-2 flex-shrink-0">
-          <Button
-            leftIcon={<UserPlus className="w-4 h-4" aria-hidden="true" />}
-            onClick={() => setInviteOpen(true)}
-          >
-            Zaproś użytkownika
-          </Button>
-        </div>
-      </section>
-
-      {selectedIds.size > 0 && (
-        <div className="sticky top-2 z-20 mb-4 flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded-lg border border-[var(--accent)] bg-[var(--bg-surface)] shadow-md">
-          <div className="text-sm text-[var(--text-main)]">
-            Zaznaczono <strong>{selectedIds.size}</strong>
-          </div>
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              leftIcon={<Shield className="w-4 h-4" aria-hidden="true" />}
-              onClick={() => setBulkGroupOpen(true)}
-            >
-              Przypisz grupę
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => setSelectedIds(new Set())}>
-              <X className="w-4 h-4" aria-hidden="true" />
-              Odznacz
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {error && (
-        <div className="mb-4">
-          <Alert tone="error">{error}</Alert>
-        </div>
-      )}
-      {notice && (
-        <div className="mb-4">
-          <Alert tone="success">{notice}</Alert>
-        </div>
-      )}
-
-      {/* Search + role filter */}
-      <Card padding="md" className="mb-4">
-        <form onSubmit={onSearchSubmit} className="flex flex-wrap gap-2 items-end">
-          <FieldWrapper id="user-search" label="Szukaj" className="flex-1 min-w-[220px]">
-            <Input
-              id="user-search"
-              placeholder="Email, imię, nazwisko, login…"
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              leftIcon={<Search className="w-4 h-4" aria-hidden="true" />}
-            />
-          </FieldWrapper>
-          <FieldWrapper id="role-filter" label="Filtr po roli" className="min-w-[220px]">
-            <select
-              id="role-filter"
-              value={roleFilter}
-              onChange={(e) => {
-                setFirst(0);
-                setRoleFilter(e.target.value);
-              }}
-              className="w-full px-3 py-2 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-sm text-[var(--text-main)]"
-            >
-              <option value="">— wszystkie role —</option>
-              {areas.map((a) => (
-                <optgroup key={a.id} label={a.label}>
-                  {a.roles.map((r) => (
-                    <option key={r.name} value={r.name}>
-                      {r.label || r.name}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
-          </FieldWrapper>
-          <Button type="submit" variant="secondary">
-            Szukaj
-          </Button>
-          {(search || roleFilter) && (
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => {
-                setSearch("");
-                setSearchInput("");
-                setRoleFilter("");
-                setFirst(0);
-              }}
-            >
-              Wyczyść
-            </Button>
-          )}
-        </form>
-      </Card>
-
-      {/* Table */}
-      <Card padding="none">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="border-b border-[var(--border-subtle)]">
-              <tr className="text-left text-xs uppercase tracking-wider text-[var(--text-muted)]">
-                <th className="px-3 py-3 font-medium w-[40px]">
-                  <input
-                    type="checkbox"
-                    checked={allSelected}
-                    ref={(el) => {
-                      if (el) el.indeterminate = someSelected && !allSelected;
-                    }}
-                    onChange={toggleAll}
-                    aria-label="Zaznacz wszystkich na stronie"
-                    className="rounded border-[var(--border-subtle)]"
-                  />
-                </th>
-                <th className="px-4 py-3 font-medium">Użytkownik</th>
-                <th className="px-4 py-3 font-medium">Email</th>
-                <th className="px-4 py-3 font-medium">Status</th>
-                <th className="px-4 py-3 font-medium">Integracje</th>
-                <th className="px-4 py-3 font-medium">Utworzono</th>
-                <th className="px-4 py-3 font-medium text-right">Akcje</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading && users.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={7}
-                    className="px-4 py-10 text-center text-[var(--text-muted)]"
-                  >
-                    <Loader2
-                      className="w-5 h-5 animate-spin inline-block"
-                      aria-hidden="true"
-                    />
-                  </td>
-                </tr>
-              ) : users.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={7}
-                    className="px-4 py-10 text-center text-[var(--text-muted)]"
-                  >
-                    Brak użytkowników spełniających kryteria.
-                  </td>
-                </tr>
-              ) : (
-                users.map((u) => (
-                  <UserRow
-                    key={u.id}
-                    user={u}
-                    isSelf={u.id === selfId}
-                    isPending={pendingId === u.id}
-                    isSelected={selectedIds.has(u.id)}
-                    presence={presence[u.id]}
-                    integrations={integrations[u.id]}
-                    lock={locks[u.id]}
-                    onToggleSelect={() => toggleSelect(u.id)}
-                    onToggleEnabled={() => void toggleEnabled(u)}
-                    onDelete={() => void deleteUser(u)}
-                    onUnlock={() => void unlockUser(u)}
-                  />
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {total > 0 && (
-          <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-[var(--border-subtle)] text-xs text-[var(--text-muted)]">
-            <span>
-              {pages.start}–{pages.end} z {pages.total}
-            </span>
-            <div className="flex gap-2">
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={!pages.hasPrev || loading}
-                onClick={() => setFirst((f) => Math.max(0, f - PAGE_SIZE))}
-              >
-                Poprzednia
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={!pages.hasNext || loading}
-                onClick={() => setFirst((f) => f + PAGE_SIZE)}
-              >
-                Następna
-              </Button>
-            </div>
-          </div>
-        )}
-      </Card>
-
-      {/* Modals */}
-      <InviteDialog
-        open={inviteOpen}
-        onClose={() => setInviteOpen(false)}
-        onInvited={({ email, roleAssignmentErrors }) => {
-          setInviteOpen(false);
-          if (roleAssignmentErrors.length > 0) {
-            setNotice(
-              `Zaproszenie wysłane do ${email}, ale ${roleAssignmentErrors.length} przypisań ról zawiodło — sprawdź logi.`,
-            );
-          } else {
-            setNotice(`Wysłano zaproszenie do ${email}`);
-          }
-          setFirst(0);
-          void refresh();
-        }}
-      />
-
-      <BulkGroupDialog
-        open={bulkGroupOpen}
-        users={selectedUsers}
-        onClose={() => setBulkGroupOpen(false)}
-        onDone={(msg) => {
-          setBulkGroupOpen(false);
-          setSelectedIds(new Set());
-          setNotice(msg);
-        }}
-      />
-
-      </>
-      )}
-
-    </PageShell>
-  );
-}
-
-// ── Wiersz tabeli — wydzielony żeby memoizować i odchudzić diff ────────────
-function UserRow({
-  user,
-  isSelf,
-  isPending,
-  isSelected,
-  presence,
-  integrations,
-  lock,
-  onToggleSelect,
-  onToggleEnabled,
-  onDelete,
-  onUnlock,
-}: {
-  user: AdminUserSummary;
-  isSelf: boolean;
-  isPending: boolean;
-  isSelected: boolean;
-  presence: number | undefined;
-  integrations: AdminIntegrationStatus | undefined;
-  lock: { numFailures: number; disabled: boolean; lastFailure: number | null } | undefined;
-  onToggleSelect: () => void;
-  onToggleEnabled: () => void;
-  onDelete: () => void;
-  onUnlock: () => void;
-}) {
-  const isOnline =
-    !!presence && Date.now() - presence * 1000 < ONLINE_WINDOW_MS;
-  const locked = lock?.disabled || (lock?.numFailures ?? 0) > 0;
-
-  return (
-    <tr
-      className={`border-b border-[var(--border-subtle)] last:border-b-0 hover:bg-[var(--bg-main)] ${
-        isSelected ? "bg-[var(--bg-main)]" : ""
-      }`}
-    >
-      <td className="px-3 py-3">
-        <input
-          type="checkbox"
-          checked={isSelected}
-          onChange={onToggleSelect}
-          aria-label={`Zaznacz ${user.email ?? user.username}`}
-          className="rounded border-[var(--border-subtle)]"
-        />
-      </td>
-      <td className="px-4 py-3">
-        <div className="font-medium text-[var(--text-main)]">
-          {fullName(user)}
-          {isSelf && (
-            <Badge tone="accent" className="ml-2">
-              Ty
-            </Badge>
-          )}
-        </div>
-        <div className="text-xs text-[var(--text-muted)]">{user.username}</div>
-      </td>
-      <td className="px-4 py-3 text-[var(--text-main)]">
-        {user.email ?? "—"}
-        {user.email && !user.emailVerified && (
-          <Badge tone="warning" className="ml-2">
-            Nieaktywowany
-          </Badge>
-        )}
-      </td>
-      <td className="px-4 py-3">
-        <div className="flex flex-wrap gap-1.5 items-center">
-          {user.enabled ? (
-            <Badge tone="success">
-              <Check className="w-3 h-3" aria-hidden="true" />
-              Aktywny
-            </Badge>
-          ) : (
-            <Badge tone="danger">
-              <Ban className="w-3 h-3" aria-hidden="true" />
-              Zablokowany
-            </Badge>
-          )}
-          {isOnline && (
-            <Badge tone="success" title={`Ostatnio: ${formatDate(presence ?? null)}`}>
-              <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-              Online
-            </Badge>
-          )}
-          {user.requiredActions.length > 0 && (
-            <Badge tone="info" title={user.requiredActions.join(", ")}>
-              {user.requiredActions.length} wymagane
-            </Badge>
-          )}
-          {locked && (
-            <Badge
-              tone="warning"
-              title={`${lock?.numFailures ?? 0} nieudanych prób${
-                lock?.disabled ? " · zablokowany" : ""
-              }`}
-            >
-              <AlertTriangle className="w-3 h-3" aria-hidden="true" />
-              {lock?.disabled ? "Brute-force lock" : `${lock?.numFailures ?? 0} błędów`}
-            </Badge>
-          )}
-        </div>
-      </td>
-      <td className="px-4 py-3">
-        <div className="flex flex-wrap gap-1.5">
-          <Badge
-            tone={integrations?.google.connected ? "success" : "neutral"}
-            title={
-              integrations?.google.connected
-                ? `Google: ${integrations.google.username ?? ""}`
-                : "Google niepołączone"
-            }
-          >
-            Google {integrations?.google.connected ? "✓" : "—"}
-          </Badge>
-          <Badge
-            tone={integrations?.kadromierz.connected ? "success" : "neutral"}
-            title={
-              integrations?.kadromierz.connected
-                ? `Kadromierz: #${integrations.kadromierz.employeeId ?? ""}`
-                : "Kadromierz niepołączone"
-            }
-          >
-            Kadromierz {integrations?.kadromierz.connected ? "✓" : "—"}
-          </Badge>
-        </div>
-      </td>
-      <td className="px-4 py-3 text-[var(--text-muted)]">
-        {formatDate(user.createdTimestamp)}
-      </td>
-      <td className="px-4 py-3">
-        <div className="flex justify-end gap-1">
-          <Link
-            href={`/admin/users/${user.id}`}
-            className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs bg-[var(--bg-main)] border border-[var(--border-subtle)] text-[var(--text-main)] hover:bg-[var(--bg-surface)]"
-            title="Otwórz szczegóły i edytuj"
-          >
-            <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
-            Otwórz
-          </Link>
-          {locked && (
-            <Button
-              variant="ghost"
-              size="sm"
-              title="Zdejmij blokadę brute-force"
-              onClick={onUnlock}
-              loading={isPending}
-              disabled={isPending}
-              className="text-yellow-500 hover:text-yellow-600"
-            >
-              <Unlock className="w-4 h-4" aria-hidden="true" />
-            </Button>
-          )}
-          <Button
-            variant="ghost"
-            size="sm"
-            title={user.enabled ? "Zablokuj" : "Odblokuj"}
-            onClick={onToggleEnabled}
-            loading={isPending}
-            disabled={isPending || isSelf}
-          >
-            {user.enabled ? (
-              <Ban className="w-4 h-4" aria-hidden="true" />
-            ) : (
-              <Check className="w-4 h-4" aria-hidden="true" />
-            )}
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            title="Usuń konto"
-            onClick={onDelete}
-            loading={isPending}
-            disabled={isPending || isSelf}
-            className="text-red-500 hover:text-red-600"
-          >
-            <Trash2 className="w-4 h-4" aria-hidden="true" />
-          </Button>
-        </div>
-      </td>
-    </tr>
-  );
-}
-
-// ── Bulk group assignment ──────────────────────────────────────────────────
-function BulkGroupDialog({
-  open,
-  users,
-  onClose,
-  onDone,
-}: {
-  open: boolean;
-  users: AdminUserSummary[];
-  onClose: () => void;
-  onDone: (msg: string) => void;
-}) {
-  const [groups, setGroups] = useState<AdminGroup[]>([]);
-  const [groupId, setGroupId] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    setGroupId("");
-    setError(null);
-    void adminGroupService
-      .list()
-      .then((r) => setGroups(r.groups))
-      .catch(() => setGroups([]));
-  }, [open]);
-
-  const selectedGroup = useMemo(
-    () => groups.find((g) => g.id === groupId) ?? null,
-    [groups, groupId],
-  );
-
-  const submit = useCallback(async () => {
-    if (!groupId || users.length === 0) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await adminGroupService.bulkAssign({
-        userIds: users.map((u) => u.id),
-        groupId,
-        replace: true,
-      });
-      const groupName = selectedGroup?.name ?? "grupa";
-      onDone(
-        res.failed === 0
-          ? `Przypisano ${res.ok} userów do "${groupName}"`
-          : `Przypisano ${res.ok}/${res.total} (${res.failed} błędów) do "${groupName}"`,
-      );
-    } catch (err) {
-      setError(
-        err instanceof ApiRequestError ? err.message : "Nie udało się przypisać",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [groupId, users, selectedGroup, onDone]);
-
-  return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      size="lg"
-      title="Przypisz grupę zbiorczo"
-      description={`${users.length} użytkowników → grupa Keycloak (nadpisuje istniejące przypisania)`}
-      footer={
         <>
-          <Button variant="ghost" onClick={onClose} disabled={loading}>
-            Anuluj
-          </Button>
-          <Button
-            onClick={() => void submit()}
-            loading={loading}
-            disabled={!groupId}
-            leftIcon={<Shield className="w-4 h-4" aria-hidden="true" />}
-          >
-            Zapisz
-          </Button>
-        </>
-      }
-    >
-      {error && (
-        <div className="mb-3">
-          <Alert tone="error">{error}</Alert>
-        </div>
-      )}
-      <div className="space-y-3">
-        <FieldWrapper id="bulk-group" label="Grupa" required>
-          <select
-            id="bulk-group"
-            value={groupId}
-            onChange={(e) => setGroupId(e.target.value)}
-            className="w-full px-3 py-2 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-sm"
-          >
-            <option value="">— wybierz —</option>
-            {groups.map((g) => (
-              <option key={g.id} value={g.id}>
-                {g.name}
-                {g.realmRoles.length > 0 ? ` (${g.realmRoles.length} ról)` : ""}
-              </option>
-            ))}
-          </select>
-        </FieldWrapper>
-        {selectedGroup && (
-          <div className="px-3 py-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
-            <p className="text-xs uppercase tracking-wider text-[var(--text-muted)] mb-1">
-              Role które user dziedziczy
-            </p>
-            <div className="flex flex-wrap gap-1">
-              {selectedGroup.realmRoles.length === 0 ? (
-                <span className="text-xs text-[var(--text-muted)]">brak</span>
-              ) : (
-                selectedGroup.realmRoles.map((r) => (
-                  <Badge key={r} tone="neutral" className="text-[10px] font-mono">
-                    {r}
-                  </Badge>
-                ))
-              )}
+          <section className="mb-6 flex flex-wrap items-start justify-between gap-4">
+            <div className="max-w-2xl">
+              <p className="text-sm text-[var(--text-muted)]">
+                Zarządzaj kontami użytkowników realmu Keycloak — zaproś nowych,
+                przypisz role per aplikacja, wyślij akcje profilowe. Kliknij
+                &bdquo;Otwórz&rdquo; aby edytować dane usera (rolę, hasło,
+                sesje, integracje).
+              </p>
             </div>
-          </div>
-        )}
-      </div>
-    </Dialog>
+            <div className="flex gap-2 flex-shrink-0">
+              <Button
+                leftIcon={<UserPlus className="w-4 h-4" aria-hidden="true" />}
+                onClick={() => setInviteOpen(true)}
+              >
+                Zaproś użytkownika
+              </Button>
+            </div>
+          </section>
+
+          <UsersBulkBar
+            selectedCount={selectedIds.size}
+            onAssignGroup={() => setBulkGroupOpen(true)}
+            onClear={() => setSelectedIds(new Set())}
+          />
+
+          {error && (
+            <div className="mb-4">
+              <Alert tone="error">{error}</Alert>
+            </div>
+          )}
+          {notice && (
+            <div className="mb-4">
+              <Alert tone="success">{notice}</Alert>
+            </div>
+          )}
+
+          <UsersFilters
+            searchInput={searchInput}
+            onSearchInputChange={setSearchInput}
+            roleFilter={roleFilter}
+            onRoleChange={(r) => {
+              setFirst(0);
+              setRoleFilter(r);
+            }}
+            areas={areas}
+            onSubmit={onSearchSubmit}
+            onReset={() => {
+              setSearch("");
+              setSearchInput("");
+              setRoleFilter("");
+              setFirst(0);
+            }}
+            hasActiveFilters={Boolean(search || roleFilter)}
+          />
+
+          <UsersList
+            users={users}
+            loading={loading}
+            selfId={selfId}
+            pendingId={pendingId}
+            selectedIds={selectedIds}
+            presence={presence}
+            integrations={integrations}
+            locks={locks}
+            onToggleSelect={toggleSelect}
+            onToggleAll={toggleAll}
+            allSelected={allSelected}
+            someSelected={someSelected}
+            total={total}
+            first={first}
+            onPrev={() => setFirst((f) => Math.max(0, f - PAGE_SIZE))}
+            onNext={() => setFirst((f) => f + PAGE_SIZE)}
+            onToggleEnabled={(u) => void toggleEnabled(u)}
+            onDelete={(u) => void deleteUser(u)}
+            onUnlock={(u) => void unlockUser(u)}
+          />
+
+          {/* Modals */}
+          <InviteDialog
+            open={inviteOpen}
+            onClose={() => setInviteOpen(false)}
+            onInvited={({ email, roleAssignmentErrors }) => {
+              setInviteOpen(false);
+              if (roleAssignmentErrors.length > 0) {
+                setNotice(
+                  `Zaproszenie wysłane do ${email}, ale ${roleAssignmentErrors.length} przypisań ról zawiodło — sprawdź logi.`,
+                );
+              } else {
+                setNotice(`Wysłano zaproszenie do ${email}`);
+              }
+              setFirst(0);
+              void refresh();
+            }}
+          />
+
+          <BulkGroupDialog
+            open={bulkGroupOpen}
+            users={selectedUsers}
+            onClose={() => setBulkGroupOpen(false)}
+            onDone={(msg) => {
+              setBulkGroupOpen(false);
+              setSelectedIds(new Set());
+              setNotice(msg);
+            }}
+          />
+        </>
+      )}
+    </PageShell>
   );
 }
