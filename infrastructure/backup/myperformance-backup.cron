@@ -1,0 +1,12 @@
+# MyPerformance — daily backup
+# Instalacja: skopiuj ten plik do /etc/cron.d/myperformance-backup
+# Format: m h dom mon dow user command
+# Logi: /var/log/myperformance-backup.log
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Codziennie 23:00 — pełen backup z notyfikacją do dashboarda.
+# Env load przez source w samym skrypcie (/etc/myperformance-backup.env
+# z BACKUP_WEBHOOK_SECRET, container names itd.).
+0 23 * * * root /usr/local/bin/myperformance-backup.sh >> /var/log/myperformance-backup.log 2>&1

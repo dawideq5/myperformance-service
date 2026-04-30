@@ -27,6 +27,19 @@ const logger = log.child({ module: "middleware" });
 
 const userinfoCache = new Map<string, { valid: boolean; expiresAt: number }>();
 
+// Periodic cleanup — bez tego `userinfoCache` rośnie monotonicznie z każdym
+// unikalnym access tokenem, ponieważ wpisy wygasają tylko logicznie (timestamp
+// check w runtime), a Map nie auto-evict'uje. W long-lived kontenerze
+// (Coolify single-process) powodowałoby memory leak z czasem życia procesu.
+// Pattern wzorem `lib/security/devices.ts:79-84` — przebiega Map raz na
+// 5 min i kasuje wpisy starsze niż TTL. unref() — nie blokuje zamknięcia.
+const USERINFO_CACHE_CLEANUP_MS = 5 * 60_000;
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of userinfoCache) {
+    if (v.expiresAt <= now) userinfoCache.delete(k);
+  }
+}, USERINFO_CACHE_CLEANUP_MS).unref?.();
 
 function tokenCacheKey(accessToken: string): string {
   return createHash("sha256").update(accessToken).digest("hex").slice(0, 16);

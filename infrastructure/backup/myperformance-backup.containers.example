@@ -1,0 +1,52 @@
+# Skopiuj do /etc/myperformance-backup.containers na VPS i wypełnij.
+# chmod 600 (zawiera credentials).
+
+# === Dashboard (Postgres) ===
+DASHBOARD_DB_CONTAINER="database-xxx"
+DASHBOARD_DB_NAME="dashboard"
+DASHBOARD_DB_USER="postgres"
+
+# === Keycloak (Postgres) ===
+KC_DB_CONTAINER="database-yyy"
+KC_DB_NAME="keycloak"
+KC_DB_USER="postgres"
+
+# === Outline (Postgres) ===
+OUTLINE_DB_CONTAINER="database-zzz"
+OUTLINE_DB_NAME="outline"
+OUTLINE_DB_USER="outline"
+
+# === Directus (Postgres) ===
+DIRECTUS_DB_CONTAINER="database-aaa"
+DIRECTUS_DB_NAME="directus"
+DIRECTUS_DB_USER="directus"
+
+# === Chatwoot (Postgres) ===
+CHATWOOT_DB_CONTAINER="database-bbb"
+CHATWOOT_DB_NAME="chatwoot"
+CHATWOOT_DB_USER="postgres"
+
+# === Documenso (Postgres) ===
+DOCUMENSO_DB_CONTAINER="database-c9dxxjvb3rskueiuguudbqgb"
+DOCUMENSO_DB_NAME="documenso-db"
+DOCUMENSO_DB_USER="8CjpLq2KxfmwcZYG"
+
+# === Postal (MariaDB) ===
+POSTAL_DB_CONTAINER="postal-mariadb-ddd"
+POSTAL_DB_NAME="postal"
+POSTAL_DB_USER="root"
+# MYSQL_PWD przekazany przez docker exec env (nie tu — w runtime z Coolify env)
+
+# === Moodle (MariaDB) ===
+MOODLE_DB_CONTAINER="mariadb-upzcjtn9rcswer2vg2vey5d3"
+MOODLE_DB_NAME="moodle"
+MOODLE_DB_USER="root"
+# MYSQL_PWD jak wyżej.
+
+# === Webhook do dashboarda ===
+BACKUP_WEBHOOK_SECRET="<ten sam co w Coolify env dashboarda BACKUP_WEBHOOK_SECRET>"
+DASHBOARD_URL="https://myperformance.pl"
+
+# === Retention ===
+RETENTION_DAYS="7"
+BACKUP_ROOT="/backups/myperformance"
