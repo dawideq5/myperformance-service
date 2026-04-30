@@ -1,0 +1,91 @@
+name: E2E
+
+# E2E (Playwright) workflow — uruchamiana ręcznie albo przy zmianach w
+# `app/`, `components/`, `e2e/`. Oddzielona od głównego CI bo wymaga build
+# Next.js + start serwera + browser dependencies (chromium).
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "components/**"
+      - "e2e/**"
+      - "playwright.config.ts"
+      - "package.json"
+      - "package-lock.json"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: Playwright smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: ci-e2e-secret-placeholder
+      KEYCLOAK_URL: http://localhost:8080
+      KEYCLOAK_REALM: ci
+      KEYCLOAK_CLIENT_ID: ci
+      KEYCLOAK_CLIENT_SECRET: ci-secret
+      SKIP_ENV_VALIDATION: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers (chromium only)
+        run: npx playwright install --with-deps chromium
+
+      - name: Build Next.js
+        run: npm run build
+
+      - name: Start Next.js server (background)
+        run: |
+          npm start &
+          echo $! > .next.pid
+          # Wait for /api/health to respond
+          for i in {1..60}; do
+            if curl -fsS http://localhost:3000/api/health >/dev/null; then
+              echo "Server is ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Server did not become ready in 60s"
+          exit 1
+
+      - name: Run Playwright smoke tests
+        run: npm run test:e2e
+        env:
+          E2E_BASE_URL: http://localhost:3000
+          # E2E_KC_AVAILABLE niewystawione — testy authed są skipped.
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+
+      - name: Stop Next.js server
+        if: always()
+        run: |
+          if [ -f .next.pid ]; then
+            kill $(cat .next.pid) || true
+            rm .next.pid
+          fi

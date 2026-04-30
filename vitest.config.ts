@@ -14,6 +14,9 @@ export default defineConfig({
       "build_keycloak",
       "dist_keycloak_theme",
       "panels/*/node_modules/**",
+      // Playwright e2e — uruchamiane przez `npm run test:e2e`, NIE vitest
+      "e2e/**",
+      "**/*.spec.ts",
     ],
     coverage: {
       provider: "v8",
