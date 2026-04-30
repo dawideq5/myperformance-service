@@ -26,6 +26,7 @@ const ALLOWED_PREFIXES = new Set([
   "me",
   "repair-types",
   "quote",
+  "service-locations",
 ]);
 
 async function handle(

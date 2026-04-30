@@ -101,6 +101,51 @@ export function AddServiceTab({
     ticketNumber: string;
   } | null>(null);
 
+  // Punkt serwisowy: lista wszystkich service-locations + auto-prefill
+  // domyślnego (powiązanego z punktem sprzedaży locationId).
+  const [serviceLocations, setServiceLocations] = useState<
+    Array<{ id: string; name: string; address: string | null }>
+  >([]);
+  const [defaultServiceLocationId, setDefaultServiceLocationId] = useState<
+    string | null
+  >(null);
+  const [chosenServiceLocationId, setChosenServiceLocationId] = useState<
+    string | null
+  >(null);
+  const [salesRequiresTransport, setSalesRequiresTransport] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const r = await fetch(
+          `/api/relay/service-locations?salesLocationId=${encodeURIComponent(locationId)}`,
+        );
+        if (!r.ok) return;
+        const j = (await r.json()) as {
+          services: Array<{
+            id: string;
+            name: string;
+            address: string | null;
+          }>;
+          defaultServiceId: string | null;
+          requiresTransport: boolean;
+        };
+        if (!alive) return;
+        setServiceLocations(j.services ?? []);
+        setDefaultServiceLocationId(j.defaultServiceId ?? null);
+        setSalesRequiresTransport(j.requiresTransport === true);
+        setChosenServiceLocationId((prev) => prev ?? j.defaultServiceId ?? null);
+      } catch {
+        /* ignore — backend ustawi domyślny serwis przy create */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locationId]);
+
   // Sekcje rozwijane — sekwencyjne gating: tylko pierwsza sekcja otwarta na
   // start; kolejne odblokowują się gdy poprzednia jest complete.
   const [open, setOpen] = useState<Record<string, boolean>>({
@@ -411,6 +456,7 @@ export function AddServiceTab({
       })();
       const body = {
         locationId,
+        serviceLocationId: chosenServiceLocationId,
         type: "phone",
         brand: brand.trim() || null,
         model: model.trim() || null,
@@ -787,6 +833,14 @@ export function AddServiceTab({
           </div>
         </Section>
         </div>
+
+        <ServiceLocationPicker
+          services={serviceLocations}
+          chosen={chosenServiceLocationId}
+          defaultId={defaultServiceLocationId}
+          requiresTransport={salesRequiresTransport}
+          onChange={setChosenServiceLocationId}
+        />
 
         <div data-section="handover">
         <Section
@@ -1613,6 +1667,90 @@ function AnnexPromptDialog({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Dropdown wyboru punktu serwisowego (destination zlecenia). Default =
+ * powiązany serwis z punktem sprzedaży (mp_locations.service_id).
+ * Komunikat info: gdy wybrany inny niż default LUB sales.requires_transport,
+ * urządzenie odbierze kierowca (transport job created automatically). */
+function ServiceLocationPicker({
+  services,
+  chosen,
+  defaultId,
+  requiresTransport,
+  onChange,
+}: {
+  services: Array<{ id: string; name: string; address: string | null }>;
+  chosen: string | null;
+  defaultId: string | null;
+  requiresTransport: boolean;
+  onChange: (next: string | null) => void;
+}) {
+  if (services.length === 0) return null;
+  const isCustom = chosen != null && chosen !== defaultId;
+  const showTransportNotice = isCustom || requiresTransport;
+  return (
+    <div
+      className="rounded-2xl border p-4 space-y-3"
+      style={{
+        background: "var(--bg-card)",
+        borderColor: "var(--border-subtle)",
+      }}
+    >
+      <div className="flex items-center gap-2">
+        <Wrench className="w-4 h-4" style={{ color: "#06B6D4" }} />
+        <span
+          className="font-semibold text-sm"
+          style={{ color: "var(--text-main)" }}
+        >
+          Punkt serwisowy
+        </span>
+      </div>
+      <select
+        value={chosen ?? ""}
+        onChange={(e) => onChange(e.target.value || null)}
+        className="w-full px-3 py-2 rounded-xl border text-sm outline-none focus:border-[var(--accent)]"
+        style={{
+          background: "var(--bg-surface)",
+          borderColor: "var(--border-subtle)",
+          color: "var(--text-main)",
+        }}
+      >
+        <option value="">— Wybierz punkt serwisowy —</option>
+        {services.map((s) => (
+          <option key={s.id} value={s.id}>
+            {s.name}
+            {s.id === defaultId ? " (domyślny)" : ""}
+            {s.address ? ` — ${s.address}` : ""}
+          </option>
+        ))}
+      </select>
+      {showTransportNotice && (
+        <div
+          className="rounded-xl border p-3 text-xs flex items-start gap-2"
+          style={{
+            background: "rgba(245, 158, 11, 0.1)",
+            borderColor: "rgba(245, 158, 11, 0.4)",
+            color: "#F59E0B",
+          }}
+        >
+          <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <p className="font-semibold">
+              {isCustom
+                ? "Wybrano serwis niepowiązany z punktem zlecenia."
+                : "Punkt sprzedaży wymaga transportu kurierskiego."}
+            </p>
+            <p style={{ color: "rgba(245, 158, 11, 0.85)" }}>
+              Przygotuj urządzenie do wysyłki — zostanie odebrane przez
+              kierowcę. Zlecenie odbioru zostanie automatycznie utworzone w
+              panelu kierowcy.
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
