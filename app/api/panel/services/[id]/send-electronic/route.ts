@@ -136,9 +136,10 @@ export async function POST(
   const employeeDisplayName =
     user.name?.trim() || user.preferred_username || user.email;
   const employeeSig = await getUserSignature(user.email);
-  const employeeSignaturePngBase64 = employeeSig?.pngDataUrl
-    ? employeeSig.pngDataUrl.replace(/^data:image\/[a-z]+;base64,/, "")
-    : undefined;
+  // Documenso v3 (skia-canvas) wymaga PEŁNEGO data URL z prefix
+  // `data:image/png;base64,...` — bez prefixu seal-document failuje
+  // ze `TypeError: Expected a valid data URL string`.
+  const employeeSignaturePngBase64 = employeeSig?.pngDataUrl ?? undefined;
 
   const data: ReceiptInput = {
     ticketNumber: service.ticketNumber ?? "—",
