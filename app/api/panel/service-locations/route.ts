@@ -23,15 +23,25 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const salesLocationId = url.searchParams.get("salesLocationId");
 
-  const allServices = await listLocations({
-    type: "service",
-    enabledOnly: true,
-  });
-  const services = allServices.map((l) => ({
+  // Wszystkie aktywne lokalizacje (sales + service) — UI wyboru serwisu
+  // pokazuje tylko service-type, ale komponenty resolve UUID→name (np.
+  // historia edycji, sekcja Dostawa) potrzebują też sales-type.
+  const allLocations = await listLocations({ enabledOnly: true });
+  const services = allLocations
+    .filter((l) => l.type === "service")
+    .map((l) => ({
+      id: l.id,
+      name: l.name,
+      address: l.address,
+      phone: l.phone,
+    }));
+  // Lookup wszystkich lokalizacji (id→nazwa+typ) — używane przez frontend
+  // do resolvowania UUID-ów w karcie Dostawa i Historii edycji.
+  const lookup = allLocations.map((l) => ({
     id: l.id,
     name: l.name,
+    type: l.type,
     address: l.address,
-    phone: l.phone,
   }));
 
   let defaultServiceId: string | null = null;
@@ -45,7 +55,7 @@ export async function GET(req: Request) {
   }
 
   return NextResponse.json(
-    { services, defaultServiceId, requiresTransport },
+    { services, lookup, defaultServiceId, requiresTransport },
     { headers: PANEL_CORS_HEADERS },
   );
 }

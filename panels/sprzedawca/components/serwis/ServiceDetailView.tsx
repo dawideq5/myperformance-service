@@ -211,7 +211,8 @@ function ServiceDetailInner({
     }
   }, [serviceId]);
 
-  // Mapa serwisów (id → label) dla resolvera UUID w historii edycji.
+  // Mapa wszystkich lokalizacji (sales + service) dla resolvera UUID w
+  // historii edycji oraz sekcji Dostawa.
   const [serviceLocationsById, setServiceLocationsById] = useState<
     Record<string, string>
   >({});
@@ -222,11 +223,14 @@ function ServiceDetailInner({
         const r = await fetch("/api/relay/service-locations");
         if (!r.ok) return;
         const j = (await r.json()) as {
-          services: Array<{ id: string; name: string }>;
+          services?: Array<{ id: string; name: string }>;
+          lookup?: Array<{ id: string; name: string; type: string }>;
         };
         if (!alive) return;
         const m: Record<string, string> = {};
-        for (const s of j.services ?? []) m[s.id] = s.name;
+        // Preferuj `lookup` (zawiera sales+service), fallback na `services`.
+        const all = j.lookup ?? j.services ?? [];
+        for (const s of all) m[s.id] = s.name;
         setServiceLocationsById(m);
       } catch {
         /* ignore */

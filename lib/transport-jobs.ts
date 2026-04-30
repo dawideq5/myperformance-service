@@ -116,6 +116,9 @@ export interface ListTransportJobsQuery {
   locationIds?: string[];
   driverEmail?: string;
   status?: TransportJobStatus | TransportJobStatus[];
+  /** Filter po service ID — zwykle używane do sprawdzenia czy serwis ma
+   * aktywny transport (kierowca już zabrał urządzenie). */
+  serviceId?: string;
   limit?: number;
   offset?: number;
 }
@@ -153,6 +156,9 @@ export async function listTransportJobs(
   if (q.status) {
     const arr = Array.isArray(q.status) ? q.status : [q.status];
     query["filter[status][_in]"] = arr.join(",");
+  }
+  if (q.serviceId) {
+    query["filter[service][_eq]"] = q.serviceId;
   }
   try {
     const rows = await listItems<JobRow>("mp_transport_jobs", query);

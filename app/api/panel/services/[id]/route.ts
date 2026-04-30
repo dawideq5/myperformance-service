@@ -171,10 +171,33 @@ export async function PATCH(
     changedFields: Object.keys(diff.changes),
   });
 
-  // Po istotnej edycji (cena, diagnoza, gwarancja) unieważniamy poprzedni
-  // podpis pracownika i status Documenso. User musi podpisać nowy PDF
-  // i wysłać ponownie — to zapobiega rozjazdowi treści między PDF
-  // podpisanym przez klienta a aktualnym stanem serwisu.
+  // Lock zmian gdy urządzenie wyszło z punktu sprzedaży (transport
+  // picked_up / in_transit / delivered). Sprzedawca nie może edytować
+  // bo urządzenie jest fizycznie u kierowcy lub w serwisie — żadne
+  // zmiany merytoryczne nie mają sensu (potwierdzenie już niemożliwe
+  // do podpisania na miejscu).
+  const { listTransportJobs } = await import("@/lib/transport-jobs");
+  const activeJobs = await listTransportJobs({
+    serviceId: id,
+    status: ["assigned", "in_transit", "delivered"],
+    limit: 5,
+  });
+  if (activeJobs.length > 0 && Object.keys(diff.changes).length > 0) {
+    return NextResponse.json(
+      {
+        error:
+          "Urządzenie zostało już wydane kierowcy — edycja zlecenia jest zablokowana.",
+        transportJobStatus: activeJobs[0].status,
+      },
+      { status: 423, headers: PANEL_CORS_HEADERS },
+    );
+  }
+
+  // Po istotnej edycji (cena, diagnoza, gwarancja) unieważniamy
+  // wszystkie aktywne podpisy żeby zapobiec rozjazdowi treści między
+  // dokumentem podpisanym przez klienta a aktualnym stanem serwisu.
+  // Status Documenso przechodzi na "expired" + DELETE w Documenso
+  // (deletedAt) — klient nie może już otworzyć starego linku.
   // mergeJsonb traktuje `null` jako delete-key.
   if (diff.isSignificant) {
     const vcPatch = {
@@ -182,8 +205,30 @@ export async function PATCH(
       employeeSignature: null,
     } as Record<string, unknown>;
     const curDocumenso = existing.visualCondition?.documenso;
-    if (curDocumenso && curDocumenso.status === "sent") {
+    const invalidatableStatuses = new Set([
+      "sent",
+      "employee_signed",
+      "signed",
+      "paper_pending",
+      "paper_signed",
+    ]);
+    if (curDocumenso?.docId && invalidatableStatuses.has(curDocumenso.status)) {
       vcPatch.documenso = { ...curDocumenso, status: "expired" };
+      // Async DELETE w Documenso — fallback DB w lib/documenso obsługuje
+      // 500 przez REST. Klient po unieważnieniu dostanie 404 jeśli
+      // próbuje otworzyć stary signing link.
+      const { deleteDocument } = await import("@/lib/documenso");
+      void deleteDocument(curDocumenso.docId).catch((err) => {
+        logger.warn("auto-invalidate Documenso failed", {
+          serviceId: id,
+          docId: curDocumenso.docId,
+          err: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
+    if (existing.visualCondition?.paperSigned) {
+      // Istotna zmiana po podpisie papierowym też unieważnia stary podpis.
+      vcPatch.paperSigned = null;
     }
     body.visualCondition = vcPatch as typeof body.visualCondition;
   }
