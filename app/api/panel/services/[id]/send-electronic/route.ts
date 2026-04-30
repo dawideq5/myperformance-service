@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { PANEL_CORS_HEADERS, getPanelUserFromRequest } from "@/lib/panel-auth";
 import { getService, updateService } from "@/lib/services";
 import {
+  autoSignAsEmployee,
   createDocumentForSigning,
   isDocumensoConfigured,
   resendDocumentReminder,
@@ -126,15 +127,18 @@ export async function POST(
     });
   }
 
-  // Auto-sign przez pracownika: bierzemy jego per-user signature z DB
-  // (jeśli istnieje, embed PNG). W przeciwnym razie receipt-pdf
-  // renderuje imię cursive font bezpośrednio. Workflow "1 klik = wysłane".
-  const employeeSig = await getUserSignature(user.email);
+  // Auto-sign pracownika: typed/uploaded signature przez Documenso. Gdy
+  // pracownik ma zarejestrowany cursive PNG w mp_user_signatures (per-user
+  // signature pad), Documenso renderuje PNG w polu SIGNATURE (pewny
+  // visual). Fallback: typed signature z imieniem (cursive font Documenso).
+  // W obu trybach audit log zawiera signedAt + IP. Po podpisaniu pracownika
+  // Documenso wysyła klientowi email (SEQUENTIAL signing).
   const employeeDisplayName =
-    employeeSig?.signedName ??
-    user.name?.trim() ??
-    user.preferred_username ??
-    user.email;
+    user.name?.trim() || user.preferred_username || user.email;
+  const employeeSig = await getUserSignature(user.email);
+  const employeeSignaturePngBase64 = employeeSig?.pngDataUrl
+    ? employeeSig.pngDataUrl.replace(/^data:image\/[a-z]+;base64,/, "")
+    : undefined;
 
   const data: ReceiptInput = {
     ticketNumber: service.ticketNumber ?? "—",
@@ -154,7 +158,7 @@ export async function POST(
     lock: { type: service.lockType ?? "none", code: service.lockCode ?? "" },
     description: service.description ?? "",
     employeeName: employeeDisplayName,
-    employeeSignaturePng: employeeSig?.pngDataUrl ?? null,
+    employeeSignaturePng: null,
     visualCondition: {
       ...(service.visualCondition ?? {}),
       ...(service.intakeChecklist ?? {}),
@@ -175,17 +179,15 @@ export async function POST(
   try {
     const rendered = await renderReceiptPdfWithLayout(data);
     const pdfHash = createHash("sha256").update(rendered.buffer).digest("hex");
-    const employeeName =
-      user.name?.trim() || user.preferred_username || user.email;
     const customerName =
       `${service.customerFirstName ?? ""} ${service.customerLastName ?? ""}`.trim() ||
       "Klient";
 
-    // Documenso recipient = TYLKO klient. Pracownik już podpisał (PNG
-    // embedded w PDF z mp_user_signatures), więc klient widzi gotowy
-    // dokument do swojego podpisu. "1 klik = wysłane" workflow.
-    void employeeName;
-
+    // Sequential 2-recipient flow:
+    //   1. Pracownik (signingOrder=1) — auto-signed przez autoSignAsEmployee
+    //      typed signature (cursive font z imieniem + audit log Documenso).
+    //   2. Klient (signingOrder=2) — Documenso wysyła email po podpisaniu
+    //      pracownika.
     const result = await createDocumentForSigning({
       title: force
         ? `Potwierdzenie ${service.ticketNumber} — aktualizacja`
@@ -196,6 +198,11 @@ export async function POST(
         : "Prosimy o podpisanie potwierdzenia odbioru urządzenia.",
       signers: [
         {
+          name: employeeDisplayName,
+          email: user.email,
+          signatureBox: rendered.signatures.employee,
+        },
+        {
           name: customerName,
           email: service.contactEmail,
           signatureBox: rendered.signatures.customer,
@@ -203,7 +210,38 @@ export async function POST(
       ],
     });
 
-    const employeeSigningUrl: string | null = null;
+    // Auto-podpis pracownika: typed signature z imieniem przez trpc.
+    const employeeRecipient = result.recipients.find(
+      (r) => r.email.toLowerCase() === user.email.toLowerCase(),
+    );
+    let autoSignOk = false;
+    if (employeeRecipient?.token) {
+      const signRes = await autoSignAsEmployee({
+        documentId: result.documentId,
+        employeeToken: employeeRecipient.token,
+        employeeFullName: employeeDisplayName,
+        employeeRecipientId: employeeRecipient.id,
+        employeeSignaturePngBase64,
+      });
+      autoSignOk = signRes.ok;
+      if (!signRes.ok) {
+        logger.warn("autoSignAsEmployee failed — klient i tak otrzyma email po SEQUENTIAL", {
+          serviceId: id,
+          docId: result.documentId,
+          err: signRes.error,
+        });
+      }
+    } else {
+      logger.warn("brak tokena pracownika w odpowiedzi Documenso", {
+        serviceId: id,
+        docId: result.documentId,
+      });
+    }
+
+    const employeeSigningUrl: string | null =
+      result.signingUrls.find(
+        (u) => u.email.toLowerCase() === user.email.toLowerCase(),
+      )?.url ?? null;
 
     const previousDocIds = (() => {
       const cur = service.visualCondition?.documenso;
@@ -216,12 +254,19 @@ export async function POST(
         visualCondition: {
           ...(service.visualCondition ?? {}),
           // Po new send: invalidacja employeeSignature (null = delete-key
-          // przez mergeJsonb sentinel).
+          // przez mergeJsonb sentinel) — typed signature jest w Documenso,
+          // nie embedujemy już PNG w naszym PDF.
           employeeSignature: null as unknown as undefined,
           documenso: {
             docId: result.documentId,
-            status: "sent",
+            // employee_signed gdy autoSign powiódł się (klient czeka),
+            // sent gdy autoSign zawiódł (klient i tak dostanie po
+            // SEQUENTIAL kolejce, tylko po podpisaniu pracownika).
+            status: autoSignOk ? "employee_signed" : "sent",
             sentAt: new Date().toISOString(),
+            ...(autoSignOk
+              ? { employeeSignedAt: new Date().toISOString() }
+              : {}),
             pdfHash,
             previousDocIds,
             employeeSigningUrl: employeeSigningUrl ?? undefined,
@@ -252,11 +297,14 @@ export async function POST(
       },
       summary: force
         ? `Wysłano ponowne potwierdzenie do ${service.contactEmail}`
-        : `Wysłano potwierdzenie elektroniczne do ${service.contactEmail}`,
+        : autoSignOk
+          ? `Pracownik podpisał i wysłano potwierdzenie do ${service.contactEmail}`
+          : `Wysłano potwierdzenie elektroniczne do ${service.contactEmail}`,
       payload: {
         documentId: result.documentId,
         pdfHash: pdfHash.slice(0, 16),
         recipientEmail: service.contactEmail,
+        employeeAutoSigned: autoSignOk,
       },
     });
 
@@ -265,6 +313,7 @@ export async function POST(
         ok: true,
         documentId: result.documentId,
         signingUrls: result.signingUrls,
+        employeeAutoSigned: autoSignOk,
         pdfHash,
         force,
       },

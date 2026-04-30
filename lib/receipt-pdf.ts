@@ -549,40 +549,9 @@ function drawSinglePage(
   const sigW = (W - 24) / 2;
   const SIG_HEIGHT = 34; // miejsce na rzeczywisty podpis
   const sigTopY = y; // top sygnatur (pole Documenso od top do linii)
-  // Lewa: pracownik. Embed podpisu PNG gdy podany (z signature pad in-app).
-  if (data.employeeSignaturePng) {
-    try {
-      const base64 = data.employeeSignaturePng.replace(
-        /^data:image\/[a-z]+;base64,/,
-        "",
-      );
-      const buf = Buffer.from(base64, "base64");
-      doc.image(buf, M + 4, y + 2, {
-        fit: [sigW - 8, SIG_HEIGHT - 4],
-        align: "center",
-        valign: "center",
-      });
-    } catch {
-      // bad base64 — pomijamy embed, zostaje samo pole do podpisu ręcznego.
-    }
-  } else if (data.employeeName) {
-    // Fallback gdy mp_user_signatures nie ma jeszcze pngDataUrl —
-    // renderujemy imię cursive font bezpośrednio w PDF. Zachowuje
-    // workflow "1 klik = wysłane" nawet przy pierwszym użyciu.
-    try {
-      doc
-        .font("B")
-        .fontSize(20)
-        .fillColor(TEXT)
-        .text(data.employeeName, M + 4, y + (SIG_HEIGHT - 22) / 2, {
-          width: sigW - 8,
-          align: "center",
-          oblique: 12,
-        });
-    } catch {
-      /* ignore */
-    }
-  }
+  // Pola podpisów pozostają puste w PDF — Documenso renderuje typed
+  // signature pracownika (cursive font + audit log) w polu SIGNATURE
+  // poprzez autoSignAsEmployee. Klient podpisuje w swoim polu.
   doc
     .moveTo(M, y + SIG_HEIGHT)
     .lineTo(M + sigW, y + SIG_HEIGHT)

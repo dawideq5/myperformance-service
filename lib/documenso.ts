@@ -391,6 +391,12 @@ export async function createDocumentForSigning(opts: {
 }): Promise<{
   documentId: number;
   signingUrls: Array<{ email: string; url: string | null }>;
+  recipients: Array<{
+    id: number;
+    email: string;
+    token: string | null;
+    signingOrder: number;
+  }>;
 }> {
   const cfg = getConfig();
   if (!cfg) throw new Error("Documenso not configured");
@@ -413,6 +419,8 @@ export async function createDocumentForSigning(opts: {
         opts.message ??
         "Prosimy o podpisanie potwierdzenia odbioru urządzenia.",
       signingOrder: "SEQUENTIAL",
+      typedSignatureEnabled: true,
+      drawSignatureEnabled: true,
     },
   };
 
@@ -449,8 +457,14 @@ export async function createDocumentForSigning(opts: {
 
   // 2b. Documenso wymaga signature field dla każdego signera. Pobieramy
   // recipients (z ich id po stronie DocumDoc) i dodajemy SIGNATURE field.
+  // Token recipientów jest potrzebny do auto-podpisu pracownika via trpc.
   const docDetail = await documensoFetch<{
-    recipients?: { id: number; email: string }[];
+    recipients?: {
+      id: number;
+      email: string;
+      token?: string;
+      signingOrder?: number;
+    }[];
   }>(`/api/v1/documents/${docId}`);
   // Match recipientów Documenso z naszymi opts.signers po emailu (Documenso
   // może zwracać inny order niż podaliśmy). Każdy signer ma swój
@@ -501,18 +515,24 @@ export async function createDocumentForSigning(opts: {
     body: JSON.stringify({ sendEmail: true }),
   });
 
-  // Fetch back to get signing URLs.
+  // Fetch back to get signing URLs + tokens (potrzebne do autoSignAsEmployee).
   const doc = await getDocument(docId);
   const signingUrls = (doc?.recipients ?? []).map((r) => ({
     email: r.email,
     url: r.signingUrl ?? null,
+  }));
+  const recipientsWithTokens = (docDetail.recipients ?? []).map((r, i) => ({
+    id: r.id,
+    email: r.email,
+    token: r.token ?? null,
+    signingOrder: r.signingOrder ?? i + 1,
   }));
   log.child({ module: "documenso" }).info("document created for signing", {
     docId,
     title: opts.title,
     signers: opts.signers.length,
   });
-  return { documentId: docId, signingUrls };
+  return { documentId: docId, signingUrls, recipients: recipientsWithTokens };
 }
 
 /** Lookup service po Documenso doc id (zapisany w mp_services.documenso_id). */
@@ -520,6 +540,134 @@ export async function findServiceByDocumentId(_docId: number): Promise<null> {
   // TODO: wymaga schema mp_services.documenso_doc_id field.
   // Webhook handler użyje tej funkcji do mapowania doc → service.
   return null;
+}
+
+/** Auto-podpisuje wszystkie pola SIGNATURE pracownika. Tryby:
+ *   1. Z `employeeSignaturePngBase64` → uploaded signature (Documenso
+ *      renderuje obraz PNG — pewny visual outcome).
+ *   2. Bez PNG → typed signature (Documenso renderuje cursive font z
+ *      `employeeFullName`).
+ *
+ * W obu wariantach Documenso loguje signedAt + IP w audit log. Po
+ * podpisaniu wszystkich pól wywołuje completeDocumentWithToken —
+ * Documenso oznacza pracownika jako signed i wysyła kolejnym recipientom
+ * (klientowi) email z linkiem.
+ *
+ * Dlaczego trpc public route (`/api/trpc/...`) zamiast `/api/v1/...`?
+ * Documenso v3 nie eksponuje sign-as-recipient w v1 API (deprecated).
+ * trpc procedures `signFieldWithToken` i `completeDocumentWithToken`
+ * są publiczne (token-based, bez auth) — server-side wywołanie
+ * autorytetne dzięki posiadaniu employee tokena z createDocument response. */
+export async function autoSignAsEmployee(opts: {
+  documentId: number;
+  employeeToken: string;
+  employeeFullName: string;
+  employeeRecipientId: number;
+  /** Surowy base64 PNG (bez prefix `data:image/png;base64,`). Gdy podany,
+   * Documenso renderuje obraz w polu SIGNATURE (uploaded mode). */
+  employeeSignaturePngBase64?: string;
+}): Promise<{ ok: boolean; signed: number; error?: string }> {
+  const cfg = getConfig();
+  if (!cfg) return { ok: false, signed: 0, error: "Documenso not configured" };
+  // 1. Pobierz fields dokumentu — filtrujemy SIGNATURE należące do pracownika.
+  // Documenso v1 może zwrócić array bezpośrednio LUB obiekt z `fields` /
+  // `data` — normalizujemy oba kształty defensively.
+  type FieldRow = { id: number; type: string; recipientId: number };
+  let fieldsRaw: unknown = null;
+  try {
+    fieldsRaw = await documensoFetch<unknown>(
+      `/api/v1/documents/${opts.documentId}/fields`,
+    );
+  } catch (err) {
+    logger.warn("autoSignAsEmployee fields fetch failed", {
+      docId: opts.documentId,
+      err: err instanceof Error ? err.message : String(err),
+    });
+    return { ok: false, signed: 0, error: "Cannot fetch fields" };
+  }
+  const fields: FieldRow[] = Array.isArray(fieldsRaw)
+    ? (fieldsRaw as FieldRow[])
+    : Array.isArray((fieldsRaw as { fields?: unknown })?.fields)
+      ? ((fieldsRaw as { fields: FieldRow[] }).fields)
+      : Array.isArray((fieldsRaw as { data?: unknown })?.data)
+        ? ((fieldsRaw as { data: FieldRow[] }).data)
+        : [];
+  const employeeFields = fields.filter(
+    (f) =>
+      f.recipientId === opts.employeeRecipientId &&
+      (f.type === "SIGNATURE" || f.type === "FREE_SIGNATURE"),
+  );
+  let signed = 0;
+  // 2. Każde SIGNATURE field — uploaded PNG (preferowane) lub typed.
+  const usePng = !!opts.employeeSignaturePngBase64;
+  for (const field of employeeFields) {
+    const res = await fetch(
+      `${cfg.baseUrl}/api/trpc/field.signFieldWithToken`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          json: {
+            token: opts.employeeToken,
+            fieldId: field.id,
+            value: usePng
+              ? opts.employeeSignaturePngBase64
+              : opts.employeeFullName,
+            isBase64: usePng,
+          },
+        }),
+      },
+    );
+    if (res.ok) {
+      signed++;
+    } else {
+      const t = await res.text().catch(() => "");
+      logger.warn("autoSignAsEmployee signField failed", {
+        docId: opts.documentId,
+        fieldId: field.id,
+        status: res.status,
+        body: t.slice(0, 300),
+        mode: usePng ? "uploaded-png" : "typed",
+      });
+    }
+  }
+  // 3. Complete document for employee — Documenso wyśle klientowi email.
+  try {
+    const res = await fetch(
+      `${cfg.baseUrl}/api/trpc/recipient.completeDocumentWithToken`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          json: {
+            token: opts.employeeToken,
+            documentId: opts.documentId,
+          },
+        }),
+      },
+    );
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      logger.warn("autoSignAsEmployee complete failed", {
+        docId: opts.documentId,
+        status: res.status,
+        body: t.slice(0, 300),
+      });
+      return { ok: signed > 0, signed, error: `Complete failed: ${res.status}` };
+    }
+  } catch (err) {
+    return {
+      ok: signed > 0,
+      signed,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+  logger.info("autoSignAsEmployee ok", {
+    docId: opts.documentId,
+    fieldsSigned: signed,
+    employeeName: opts.employeeFullName,
+  });
+  return { ok: true, signed };
 }
 
 /** Wysyła przypomnienie do recipientów istniejącego dokumentu — bez

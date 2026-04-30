@@ -61,10 +61,15 @@ export async function POST(
     );
   }
   const ok = await deleteDocument(cur.docId);
+  // Po unieważnieniu: kompletny reset visualCondition.documenso (null =
+  // delete-key sentinel przez mergeJsonb). UI traktuje to jak fresh state —
+  // user może rozpocząć proces od nowa (papier lub elektroniczny).
+  // Historia (ActionsLogCard) nadal pokazuje pełen audit log, w tym info
+  // o tym że dokument #cur.docId został unieważniony.
   await updateService(id, {
     visualCondition: {
       ...(service.visualCondition ?? {}),
-      documenso: { ...cur, status: "expired" },
+      documenso: null as unknown as undefined,
     } as typeof service.visualCondition,
   });
   void logServiceAction({
