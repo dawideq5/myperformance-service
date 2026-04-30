@@ -54,43 +54,126 @@ export interface ProfileSyncArgs {
   phone?: string | null;
 }
 
+/**
+ * Schema/version metadata raportowana przez providera. Używane przez
+ * `/api/admin/iam/diagnostics/[provider]` i panel "Zarządzanie konfiguracją"
+ * do wykrycia drift między wersją aplikacji natywnej a wersją interfejsu
+ * w dashboardzie (np. nowa wersja Documenso z nową rolą).
+ *
+ * - `schemaVersion`: stabilny tag schematu po stronie providera (np. wersja
+ *   API targetowanego przez tę implementację — `"v2"` dla Documenso v2).
+ *   `"unknown"` jest dopuszczalne gdy provider nie potrafi tego ustalić.
+ * - `nativeVersion`: wersja zwracana przez aplikację natywną (np. z
+ *   `core_webservice_get_site_info` w Moodle, banner Chatwoota etc.).
+ *   Optional — wymaga live request do app, więc nie każdy provider potrafi.
+ */
+export interface ProviderVersionInfo {
+  schemaVersion: string;
+  nativeVersion?: string;
+}
+
+/**
+ * Kontrakt providera natywnego RBAC. Implementacja to single-instance per
+ * aplikacja, instancjonowana lazy w `lib/permissions/registry.ts` (factory
+ * pattern). Wszystkie metody są **idempotentne** chyba że JSDoc mówi inaczej.
+ *
+ * Konwencje błędów:
+ *  - `ProviderNotConfiguredError` — brak wymaganych env vars (np. `*_DB_URL`).
+ *    Rzucane przed I/O, callers powinni najpierw `isConfigured()`.
+ *  - `ProviderUnsupportedError` — operacja nieobsługiwana przez aplikację
+ *    natywną (np. `createRole` w Documenso które ma stałą enum).
+ *  - Inne błędy (network, auth, permission po stronie app) propagują jako
+ *    standardowe `Error` z message przyjaznym do logu.
+ */
 export interface PermissionProvider {
+  /** Stabilne id (matches `nativeProviderId` w `areas.ts`). */
   readonly id: string;
+  /** Ludzka nazwa do UI (PL). */
   readonly label: string;
+
+  /**
+   * Czy provider ma wszystkie env vars potrzebne do działania. Wywoływane
+   * przed każdą operacją I/O i przy listowaniu providerów do panelu admin.
+   * Musi być **synchronous, side-effect-free** — czyste sprawdzenie env.
+   */
   isConfigured(): boolean;
 
-  /** Czy aplikacja pozwala na custom role (create/update/delete). */
+  /**
+   * Czy aplikacja pozwala na custom role (create/update/delete). False
+   * oznacza że enum ról jest hardkodowany po stronie aplikacji natywnej
+   * (Documenso, Postal). True → mogą być tworzone w app i live-fetchowane
+   * przez `listRoles()` (Moodle, Chatwoot custom roles).
+   */
   supportsCustomRoles(): boolean;
 
-  /** Live fetch listy capabilities z aplikacji docelowej. */
+  /**
+   * Live fetch listy capabilities z aplikacji docelowej. Zwraca pustą
+   * tablicę gdy app nie eksponuje permission catalogu (np. Documenso —
+   * permissions są domniemane z roli). Rzuca przy network/auth errorach.
+   */
   listPermissions(): Promise<NativePermission[]>;
 
-  /** Live fetch listy ról z aplikacji docelowej. */
+  /**
+   * Live fetch listy ról z aplikacji docelowej. Zawsze zwraca przynajmniej
+   * built-in role (system-defined). Custom role tylko gdy
+   * `supportsCustomRoles()`. Rzuca przy network/auth errorach.
+   *
+   * Kolejność niezdefiniowana — caller powinien sortować po `priority`
+   * (z area seedów) lub `name`.
+   */
   listRoles(): Promise<NativeRole[]>;
 
-  /** Rzuca gdy !supportsCustomRoles. */
+  /**
+   * Tworzy nową custom rolę w aplikacji natywnej. Rzuca
+   * `ProviderUnsupportedError` gdy `!supportsCustomRoles()`. Rzuca też gdy
+   * rola o tej nazwie już istnieje (caller robi pre-check przez `listRoles`).
+   */
   createRole(args: {
     name: string;
     description?: string;
     permissions: string[];
   }): Promise<NativeRole>;
 
+  /**
+   * Aktualizuje custom rolę. Rzuca `ProviderUnsupportedError` gdy provider
+   * nie wspiera, lub gdy `id` wskazuje na rolę system-defined.
+   * Permissions są **replaced**, nie merge'owane.
+   */
   updateRole(
     id: string,
     args: { name?: string; description?: string; permissions?: string[] },
   ): Promise<NativeRole>;
 
+  /**
+   * Usuwa custom rolę. Rzuca `ProviderUnsupportedError` dla system-defined.
+   * Idempotentne — jeśli rola nie istnieje, no-op (nie throw).
+   */
   deleteRole(id: string): Promise<void>;
 
+  /**
+   * Przypisuje rolę userowi w aplikacji natywnej. `roleId=null` →
+   * usuwa wszystkie role (downgrade do default/no-access).
+   *
+   * **Idempotentne**: ponowne wywołanie z tą samą rolą jest no-op.
+   * Tworzy usera jeśli nie istnieje (np. Documenso DB upsert).
+   */
   assignUserRole(args: AssignUserRoleArgs): Promise<void>;
 
-  /** Aktualny id roli usera w aplikacji natywnej, lub null. */
+  /**
+   * Aktualny id roli usera w aplikacji natywnej, lub null gdy user
+   * nie istnieje albo nie ma żadnej roli. Nie throwa gdy user missing —
+   * zwraca null (idempotentny lookup).
+   */
   getUserRole(email: string): Promise<string | null>;
 
   /**
    * Synchronizuje dane profilowe usera (email, imię, nazwisko, telefon)
    * z Keycloak do aplikacji natywnej. Bez-op jeśli provider nie potrafi
    * zaktualizować danego pola. Używane przy zmianie profilu w KC.
+   *
+   * **Idempotentne**: wywołanie z tymi samymi wartościami nie zmienia
+   * stanu. Gdy user nie istnieje w app — może go utworzyć (provider
+   * decision) lub zwrócić bez akcji.
    */
   syncUserProfile(args: ProfileSyncArgs): Promise<void>;
 
@@ -120,6 +203,21 @@ export interface PermissionProvider {
    * może zwrócić `null` (skip w reconcile, log).
    */
   listUserEmails(): Promise<string[] | null>;
+
+  /**
+   * Wersja schematu/aplikacji natywnej. Używane przez panel diagnostyczny
+   * do wykrycia drift między implementacją providera a aplikacją docelową
+   * (np. provider targetuje API v2 ale app został zaktualizowany do v3).
+   *
+   * **Optional** — providery bez tej metody traktowane jako
+   * `{ schemaVersion: "unknown" }`. Domyślna implementacja powinna zwracać
+   * przynajmniej `schemaVersion`; `nativeVersion` jeśli wymaga live API
+   * call to fine-to-skip gdy aplikacja niedostępna.
+   *
+   * **Side-effect-free** poza ewentualnym pojedynczym GET do app version
+   * endpoint (z timeoutem!).
+   */
+  version?(): Promise<ProviderVersionInfo>;
 }
 
 export class ProviderNotConfiguredError extends Error {

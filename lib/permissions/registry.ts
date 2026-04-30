@@ -8,20 +8,54 @@ import { PostalProvider } from "./providers/postal";
 import { scheduleStartupKcSync } from "./kc-sync";
 
 /**
- * Runtime registry natywnych providerów.
+ * Runtime registry natywnych providerów (config-driven).
+ *
+ * Wpis (`ProviderEntry`) deklaruje id + factory (lazy instancjonowanie) +
+ * opcjonalną flagę `required`. Faza 4 wave 1 — fundament pod externalizację
+ * konfiguracji w wave 2.
  *
  * Area z `areas.ts` mają `nativeProviderId` wskazujący tutaj. Gdy area jest
  * `keycloak-only` → provider nie istnieje (undefined) i cała logika żyje
  * wyłącznie w realmie KC.
+ *
+ * Lazy semantics: `factory()` jest wywoływane przy `getProvider()` /
+ * `listConfiguredProviders()`. Na chwilę obecną instancjonowanie jest tanie
+ * (pool DB powstaje dopiero przy pierwszej operacji), ale architektura
+ * pozwala dodać caching gdy będzie trzeba.
  */
-const INSTANCES: Record<string, PermissionProvider> = {
-  chatwoot: new ChatwootProvider(),
-  directus: new DirectusProvider(),
-  documenso: new DocumensoProvider(),
-  moodle: new MoodleProvider(),
-  outline: new OutlineProvider(),
-  postal: new PostalProvider(),
-};
+export interface ProviderEntry {
+  id: string;
+  factory: () => PermissionProvider;
+  /**
+   * Gdy `true` — brak konfiguracji (env vars) dla tego providera traktowany
+   * jako fatal przy starcie. Domyślnie `false` (provider opcjonalny).
+   */
+  required?: boolean;
+}
+
+export const PROVIDER_REGISTRY: ProviderEntry[] = [
+  { id: "chatwoot", factory: () => new ChatwootProvider() },
+  { id: "directus", factory: () => new DirectusProvider() },
+  { id: "documenso", factory: () => new DocumensoProvider() },
+  { id: "moodle", factory: () => new MoodleProvider() },
+  { id: "outline", factory: () => new OutlineProvider() },
+  { id: "postal", factory: () => new PostalProvider() },
+];
+
+/**
+ * Cache instancji providerów. Factory jest wywoływane raz per id — kolejne
+ * `getProvider` zwraca tę samą instancję (zachowanie zgodne z poprzednim
+ * `INSTANCES` recordem).
+ */
+const INSTANCE_CACHE: Map<string, PermissionProvider> = new Map();
+
+function instantiate(entry: ProviderEntry): PermissionProvider {
+  const cached = INSTANCE_CACHE.get(entry.id);
+  if (cached) return cached;
+  const inst = entry.factory();
+  INSTANCE_CACHE.set(entry.id, inst);
+  return inst;
+}
 
 // Enterprise KC sync — tworzy realm roles + composite groups na podstawie
 // AREAS + provider-dynamic roles. Non-blocking, non-fatal. Wywoływane
@@ -31,11 +65,44 @@ if (typeof process !== "undefined" && process.env.IAM_SKIP_STARTUP_SYNC !== "1")
   scheduleStartupKcSync();
 }
 
-export function getProvider(id: string | undefined): PermissionProvider | null {
+/**
+ * Zwraca providera po id. Returns null gdy:
+ *  - id nieznane (brak w `PROVIDER_REGISTRY`),
+ *  - id puste/undefined (np. area `keycloak-only` bez `nativeProviderId`),
+ *  - provider nie jest skonfigurowany (`isConfigured()` zwraca false) —
+ *    callers traktują to jako "integracja niedostępna".
+ */
+export function getProvider(id: string | undefined | null): PermissionProvider | null {
   if (!id) return null;
-  return INSTANCES[id] ?? null;
+  const entry = PROVIDER_REGISTRY.find((e) => e.id === id);
+  if (!entry) return null;
+  const inst = instantiate(entry);
+  return inst.isConfigured() ? inst : null;
 }
 
+/**
+ * Lista wszystkich providerów które mają komplet env vars. Używane przez
+ * /api/admin/iam/diagnostics (overview wszystkich integracji) i przez
+ * reconcile job (pętla po app'kach do drift detection).
+ */
+export function listConfiguredProviders(): PermissionProvider[] {
+  return PROVIDER_REGISTRY.map((entry) => instantiate(entry)).filter((p) => p.isConfigured());
+}
+
+/**
+ * Lista wszystkich providerów (skonfigurowanych i nie). Używane głównie
+ * przez panel diagnostyczny żeby pokazać "Documenso: brak DOCUMENSO_DB_URL".
+ */
+export function listAllProviders(): PermissionProvider[] {
+  return PROVIDER_REGISTRY.map((entry) => instantiate(entry));
+}
+
+/**
+ * Backwards-compat alias dla `listAllProviders()`. Stare call-sites mogły
+ * używać tej nazwy — zostawiamy dla łagodnego refactoringu (deprecated).
+ *
+ * @deprecated Use `listConfiguredProviders()` lub `listAllProviders()`.
+ */
 export function listProviders(): PermissionProvider[] {
-  return Object.values(INSTANCES);
+  return listAllProviders();
 }
