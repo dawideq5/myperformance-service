@@ -154,6 +154,7 @@ export function AddServiceTab({
     visual: false,
     description: false,
     customer: false,
+    service: false,
     handover: false,
   });
 
@@ -163,6 +164,7 @@ export function AddServiceTab({
     "visual",
     "description",
     "customer",
+    "service",
     "handover",
   ] as const;
 
@@ -226,6 +228,12 @@ export function AddServiceTab({
           }
         }
         setAmountEstimate(s.amountEstimate?.toString() ?? "");
+        // Edit mode: prefill chosenServiceLocationId z istniejącego serwisu.
+        // Nie nadpisuj defaultem (sales.serviceId) bo user wcześniej mógł
+        // wybrać inny punkt — wybór musi być persistent.
+        if (s.serviceLocationId) {
+          setChosenServiceLocationId(s.serviceLocationId);
+        }
         setCustomerFirstName(s.customerFirstName ?? "");
         setCustomerLastName(s.customerLastName ?? "");
         setContactPhone(s.contactPhone ?? "");
@@ -345,6 +353,7 @@ export function AddServiceTab({
   // Sequential gating — sekcja jest dostępna gdy wszystkie poprzednie
   // complete. W trybie edycji wszystko otwarte (user już wcześniej
   // utworzył zlecenie, może edytować dowolny fragment).
+  const serviceComplete = chosenServiceLocationId != null;
   const sectionUnlocked: Record<string, boolean> = editingServiceId
     ? {
         device: true,
@@ -352,6 +361,7 @@ export function AddServiceTab({
         visual: true,
         description: true,
         customer: true,
+        service: true,
         handover: true,
       }
     : {
@@ -361,12 +371,19 @@ export function AddServiceTab({
         description: deviceComplete && lockComplete && visualComplete,
         customer:
           deviceComplete && lockComplete && visualComplete && descriptionComplete,
-        handover:
+        service:
           deviceComplete &&
           lockComplete &&
           visualComplete &&
           descriptionComplete &&
           customerComplete,
+        handover:
+          deviceComplete &&
+          lockComplete &&
+          visualComplete &&
+          descriptionComplete &&
+          customerComplete &&
+          serviceComplete,
       };
 
   // Toggle sekcji — tylko gdy odblokowana. Zablokowane sekcje nie reagują.
@@ -834,13 +851,32 @@ export function AddServiceTab({
         </Section>
         </div>
 
-        <ServiceLocationPicker
-          services={serviceLocations}
-          chosen={chosenServiceLocationId}
-          defaultId={defaultServiceLocationId}
-          requiresTransport={salesRequiresTransport}
-          onChange={setChosenServiceLocationId}
-        />
+        <div data-section="service">
+        <Section
+          icon={<Wrench className="w-5 h-5" />}
+          title="Punkt serwisowy"
+          subtitle={
+            chosenServiceLocationId
+              ? serviceLocations.find((s) => s.id === chosenServiceLocationId)
+                  ?.name ?? "Wybrany"
+              : "Wybierz punkt serwisowy realizujący naprawę"
+          }
+          accent="#06B6D4"
+          complete={serviceComplete}
+          unlocked={sectionUnlocked.service}
+          open={open.service}
+          onToggle={() => toggle("service")}
+          onContinue={editingServiceId ? undefined : () => continueToNext("service")}
+        >
+          <ServiceLocationPicker
+            services={serviceLocations}
+            chosen={chosenServiceLocationId}
+            defaultId={defaultServiceLocationId}
+            requiresTransport={salesRequiresTransport}
+            onChange={setChosenServiceLocationId}
+          />
+        </Section>
+        </div>
 
         <div data-section="handover">
         <Section
