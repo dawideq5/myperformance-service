@@ -55,10 +55,30 @@ export async function GET(
 
   const docInfo = service.visualCondition?.documenso;
   const status = docInfo?.status;
+  const docId = docInfo?.docId;
 
-  // Paper-flow: renderuj lokalnie PDF z embed cursive PNG pracownika.
-  // Klient podpisuje na wydrukowanym PDF (nie wymaga Documenso).
+  // Paper flow: PDF pochodzi z Documenso (typed signature pracownika
+  // renderowana cursive). Najpierw próba pobrania sealed PDF, fallback
+  // na lokalny render z embed PNG gdy seal jeszcze nie zakończony.
   if (status === "paper_pending" || status === "paper_signed") {
+    if (docId) {
+      const dl = await downloadDocumentPdf(Number(docId));
+      if (dl.ok) {
+        const ab = await dl.arrayBuffer();
+        return new NextResponse(ab as unknown as BodyInit, {
+          status: 200,
+          headers: {
+            "Content-Type": "application/pdf",
+            "Content-Disposition": `inline; filename="Potwierdzenie-${service.ticketNumber}.pdf"`,
+            "Cache-Control": "no-store",
+          },
+        });
+      }
+    }
+    // Fallback: seal-document jeszcze nie zakończony lub Documenso
+    // niedostępny. Renderuj lokalnie z embed cursive PNG pracownika
+    // (mp_user_signatures) — dokument do druku zachowuje wizualny
+    // podpis nawet bez Documenso.
     const employeeName =
       user.name?.trim() || user.preferred_username || user.email;
     const sig = await getUserSignature(user.email);
@@ -116,7 +136,6 @@ export async function GET(
   }
 
   // Elektroniczne — pobierz podpisany PDF z Documenso (po DOCUMENT_COMPLETED).
-  const docId = docInfo?.docId;
   if (!docId) {
     return NextResponse.json(
       { error: "Brak dokumentu Documenso powiązanego z zleceniem" },
