@@ -85,6 +85,41 @@ function isTeamRole(v: string): v is DocumensoTeamRole {
   return v === ROLE_MEMBER || v === ROLE_MANAGER || v === ROLE_ADMIN;
 }
 
+/**
+ * Postgres może rzucić `40P01` (deadlock_detected) lub `40001`
+ * (serialization_failure) gdy dwie transakcje konkurują o ten sam wiersz.
+ * Documenso v2 schema (Organisation/Group/Member) jest podatne na takie
+ * race-y przy równoległym assignUserRole tego samego usera. Polityka:
+ * 3× retry z exp backoff 50/200/800ms — pozostałe błędy (FK violations,
+ * unique violations) propagujemy bez retry.
+ */
+async function withDeadlockRetry<T>(
+  fn: () => Promise<T>,
+  maxAttempts = 3,
+): Promise<T> {
+  const delays = [50, 200, 800];
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const code = (err as { code?: string }).code;
+      // 40P01 = deadlock_detected, 40001 = serialization_failure
+      if (code !== "40P01" && code !== "40001") throw err;
+      lastErr = err;
+      logger.warn("transaction retry on pg deadlock/serialization", {
+        attempt: attempt + 1,
+        maxAttempts,
+        code,
+      });
+      if (attempt < maxAttempts - 1) {
+        await new Promise((r) => setTimeout(r, delays[attempt]));
+      }
+    }
+  }
+  throw lastErr;
+}
+
 export class DocumensoProvider implements PermissionProvider {
   readonly id = "documenso";
   readonly label = "Documenso";
@@ -191,6 +226,7 @@ export class DocumensoProvider implements PermissionProvider {
     const globalRoles = documensoGlobalRolesForTeamRole(teamRole);
 
     const cfg = getConfig();
+    await withDeadlockRetry(async () => {
     const client = await getPool().connect();
     try {
       await client.query("BEGIN");
@@ -308,6 +344,7 @@ export class DocumensoProvider implements PermissionProvider {
     } finally {
       client.release();
     }
+    });
   }
 
   async getUserRole(email: string): Promise<string | null> {
@@ -397,6 +434,7 @@ export class DocumensoProvider implements PermissionProvider {
   async deleteUser(args: { email: string; previousEmail?: string }): Promise<void> {
     if (!this.isConfigured()) return;
     const lookup = args.previousEmail ?? args.email;
+    await withDeadlockRetry(async () => {
     const client = await getPool().connect();
     try {
       // Documenso przechowuje podpisy + drafty per User. Hard DELETE rozbije
@@ -447,6 +485,7 @@ export class DocumensoProvider implements PermissionProvider {
     } finally {
       client.release();
     }
+    });
   }
 
   private async countByRole(): Promise<{

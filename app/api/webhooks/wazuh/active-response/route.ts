@@ -6,6 +6,7 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { log } from "@/lib/logger";
 import { blockIp, unblockIp, recordEvent } from "@/lib/security/db";
 import { getAdminUserIds, notifyUsers } from "@/lib/notify";
+import { rateLimit } from "@/lib/rate-limit";
 
 const logger = log.child({ module: "wazuh-active-response" });
 
@@ -58,6 +59,23 @@ function severityFromAlertLevel(level?: number): "info" | "low" | "medium" | "hi
 }
 
 export async function POST(req: Request) {
+  // Rate-limit z większym capacity (200) — Wazuh agent może wysłać burst
+  // alertów przy IDS storm; IP allowlist w Traefik jest pierwszą linią,
+  // tu defense-in-depth chroni przed wewnętrznym misbehavior.
+  const ip =
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+  const rl = rateLimit(`webhook:wazuh:${ip}`, {
+    capacity: 200,
+    refillPerSec: 1,
+  });
+  if (!rl.allowed) {
+    logger.warn("webhook rate-limited", { ip });
+    return NextResponse.json(
+      { error: "rate_limited" },
+      { status: 429, headers: { "Retry-After": "60" } },
+    );
+  }
+
   const rawBody = await req.text();
   const signature = req.headers.get("x-wazuh-signature");
 

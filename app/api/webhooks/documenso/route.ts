@@ -12,6 +12,7 @@ import { sendMail } from "@/lib/smtp";
 import { renderSignedReceiptEmail } from "@/lib/email/signed-receipt";
 import { getLocation } from "@/lib/locations";
 import { getOptionalEnv } from "@/lib/env";
+import { rateLimit } from "@/lib/rate-limit";
 
 const logger = log.child({ module: "documenso-webhook" });
 
@@ -162,6 +163,20 @@ function verifyAuth(
 }
 
 export async function POST(req: Request) {
+  const ip =
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+  const rl = rateLimit(`webhook:documenso:${ip}`, {
+    capacity: 60,
+    refillPerSec: 1,
+  });
+  if (!rl.allowed) {
+    logger.warn("webhook rate-limited", { ip });
+    return NextResponse.json(
+      { error: "rate_limited" },
+      { status: 429, headers: { "Retry-After": "60" } },
+    );
+  }
+
   const rawBody = await req.text();
   const rawSecret = req.headers.get("x-documenso-secret");
   const hmacSignature = req.headers.get("x-documenso-signature");

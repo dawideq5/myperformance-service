@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { createHmac, timingSafeEqual } from "crypto";
 import { log } from "@/lib/logger";
 import { getUserIdByEmail, notifyUser } from "@/lib/notify";
+import { rateLimit } from "@/lib/rate-limit";
 
 const logger = log.child({ module: "moodle-webhook" });
 
@@ -39,6 +40,20 @@ function verifySignature(rawBody: string, signature: string | null): boolean {
 }
 
 export async function POST(req: Request) {
+  const ip =
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+  const rl = rateLimit(`webhook:moodle:${ip}`, {
+    capacity: 60,
+    refillPerSec: 1,
+  });
+  if (!rl.allowed) {
+    logger.warn("webhook rate-limited", { ip });
+    return NextResponse.json(
+      { error: "rate_limited" },
+      { status: 429, headers: { "Retry-After": "60" } },
+    );
+  }
+
   const rawBody = await req.text();
   const signature = req.headers.get("x-moodle-signature");
   if (!verifySignature(rawBody, signature)) {

@@ -12,6 +12,7 @@ import {
   readSingleAttr,
   refreshGoogleAccessToken,
 } from "@/lib/google-calendar";
+import { rateLimit } from "@/lib/rate-limit";
 import type { CalendarEvent } from "@/app/api/calendar/events/route";
 
 /**
@@ -26,6 +27,20 @@ import type { CalendarEvent } from "@/app/api/calendar/events/route";
  * Handler must respond quickly; we do the sync inline but time-box via a single API round-trip.
  */
 export async function POST(request: NextRequest) {
+  const ip =
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+  const rl = rateLimit(`webhook:google-calendar:${ip}`, {
+    capacity: 60,
+    refillPerSec: 1,
+  });
+  if (!rl.allowed) {
+    log.warn("calendar.webhook.rate_limited", { ip });
+    return NextResponse.json(
+      { error: "rate_limited" },
+      { status: 429, headers: { "Retry-After": "60" } },
+    );
+  }
+
   if (!isWebhookSecretConfigured()) {
     return NextResponse.json({ ok: false }, { status: 500 });
   }

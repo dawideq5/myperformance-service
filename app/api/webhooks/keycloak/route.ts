@@ -9,6 +9,7 @@ import {
 import { appendIamAudit } from "@/lib/permissions/db";
 import { recordEvent as recordSecurityEvent } from "@/lib/security/db";
 import { checkBruteForce } from "@/lib/security/brute-force";
+import { rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -200,6 +201,22 @@ async function handleUpdateEmailEvent(userId: string): Promise<void> {
 }
 
 export async function POST(request: NextRequest) {
+  // Rate-limit per remote IP — defense-in-depth even with HMAC auth, ogranicza
+  // CPU spend na nieautoryzowanych próbach + chroni przed replay flood.
+  const ip =
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+  const rl = rateLimit(`webhook:keycloak:${ip}`, {
+    capacity: 60,
+    refillPerSec: 1,
+  });
+  if (!rl.allowed) {
+    logger.warn("webhook rate-limited", { ip });
+    return NextResponse.json(
+      { error: "rate_limited" },
+      { status: 429, headers: { "Retry-After": "60" } },
+    );
+  }
+
   // Important: read body as text once — we need raw bytes for HMAC verify
   // AND parsed JSON for routing. JSON.parse is cheap, so parse after auth.
   const rawBody = await request.text();

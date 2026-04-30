@@ -6,6 +6,7 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { log } from "@/lib/logger";
 import { getAdminUserIds, notifyUsers } from "@/lib/notify";
 import { recordEvent } from "@/lib/security/db";
+import { rateLimit } from "@/lib/rate-limit";
 
 const logger = log.child({ module: "backup-webhook" });
 
@@ -58,6 +59,20 @@ function formatBytes(n?: number): string {
 }
 
 export async function POST(req: Request) {
+  const ip =
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+  const rl = rateLimit(`webhook:backup:${ip}`, {
+    capacity: 60,
+    refillPerSec: 1,
+  });
+  if (!rl.allowed) {
+    logger.warn("webhook rate-limited", { ip });
+    return NextResponse.json(
+      { error: "rate_limited" },
+      { status: 429, headers: { "Retry-After": "60" } },
+    );
+  }
+
   const rawBody = await req.text();
   const signature = req.headers.get("x-backup-signature");
   if (!verifySignature(rawBody, signature)) {
