@@ -21,6 +21,8 @@ import {
   canAccessKeycloakAdmin,
   canAccessInfrastructure,
 } from "@/lib/admin-auth";
+import { getKcEventsPollState } from "@/lib/security/kc-events-poll";
+import { getQueueStats } from "@/lib/permissions/queue";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -95,55 +97,78 @@ export async function GET() {
     },
   });
 
-  // ── Cache sizes / poll lag (best-effort — moduły mogą nie eksportować
-  //    metricsHook'ów. W Faza 5 finalize dodamy explicit getKcEventsPollState
-  //    + getQueueStats; do tego czasu próbujemy via dynamic import + cast). ──
-  try {
-    const mod = (await import("@/lib/security/kc-events-poll")) as {
-      getKcEventsPollState?: () => { cursorMs?: number } | null;
-    };
-    const state = mod.getKcEventsPollState?.();
-    if (state) {
-      metrics.push({
-        name: "myperformance_kc_events_poll_cursor",
-        help: "Latest KC event timestamp processed (epoch ms)",
-        type: "gauge",
-        value: state.cursorMs ?? 0,
-      });
-      metrics.push({
-        name: "myperformance_kc_events_poll_lag_seconds",
-        help: "Approximate lag between latest KC event and current time",
-        type: "gauge",
-        value: state.cursorMs
-          ? Math.max(0, Math.round((Date.now() - state.cursorMs) / 1000))
-          : 0,
-      });
-    }
-  } catch {
-    // poll module not loaded yet or no state exposed — skip
+  // ── KC events poll state ───────────────────────────────────────────────
+  // getKcEventsPollState() zwraca null gdy poll nigdy nie wystartował
+  // (np. fresh process, instrumentation hook nie zdążył się wywołać).
+  const kcPoll = getKcEventsPollState();
+  if (kcPoll) {
+    metrics.push({
+      name: "myperformance_kc_events_poll_cursor",
+      help: "Latest KC event timestamp processed (epoch ms)",
+      type: "gauge",
+      value: kcPoll.cursorMs ?? 0,
+    });
+    metrics.push({
+      name: "myperformance_kc_events_poll_lag_seconds",
+      help: "Approximate lag between latest KC event and current time",
+      type: "gauge",
+      value: kcPoll.cursorMs
+        ? Math.max(0, Math.round((Date.now() - kcPoll.cursorMs) / 1000))
+        : 0,
+    });
+    metrics.push({
+      name: "myperformance_kc_events_poll_last_count",
+      help: "Number of KC events processed in the last poll cycle",
+      type: "gauge",
+      value: kcPoll.lastEventCount ?? 0,
+    });
+    metrics.push({
+      name: "myperformance_kc_events_poll_errors_total",
+      help: "Cumulative KC events poll errors since process start",
+      type: "counter",
+      value: kcPoll.errorCount ?? 0,
+    });
+    metrics.push({
+      name: "myperformance_kc_events_poll_running",
+      help: "1 if a poll cycle is currently in flight, 0 otherwise",
+      type: "gauge",
+      value: kcPoll.running ? 1 : 0,
+    });
   }
 
+  // ── IAM job queue stats ────────────────────────────────────────────────
+  // getQueueStats() zwraca null jeśli kolejka jeszcze nie była używana
+  // (totalEnqueued=0). Po pierwszym enqueueJob expose pending/running/failed.
   try {
-    const mod = (await import("@/lib/permissions/queue")) as {
-      getQueueStats?: () => Promise<{ pending?: number; failed?: number } | null>;
-    };
-    const stats = await mod.getQueueStats?.();
+    const stats = await getQueueStats();
     if (stats) {
       metrics.push({
         name: "myperformance_job_queue_depth",
         help: "Pending jobs in permissions queue",
         type: "gauge",
-        value: stats.pending ?? 0,
+        value: stats.pending,
       });
       metrics.push({
-        name: "myperformance_job_queue_failed",
-        help: "Failed jobs (current snapshot)",
+        name: "myperformance_job_queue_running",
+        help: "Jobs currently executing (including retry-backoff)",
         type: "gauge",
-        value: stats.failed ?? 0,
+        value: stats.running,
+      });
+      metrics.push({
+        name: "myperformance_job_queue_failed_total",
+        help: "Cumulative failed jobs (retries exhausted) since process start",
+        type: "counter",
+        value: stats.failed,
+      });
+      metrics.push({
+        name: "myperformance_job_queue_total",
+        help: "Cumulative enqueued jobs since process start",
+        type: "counter",
+        value: stats.total,
       });
     }
   } catch {
-    // queue stats not exposed — skip
+    // best-effort — never fail metrics endpoint on queue stats
   }
 
   // Render

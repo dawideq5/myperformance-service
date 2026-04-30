@@ -25,6 +25,43 @@ import { appendIamAudit } from "./db";
 
 const logger = log.child({ module: "iam-queue" });
 
+// ── Module-level queue stats ─────────────────────────────────────────────
+// In-memory liczniki — inline-retry backend nie persystuje jobów do DB.
+// Eksponowane przez getQueueStats() dla /api/admin/metrics. Restart procesu
+// resetuje counters (akceptowalne — używamy ich tylko jako runtime gauges).
+let pendingJobs = 0;
+let runningJobs = 0;
+let failedJobs = 0;
+let totalEnqueued = 0;
+
+/**
+ * Snapshot stanu IAM queue (inline-retry backend).
+ *
+ * - `pending`: joby zakolejkowane ale jeszcze nie wykonane (typowo 0 dla
+ *   inline-retry — handler startuje natychmiast)
+ * - `running`: joby aktualnie wykonujące się (w tym podczas retry-backoff)
+ * - `failed`: kumulatywna liczba jobów które wyczerpały retries od startu
+ *   procesu
+ * - `total`: łączna liczba zakolejkowanych jobów od startu procesu
+ *
+ * Zwraca null jeśli queue nie była jeszcze użyta (`enqueueJob` nigdy nie
+ * został wywołany) — wtedy nie ma sensu eksponować zer.
+ */
+export async function getQueueStats(): Promise<
+  | { pending: number; failed: number; running: number; total: number }
+  | null
+> {
+  if (totalEnqueued === 0 && pendingJobs === 0 && runningJobs === 0) {
+    return null;
+  }
+  return {
+    pending: pendingJobs,
+    failed: failedJobs,
+    running: runningJobs,
+    total: totalEnqueued,
+  };
+}
+
 export type JobKind =
   | "profile.propagate"
   | "role.assign"
@@ -68,9 +105,13 @@ class InlineRetryBackend implements QueueBackend {
   }
 
   async enqueue(payload: JobPayload, opts: EnqueueOptions): Promise<void> {
+    totalEnqueued += 1;
+    pendingJobs += 1;
     const handler = this.handlers.get(payload.kind);
     if (!handler) {
       logger.error("no handler for job kind", { kind: payload.kind });
+      pendingJobs -= 1;
+      failedJobs += 1;
       await appendIamAudit({
         actor: payload.actor,
         operation: "sync.push",
@@ -87,57 +128,64 @@ class InlineRetryBackend implements QueueBackend {
     let attempt = 0;
     let lastError: unknown = null;
 
-    while (attempt < maxAttempts) {
-      attempt += 1;
-      try {
-        await handler(payload);
-        if (attempt > 1) {
-          logger.info("job succeeded after retry", {
+    pendingJobs -= 1;
+    runningJobs += 1;
+    try {
+      while (attempt < maxAttempts) {
+        attempt += 1;
+        try {
+          await handler(payload);
+          if (attempt > 1) {
+            logger.info("job succeeded after retry", {
+              kind: payload.kind,
+              attempt,
+              idempotencyKey: payload.idempotencyKey,
+            });
+          }
+          return;
+        } catch (err) {
+          lastError = err;
+          const msg = err instanceof Error ? err.message : String(err);
+          logger.warn("job attempt failed", {
             kind: payload.kind,
             attempt,
+            maxAttempts,
+            err: msg,
             idempotencyKey: payload.idempotencyKey,
           });
-        }
-        return;
-      } catch (err) {
-        lastError = err;
-        const msg = err instanceof Error ? err.message : String(err);
-        logger.warn("job attempt failed", {
-          kind: payload.kind,
-          attempt,
-          maxAttempts,
-          err: msg,
-          idempotencyKey: payload.idempotencyKey,
-        });
-        if (attempt < maxAttempts) {
-          const delay = initialDelay * Math.pow(2, attempt - 1);
-          await sleep(delay);
-        } else {
-          await appendIamAudit({
-            actor: payload.actor,
-            operation: "sync.push",
-            targetType: "app",
-            status: "error",
-            error: msg,
-            details: {
-              kind: payload.kind,
-              idempotencyKey: payload.idempotencyKey,
-              attempt,
-            },
-          });
+          if (attempt < maxAttempts) {
+            const delay = initialDelay * Math.pow(2, attempt - 1);
+            await sleep(delay);
+          } else {
+            failedJobs += 1;
+            await appendIamAudit({
+              actor: payload.actor,
+              operation: "sync.push",
+              targetType: "app",
+              status: "error",
+              error: msg,
+              details: {
+                kind: payload.kind,
+                idempotencyKey: payload.idempotencyKey,
+                attempt,
+              },
+            });
+          }
         }
       }
-    }
 
-    // Wszystkie próby wyczerpane — nie rzucamy na zewnątrz, bo caller (np.
-    // Keycloak event listener) zwykle nie ma jak tego obsłużyć sensownie.
-    // Błąd jest już w audit logu — cron reconciliation zobaczy go i
-    // retryuje całość.
-    logger.error("job exhausted retries", {
-      kind: payload.kind,
-      idempotencyKey: payload.idempotencyKey,
-      err: lastError instanceof Error ? lastError.message : String(lastError),
-    });
+      // Wszystkie próby wyczerpane — nie rzucamy na zewnątrz, bo caller (np.
+      // Keycloak event listener) zwykle nie ma jak tego obsłużyć sensownie.
+      // Błąd jest już w audit logu — cron reconciliation zobaczy go i
+      // retryuje całość.
+      logger.error("job exhausted retries", {
+        kind: payload.kind,
+        idempotencyKey: payload.idempotencyKey,
+        err: lastError instanceof Error ? lastError.message : String(lastError),
+      });
+    } finally {
+      runningJobs -= 1;
+    }
   }
 }
 
@@ -191,4 +239,33 @@ export function enqueueJob(
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Test-only helper — resetuje module-level counters do stanu zerowego.
+ * Pozwala unit-testom symulować świeży start bez dziedziczenia stanu z
+ * innych testów. Nie używać w runtime (counters są źródłem prawdy dla
+ * /api/admin/metrics).
+ */
+export function __resetQueueStatsForTests(): void {
+  pendingJobs = 0;
+  runningJobs = 0;
+  failedJobs = 0;
+  totalEnqueued = 0;
+}
+
+/**
+ * Test-only helper — symuluje faked stan kolejki dla weryfikacji że
+ * getQueueStats() poprawnie odczytuje module-level countery.
+ */
+export function __setQueueStatsForTests(state: {
+  pending: number;
+  running: number;
+  failed: number;
+  total: number;
+}): void {
+  pendingJobs = state.pending;
+  runningJobs = state.running;
+  failedJobs = state.failed;
+  totalEnqueued = state.total;
 }

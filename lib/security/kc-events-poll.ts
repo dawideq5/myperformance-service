@@ -18,6 +18,46 @@ const logger = log.child({ module: "kc-events-poll" });
  * (singleton, jedna kolumna).
  */
 
+// ── Module-level metrics state ───────────────────────────────────────────
+// Zaktualizowany na każdym poll cycle, eksponowany przez getKcEventsPollState
+// dla /api/admin/metrics. Brak persystencji — restart procesu resetuje
+// `running` (cursor i tak żyje w DB).
+let pollInitialized = false;
+let pollRunning = false;
+let lastCursorMs: number | undefined;
+let lastPollAtMs: number | undefined;
+let lastEventCount: number | undefined;
+let pollErrorCount = 0;
+
+/**
+ * Aktualny snapshot stanu polling cycle. Zwraca null gdy moduł nie został
+ * jeszcze zainicjalizowany (pierwszy `pollKcEvents()` jeszcze nie wystartował).
+ *
+ * - `cursorMs`: ostatni przetworzony timestamp KC eventu (epoch ms)
+ * - `lastPollAt`: kiedy ostatni cycle skończył (epoch ms)
+ * - `lastEventCount`: ile eventów przetworzono w ostatnim cycle
+ * - `errorCount`: kumulatywna liczba błędów polling od startu procesu
+ * - `running`: true jeśli akurat trwa cycle (lock przeciw concurrent calls)
+ */
+export function getKcEventsPollState():
+  | {
+      cursorMs?: number;
+      lastPollAt?: number;
+      lastEventCount?: number;
+      errorCount?: number;
+      running: boolean;
+    }
+  | null {
+  if (!pollInitialized) return null;
+  return {
+    cursorMs: lastCursorMs,
+    lastPollAt: lastPollAtMs,
+    lastEventCount: lastEventCount,
+    errorCount: pollErrorCount,
+    running: pollRunning,
+  };
+}
+
 interface KcEvent {
   id?: string;
   time?: number;
@@ -209,11 +249,27 @@ export async function pollKcEvents(opts: { realm?: string; max?: number } = {}):
   const realm = opts.realm ?? "MyPerformance";
   const max = opts.max ?? 100;
 
+  pollInitialized = true;
+  pollRunning = true;
+  try {
+    return await runPollCycle(realm, max);
+  } finally {
+    pollRunning = false;
+    lastPollAtMs = Date.now();
+  }
+}
+
+async function runPollCycle(
+  _realm: string,
+  max: number,
+): Promise<{ processed: number; errors: number }> {
   let cursor: number;
   try {
     cursor = await getCursor();
   } catch (err) {
     logger.warn("cursor fetch failed", { err: String(err) });
+    pollErrorCount += 1;
+    lastEventCount = 0;
     return { processed: 0, errors: 1 };
   }
 
@@ -222,6 +278,8 @@ export async function pollKcEvents(opts: { realm?: string; max?: number } = {}):
     token = await keycloak.getServiceAccountToken();
   } catch (err) {
     logger.warn("KC token fetch failed", { err: String(err) });
+    pollErrorCount += 1;
+    lastEventCount = 0;
     return { processed: 0, errors: 1 };
   }
 
@@ -245,11 +303,15 @@ export async function pollKcEvents(opts: { realm?: string; max?: number } = {}):
     const res = await keycloak.adminRequest(path, token);
     if (!res.ok) {
       logger.warn("KC events API failed", { status: res.status });
+      pollErrorCount += 1;
+      lastEventCount = 0;
       return { processed: 0, errors: 1 };
     }
     events = (await res.json()) as KcEvent[];
   } catch (err) {
     logger.warn("KC events fetch failed", { err: String(err) });
+    pollErrorCount += 1;
+    lastEventCount = 0;
     return { processed: 0, errors: 1 };
   }
 
@@ -298,6 +360,11 @@ export async function pollKcEvents(opts: { realm?: string; max?: number } = {}):
   if (processed > 0 || errors > 0) {
     logger.info("kc-events-poll cycle", { processed, errors, cursor: newCursor });
   }
+  // Update metrics state — cursor monotonically advances, errorCount is
+  // cumulative since process start.
+  lastCursorMs = newCursor;
+  lastEventCount = processed;
+  if (errors > 0) pollErrorCount += errors;
   return { processed, errors };
 }
 
@@ -373,4 +440,38 @@ async function pollAdminEvents(token: string, max: number): Promise<number> {
     });
   }
   return processed;
+}
+
+/**
+ * Test-only helper — resetuje module-level state polling do "fresh init"
+ * tak żeby pierwszy `getKcEventsPollState()` zwrócił null. Nie używać w
+ * runtime.
+ */
+export function __resetKcEventsPollStateForTests(): void {
+  pollInitialized = false;
+  pollRunning = false;
+  lastCursorMs = undefined;
+  lastPollAtMs = undefined;
+  lastEventCount = undefined;
+  pollErrorCount = 0;
+}
+
+/**
+ * Test-only helper — symuluje stan po jednym poll cycle, żeby unit-test
+ * mógł zweryfikować eksponowane wartości bez calling pollKcEvents (które
+ * wymaga DB + KC).
+ */
+export function __setKcEventsPollStateForTests(state: {
+  cursorMs?: number;
+  lastPollAt?: number;
+  lastEventCount?: number;
+  errorCount?: number;
+  running?: boolean;
+}): void {
+  pollInitialized = true;
+  lastCursorMs = state.cursorMs;
+  lastPollAtMs = state.lastPollAt;
+  lastEventCount = state.lastEventCount;
+  pollErrorCount = state.errorCount ?? 0;
+  pollRunning = state.running ?? false;
 }
