@@ -36,7 +36,11 @@ import { appendIamAudit, isIamDbConfigured } from "./db";
 const logger = log.child({ module: "iam-queue-worker" });
 
 let shuttingDown = false;
-let currentJob: Promise<void> | null = null;
+// currentJob reservation — przyszły hook do wstrzymywania mainLoop dopóki
+// aktualny job nie skończy. Obecnie zawsze null (jobs są inline w mainLoop).
+// W Faza 5+ enqueueJob/processJobs będzie async streaming → ten slot dostanie
+// realny Promise z lifecycle managera.
+const currentJob: Promise<void> | null = null;
 
 async function bootstrap(): Promise<void> {
   logger.info("queue-worker booting", {
@@ -181,17 +185,23 @@ export async function runQueueWorker(): Promise<void> {
 // Direct invoke gdy ten plik jest entry-pointem (node lib/permissions/queue-worker.js).
 // W bundli Next.js / vitest ten branch nigdy nie jest aktywny — `require` jest
 // undefined w ESM bundler-mode, więc kompiluje się ten kod ale nie wykonuje.
-declare const require: NodeJS.Require | undefined;
-declare const module: NodeJS.Module | undefined;
-
-if (
-  typeof require !== "undefined" &&
-  typeof module !== "undefined" &&
-  require.main === module
-) {
-  void runQueueWorker().catch((err: unknown) => {
-    // eslint-disable-next-line no-console
-    console.error("queue-worker fatal", err);
-    process.exit(1);
-  });
+//
+// Używamy globalThis.process check + brak Next.js bundler markera — Next.js
+// nie pozwala redeklarować `module` (zarezerwowane w jego CJS shim), więc
+// zamiast `require.main === module` używamy heurystyki przez argv[1].
+{
+  const cjsModule = (globalThis as { module?: { filename?: string } }).module;
+  const cjsRequireMain = (globalThis as { require?: { main?: { filename?: string } } })
+    .require?.main;
+  const isEntryPoint =
+    typeof cjsModule !== "undefined" &&
+    typeof cjsRequireMain !== "undefined" &&
+    cjsRequireMain.filename === cjsModule.filename;
+  if (isEntryPoint) {
+    void runQueueWorker().catch((err: unknown) => {
+      // eslint-disable-next-line no-console
+      console.error("queue-worker fatal", err);
+      process.exit(1);
+    });
+  }
 }
