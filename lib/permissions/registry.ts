@@ -5,7 +5,13 @@ import { DocumensoProvider } from "./providers/documenso";
 import { MoodleProvider } from "./providers/moodle";
 import { OutlineProvider } from "./providers/outline";
 import { PostalProvider } from "./providers/postal";
-import { scheduleStartupKcSync } from "./kc-sync";
+// UWAGA: nie importuj `./kc-sync` na poziomie modułu — `kc-sync` importuje
+// `getProvider` z tego pliku, więc dwustronny statyczny import tworzył
+// circular dependency objawiający się TDZ ("Cannot access 'B' before
+// initialization") podczas `next build` w fazie collect-page-data.
+// Startupowy bootstrap KC odbywa się teraz w `instrumentation.ts`
+// poprzez `await import("@/lib/permissions/kc-sync")` — dynamiczny import
+// jest bezpieczny, bo wykonuje się dopiero po pełnej inicjalizacji modułu.
 
 /**
  * Runtime registry natywnych providerów (config-driven).
@@ -57,13 +63,10 @@ function instantiate(entry: ProviderEntry): PermissionProvider {
   return inst;
 }
 
-// Enterprise KC sync — tworzy realm roles + composite groups na podstawie
-// AREAS + provider-dynamic roles. Non-blocking, non-fatal. Wywoływane
-// jednokrotnie przy pierwszym imporcie tego modułu (czyli de facto przy
-// pierwszym użyciu warstwy permissions).
-if (typeof process !== "undefined" && process.env.IAM_SKIP_STARTUP_SYNC !== "1") {
-  scheduleStartupKcSync();
-}
+// Enterprise KC sync (tworzenie realm roles + composite groups na podstawie
+// AREAS + provider-dynamic roles) jest startowany z `instrumentation.ts`
+// — po pełnym zainicjalizowaniu modułów, bez ryzyka TDZ.
+// Pozostawiamy honorowanie `IAM_SKIP_STARTUP_SYNC=1` po tej drugiej stronie.
 
 /**
  * Zwraca providera po id. Returns null gdy:

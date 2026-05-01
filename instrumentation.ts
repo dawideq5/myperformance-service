@@ -102,6 +102,27 @@ export async function register(): Promise<void> {
     }
   }
 
+  // Enterprise KC sync — bootstrap realm roles + composite groups na
+  // podstawie AREAS + provider-dynamic roles. Honoruje
+  // `IAM_SKIP_STARTUP_SYNC=1` (np. dla testów / migracji). Dynamiczny
+  // import jest celowy: `lib/permissions/kc-sync` i `lib/permissions/registry`
+  // referują się wzajemnie i statyczny side-effect import w registry powodował
+  // TDZ ("Cannot access 'B' before initialization") przy `next build`.
+  if (process.env.IAM_SKIP_STARTUP_SYNC !== "1") {
+    try {
+      const { scheduleStartupKcSync } = await import("@/lib/permissions/kc-sync");
+      scheduleStartupKcSync();
+      // eslint-disable-next-line no-console
+      console.log("[instrumentation] kc-sync scheduled");
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        "[instrumentation] kc-sync schedule failed (non-fatal):",
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+
   // Chatwoot unread polling — bezpiecznik na wypadek gdyby webhook
   // `message_created` nie dotarł. Default 5 min — wiadomości nieczytane
   // są mniej time-critical niż KC security events. CHATWOOT_DATABASE_URL
