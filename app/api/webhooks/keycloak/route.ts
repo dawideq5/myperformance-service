@@ -10,6 +10,7 @@ import { appendIamAudit } from "@/lib/permissions/db";
 import { recordEvent as recordSecurityEvent } from "@/lib/security/db";
 import { checkBruteForce } from "@/lib/security/brute-force";
 import { rateLimit } from "@/lib/rate-limit";
+import { recordWebhookHit } from "@/lib/webhooks/health";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -223,10 +224,12 @@ export async function POST(request: NextRequest) {
   const authResult = authorize(request, rawBody);
   if (authResult === "missing-secret") {
     logger.error("KEYCLOAK_WEBHOOK_SECRET not configured — refusing webhook");
+    await recordWebhookHit("keycloak", "error", undefined, "missing-secret");
     return NextResponse.json({ error: "Webhook disabled" }, { status: 503 });
   }
   if (authResult === "unauthorized") {
     logger.warn("unauthorized webhook request");
+    await recordWebhookHit("keycloak", "auth_failed");
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -243,6 +246,7 @@ export async function POST(request: NextRequest) {
     userId: event.userId,
     time: event.time,
   });
+  await recordWebhookHit("keycloak", "ok", event.type);
 
   // Resolve userId — phasetwo wysyła event.userId dla auth events ale dla
   // admin events musimy parsować resourcePath ("users/<uuid>").

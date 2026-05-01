@@ -6,6 +6,8 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { log } from "@/lib/logger";
 import { getUserIdByEmail, notifyUser } from "@/lib/notify";
 import { rateLimit } from "@/lib/rate-limit";
+import { getChatwootAgentEmail } from "@/lib/chatwoot/agent-lookup";
+import { recordWebhookHit } from "@/lib/webhooks/health";
 
 const logger = log.child({ module: "chatwoot-webhook" });
 
@@ -19,18 +21,48 @@ const logger = log.child({ module: "chatwoot-webhook" });
  * Fail-closed bez ustawionego CHATWOOT_WEBHOOK_SECRET.
  */
 
+interface ChatwootAssignee {
+  id?: number;
+  email?: string;
+  name?: string;
+}
+
 interface ChatwootPayload {
   event?: string;
   conversation?: {
     id?: number;
     status?: string;
-    assignee?: { email?: string; name?: string };
+    assignee?: ChatwootAssignee;
+    meta?: { assignee?: ChatwootAssignee };
     inbox?: { name?: string };
     contact?: { name?: string; email?: string };
   };
+  meta?: { assignee?: ChatwootAssignee };
   message_type?: string;
   content?: string;
   sender?: { name?: string; email?: string };
+}
+
+/**
+ * Wyciąga assignee z możliwych lokalizacji w Chatwoot v3 payload:
+ * conversation.assignee (legacy), conversation.meta.assignee (v3),
+ * meta.assignee (top-level v3 webhook). Następnie resolve email — albo
+ * z payloadu (rzadko), albo przez Platform API po id.
+ */
+async function resolveAssigneeEmail(
+  payload: ChatwootPayload,
+): Promise<string | null> {
+  const assignee =
+    payload.conversation?.assignee ??
+    payload.conversation?.meta?.assignee ??
+    payload.meta?.assignee ??
+    null;
+  if (!assignee) return null;
+  if (assignee.email) return assignee.email;
+  if (typeof assignee.id === "number") {
+    return getChatwootAgentEmail(assignee.id);
+  }
+  return null;
 }
 
 type VerifyResult = "ok" | "no-secret" | "no-signature" | "bad-signature";
@@ -105,6 +137,7 @@ export async function POST(req: Request) {
   const verdict = verifyAuth(rawBody, signature, urlToken);
   if (verdict === "no-secret") {
     logger.error("CHATWOOT_WEBHOOK_SECRET nie ustawiony — odrzucam (fail-closed)");
+    await recordWebhookHit("chatwoot", "error", undefined, "no-secret");
     return NextResponse.json(
       { error: "webhook secret not configured" },
       { status: 503 },
@@ -112,6 +145,7 @@ export async function POST(req: Request) {
   }
   if (verdict !== "ok") {
     logger.warn("chatwoot webhook auth failed", { verdict, hasSig: !!signature, hasToken: !!urlToken });
+    await recordWebhookHit("chatwoot", "auth_failed", undefined, verdict);
     return NextResponse.json({ error: "Bad signature" }, { status: 401 });
   }
 
@@ -133,6 +167,7 @@ export async function POST(req: Request) {
     "conversation_status_changed",
   ];
   if (!HANDLED_EVENTS.includes(event)) {
+    await recordWebhookHit("chatwoot", "ignored", event);
     return NextResponse.json({ ok: true, ignored: event });
   }
 
@@ -142,16 +177,17 @@ export async function POST(req: Request) {
 
   // --- message_created: nowa wiadomość od klienta ---
   if (event === "message_created") {
-    // Pomijamy wiadomości wychodzące (własne odpowiedzi agentów)
     if (payload.message_type === "outgoing") {
       return NextResponse.json({ ok: true, ignored: "outgoing-message" });
     }
-    const assignee = payload.conversation?.assignee;
-    if (!assignee?.email) {
+    const assigneeEmail = await resolveAssigneeEmail(payload);
+    if (!assigneeEmail) {
+      logger.info("chatwoot message_created skipped — no assignee email", { conversationId });
       return NextResponse.json({ ok: true, ignored: "no-assignee" });
     }
-    const uid = await getUserIdByEmail(assignee.email);
+    const uid = await getUserIdByEmail(assigneeEmail);
     if (!uid) {
+      logger.info("chatwoot no kc user", { conversationId, email: assigneeEmail });
       return NextResponse.json({ ok: true, ignored: "no-kc-user" });
     }
     const rawContent = payload.content ?? "";
@@ -168,6 +204,7 @@ export async function POST(req: Request) {
       },
     });
     logger.info("chatwoot message_created notified", { uid, conv: conversationId });
+    await recordWebhookHit("chatwoot", "ok", "message_created");
     return NextResponse.json({ ok: true });
   }
 
@@ -176,11 +213,11 @@ export async function POST(req: Request) {
     if (payload.conversation?.status !== "resolved") {
       return NextResponse.json({ ok: true, ignored: "status-not-resolved" });
     }
-    const assignee = payload.conversation?.assignee;
-    if (!assignee?.email) {
+    const assigneeEmail = await resolveAssigneeEmail(payload);
+    if (!assigneeEmail) {
       return NextResponse.json({ ok: true, ignored: "no-assignee" });
     }
-    const uid = await getUserIdByEmail(assignee.email);
+    const uid = await getUserIdByEmail(assigneeEmail);
     if (!uid) {
       return NextResponse.json({ ok: true, ignored: "no-kc-user" });
     }
@@ -194,23 +231,24 @@ export async function POST(req: Request) {
       },
     });
     logger.info("chatwoot conversation_resolved notified", { uid, conv: conversationId });
+    await recordWebhookHit("chatwoot", "ok", "conversation_status_changed");
     return NextResponse.json({ ok: true });
   }
 
-  // --- assignee_changed / conversation_created ---
-  const assignee = payload.conversation?.assignee;
-  if (!assignee?.email) {
+  // --- assignee_changed / conversation_created / conversation_updated ---
+  const assigneeEmail = await resolveAssigneeEmail(payload);
+  if (!assigneeEmail) {
     return NextResponse.json({ ok: true, ignored: "no-assignee" });
   }
 
-  const uid = await getUserIdByEmail(assignee.email);
+  const uid = await getUserIdByEmail(assigneeEmail);
   if (!uid) {
     return NextResponse.json({ ok: true, ignored: "no-kc-user" });
   }
 
   await notifyUser(uid, "chatwoot.conversation.assigned", {
     title: "Przypisano Cię do rozmowy w Chatwoot",
-    body: `Rozmowa #${conversationId} z ${contactName} została przypisana do Ciebie. Otwórz Chatwoot żeby odpowiedzieć.`,
+    body: `Rozmowa #${conversationId} z ${contactName} została przypisana do Ciebie.`,
     severity: "info",
     payload: {
       conversationId,
@@ -219,5 +257,6 @@ export async function POST(req: Request) {
   });
 
   logger.info("chatwoot assignment notified", { uid, conv: conversationId });
+  await recordWebhookHit("chatwoot", "ok", event);
   return NextResponse.json({ ok: true });
 }

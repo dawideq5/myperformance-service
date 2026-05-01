@@ -6,6 +6,7 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { log } from "@/lib/logger";
 import { getUserIdByEmail, notifyUser } from "@/lib/notify";
 import { rateLimit } from "@/lib/rate-limit";
+import { recordWebhookHit } from "@/lib/webhooks/health";
 
 const logger = log.child({ module: "outline-webhook" });
 
@@ -127,12 +128,14 @@ export async function POST(req: Request) {
 
   if (verdict === "no-secret") {
     logger.error("OUTLINE_WEBHOOK_SECRET nie ustawiony — odrzucam (fail-closed)");
+    await recordWebhookHit("outline", "error", undefined, "no-secret");
     return NextResponse.json(
       { error: "webhook secret not configured" },
       { status: 503 },
     );
   }
   if (verdict !== "ok") {
+    await recordWebhookHit("outline", "auth_failed", undefined, verdict);
     return NextResponse.json({ error: "Bad signature" }, { status: 401 });
   }
 
@@ -231,5 +234,6 @@ export async function POST(req: Request) {
     docTitle,
     mentions: mentionUserIds.length,
   });
+  await recordWebhookHit("outline", "ok", eventType);
   return NextResponse.json({ ok: true });
 }

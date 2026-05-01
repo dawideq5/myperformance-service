@@ -13,6 +13,7 @@ import { renderSignedReceiptEmail } from "@/lib/email/signed-receipt";
 import { getLocation } from "@/lib/locations";
 import { getOptionalEnv } from "@/lib/env";
 import { rateLimit } from "@/lib/rate-limit";
+import { recordWebhookHit } from "@/lib/webhooks/health";
 
 const logger = log.child({ module: "documenso-webhook" });
 
@@ -181,6 +182,7 @@ export async function POST(req: Request) {
   const rawSecret = req.headers.get("x-documenso-secret");
   const hmacSignature = req.headers.get("x-documenso-signature");
   if (!verifyAuth(rawBody, rawSecret, hmacSignature)) {
+    await recordWebhookHit("documenso", "auth_failed");
     return NextResponse.json({ error: "Bad signature" }, { status: 401 });
   }
 
@@ -211,6 +213,7 @@ export async function POST(req: Request) {
         forceEmail: true,
       });
     }
+    await recordWebhookHit("documenso", "ok", event, "requested");
     return NextResponse.json({ ok: true, action: "requested", count: recipients.length });
   }
 
@@ -352,6 +355,7 @@ export async function POST(req: Request) {
       }
     }
     logger.info("documenso doc completed", { docId: doc?.id });
+    await recordWebhookHit("documenso", "ok", event, "completed");
     return NextResponse.json({ ok: true, action: "completed" });
   }
 
@@ -385,8 +389,10 @@ export async function POST(req: Request) {
         }
       }
     }
+    await recordWebhookHit("documenso", "ok", event, "rejected");
     return NextResponse.json({ ok: true, action: "rejected" });
   }
 
+  await recordWebhookHit("documenso", "ignored", event);
   return NextResponse.json({ ok: true, ignored: event });
 }
