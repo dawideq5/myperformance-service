@@ -4,26 +4,36 @@
 
 Lokalny Next.js hot-reload + zdalne usługi na serwerze.
 
+### Struktura katalogów
+
+```
+/Users/dawidpaluska/myperformance-service/   ← root repozytorium
+└── myperformance-service/                   ← katalog projektu (tu npm run)
+    ├── package.json
+    ├── .env.hybrid
+    ├── scripts/
+    └── ...
+```
+
 ### Setup (jednorazowo)
 
-1. Skopiuj sekrety do `.env.local`:
-   ```bash
-   cp .env.example .env.local
-   # Uzupełnij sekrety (z lastpass/bitwarden lub od admina)
-   ```
+```bash
+# Wejdź do katalogu projektu
+cd /Users/dawidpaluska/myperformance-service/myperformance-service
 
-2. Plik `.env.hybrid` jest już gotowy z URL-ami do zdalnych usług.
+# Zainstaluj zależności
+npm install
+```
 
-3. Zainstaluj zależności:
-   ```bash
-   npm install
-   ```
+Plik `.env.hybrid` jest już gotowy ze wszystkimi sekretami i URL-ami.
 
 ### Uruchomienie
 
 ```bash
-npm run dev:hybrid          # lokalny dev + zdalne usługi
-npm run dev:hybrid:tunnel   # + SSH tunnel do bazy danych
+# Upewnij się że jesteś w katalogu projektu:
+cd /Users/dawidpaluska/myperformance-service/myperformance-service
+
+npm run dev:hybrid   # lokalny dev + zdalne usługi + SSH tunnel do DB
 ```
 
 Dashboard dostępny na: http://localhost:3000
