@@ -148,14 +148,11 @@ export async function notifyUser(
   const wantEmail = ctx.forceEmail || shouldNotify(prefs, event, "email");
   const severity = ctx.severity ?? "info";
 
-  // userVisible:false (np. security.*) — NIE zapisujemy do mp_inbox.
-  // mp_inbox jest UI cache dla bell-icon dropdown — security events idą
-  // do `mp_security_events` przez recordEvent() (audit trail) + email
-  // (gdy user opt-in). Bez tego user widział "security.login.new_device"
-  // obok "Nowa wiadomość w Chatwoocie" co było szumem.
-  const userVisible =
-    (def as { userVisible?: boolean }).userVisible !== false &&
-    !event.startsWith("security.");
+  // userVisible decyduje czy event trafia do mp_inbox (bell icon UI).
+  // security.* eventy z userVisible:true (webauthn/totp configured/removed)
+  // wpadają do inbox; te z userVisible:false (login.new_device, brute_force,
+  // password.changed) tylko do mp_security_events i email.
+  const userVisible = (def as { userVisible?: boolean }).userVisible !== false;
 
   if (wantInApp && userVisible) {
     try {

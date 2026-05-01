@@ -89,9 +89,12 @@ export async function POST(req: Request) {
   }
 
   const event = payload.event ?? "";
+  // Chatwoot v3+ wysyła zmiany przypisania jako conversation_updated
+  // (assignee_changed nie jest emitowany jako oddzielny event).
   const HANDLED_EVENTS = [
     "assignee_changed",
     "conversation_created",
+    "conversation_updated",
     "message_created",
     "conversation_status_changed",
   ];

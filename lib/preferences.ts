@@ -48,7 +48,7 @@ export const NOTIF_EVENTS = {
     defaultInApp: true,
     defaultEmail: true,
     requiresArea: null,
-    userVisible: false,
+    userVisible: true,
   },
   "security.totp.removed": {
     label: "Usunięto aplikację 2FA",
@@ -56,7 +56,7 @@ export const NOTIF_EVENTS = {
     defaultInApp: true,
     defaultEmail: true,
     requiresArea: null,
-    userVisible: false,
+    userVisible: true,
   },
   "security.webauthn.configured": {
     label: "Zarejestrowano klucz bezpieczeństwa / passkey",
@@ -64,7 +64,7 @@ export const NOTIF_EVENTS = {
     defaultInApp: true,
     defaultEmail: true,
     requiresArea: null,
-    userVisible: false,
+    userVisible: true,
   },
   "security.webauthn.removed": {
     label: "Usunięto klucz bezpieczeństwa / passkey",
@@ -72,7 +72,7 @@ export const NOTIF_EVENTS = {
     defaultInApp: true,
     defaultEmail: true,
     requiresArea: null,
-    userVisible: false,
+    userVisible: true,
   },
 
   // Knowledge / Outline — comments, mentions, document publish.
@@ -369,13 +369,10 @@ export function shouldNotify(
  * (po refactorze key bywały zmieniane).
  */
 export function isUserVisibleEvent(eventKey: string): boolean {
-  // Catch-all: każdy security.* jest non-visible nawet jeśli nie ma wpisu
-  // w katalogu (np. zmieniono key bez aktualizacji aliasu).
-  if (eventKey.startsWith("security.")) return false;
   const def = (NOTIF_EVENTS as Record<string, { userVisible?: boolean }>)[
     eventKey
   ];
-  if (!def) return true; // unknown event → fail-open (lepiej widzieć niż gubić)
+  if (!def) return true;
   return def.userVisible !== false;
 }
 

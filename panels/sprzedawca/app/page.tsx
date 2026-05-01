@@ -1,17 +1,24 @@
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { PanelHome } from "@/components/PanelHome";
 import type { PanelLocation } from "@/components/PanelLocationMap";
+import { extractCertSerial } from "@/lib/device-fingerprint";
 
 const DASHBOARD_URL =
   process.env.DASHBOARD_URL?.trim().replace(/\/$/, "") ??
   "https://myperformance.pl";
 
-async function fetchLocationsForUser(accessToken: string): Promise<PanelLocation[]> {
+async function fetchLocationsForUser(
+  accessToken: string,
+  certSerial: string | null,
+): Promise<PanelLocation[]> {
   try {
+    const qs = new URLSearchParams({ type: "sales" });
+    if (certSerial) qs.set("cert_serial", certSerial);
     const res = await fetch(
-      `${DASHBOARD_URL}/api/panel/locations?type=sales`,
+      `${DASHBOARD_URL}/api/panel/locations?${qs.toString()}`,
       {
         headers: { Authorization: `Bearer ${accessToken}` },
         cache: "no-store",
@@ -39,8 +46,12 @@ export default async function HomePage() {
 
   const accessToken =
     (session as { accessToken?: string }).accessToken ?? "";
+  // Punkty są przypisane do CERTYFIKATU; identyfikujemy go przez serial z mTLS
+  // forwardowany przez Traefik. Brak serial → fallback na email (DEV bypass).
+  const hdrs = await headers();
+  const certSerial = extractCertSerial(hdrs);
   const locations = accessToken
-    ? await fetchLocationsForUser(accessToken)
+    ? await fetchLocationsForUser(accessToken, certSerial)
     : [];
 
   const userLabel = session.user?.name ?? session.user?.email ?? "";

@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { keycloak } from "@/lib/keycloak";
 import { getActiveLocationsForUser } from "@/lib/certificate-locations";
+import { canonicalSerial } from "@/lib/device-fingerprint";
 
 /**
  * Cross-app endpoint dla paneli (panelsprzedawcy/serwisanta/kierowcy).
@@ -59,6 +60,7 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const type = url.searchParams.get("type") ?? undefined;
   const idsParam = url.searchParams.get("ids");
+  const certSerialParam = url.searchParams.get("cert_serial");
 
   // ?ids=a,b,c — bypass cert-filter, used by panel-kierowca do resolve-owania
   // source/destination locations w transport jobs. Lookup po znanych IDs
@@ -68,6 +70,13 @@ export async function GET(req: Request) {
     const { listLocationsByIds } = await import("@/lib/locations");
     const ids = idsParam.split(",").map((s) => s.trim()).filter(Boolean);
     locations = ids.length > 0 ? await listLocationsByIds(ids) : [];
+  } else if (certSerialParam) {
+    // Panel forwarduje serial cert z mTLS — punkty są przypisane do certu,
+    // nie do email zalogowanego usera.
+    const serial = canonicalSerial(certSerialParam);
+    locations = serial
+      ? await getActiveLocationsForUser({ certSerial: serial, panelType: type })
+      : [];
   } else {
     locations = await getActiveLocationsForUser({ email, panelType: type });
   }

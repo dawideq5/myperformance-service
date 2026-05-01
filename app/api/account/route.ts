@@ -76,25 +76,28 @@ export async function GET() {
                         data.phoneNumber || 
                         "";
 
-    // Fetch required actions via Admin API if not available
+    // Admin fetch — wymagane do mp_*_locked attributes (sticky security
+    // locks po enforce). Account API nie zwraca custom attributes.
     let requiredActions = data.requiredActions || [];
-    if (!requiredActions || requiredActions.length === 0) {
-      try {
-        const userId = await keycloak.getUserIdFromToken(accessToken);
-        const adminToken = await keycloak.getServiceAccountToken();
-        const userResponse = await fetch(keycloak.getAdminUrl(`/users/${userId}`), {
-          headers: {
-            Authorization: `Bearer ${adminToken}`,
-            Accept: "application/json",
-          },
-        });
-        if (userResponse.ok) {
-          const userData = await userResponse.json();
+    let adminAttributes: Record<string, string[]> = {};
+    try {
+      const userId = await keycloak.getUserIdFromToken(accessToken);
+      const adminToken = await keycloak.getServiceAccountToken();
+      const userResponse = await fetch(keycloak.getAdminUrl(`/users/${userId}`), {
+        headers: {
+          Authorization: `Bearer ${adminToken}`,
+          Accept: "application/json",
+        },
+      });
+      if (userResponse.ok) {
+        const userData = await userResponse.json();
+        if (!requiredActions || requiredActions.length === 0) {
           requiredActions = userData.requiredActions || [];
         }
-      } catch (e) {
-        console.warn("[account GET] Failed to fetch required actions:", e);
+        adminAttributes = (userData.attributes as Record<string, string[]>) || {};
       }
+    } catch (e) {
+      console.warn("[account GET] Failed to fetch admin profile:", e);
     }
     requiredActions = keycloak.normalizeRequiredActions(requiredActions);
 
@@ -108,6 +111,12 @@ export async function GET() {
       attributes: {
         "phone-number": phoneNumber ? [phoneNumber] : [],
         ...(data.attributes || {}),
+        ...(adminAttributes.mp_webauthn_locked
+          ? { mp_webauthn_locked: adminAttributes.mp_webauthn_locked }
+          : {}),
+        ...(adminAttributes.mp_totp_locked
+          ? { mp_totp_locked: adminAttributes.mp_totp_locked }
+          : {}),
       },
       requiredActions: requiredActions,
     };

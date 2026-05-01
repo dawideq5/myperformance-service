@@ -455,11 +455,11 @@ export class MoodleProvider implements PermissionProvider {
     firstName?: string | null;
     lastName?: string | null;
     phone?: string | null;
+    kcSub?: string | null;
   }): Promise<number | null> {
     if (!this.isConfigured()) return null;
     const existing = await this.findUser(args.email);
     if (existing) {
-      // Update profile danych jeśli są nowe.
       await this.syncUserProfile({
         email: args.email,
         firstName: args.firstName ?? null,
@@ -467,11 +467,10 @@ export class MoodleProvider implements PermissionProvider {
         displayName: args.displayName,
         phone: args.phone ?? null,
       });
+      if (args.kcSub) await this.syncOidcSub(existing.id, args.kcSub);
       return existing.id;
     }
     const created = await this.findOrCreateUser(args.email, args.displayName);
-    // findOrCreateUser tworzy z firstname/lastname split z displayName — gdy
-    // mamy "lepsze" dane z KC (firstName/lastName z attributów), domknij update.
     if (args.firstName || args.lastName || args.phone) {
       await this.syncUserProfile({
         email: args.email,
@@ -480,7 +479,24 @@ export class MoodleProvider implements PermissionProvider {
         phone: args.phone ?? null,
       }).catch(() => undefined);
     }
+    if (args.kcSub) await this.syncOidcSub(created.id, args.kcSub);
     return created.id;
+  }
+
+  /**
+   * Synchronizuje mdl_auth_oidc_token.oidcuniqid z aktualnym KC sub.
+   * Bez tego — gdy admin usunie/odtworzy KC usera, Moodle ma stary sub →
+   * AUTH_LOGIN_UNAUTHORISED przy następnym login.
+   */
+  private async syncOidcSub(userId: number, kcSub: string): Promise<void> {
+    const pool = getDbPool();
+    if (!pool) return;
+    await pool
+      .query(
+        "UPDATE mdl_auth_oidc_token SET oidcuniqid = ? WHERE userid = ? AND oidcuniqid <> ?",
+        [kcSub, userId, kcSub],
+      )
+      .catch(() => undefined);
   }
 
   async syncUserProfile(args: ProfileSyncArgs): Promise<void> {

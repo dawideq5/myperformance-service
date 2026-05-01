@@ -72,6 +72,7 @@ export async function GET() {
               firstName?: string | null;
               lastName?: string | null;
               phone?: string | null;
+              kcSub?: string | null;
             }) => Promise<number | null>;
           }).ensureUser({
             email: profile.email,
@@ -79,6 +80,7 @@ export async function GET() {
             lastName: profile.lastName,
             displayName: profile.displayName,
             phone: profile.phone,
+            kcSub: userId,
           });
         }
       } catch (err) {

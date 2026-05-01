@@ -64,8 +64,13 @@ export function SecurityTab() {
   const toast = useToast();
 
   const requiredActions = profile?.requiredActions ?? [];
-  const totpAdminForced = requiredActions.includes("CONFIGURE_TOTP");
-  const webauthnAdminForced = requiredActions.includes("WEBAUTHN_REGISTER");
+  const attrs = profile?.attributes ?? {};
+  const totpAdminForced =
+    requiredActions.includes("CONFIGURE_TOTP") ||
+    attrs.mp_totp_locked?.[0] === "true";
+  const webauthnAdminForced =
+    requiredActions.includes("WEBAUTHN_REGISTER") ||
+    attrs.mp_webauthn_locked?.[0] === "true";
 
   const [totpSetupOpen, setTotpSetupOpen] = useState(false);
   const [webauthnEnrollOpen, setWebauthnEnrollOpen] = useState(false);

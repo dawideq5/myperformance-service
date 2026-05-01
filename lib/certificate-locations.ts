@@ -101,11 +101,28 @@ export async function setCertificateLocations(args: {
  *   - >1 → strona wyboru z mapą
  */
 export async function getActiveLocationsForUser(args: {
-  email: string;
+  email?: string;
+  certSerial?: string;
   panelType?: "sales" | "service" | string;
 }): Promise<Location[]> {
   await ensureSchema();
+  if (!args.email && !args.certSerial) return [];
   const ids = await withClient(async (c) => {
+    if (args.certSerial) {
+      // Match canonical hex (lowercase, no leading zeros) — issued_certificates
+      // może mieć padded `00` z node-forge dla MSB=1, więc strip leading zeros
+      // po obu stronach. Caller już wywołał canonicalSerial().
+      const r = await c.query<{ location_id: string }>(
+        `SELECT DISTINCT cl.location_id::text
+           FROM mp_certificate_locations cl
+           JOIN issued_certificates c ON c.id = cl.certificate_id
+          WHERE LTRIM(LOWER(c.serial_number), '0') = LTRIM(LOWER($1), '0')
+            AND c.revoked_at IS NULL
+            AND (c.not_after IS NULL OR c.not_after > now())`,
+        [args.certSerial],
+      );
+      return r.rows.map((row) => row.location_id);
+    }
     const r = await c.query<{ location_id: string }>(
       `SELECT DISTINCT cl.location_id::text
          FROM mp_certificate_locations cl
