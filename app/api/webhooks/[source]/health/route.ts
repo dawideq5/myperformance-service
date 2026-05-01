@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
 import { requireAdminPanel } from "@/lib/admin-auth";
+import { createSuccessResponse, handleApiError } from "@/lib/api-utils";
 import {
   getWebhookHealth,
   type WebhookSource,
@@ -24,12 +25,16 @@ interface Ctx {
 }
 
 export async function GET(_req: Request, { params }: Ctx) {
-  const session = await getServerSession(authOptions);
-  requireAdminPanel(session);
-  const { source } = await params;
-  if (!SOURCES.includes(source as WebhookSource)) {
-    return NextResponse.json({ error: "unknown source" }, { status: 404 });
+  try {
+    const session = await getServerSession(authOptions);
+    requireAdminPanel(session);
+    const { source } = await params;
+    if (!SOURCES.includes(source as WebhookSource)) {
+      return NextResponse.json({ error: "unknown source" }, { status: 404 });
+    }
+    const health = await getWebhookHealth(source as WebhookSource);
+    return createSuccessResponse(health);
+  } catch (err) {
+    return handleApiError(err);
   }
-  const health = await getWebhookHealth(source as WebhookSource);
-  return NextResponse.json(health);
 }
