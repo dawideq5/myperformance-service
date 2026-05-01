@@ -35,6 +35,16 @@ function formatReason(diff: FingerprintDiff[]): string {
 }
 
 export async function POST(req: Request) {
+  // Dev bypass — ONLY when NODE_ENV=development and DEV_CERT_BYPASS=true
+  // Traefik enforces mTLS on production — this env var has no effect there
+  if (process.env.NODE_ENV === "development" && process.env.DEV_CERT_BYPASS === "true") {
+    return NextResponse.json({
+      ok: true,
+      dev: true,
+      message: "Dev bypass active — no cert required",
+    });
+  }
+
   const expected = getOptionalEnv("CERT_GATE_SECRET").trim();
   const provided = req.headers.get("x-cert-gate-secret")?.trim() ?? "";
   if (!expected) {

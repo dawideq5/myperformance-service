@@ -15,7 +15,11 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui"
+    "test:e2e:ui": "playwright test --ui",
+    "dev:hybrid": "bash scripts/dev-hybrid.sh",
+    "dev:hybrid:tunnel": "bash scripts/dev-hybrid.sh --tunnel",
+    "dev:webhooks": "bash scripts/tunnel-webhooks.sh",
+    "deploy": "bash scripts/promote-to-prod.sh"
   },
   "dependencies": {
     "@opentelemetry/api": "^1.9.1",

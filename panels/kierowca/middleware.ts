@@ -87,7 +87,12 @@ export default withAuth(
     if (!roles.includes(REQUIRED_ROLE) && !roles.includes("admin")) {
       return NextResponse.redirect(new URL("/forbidden", req.url));
     }
-    if (process.env.MTLS_REQUIRED === "true") {
+    // Dev bypass — skip mTLS serial check when running locally without a cert
+    // Production: Traefik rejects the connection before this code runs
+    const devBypass =
+      process.env.NODE_ENV === "development" &&
+      process.env.DEV_CERT_BYPASS === "true";
+    if (!devBypass && process.env.MTLS_REQUIRED === "true") {
       const serial = extractCertSerial(req.headers);
       if (!serial) {
         return NextResponse.redirect(new URL("/forbidden/no-cert", req.url));

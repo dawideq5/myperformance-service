@@ -1,0 +1,181 @@
+############################################
+# Pełny lokalny dev stack (offline / all-in-one).
+#
+# Buduje wszystkie obrazy lokalnie, uruchamia Keycloak + Postgres + wszystkie
+# panele i dashboard w Dockerze. Używaj gdy musisz działać bez dostępu do
+# serwera (np. lot samolotem, brak VPN).
+#
+# Dla codziennego devu z hot-reloadem użyj:
+#   docker compose -f docker-compose.dev.yml up -d   (tylko baza)
+#   npm run dev:hybrid                                (Next.js lokalnie)
+#
+# Porty (zgodne z redirectUris w infrastructure/keycloak/realm.json):
+#   dashboard   : 3000
+#   sprzedawca  : 3001
+#   serwisant   : 3002
+#   kierowca    : 3003
+#   dokumenty   : 3004
+#   keycloak    : 8080
+#
+# Wymagany plik env: .env z NEXTAUTH_SECRET, KEYCLOAK_CLIENT_SECRET,
+# KEYCLOAK_SERVICE_CLIENT_SECRET, PANEL_*_CLIENT_SECRET, DOCUMENSO_URL,
+# DOCUMENSO_API_KEY, DOCUMENSO_WEBHOOK_SECRET.
+#
+# Uruchomienie:
+#   docker compose -f docker-compose.dev.full.yml up -d --build
+############################################
+
+services:
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        NODE_ENV: development
+    container_name: myperformance_dashboard_dev
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=development
+      - NEXT_TELEMETRY_DISABLED=1
+      - NEXTAUTH_URL=http://localhost:3000
+      - KEYCLOAK_URL=http://localhost:8080
+      - KEYCLOAK_ISSUER=http://localhost:8080/realms/MyPerformance
+      - KEYCLOAK_REALM=MyPerformance
+      - KEYCLOAK_CLIENT_ID=myperformance-dashboard
+      - KEYCLOAK_CLIENT_SECRET=${KEYCLOAK_CLIENT_SECRET}
+      - KEYCLOAK_SERVICE_CLIENT_ID=myperformance-service
+      - KEYCLOAK_SERVICE_CLIENT_SECRET=${KEYCLOAK_SERVICE_CLIENT_SECRET}
+      - NEXT_PUBLIC_KEYCLOAK_URL=http://localhost:8080
+      - NEXT_PUBLIC_KEYCLOAK_ISSUER=http://localhost:8080/realms/MyPerformance
+      - NEXT_PUBLIC_KEYCLOAK_REALM=MyPerformance
+      - NEXT_PUBLIC_KEYCLOAK_CLIENT_ID=myperformance-dashboard
+      - NEXT_PUBLIC_APP_URL=http://localhost:3000
+      - DEV_CERT_BYPASS=true
+      - NEXT_PUBLIC_DEV_MODE=true
+    extra_hosts:
+      - "localhost:host-gateway"
+    depends_on:
+      - keycloak
+
+  panel-sprzedawca:
+    build:
+      context: ./panels/sprzedawca
+      dockerfile: Dockerfile
+    container_name: myperformance_panel_sprzedawca_dev
+    ports:
+      - "3001:3000"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=development
+      - NEXT_TELEMETRY_DISABLED=1
+      - NEXTAUTH_URL=http://localhost:3001
+      - KEYCLOAK_ISSUER=http://localhost:8080/realms/MyPerformance
+      - KEYCLOAK_URL=http://localhost:8080
+      - NEXT_PUBLIC_KEYCLOAK_URL=http://localhost:8080
+      - NEXT_PUBLIC_KEYCLOAK_ISSUER=http://localhost:8080/realms/MyPerformance
+      - KEYCLOAK_CLIENT_ID=panel-sprzedawca
+      - KEYCLOAK_CLIENT_SECRET=${PANEL_SPRZEDAWCA_CLIENT_SECRET}
+      - DEV_CERT_BYPASS=true
+      - NEXT_PUBLIC_DEV_MODE=true
+    extra_hosts:
+      - "localhost:host-gateway"
+    depends_on:
+      - keycloak
+
+  panel-serwisant:
+    build:
+      context: ./panels/serwisant
+      dockerfile: Dockerfile
+    container_name: myperformance_panel_serwisant_dev
+    ports:
+      - "3002:3000"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=development
+      - NEXT_TELEMETRY_DISABLED=1
+      - NEXTAUTH_URL=http://localhost:3002
+      - KEYCLOAK_ISSUER=http://localhost:8080/realms/MyPerformance
+      - KEYCLOAK_URL=http://localhost:8080
+      - NEXT_PUBLIC_KEYCLOAK_URL=http://localhost:8080
+      - NEXT_PUBLIC_KEYCLOAK_ISSUER=http://localhost:8080/realms/MyPerformance
+      - KEYCLOAK_CLIENT_ID=panel-serwisant
+      - KEYCLOAK_CLIENT_SECRET=${PANEL_SERWISANT_CLIENT_SECRET}
+      - DEV_CERT_BYPASS=true
+      - NEXT_PUBLIC_DEV_MODE=true
+    extra_hosts:
+      - "localhost:host-gateway"
+    depends_on:
+      - keycloak
+
+  panel-kierowca:
+    build:
+      context: ./panels/kierowca
+      dockerfile: Dockerfile
+    container_name: myperformance_panel_kierowca_dev
+    ports:
+      - "3003:3000"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=development
+      - NEXT_TELEMETRY_DISABLED=1
+      - NEXTAUTH_URL=http://localhost:3003
+      - KEYCLOAK_ISSUER=http://localhost:8080/realms/MyPerformance
+      - KEYCLOAK_URL=http://localhost:8080
+      - NEXT_PUBLIC_KEYCLOAK_URL=http://localhost:8080
+      - NEXT_PUBLIC_KEYCLOAK_ISSUER=http://localhost:8080/realms/MyPerformance
+      - KEYCLOAK_CLIENT_ID=panel-kierowca
+      - KEYCLOAK_CLIENT_SECRET=${PANEL_KIEROWCA_CLIENT_SECRET}
+      - DEV_CERT_BYPASS=true
+      - NEXT_PUBLIC_DEV_MODE=true
+    extra_hosts:
+      - "localhost:host-gateway"
+    depends_on:
+      - keycloak
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.6.1
+    container_name: myperformance_keycloak_dev
+    command: start-dev --import-realm
+    env_file:
+      - .env
+    environment:
+      - KEYCLOAK_ADMIN=admin
+      - KEYCLOAK_ADMIN_PASSWORD=admin
+      - KC_DB=postgres
+      - KC_DB_URL=jdbc:postgresql://postgres-keycloak:5432/keycloak
+      - KC_DB_USERNAME=keycloak
+      - KC_DB_PASSWORD=keycloak
+      - KC_HOSTNAME=localhost
+      - KC_HOSTNAME_STRICT=false
+      - KC_HTTP_ENABLED=true
+      - KC_SSL_REQUIRED=none
+      - KC_IMPORT_STRATEGY=OVERWRITE_EXISTING
+      - KC_HEALTH_ENABLED=true
+      - GOOGLE_IDP_CLIENT_ID=${GOOGLE_IDP_CLIENT_ID}
+      - GOOGLE_IDP_CLIENT_SECRET=${GOOGLE_IDP_CLIENT_SECRET}
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./infrastructure/keycloak/realm.json:/opt/keycloak/data/import/realm.json:ro
+      - ./build_keycloak/keycloak-theme-for-kc-all-other-versions.jar:/opt/keycloak/providers/myperformance-theme.jar:ro
+    depends_on:
+      - postgres-keycloak
+
+  postgres-keycloak:
+    image: postgres:15-alpine
+    container_name: myperformance_postgres_keycloak_dev
+    environment:
+      - POSTGRES_DB=keycloak
+      - POSTGRES_USER=keycloak
+      - POSTGRES_PASSWORD=keycloak
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
