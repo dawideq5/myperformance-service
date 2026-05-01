@@ -317,7 +317,7 @@ export function SmtpProfilesPanel() {
             <div className="text-sm text-[var(--text-muted)]">
               Brak profili SMTP. Pre-seed (myperformance + zlecenieserwisowe)
               powinien był je wstawić — odśwież stronę lub kliknij „+ Nowy
-              profil".
+              profil”.
             </div>
           </Card>
         )}
@@ -411,8 +411,8 @@ export function SmtpProfilesPanel() {
               <div className="text-[11px] text-[var(--text-muted)] mt-1 flex items-start gap-1.5">
                 <AlertTriangle className="w-3.5 h-3.5 text-amber-400 flex-shrink-0 mt-px" />
                 <span>
-                  Preferowane: wpisz nazwę env vara w polu „Password ref" i
-                  ustaw sekret w env. Pole „Password" zapisuje hasło{" "}
+                  Preferowane: wpisz nazwę env vara w polu „Password ref” i
+                  ustaw sekret w env. Pole „Password” zapisuje hasło{" "}
                   <strong>plaintext w DB</strong> — encryption to osobny
                   ticket.
                 </span>

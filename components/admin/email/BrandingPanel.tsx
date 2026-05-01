@@ -191,7 +191,7 @@ export function BrandingPanel() {
             </select>
             <div className="text-[11px] text-[var(--text-muted)] mt-1">
               Jeśli ustawione — <code>sendMail</code> bez <code>profileSlug</code>
-              używa tego profilu. Edytuj profile w zakładce „Profile SMTP".
+              używa tego profilu. Edytuj profile w zakładce „Profile SMTP”.
             </div>
           </div>
         </div>
