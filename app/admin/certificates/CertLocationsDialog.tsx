@@ -100,8 +100,8 @@ export function CertLocationsDialog({
         { locationIds: Array.from(selectedIds) },
       );
       toast.success(
-        "Punkty przypisane",
-        `${selectedIds.size} ${selectedIds.size === 1 ? "punkt" : "punktów"} dla ${certSubject}`,
+        "Lokalizacje przypisane",
+        `Urządzenie ${certSubject}: ${selectedIds.size} ${selectedIds.size === 1 ? "lokalizacja" : "lokalizacji"} przypisano.`,
       );
       onClose();
     } catch (err) {
@@ -120,19 +120,37 @@ export function CertLocationsDialog({
     <Dialog
       open={open}
       onClose={onClose}
-      title={`Punkty dla certyfikatu: ${certSubject}`}
+      title="Przypisz urządzenie do lokalizacji"
       size="lg"
     >
       <div className="space-y-4 max-h-[70vh] overflow-y-auto">
+        {/* Nagłówek kontekstowy — nazwa urządzenia */}
+        <div className="flex items-center gap-3 p-3 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-subtle)]">
+          <div className="w-8 h-8 rounded-lg bg-[var(--accent)]/10 flex items-center justify-center flex-shrink-0">
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-[var(--accent)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="2" y="3" width="20" height="14" rx="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" />
+            </svg>
+          </div>
+          <div>
+            <p className="text-xs text-[var(--text-muted)] uppercase tracking-wide">Urządzenie</p>
+            <p className="text-sm font-semibold text-[var(--text-main)]">{certSubject}</p>
+          </div>
+        </div>
+
+        <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+          Certyfikat umożliwia dostęp z tego urządzenia dla wszystkich pracowników przypisanej lokalizacji.
+          Wybierz jeden lub więcej punktów, z których urządzenie ma mieć dostęp do panelu.
+        </p>
+
         {error && <Alert tone="error">{error}</Alert>}
 
         {loading ? (
           <p className="text-center text-sm text-[var(--text-muted)] py-8">
-            Ładowanie punktów…
+            Ładowanie lokalizacji…
           </p>
         ) : candidates.length === 0 ? (
           <Alert tone="info">
-            Brak dostępnych punktów. Dodaj je w{" "}
+            Brak dostępnych lokalizacji. Dodaj je w{" "}
             <a href="/admin/locations" className="underline">
               /admin/locations
             </a>
@@ -155,8 +173,8 @@ export function CertLocationsDialog({
             </div>
 
             <div className="text-xs text-[var(--text-muted)]">
-              Klik na marker (lub na wiersz poniżej) żeby zaznaczyć /
-              odznaczyć punkt. Wybrane: <strong>{selectedIds.size}</strong>
+              Kliknij na marker lub wiersz poniżej żeby zaznaczyć / odznaczyć lokalizację.
+              Wybrane: <strong>{selectedIds.size}</strong>
             </div>
 
             {/* Lista checkbox-style */}

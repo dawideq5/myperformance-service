@@ -14,6 +14,8 @@ import { getClientIp, rateLimit } from "@/lib/rate-limit";
 import { NextResponse } from "next/server";
 import { APP_CATALOG } from "@/lib/app-catalog";
 import { listItems, isConfigured as directusConfigured } from "@/lib/directus-cms";
+import { getActiveLocationsForUser } from "@/lib/certificate-locations";
+import { listServices } from "@/lib/services";
 import type { Session } from "next-auth";
 
 interface DirectusAppRow {
@@ -51,12 +53,13 @@ async function getTagsFromDirectus(): Promise<Map<string, string[]>> {
 }
 
 interface SearchHit {
-  type: "user" | "ip" | "device" | "tile";
+  type: "user" | "ip" | "device" | "tile" | "service" | "action";
   id: string;
   title: string;
   subtitle?: string;
   href: string;
   meta?: string;
+  requiresCert?: boolean;
 }
 
 interface TileSpec {
@@ -259,6 +262,75 @@ export async function GET(req: Request) {
           subtitle: r.user_email ?? "anonimowe",
           href: `/admin/infrastructure?tab=devices&id=${r.device_id}`,
         });
+      }
+    }
+
+    // 3) Szybka akcja "Nowy serwis" — pojawia się na górze gdy query pasuje.
+    const isNewServiceQuery =
+      lower.includes("nowy serwis") ||
+      lower.includes("new service") ||
+      lower.includes("utwórz") ||
+      lower.includes("przyjmij");
+    const canAccessPanel =
+      hasArea(session, "panel-serwisant", { min: 10 }) ||
+      hasArea(session, "panel-sprzedawca", { min: 10 });
+    if (isNewServiceQuery && canAccessPanel) {
+      hits.unshift({
+        type: "action",
+        id: "action:new-service",
+        title: "Nowy serwis",
+        subtitle: "Przyjmij urządzenie do serwisu",
+        href: "/panel/serwisant/launch?action=new-service",
+        meta: "action:plus",
+      });
+    }
+
+    // 4) Wyszukiwanie serwisów — RBAC: tylko panel area + tylko własne lokalizacje.
+    if (hasArea(session, "panel-serwisant", { min: 10 }) && lower.length >= 2) {
+      try {
+        const userEmail = session.user?.email ?? "";
+        const userLocations = userEmail
+          ? await getActiveLocationsForUser({ email: userEmail }).catch(() => [])
+          : [];
+        if (userLocations.length > 0) {
+          const locationIds = userLocations.map((l) => l.id);
+          // Budujemy mapę id → name do opisu meta
+          const locationMap = new Map(userLocations.map((l) => [l.id, l.name]));
+          const services = await listServices({
+            locationIds,
+            search: q,
+            limit: 5,
+          }).catch(() => []);
+          for (const svc of services) {
+            const locName =
+              (svc.locationId && locationMap.get(svc.locationId)) ||
+              (svc.serviceLocationId && locationMap.get(svc.serviceLocationId)) ||
+              "";
+            const dateStr = svc.createdAt
+              ? new Date(svc.createdAt).toLocaleDateString("pl-PL", {
+                  day: "2-digit",
+                  month: "2-digit",
+                  year: "numeric",
+                })
+              : "";
+            const customerName = [svc.customerFirstName, svc.customerLastName]
+              .filter(Boolean)
+              .join(" ");
+            hits.push({
+              type: "service",
+              id: svc.id,
+              title: `${svc.brand ?? ""} ${svc.model ?? ""}`.trim() || svc.ticketNumber,
+              subtitle: customerName
+                ? `${customerName} · ${svc.contactPhone ?? svc.contactEmail ?? ""}`
+                : svc.contactPhone ?? svc.contactEmail ?? "",
+              href: "/panel/serwisant/launch",
+              meta: `Serwis #${svc.ticketNumber}${locName ? ` · ${locName}` : ""}${dateStr ? ` · ${dateStr}` : ""}`,
+              requiresCert: true,
+            });
+          }
+        }
+      } catch {
+        // ignore — serwisy to best-effort
       }
     }
 

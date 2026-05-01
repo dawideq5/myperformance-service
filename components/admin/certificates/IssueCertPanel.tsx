@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { FileSignature, Mail, ShieldCheck } from "lucide-react";
+import { useEffect, useState } from "react";
+import { FileSignature, Monitor, ShieldCheck } from "lucide-react";
 import {
   Alert,
   Button,
@@ -17,24 +17,56 @@ import {
   validateIssueInput,
   type IssueResult,
 } from "@/lib/services/certificates-service";
+import type { Location } from "@/lib/locations";
+
+/** Etykiety presetów ważności. */
+function presetLabel(days: number): string {
+  if (days === 30) return "30 dni";
+  if (days === 90) return "90 dni";
+  if (days === 365) return "1 rok";
+  if (days === 1095) return "3 lata";
+  return `${days} dni`;
+}
 
 export function IssueCertPanel({
   onIssued,
 }: {
   onIssued: () => Promise<void>;
 }) {
-  const [commonName, setCommonName] = useState("");
+  // Formularz — model urządzenie-lokalizacja
+  const [deviceName, setDeviceName] = useState("");
+  const [locationId, setLocationId] = useState("");
+  const [description, setDescription] = useState("");
   const [email, setEmail] = useState("");
   const [roles, setRoles] = useState<string[]>(["sprzedawca"]);
   const [validityDays, setValidityDays] = useState<number>(365);
+
+  const [locations, setLocations] = useState<Location[]>([]);
+  const [locLoading, setLocLoading] = useState(false);
+
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<IssueResult | null>(null);
+
+  // Pobierz listę lokalizacji
+  useEffect(() => {
+    setLocLoading(true);
+    fetch("/api/locations", { credentials: "same-origin", cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((data: { locations: Location[] }) => setLocations(data.locations ?? []))
+      .catch(() => setLocations([]))
+      .finally(() => setLocLoading(false));
+  }, []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setResult(null);
+
+    if (!deviceName.trim()) {
+      setError("Wpisz nazwę urządzenia.");
+      return;
+    }
     const validationError = validateIssueInput({ roles, validityDays });
     if (validationError) {
       setError(validationError);
@@ -45,14 +77,22 @@ export function IssueCertPanel({
       const res = await fetch("/api/admin/certificates", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ commonName, email, roles, validityDays }),
+        body: JSON.stringify({
+          deviceName: deviceName.trim(),
+          locationId: locationId || undefined,
+          description: description.trim() || undefined,
+          email: email.trim() || undefined,
+          roles,
+          validityDays,
+        }),
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
 
       setResult({
         sent: !!body.sent,
-        email,
+        deviceName: deviceName.trim(),
+        email: email.trim(),
         password: body.password,
         filename: body.filename,
         notAfter: body.meta?.notAfter,
@@ -61,7 +101,10 @@ export function IssueCertPanel({
         pkcs12Base64: body.pkcs12Base64,
       });
 
-      setCommonName("");
+      setDeviceName("");
+      setLocationId("");
+      setDescription("");
+      setEmail("");
       await onIssued();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Nieznany błąd");
@@ -85,25 +128,67 @@ export function IssueCertPanel({
       <Card padding="lg">
         <CardHeader
           icon={<FileSignature className="w-6 h-6 text-[var(--accent)]" />}
-          title="Wystaw nowy certyfikat"
-          description="Po wystawieniu plik .p12 trafi automatycznie na wskazany e-mail (noreply@myperformance.pl) wraz z hasłem i instrukcją instalacji Windows / macOS."
+          title="Wystaw certyfikat dla urządzenia"
+          description="Certyfikat jest przypisany do komputera/stanowiska — nie do konkretnej osoby. Wszyscy pracownicy przypisanej lokalizacji korzystają z tego samego certyfikatu urządzenia."
         />
         <form onSubmit={submit} className="grid md:grid-cols-2 gap-4 mt-6">
+          {/* Nazwa urządzenia (CN) */}
           <Input
-            label="Imię i nazwisko (Common Name)"
+            label="Nazwa urządzenia / komputera (CN)"
             required
-            placeholder="Jan Kowalski"
-            value={commonName}
-            onChange={(e) => setCommonName(e.target.value)}
+            placeholder="PC-SERWIS-01"
+            value={deviceName}
+            onChange={(e) => setDeviceName(e.target.value)}
           />
-          <Input
-            label="E-mail odbiorcy"
-            required
-            type="email"
-            placeholder="jan@firma.pl"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
+
+          {/* Lokalizacja */}
+          <div className="flex flex-col gap-1">
+            <label className="text-sm font-medium text-[var(--text-muted)]">
+              Lokalizacja
+            </label>
+            <select
+              value={locationId}
+              onChange={(e) => setLocationId(e.target.value)}
+              className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-2 text-sm text-[var(--text-main)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] disabled:opacity-50"
+              disabled={locLoading}
+            >
+              <option value="">— wybierz lokalizację (opcjonalne) —</option>
+              {locations.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name}
+                  {l.address ? ` · ${l.address}` : ""}
+                </option>
+              ))}
+            </select>
+            {locLoading && (
+              <p className="text-xs text-[var(--text-muted)]">Ładowanie lokalizacji…</p>
+            )}
+          </div>
+
+          {/* Rola panelu */}
+          <div>
+            <p className="text-sm font-medium text-[var(--text-muted)] mb-2">
+              Rola panelu
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              {ROLES.map((r) => (
+                <Checkbox
+                  key={r.value}
+                  checked={roles.includes(r.value)}
+                  onChange={(e) =>
+                    setRoles((prev) =>
+                      e.target.checked
+                        ? Array.from(new Set([...prev, r.value]))
+                        : prev.filter((x) => x !== r.value),
+                    )
+                  }
+                  label={r.label}
+                />
+              ))}
+            </div>
+          </div>
+
+          {/* Ważność */}
           <div>
             <Input
               label="Ważność (dni)"
@@ -126,40 +211,37 @@ export function IssueCertPanel({
                       : "border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-main)]"
                   }`}
                 >
-                  {d === 365 ? "1 rok" : d === 730 ? "2 lata" : d === 1825 ? "5 lat" : `${d} dni`}
+                  {presetLabel(d)}
                 </button>
               ))}
             </div>
           </div>
-          <div>
-            <p className="text-sm font-medium text-[var(--text-muted)] mb-2">
-              Role (panel dostępny z jednym certyfikatem)
-            </p>
-            <div className="grid grid-cols-2 gap-2">
-              {ROLES.map((r) => (
-                <Checkbox
-                  key={r.value}
-                  checked={roles.includes(r.value)}
-                  onChange={(e) =>
-                    setRoles((prev) =>
-                      e.target.checked
-                        ? Array.from(new Set([...prev, r.value]))
-                        : prev.filter((x) => x !== r.value),
-                    )
-                  }
-                  label={r.label}
-                />
-              ))}
-            </div>
-          </div>
+
+          {/* Opis (opcjonalne) */}
+          <Input
+            label="Opis stanowiska (opcjonalne)"
+            placeholder="np. Stanowisko w serwisie, sekcja przyjęć"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
+
+          {/* E-mail dostarczenia (opcjonalne) */}
+          <Input
+            label="E-mail dostarczenia .p12 (opcjonalne)"
+            type="email"
+            placeholder="kierownik@firma.pl"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+
           <div className="md:col-span-2">
             <Button
               type="submit"
               loading={busy}
-              leftIcon={<Mail className="w-4 h-4" />}
+              leftIcon={<Monitor className="w-4 h-4" />}
               fullWidth
             >
-              Wystaw i wyślij na e-mail
+              Wystaw certyfikat dla urządzenia
             </Button>
           </div>
         </form>
@@ -177,12 +259,22 @@ export function IssueCertPanel({
             iconBgClassName="bg-emerald-500/10"
             title="Certyfikat wystawiony"
             description={
-              result.sent
+              result.sent && result.email
                 ? `E-mail z certyfikatem i hasłem został wysłany na ${result.email}. Plik .p12 oraz hasło są też dostępne poniżej — pokaż je teraz, nie pojawią się ponownie.`
-                : `Wysyłka e-mail nie powiodła się (${result.error ?? "nieznany błąd"}). Przekaż plik i hasło ręcznie — pobierz poniżej, bo po zamknięciu widoku nie będą dostępne.`
+                : result.email
+                  ? `Wysyłka e-mail nie powiodła się (${result.error ?? "nieznany błąd"}). Pobierz plik i przekaż hasło ręcznie — po zamknięciu widoku nie będą dostępne.`
+                  : `Certyfikat wystawiony dla urządzenia ${result.deviceName}. Pobierz plik .p12 i przekaż go ręcznie — hasło i plik są dostępne tylko teraz.`
             }
           />
           <div className="mt-5 grid sm:grid-cols-2 gap-3 text-sm">
+            <div>
+              <p className="text-xs uppercase tracking-wide text-[var(--text-muted)]">
+                Urządzenie
+              </p>
+              <p className="mt-1 font-mono text-[var(--text-main)]">
+                {result.deviceName}
+              </p>
+            </div>
             <div>
               <p className="text-xs uppercase tracking-wide text-[var(--text-muted)]">
                 Hasło .p12
@@ -197,6 +289,16 @@ export function IssueCertPanel({
               </p>
               <p className="mt-1 font-mono text-[var(--text-main)] break-all">
                 {result.serial}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-wide text-[var(--text-muted)]">
+                Ważny do
+              </p>
+              <p className="mt-1 text-[var(--text-main)]">
+                {result.notAfter
+                  ? new Date(result.notAfter).toLocaleDateString("pl-PL")
+                  : "—"}
               </p>
             </div>
           </div>
@@ -214,7 +316,7 @@ export function IssueCertPanel({
               </Button>
             )}
           </div>
-          {!result.sent && (
+          {result.email && !result.sent && (
             <Alert tone="warning" className="mt-4">
               E-mail nie dotarł — {result.error ?? "sprawdź logi SMTP"}. Pobierz
               plik i przekaż hasło innym kanałem.

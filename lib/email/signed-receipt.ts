@@ -10,6 +10,13 @@
  * przeniesiony do mp_email_templates pod kluczem
  * `documents.confirmation_signed`. Aktualnie inline żeby nie wymagać
  * pełnej infrastruktury templating engine na webhook hot-path.
+ *
+ * TODO: migrate to mp_email_templates with key 'service.receipt-sent'
+ * Wymaga: migracji DB (INSERT action_key='service.receipt-sent'), zmiany
+ * w documenso webhook handler (lib/webhooks/documenso.ts lub podobny) —
+ * zastąpić wywołanie renderSignedReceiptEmail() przez sendTemplateEmail()
+ * z kluczem 'service.receipt-sent', oraz użycia layoutu 'zlecenieserwisowe'
+ * jako domyślnego layout_id dla tego szablonu.
  */
 
 import { getRequiredEnv } from "@/lib/env";
@@ -22,7 +29,7 @@ function brandUrl(): string {
 }
 // Logo serwowane przez dashboard (publiczne /logos/*). Klient maila
 // załaduje obraz po otwarciu wiadomości.
-const LOGO_URL = "https://myperformance.pl/logos/serwis-by-caseownia.png";
+const LOGO_URL = process.env.BRAND_LOGO_URL ?? "https://myperformance.pl/logos/serwis-by-caseownia.png";
 const PRIMARY_COLOR = "#0EA5E9";
 const TEXT_COLOR = "#1a1a1a";
 const MUTED_COLOR = "#6b7280";

@@ -2,6 +2,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
+import { timingSafeEqual } from "crypto";
 import { pollKcEvents } from "@/lib/security/kc-events-poll";
 
 /**
@@ -12,7 +13,9 @@ import { pollKcEvents } from "@/lib/security/kc-events-poll";
 export async function POST(req: Request) {
   const auth = req.headers.get("authorization") ?? "";
   const expected = `Bearer ${process.env.CRON_SECRET ?? ""}`;
-  if (!process.env.CRON_SECRET || auth !== expected) {
+  const buf1 = Buffer.from(auth, "utf8");
+  const buf2 = Buffer.from(expected, "utf8");
+  if (!process.env.CRON_SECRET || buf1.length !== buf2.length || !timingSafeEqual(buf1, buf2)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const result = await pollKcEvents();

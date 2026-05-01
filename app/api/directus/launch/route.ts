@@ -8,6 +8,12 @@ import { getFreshKcProfile } from "@/lib/keycloak-profile";
 import { getProvider } from "@/lib/permissions/registry";
 import { log } from "@/lib/logger";
 
+interface DirectusUserLookup {
+  id: string;
+  provider?: string | null;
+  external_identifier?: string | null;
+}
+
 const logger = log.child({ module: "directus-launch" });
 
 export const runtime = "nodejs";
@@ -49,6 +55,54 @@ export async function GET() {
       logger.warn("directus profile sync failed (non-fatal)", {
         userId,
         err: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  // Pre-flight: upewnij się że użytkownik ma provider=keycloak i
+  // external_identifier ustawiony na KC user UUID — bez tego Directus
+  // zwróci "Wrong username or password" przy OIDC login mimo poprawnego tokena.
+  const email = session.user.email ?? null;
+  const kcUserId = session.user.id;
+  const directusUrl = (getOptionalEnv("DIRECTUS_URL") ?? "").replace(/\/$/, "");
+  const directusAdminToken = getOptionalEnv("DIRECTUS_ADMIN_TOKEN") ?? "";
+  if (email && directusUrl && directusAdminToken) {
+    try {
+      const lookupRes = await fetch(
+        `${directusUrl}/users?filter[email][_eq]=${encodeURIComponent(email)}&fields=id,provider,external_identifier`,
+        { headers: { Authorization: `Bearer ${directusAdminToken}` }, cache: "no-store" },
+      );
+      if (lookupRes.ok) {
+        const lookupData = (await lookupRes.json()) as { data?: DirectusUserLookup[] };
+        const directusUser = lookupData.data?.[0];
+        if (
+          directusUser &&
+          (directusUser.provider !== "keycloak" || !directusUser.external_identifier)
+        ) {
+          await fetch(`${directusUrl}/users/${directusUser.id}`, {
+            method: "PATCH",
+            headers: {
+              Authorization: `Bearer ${directusAdminToken}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              provider: "keycloak",
+              external_identifier: kcUserId,
+              auth_data: null,
+            }),
+            cache: "no-store",
+          });
+          logger.info("directus provider sync applied", {
+            userId: kcUserId,
+            directusUserId: directusUser.id,
+            prevProvider: directusUser.provider,
+          });
+        }
+      }
+    } catch (e) {
+      logger.warn("[directus-launch] provider sync failed (non-fatal):", {
+        userId: kcUserId,
+        err: e instanceof Error ? e.message : String(e),
       });
     }
   }

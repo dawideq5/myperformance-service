@@ -26,6 +26,19 @@ interface PropagationTarget {
 }
 
 /**
+ * Resolves Coolify application UUID from env var. Returns null when env is
+ * unset — propagation for that service will be skipped (no error).
+ */
+function resolveCoolifyUuidOptional(envName: string): string | null {
+  const fromEnv = getOptionalEnv(envName);
+  if (fromEnv) return fromEnv;
+  logger.info("Coolify UUID env not set — skipping propagation for service", {
+    envName,
+  });
+  return null;
+}
+
+/**
  * Resolves Coolify application UUID from env var. Logs warning + uses fallback
  * for backward-compat gdy env brak — ale per faza-1 cleanup planowane jest
  * full migration na env-only (fallbacks do usunięcia po weryfikacji prod
@@ -45,10 +58,7 @@ const TARGETS: PropagationTarget[] = [
   {
     appId: "documenso",
     appLabel: "Documenso",
-    coolifyUuid: resolveCoolifyUuid(
-      "COOLIFY_DOCUMENSO_UUID",
-      "c9dxxjvb3rskueiuguudbqgb",
-    ),
+    coolifyUuid: resolveCoolifyUuidOptional("COOLIFY_UUID_DOCUMENSO"),
     envMapping: {
       brandName: "NEXT_PUBLIC_BRANDING_BRAND_NAME",
       brandUrl: "NEXT_PUBLIC_BRANDING_BRAND_URL",
@@ -60,10 +70,7 @@ const TARGETS: PropagationTarget[] = [
   {
     appId: "chatwoot",
     appLabel: "Chatwoot",
-    coolifyUuid: resolveCoolifyUuid(
-      "COOLIFY_CHATWOOT_UUID",
-      "zdlueek1sg2dgdbi7nk5xrh5",
-    ),
+    coolifyUuid: resolveCoolifyUuidOptional("COOLIFY_UUID_CHATWOOT"),
     envMapping: {
       brandName: "INSTALLATION_NAME",
       brandUrl: "BRAND_URL",
@@ -74,10 +81,7 @@ const TARGETS: PropagationTarget[] = [
   {
     appId: "outline",
     appLabel: "Outline",
-    coolifyUuid: resolveCoolifyUuid(
-      "COOLIFY_OUTLINE_UUID",
-      "o4roacrk9qxh08gwv37iphd1",
-    ),
+    coolifyUuid: resolveCoolifyUuidOptional("COOLIFY_UUID_OUTLINE"),
     envMapping: {
       brandName: "TEAM_LOGO",
     },

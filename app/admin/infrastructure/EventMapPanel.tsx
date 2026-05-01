@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import { Globe, Loader2, TrendingUp, Zap } from "lucide-react";
 import {
   Alert,
@@ -56,6 +57,15 @@ interface MapData {
 }
 
 const SEVERITY_COLOR = SEVERITY_HEX;
+
+const LeafletMap = dynamic(() => import("./LeafletMapInner"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex items-center justify-center h-[400px] rounded-lg bg-[var(--bg-main)] text-xs text-[var(--text-muted)]">
+      <Loader2 className="w-4 h-4 animate-spin mr-2" /> Ładowanie mapy…
+    </div>
+  ),
+});
 
 export function EventMapPanel() {
   const [hours, setHours] = useState(168);
@@ -186,7 +196,18 @@ export function EventMapPanel() {
                 <Globe className="w-4 h-4" />
                 Mapa świata
               </h4>
-              <WorldMap markers={data.markers} />
+              <LeafletMap markers={data.markers} />
+              <div className="flex flex-wrap gap-3 mt-2 text-[10px] text-[var(--text-muted)]">
+                {(["critical", "high", "medium", "low", "info"] as const).map((s) => (
+                  <span key={s} className="flex items-center gap-1">
+                    <span
+                      className="w-2 h-2 rounded-full"
+                      style={{ background: SEVERITY_COLOR[s] }}
+                    />
+                    {s}
+                  </span>
+                ))}
+              </div>
             </Card>
 
             <Card padding="md">
@@ -276,111 +297,6 @@ function CountryList({ countries }: { countries: CountryAgg[] }) {
         </li>
       ))}
     </ul>
-  );
-}
-
-/**
- * Mała mapa świata: punkty na latitude/longitude przeliczane na SVG.
- * Equirectangular projection (lng → x, lat → y) — wystarczy do pokazania
- * skupisk geograficznych. Ramka pokazuje kontynenty schematycznie.
- */
-function WorldMap({ markers }: { markers: MarkerPoint[] }) {
-  const W = 360;
-  const H = 180;
-  const project = (lat: number, lng: number) => {
-    const x = ((lng + 180) / 360) * W;
-    const y = ((90 - lat) / 180) * H;
-    return { x, y };
-  };
-  return (
-    <div className="w-full">
-      <svg
-        viewBox={`0 0 ${W} ${H}`}
-        className="w-full h-auto rounded bg-[var(--bg-main)]"
-        role="img"
-        aria-label="Rozmieszczenie geograficzne IP"
-      >
-        {/* uproszczone kontynenty jako prostokąty */}
-        <rect
-          x={0}
-          y={0}
-          width={W}
-          height={H}
-          fill="var(--bg-main)"
-        />
-        {/* kratka */}
-        {[60, 120, 180, 240, 300].map((x) => (
-          <line
-            key={x}
-            x1={x}
-            y1={0}
-            x2={x}
-            y2={H}
-            stroke="rgba(255,255,255,0.05)"
-            strokeWidth={0.5}
-          />
-        ))}
-        {[45, 90, 135].map((y) => (
-          <line
-            key={y}
-            x1={0}
-            y1={y}
-            x2={W}
-            y2={y}
-            stroke="rgba(255,255,255,0.05)"
-            strokeWidth={0.5}
-          />
-        ))}
-        {/* equator */}
-        <line
-          x1={0}
-          y1={H / 2}
-          x2={W}
-          y2={H / 2}
-          stroke="rgba(255,255,255,0.08)"
-          strokeWidth={0.5}
-          strokeDasharray="2 3"
-        />
-        {/* markers */}
-        {markers.map((m) => {
-          const { x, y } = project(m.lat, m.lng);
-          const r = Math.min(6, 2 + Math.log10(m.events + 1) * 1.5);
-          return (
-            <g key={m.ip}>
-              <circle
-                cx={x}
-                cy={y}
-                r={r * 1.6}
-                fill={SEVERITY_COLOR[m.severity]}
-                opacity={0.2}
-              />
-              <circle
-                cx={x}
-                cy={y}
-                r={r}
-                fill={SEVERITY_COLOR[m.severity]}
-                opacity={0.85}
-              >
-                <title>
-                  {m.ip} · {m.city ?? m.country ?? "?"} · {m.events} zdarzeń · {m.severity}
-                </title>
-              </circle>
-            </g>
-          );
-        })}
-      </svg>
-      <div className="flex flex-wrap gap-3 mt-2 text-[10px] text-[var(--text-muted)]">
-        {(["critical", "high", "medium", "low", "info"] as const).map((s) => (
-          <span key={s} className="flex items-center gap-1">
-            <span
-              className="w-2 h-2 rounded-full"
-              style={{ background: SEVERITY_COLOR[s] }}
-            />
-            {s}
-          </span>
-        ))}
-      </div>
-    </div>
   );
 }
 

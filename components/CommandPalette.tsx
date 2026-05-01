@@ -8,18 +8,22 @@ import {
   LayoutGrid,
   Loader2,
   Monitor,
+  PlusCircle,
   Search,
+  ShieldAlert,
   User,
+  Wrench,
 } from "lucide-react";
 import { api, ApiRequestError } from "@/lib/api-client";
 
 interface SearchHit {
-  type: "user" | "ip" | "device" | "tile";
+  type: "user" | "ip" | "device" | "tile" | "service" | "action";
   id: string;
   title: string;
   subtitle?: string;
   href: string;
   meta?: string;
+  requiresCert?: boolean;
 }
 
 const TYPE_ICON: Record<SearchHit["type"], React.ComponentType<{ className?: string }>> = {
@@ -27,6 +31,8 @@ const TYPE_ICON: Record<SearchHit["type"], React.ComponentType<{ className?: str
   ip: Globe,
   device: Monitor,
   tile: LayoutGrid,
+  service: Wrench,
+  action: PlusCircle,
 };
 
 const TYPE_LABEL: Record<SearchHit["type"], string> = {
@@ -34,6 +40,19 @@ const TYPE_LABEL: Record<SearchHit["type"], string> = {
   ip: "IP",
   device: "Urządzenie",
   tile: "Panel",
+  service: "Serwis",
+  action: "Akcja",
+};
+
+/** Kolejność grup w wynikach. */
+const GROUP_ORDER: SearchHit["type"][] = ["action", "service", "user", "device", "ip", "tile"];
+const GROUP_LABEL: Record<SearchHit["type"], string> = {
+  action: "Akcje",
+  service: "Serwisy",
+  user: "Użytkownicy",
+  device: "Urządzenia",
+  ip: "Adresy IP",
+  tile: "Panele",
 };
 
 // Zewnętrzny target: pełny URL (https://) lub /api/*/sso /api/*/launch
@@ -56,6 +75,7 @@ export function CommandPalette() {
   const [loading, setLoading] = useState(false);
   const [active, setActive] = useState(0);
   const [mounted, setMounted] = useState(false);
+  const [certWarningHref, setCertWarningHref] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const debounceRef = useRef<number | null>(null);
 
@@ -115,7 +135,11 @@ export function CommandPalette() {
     };
   }, [q, open]);
 
-  const navigateTo = useCallback((href: string) => {
+  const navigateTo = useCallback((href: string, requiresCert?: boolean) => {
+    if (requiresCert) {
+      setCertWarningHref(href);
+      return;
+    }
     if (isExternalHref(href)) {
       // Zewnętrzny panel (Documenso/Moodle/Outline/Postal/Directus przez SSO
       // lub pełny URL) — otwieramy w nowej karcie. Dashboard zostaje otwarty.
@@ -137,7 +161,7 @@ export function CommandPalette() {
       setActive((a) => Math.max(a - 1, 0));
     } else if (e.key === "Enter" && hits[active]) {
       e.preventDefault();
-      navigateTo(hits[active].href);
+      navigateTo(hits[active].href, hits[active].requiresCert);
     }
   };
 
@@ -163,7 +187,7 @@ export function CommandPalette() {
             ref={inputRef}
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Szukaj paneli, funkcji, użytkowników — wszystkiego do czego masz dostęp"
+            placeholder="Szukaj serwisów, użytkowników, numerów telefonów..."
             className="flex-1 bg-transparent outline-none text-sm placeholder:text-[var(--text-muted)]"
             autoComplete="off"
             spellCheck={false}
@@ -187,53 +211,34 @@ export function CommandPalette() {
               Brak wyników dla {"\u201E"}{q}{"\u201D"}.
             </div>
           ) : (
-            <ul role="listbox">
-              {hits.map((h, i) => {
-                const Icon = TYPE_ICON[h.type];
-                return (
-                  <li key={`${h.type}-${h.id}`}>
-                    <button
-                      type="button"
-                      onMouseEnter={() => setActive(i)}
-                      onClick={() => navigateTo(h.href)}
-                      className={`w-full text-left px-4 py-2.5 flex items-center gap-3 ${
-                        active === i
-                          ? "bg-[var(--accent)]/10"
-                          : "hover:bg-[var(--bg-surface)]"
-                      }`}
-                    >
-                      <div className="w-8 h-8 rounded-lg bg-[var(--bg-main)] flex items-center justify-center flex-shrink-0">
-                        <Icon className="w-4 h-4 text-[var(--text-muted)]" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm truncate flex items-center gap-2">
-                          {h.title}
-                          {isExternalHref(h.href) && (
-                            <ExternalLink
-                              className="w-3 h-3 text-[var(--text-muted)] flex-shrink-0"
-                              aria-label="Otwiera w nowej karcie"
-                            />
-                          )}
-                          <span className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">
-                            {TYPE_LABEL[h.type]}
-                          </span>
-                        </div>
-                        {h.subtitle && (
-                          <div className="text-[11px] text-[var(--text-muted)] truncate">
-                            {h.subtitle}
-                          </div>
-                        )}
-                      </div>
-                      {active === i && (
-                        <kbd className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-subtle)] text-[var(--text-muted)] font-mono">
-                          {isExternalHref(h.href) ? "↗" : "↵"}
-                        </kbd>
-                      )}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
+            <HitList hits={hits} active={active} setActive={setActive} navigateTo={navigateTo} />
+          )}
+          {/* Modal certyfikatu — pojawia się gdy user kliknie wynik serwisu */}
+          {certWarningHref && (
+            <div className="border-t border-[var(--border-subtle)] bg-amber-500/10 px-4 py-3 flex items-start gap-3">
+              <ShieldAlert className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-amber-200 font-medium">
+                  Ten serwis wymaga zalogowania się na panel z certyfikatem klienckim.
+                </p>
+                <div className="mt-1.5 flex items-center gap-3">
+                  <a
+                    href={certWarningHref}
+                    onClick={() => { setOpen(false); setCertWarningHref(null); }}
+                    className="text-xs text-amber-400 hover:text-amber-300 underline underline-offset-2"
+                  >
+                    Otwórz panel serwisanta &rarr;
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => setCertWarningHref(null)}
+                    className="text-xs text-[var(--text-muted)] hover:text-[var(--text-base)]"
+                  >
+                    Anuluj
+                  </button>
+                </div>
+              </div>
+            </div>
           )}
         </div>
 
@@ -256,10 +261,125 @@ export function CommandPalette() {
 }
 
 /**
+ * Zgrupowana lista wyników — Akcje | Serwisy | Użytkownicy | Urządzenia | Panele.
+ */
+function HitList({
+  hits,
+  active,
+  setActive,
+  navigateTo,
+}: {
+  hits: SearchHit[];
+  active: number;
+  setActive: (i: number) => void;
+  navigateTo: (href: string, requiresCert?: boolean) => void;
+}) {
+  // Podziel na grupy zachowując globalny indeks (do nawigacji klawiaturą).
+  const groups: { type: SearchHit["type"]; items: { hit: SearchHit; globalIdx: number }[] }[] = [];
+  for (const type of GROUP_ORDER) {
+    const items = hits
+      .map((hit, idx) => ({ hit, globalIdx: idx }))
+      .filter(({ hit }) => hit.type === type);
+    if (items.length > 0) groups.push({ type, items });
+  }
+
+  return (
+    <ul role="listbox">
+      {groups.map(({ type, items }) => (
+        <li key={type}>
+          <div className="px-4 pt-3 pb-1 text-[10px] uppercase tracking-wider text-[var(--text-muted)] font-semibold">
+            {GROUP_LABEL[type]}
+          </div>
+          <ul>
+            {items.map(({ hit: h, globalIdx: i }) => {
+              const Icon = TYPE_ICON[h.type];
+              const isAction = h.type === "action";
+              const isService = h.type === "service";
+              return (
+                <li key={`${h.type}-${h.id}`}>
+                  <button
+                    type="button"
+                    onMouseEnter={() => setActive(i)}
+                    onClick={() => navigateTo(h.href, h.requiresCert)}
+                    className={`w-full text-left px-4 py-2.5 flex items-center gap-3 ${
+                      active === i
+                        ? "bg-[var(--accent)]/10"
+                        : "hover:bg-[var(--bg-surface)]"
+                    }`}
+                  >
+                    <div
+                      className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                        isAction
+                          ? "bg-emerald-500/15"
+                          : isService
+                          ? "bg-rose-500/10"
+                          : "bg-[var(--bg-main)]"
+                      }`}
+                    >
+                      <Icon
+                        className={`w-4 h-4 ${
+                          isAction
+                            ? "text-emerald-400"
+                            : isService
+                            ? "text-rose-400"
+                            : "text-[var(--text-muted)]"
+                        }`}
+                      />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm truncate flex items-center gap-2">
+                        <span className={isAction ? "text-emerald-300 font-medium" : ""}>
+                          {h.title}
+                        </span>
+                        {isExternalHref(h.href) && !h.requiresCert && (
+                          <ExternalLink
+                            className="w-3 h-3 text-[var(--text-muted)] flex-shrink-0"
+                            aria-label="Otwiera w nowej karcie"
+                          />
+                        )}
+                        {isService && h.meta && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-300 font-mono flex-shrink-0">
+                            {h.meta.split(" · ")[0]}
+                          </span>
+                        )}
+                        {!isService && (
+                          <span className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">
+                            {TYPE_LABEL[h.type]}
+                          </span>
+                        )}
+                      </div>
+                      {h.subtitle && (
+                        <div className="text-[11px] text-[var(--text-muted)] truncate">
+                          {h.subtitle}
+                        </div>
+                      )}
+                      {isService && h.meta && (
+                        <div className="text-[11px] text-[var(--text-muted)] truncate">
+                          {h.meta.split(" · ").slice(1).join(" · ")}
+                        </div>
+                      )}
+                    </div>
+                    {active === i && (
+                      <kbd className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-subtle)] text-[var(--text-muted)] font-mono">
+                        {h.requiresCert ? "!" : isExternalHref(h.href) ? "↗" : "↵"}
+                      </kbd>
+                    )}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
  * Sugestie po otwarciu palette — pobiera popularne panele dynamicznie z
  * /api/admin/search?q=* (filtrowane po dostępie). Bez hardcoded kategoryzacji.
  */
-function Suggestions({ onPick }: { onPick: (href: string) => void }) {
+function Suggestions({ onPick }: { onPick: (href: string, requiresCert?: boolean) => void }) {
   const [items, setItems] = useState<SearchHit[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -309,7 +429,7 @@ function Suggestions({ onPick }: { onPick: (href: string) => void }) {
           <li key={`sug-${h.type}-${h.id}`}>
             <button
               type="button"
-              onClick={() => onPick(h.href)}
+              onClick={() => onPick(h.href, h.requiresCert)}
               className="w-full text-left px-4 py-2.5 flex items-center gap-3 hover:bg-[var(--bg-surface)] transition-colors"
             >
               <div className="w-8 h-8 rounded-lg bg-[var(--bg-main)] flex items-center justify-center flex-shrink-0">

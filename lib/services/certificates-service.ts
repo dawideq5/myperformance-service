@@ -66,6 +66,9 @@ export interface BindingEventRow {
 
 export interface IssueResult {
   sent: boolean;
+  /** Nazwa urządzenia (CN) */
+  deviceName: string;
+  /** E-mail dostarczenia (opcjonalny) */
   email: string;
   password: string;
   filename: string;
@@ -88,7 +91,7 @@ export const ROLES = [
   { value: "kierowca", label: "Kierowca" },
 ] as const;
 
-export const PRESETS = [30, 90, 365, 730, 1825];
+export const PRESETS = [30, 90, 365, 1095];
 
 export const BINDING_FIELD_LABELS: Record<string, string> = {
   userAgent: "Przeglądarka (User-Agent)",

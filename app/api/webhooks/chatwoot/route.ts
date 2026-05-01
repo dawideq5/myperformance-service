@@ -22,10 +22,14 @@ interface ChatwootPayload {
   event?: string;
   conversation?: {
     id?: number;
+    status?: string;
     assignee?: { email?: string; name?: string };
     inbox?: { name?: string };
     contact?: { name?: string; email?: string };
   };
+  message_type?: string;
+  content?: string;
+  sender?: { name?: string; email?: string };
 }
 
 type VerifyResult = "ok" | "no-secret" | "no-signature" | "bad-signature";
@@ -85,10 +89,78 @@ export async function POST(req: Request) {
   }
 
   const event = payload.event ?? "";
-  if (event !== "assignee_changed" && event !== "conversation_created") {
+  const HANDLED_EVENTS = [
+    "assignee_changed",
+    "conversation_created",
+    "message_created",
+    "conversation_status_changed",
+  ];
+  if (!HANDLED_EVENTS.includes(event)) {
     return NextResponse.json({ ok: true, ignored: event });
   }
 
+  const contact = payload.conversation?.contact;
+  const contactName = contact?.name ?? contact?.email ?? "klientem";
+  const conversationId = payload.conversation?.id;
+
+  // --- message_created: nowa wiadomość od klienta ---
+  if (event === "message_created") {
+    // Pomijamy wiadomości wychodzące (własne odpowiedzi agentów)
+    if (payload.message_type === "outgoing") {
+      return NextResponse.json({ ok: true, ignored: "outgoing-message" });
+    }
+    const assignee = payload.conversation?.assignee;
+    if (!assignee?.email) {
+      return NextResponse.json({ ok: true, ignored: "no-assignee" });
+    }
+    const uid = await getUserIdByEmail(assignee.email);
+    if (!uid) {
+      return NextResponse.json({ ok: true, ignored: "no-kc-user" });
+    }
+    const rawContent = payload.content ?? "";
+    const messagePreview =
+      rawContent.length > 100 ? rawContent.slice(0, 97) + "..." : rawContent;
+    const senderName = payload.sender?.name ?? contactName;
+    await notifyUser(uid, "chatwoot.message.new", {
+      title: "Nowa wiadomość w Chatwoot",
+      body: `${senderName}: ${messagePreview}`,
+      severity: "info",
+      payload: {
+        conversationId,
+        inbox: payload.conversation?.inbox?.name,
+      },
+    });
+    logger.info("chatwoot message_created notified", { uid, conv: conversationId });
+    return NextResponse.json({ ok: true });
+  }
+
+  // --- conversation_status_changed: rozmowa rozwiązana ---
+  if (event === "conversation_status_changed") {
+    if (payload.conversation?.status !== "resolved") {
+      return NextResponse.json({ ok: true, ignored: "status-not-resolved" });
+    }
+    const assignee = payload.conversation?.assignee;
+    if (!assignee?.email) {
+      return NextResponse.json({ ok: true, ignored: "no-assignee" });
+    }
+    const uid = await getUserIdByEmail(assignee.email);
+    if (!uid) {
+      return NextResponse.json({ ok: true, ignored: "no-kc-user" });
+    }
+    await notifyUser(uid, "chatwoot.conversation.resolved", {
+      title: `Rozmowa #${conversationId} zakończona`,
+      body: `Rozmowa z ${contactName} została oznaczona jako rozwiązana.`,
+      severity: "success",
+      payload: {
+        conversationId,
+        inbox: payload.conversation?.inbox?.name,
+      },
+    });
+    logger.info("chatwoot conversation_resolved notified", { uid, conv: conversationId });
+    return NextResponse.json({ ok: true });
+  }
+
+  // --- assignee_changed / conversation_created ---
   const assignee = payload.conversation?.assignee;
   if (!assignee?.email) {
     return NextResponse.json({ ok: true, ignored: "no-assignee" });
@@ -99,17 +171,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, ignored: "no-kc-user" });
   }
 
-  const contact = payload.conversation?.contact;
   await notifyUser(uid, "chatwoot.conversation.assigned", {
     title: "Przypisano Cię do rozmowy w Chatwoot",
-    body: `Rozmowa #${payload.conversation?.id} z ${contact?.name ?? contact?.email ?? "klientem"} została przypisana do Ciebie. Otwórz Chatwoot żeby odpowiedzieć.`,
+    body: `Rozmowa #${conversationId} z ${contactName} została przypisana do Ciebie. Otwórz Chatwoot żeby odpowiedzieć.`,
     severity: "info",
     payload: {
-      conversationId: payload.conversation?.id,
+      conversationId,
       inbox: payload.conversation?.inbox?.name,
     },
   });
 
-  logger.info("chatwoot assignment notified", { uid, conv: payload.conversation?.id });
+  logger.info("chatwoot assignment notified", { uid, conv: conversationId });
   return NextResponse.json({ ok: true });
 }

@@ -164,6 +164,34 @@ export const NOTIF_EVENTS = {
     defaultEmail: false,
     requiresArea: "chatwoot",
   },
+  "chatwoot.message.new": {
+    label: "Nowa wiadomość od klienta (Chatwoot)",
+    category: "apps",
+    defaultInApp: true,
+    defaultEmail: false,
+    requiresArea: "chatwoot",
+  },
+  "chatwoot.conversation.resolved": {
+    label: "Rozmowa oznaczona jako rozwiązana (Chatwoot)",
+    category: "apps",
+    defaultInApp: true,
+    defaultEmail: false,
+    requiresArea: "chatwoot",
+  },
+  "moodle.grade.received": {
+    label: "Otrzymano ocenę w Akademii (Moodle)",
+    category: "apps",
+    defaultInApp: true,
+    defaultEmail: false,
+    requiresArea: "moodle",
+  },
+  "moodle.group.joined": {
+    label: "Dołączono do grupy w kursie (Moodle)",
+    category: "apps",
+    defaultInApp: true,
+    defaultEmail: false,
+    requiresArea: "moodle",
+  },
 
   // Admin — TYLKO infra/security adminzy widzą te zdarzenia
   "admin.snapshot.created": {

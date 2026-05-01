@@ -122,6 +122,32 @@ const DEFAULT_LAYOUT_HTML = `<!DOCTYPE html>
 </body>
 </html>`;
 
+const ZLECENIESERWISOWE_LAYOUT_HTML = `<!DOCTYPE html>
+<html lang="pl">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f5f5f5;font-family:Inter,Arial,sans-serif">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f5f5;padding:40px 0">
+<tr><td align="center">
+  <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08)">
+    <!-- Header -->
+    <tr><td style="background:#1a1a2e;padding:24px 40px;text-align:center">
+      <img src="{{brand.logoUrl}}" alt="{{brand.name}}" height="40" style="max-height:40px">
+    </td></tr>
+    <!-- Content -->
+    <tr><td style="padding:40px">
+      {{content}}
+    </td></tr>
+    <!-- Footer -->
+    <tr><td style="background:#f8f8f8;padding:24px 40px;text-align:center;font-size:12px;color:#999">
+      <p style="margin:0 0 8px">{{brand.name}} · UNIKOM S.C., ul. Towarowa 2c, 43-100 Tychy</p>
+      <p style="margin:0">Śledź status zlecenia: <a href="{{brand.url}}" style="color:#6366f1">{{brand.url}}</a></p>
+    </td></tr>
+  </table>
+</td></tr>
+</table>
+</body>
+</html>`;
+
 export async function ensureDefaultLayout(): Promise<void> {
   await withEmailClient(async (c) => {
     await c.query(
@@ -129,6 +155,12 @@ export async function ensureDefaultLayout(): Promise<void> {
        VALUES ('default', 'MyPerformance domyślny', 'Standardowy szkielet z czarnym headerem MyPerformance, białym tłem treści i szarą stopką. Slot {{content}} dla treści.', $1, TRUE)
        ON CONFLICT (slug) DO NOTHING`,
       [DEFAULT_LAYOUT_HTML],
+    );
+    await c.query(
+      `INSERT INTO mp_email_layouts (slug, name, description, html, is_default)
+       VALUES ('zlecenieserwisowe', 'Zlecenieserwisowe.pl — Serwis Telefonów', 'Layout dla wiadomości z serwisu telefonów (zlecenieserwisowe.pl). Ciemny header z logo, biała treść, stopka z adresem UNIKOM S.C. i linkiem do śledzenia zlecenia.', $1, FALSE)
+       ON CONFLICT (slug) DO NOTHING`,
+      [ZLECENIESERWISOWE_LAYOUT_HTML],
     );
   });
 }

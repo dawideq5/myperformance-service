@@ -633,7 +633,29 @@ async function deprovisionUserInternal(args: {
     });
   }
 
-  return Promise.all(tasks.map((t) => t.op()));
+  const settled = await Promise.allSettled(tasks.map((t) => t.op()));
+  const failed = settled.filter((r) => r.status === "rejected");
+  if (failed.length > 0) {
+    console.error(
+      "[deprovision] some providers failed:",
+      failed
+        .map((r, i) =>
+          r.status === "rejected"
+            ? { provider: tasks[i]?.areaId ?? i, error: r.reason }
+            : null,
+        )
+        .filter(Boolean),
+    );
+  }
+  return settled.map((r, i) =>
+    r.status === "fulfilled"
+      ? r.value
+      : {
+          areaId: tasks[i]?.areaId ?? "unknown",
+          status: "failed" as const,
+          error: r.reason instanceof Error ? r.reason.message : String(r.reason),
+        },
+  );
 }
 
 /**

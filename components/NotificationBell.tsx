@@ -7,6 +7,7 @@ import Link from "next/link";
 
 import { Badge, useToast } from "@/components/ui";
 import { RelativeTime } from "@/components/ui";
+import { MessageSquare, GraduationCap, FileText, type LucideIcon } from "lucide-react";
 
 interface InboxItem {
   id: string;
@@ -26,6 +27,34 @@ const SEVERITY_DOT: Record<string, string> = {
   error: "bg-red-500",
   success: "bg-emerald-500",
 };
+
+/** Mapowanie prefiksu event_key → ikona + kolor akcentu. */
+interface EventStyle {
+  Icon: LucideIcon;
+  color: string; // tekst + dot color (tailwind class)
+}
+
+const EVENT_KEY_STYLES: Array<{ prefix: string; style: EventStyle }> = [
+  {
+    prefix: "chatwoot.",
+    style: { Icon: MessageSquare, color: "text-blue-400" },
+  },
+  {
+    prefix: "moodle.",
+    style: { Icon: GraduationCap, color: "text-violet-400" },
+  },
+  {
+    prefix: "knowledge.",
+    style: { Icon: FileText, color: "text-emerald-400" },
+  },
+];
+
+function getEventStyle(eventKey: string): EventStyle | null {
+  for (const { prefix, style } of EVENT_KEY_STYLES) {
+    if (eventKey.startsWith(prefix)) return style;
+  }
+  return null;
+}
 
 /**
  * Dzwonek powiadomień. Dropdown jest renderowany przez portal do
@@ -258,12 +287,26 @@ export function NotificationBell() {
                       item.read_at ? "opacity-70" : ""
                     } ${clearing ? "opacity-0 translate-x-8 pointer-events-none" : ""}`}
                   >
-                    <span
-                      className={`mt-1.5 w-2 h-2 rounded-full flex-shrink-0 ${
-                        SEVERITY_DOT[item.severity] ?? "bg-blue-500"
-                      }`}
-                      aria-hidden="true"
-                    />
+                    {(() => {
+                      const evStyle = getEventStyle(item.event_key);
+                      if (evStyle) {
+                        const { Icon, color } = evStyle;
+                        return (
+                          <Icon
+                            className={`mt-0.5 w-4 h-4 flex-shrink-0 ${color}`}
+                            aria-hidden="true"
+                          />
+                        );
+                      }
+                      return (
+                        <span
+                          className={`mt-1.5 w-2 h-2 rounded-full flex-shrink-0 ${
+                            SEVERITY_DOT[item.severity] ?? "bg-blue-500"
+                          }`}
+                          aria-hidden="true"
+                        />
+                      );
+                    })()}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2 mb-0.5">
                         <span className="text-sm font-medium text-[var(--text-main)]">
