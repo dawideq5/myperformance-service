@@ -190,6 +190,26 @@ const nextConfig = {
     // ładował z node_modules at runtime.
     "pdfkit",
     "fontkit",
+    // OpenTelemetry + gRPC używają Node.js stream/fs/net/tls —
+    // bundler Next.js nie obsługuje tych natywnych modułów.
+    "@grpc/grpc-js",
+    "@grpc/proto-loader",
+    "@opentelemetry/sdk-node",
+    "@opentelemetry/sdk-trace-node",
+    "@opentelemetry/sdk-logs",
+    "@opentelemetry/sdk-metrics",
+    "@opentelemetry/exporter-trace-otlp-http",
+    "@opentelemetry/exporter-logs-otlp-grpc",
+    "@opentelemetry/exporter-trace-otlp-grpc",
+    "@opentelemetry/exporter-metrics-otlp-grpc",
+    "@opentelemetry/otlp-grpc-exporter-base",
+    "@opentelemetry/otlp-exporter-base",
+    "@opentelemetry/auto-instrumentations-node",
+    "@opentelemetry/instrumentation",
+    "@opentelemetry/instrumentation-http",
+    "@opentelemetry/instrumentation-pg",
+    "@opentelemetry/instrumentation-mysql2",
+    "@opentelemetry/resources",
   ],
   outputFileTracingIncludes: {
     "/api/integrations/moodle/**": ["./node_modules/mysql2/**/*"],
@@ -203,12 +223,66 @@ const nextConfig = {
   poweredByHeader: false,
   compress: true,
   productionBrowserSourceMaps: false,
-  webpack(config) {
+  webpack(config, { isServer }) {
     config.resolve = config.resolve || {};
     config.resolve.alias = {
       ...(config.resolve.alias || {}),
       "@": path.resolve(__dirname),
     };
+    // OpenTelemetry i gRPC używają Node.js built-ins (fs, stream, net, tls).
+    // Webpack nie potrafi ich bundlować dla przeglądarki ani dla Edge runtime.
+    // Instrumentation.ts jest server-only ale webpack i tak próbuje statycznie
+    // rozwiązać import-tree. Dodajemy funkcję external która matchuje cały
+    // namespace @opentelemetry/* i @grpc/* bez potrzeby listy każdego pakietu.
+    if (isServer) {
+      const prev = Array.isArray(config.externals)
+        ? config.externals
+        : config.externals
+          ? [config.externals]
+          : [];
+      config.externals = [
+        ...prev,
+        ({ request }, callback) => {
+          // Pakiety używające Node.js built-ins (stream, fs, net, tls, crypto)
+          // które webpack nie potrafi zbundlować dla instrumentation runtime.
+          // Node.js built-in modules — available at runtime, nie mogą być bundlowane
+          const NODE_BUILTINS = [
+            "crypto", "stream", "fs", "net", "tls", "path", "os", "http",
+            "https", "zlib", "events", "util", "buffer", "querystring",
+            "url", "dns", "child_process", "process", "assert",
+          ];
+          if (request && NODE_BUILTINS.includes(request)) {
+            return callback(null, `commonjs ${request}`);
+          }
+          const NODE_NATIVE_PACKAGES = [
+            "@opentelemetry/",
+            "@grpc/",
+            "nodemailer",
+            "protobufjs",
+            "yaml",
+            "pg-native",
+            "cpu-features",
+            "ssh2",
+            "pg",
+            "pg-connection-string",
+            "pg-pool",
+          ];
+          // Obsługa node: URI scheme (Node.js 14+) — webpack nie rozumie tego prefixu
+          if (request?.startsWith("node:")) {
+            return callback(null, `commonjs ${request.slice(5)}`);
+          }
+          if (
+            request &&
+            NODE_NATIVE_PACKAGES.some((p) =>
+              p.endsWith("/") ? request.startsWith(p) : request === p
+            )
+          ) {
+            return callback(null, `commonjs ${request}`);
+          }
+          callback();
+        },
+      ];
+    }
     return config;
   },
   async headers() {

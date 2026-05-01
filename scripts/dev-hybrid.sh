@@ -35,21 +35,24 @@ else
   set +a
 fi
 
-# Opcjonalny SSH tunnel do bazy danych
-if [ "$1" = "--tunnel" ]; then
-  echo "🔗 Uruchamiam SSH tunnel do bazy danych na porcie 5433..."
-  ssh -N -o StrictHostKeyChecking=no \
-      -L 5433:127.0.0.1:5432 \
-      ubuntu@57.128.249.245 \
-      -i ~/.ssh/id_rsa 2>/dev/null &
-  TUNNEL_PID=$!
-  echo "✓ Tunnel PID: $TUNNEL_PID (Ctrl+C zatrzyma all)"
+# SSH tunnel do bazy danych — zawsze włączony (DB jest na wewnętrznej sieci Dockera)
+echo "🔗 Uruchamiam SSH tunnel → myperformance-dashboard-db:5432 → localhost:5433..."
+ssh -N -o StrictHostKeyChecking=no -o ConnectTimeout=5 \
+    -L 5433:myperformance-dashboard-db:5432 \
+    ubuntu@57.128.249.245 2>/dev/null &
+TUNNEL_PID=$!
+sleep 2
 
-  # Nadpisz DATABASE_URL na tunel
-  export DATABASE_URL="postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@localhost:5433/myperformance"
-
-  trap "kill $TUNNEL_PID 2>/dev/null; echo '🛑 Tunnel zamknięty'" EXIT
+# Sprawdź czy tunel działa
+if ! nc -z localhost 5433 2>/dev/null; then
+  echo "⚠️  Tunel SSH nie odpowiada — database może nie działać lokalnie"
+  echo "   Spróbuj ręcznie: ssh -N -L 5433:myperformance-dashboard-db:5432 ubuntu@57.128.249.245"
+else
+  echo "✓ Tunel DB aktywny (port 5433)"
 fi
+
+export DATABASE_URL="postgres://dashboard:RNveybkBsZkjcBSioAcLNkowtN53qA00@localhost:5433/dashboard"
+trap "kill $TUNNEL_PID 2>/dev/null; echo '🛑 Tunel zamknięty'" EXIT INT TERM
 
 echo ""
 echo "🚀 Startuje Next.js dev server..."
