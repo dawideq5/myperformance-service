@@ -488,18 +488,12 @@ function ChatwootInboxSection({ userId }: { userId: string }) {
     [userId, assigned, refresh],
   );
 
-  if (loading) {
-    return (
-      <Card padding="md">
-        <Loader2 className="w-4 h-4 animate-spin inline-block" aria-hidden="true" />
-      </Card>
-    );
-  }
-
   // Grupowanie inbox-ów po account_id — drzewko: account → inboxes.
   // W większości deploymentów istnieje tylko 1 account (`CHATWOOT_ACCOUNT_ID`),
   // ale infra wspiera multi-tenant, więc zachowujemy podział żeby admin
   // widział, do którego konta należy każdy inbox.
+  // UWAGA: useMemo musi być wywołany bezwarunkowo PRZED early-returnem,
+  // inaczej narusza zasady hooków Reacta.
   const inboxesByAccount = useMemo(() => {
     const map = new Map<number, ChatwootInbox[]>();
     for (const i of allInboxes) {
@@ -509,6 +503,14 @@ function ChatwootInboxSection({ userId }: { userId: string }) {
     }
     return [...map.entries()].sort(([a], [b]) => a - b);
   }, [allInboxes]);
+
+  if (loading) {
+    return (
+      <Card padding="md">
+        <Loader2 className="w-4 h-4 animate-spin inline-block" aria-hidden="true" />
+      </Card>
+    );
+  }
 
   return (
     <Card padding="md">
