@@ -10,20 +10,21 @@ interface CachedAgent {
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const cache = new Map<number, CachedAgent>();
 
-interface ChatwootAccountUser {
-  user_id?: number;
-  user?: { id?: number; email?: string };
+interface ChatwootUserResponse {
+  id?: number;
   email?: string;
+  name?: string;
 }
 
 /**
- * Resolve Chatwoot agent (user) email po user_id. Chatwoot Account Webhooks
+ * Resolve Chatwoot agent email po user_id. Chatwoot Account Webhooks v3+
  * wysyłają assignee jako `{id, name, type}` bez emaila — żeby zmapować
- * na KC user (notifyUser) potrzebujemy emaila. Platform API zwraca pełną
- * listę account_users, każdy z embedded user.email.
+ * na KC user (notifyUser) potrzebujemy emaila.
  *
- * Cache 5 min in-memory — agent emails rzadko się zmieniają, redukuje
- * Platform API calls przy każdym webhook.
+ * Endpoint: GET /platform/api/v1/users/{id} — zwraca pełnego usera z email.
+ * (Endpoint /accounts/{id}/account_users zwraca tylko user_id bez email).
+ *
+ * Cache 5 min in-memory — emails rzadko się zmieniają.
  */
 export async function getChatwootAgentEmail(
   chatwootUserId: number,
@@ -34,12 +35,10 @@ export async function getChatwootAgentEmail(
   }
 
   const baseUrl = (process.env.CHATWOOT_URL ?? "").replace(/\/$/, "");
-  const accountId = process.env.CHATWOOT_ACCOUNT_ID;
   const platformToken = process.env.CHATWOOT_PLATFORM_TOKEN;
-  if (!baseUrl || !accountId || !platformToken) {
+  if (!baseUrl || !platformToken) {
     logger.warn("chatwoot platform API not configured", {
       hasUrl: !!baseUrl,
-      hasAccount: !!accountId,
       hasToken: !!platformToken,
     });
     return null;
@@ -47,7 +46,7 @@ export async function getChatwootAgentEmail(
 
   try {
     const res = await fetch(
-      `${baseUrl}/platform/api/v1/accounts/${accountId}/account_users`,
+      `${baseUrl}/platform/api/v1/users/${chatwootUserId}`,
       {
         headers: {
           api_access_token: platformToken,
@@ -57,25 +56,20 @@ export async function getChatwootAgentEmail(
       },
     );
     if (!res.ok) {
-      logger.warn("chatwoot account_users fetch failed", { status: res.status });
+      logger.warn("chatwoot user fetch failed", {
+        status: res.status,
+        userId: chatwootUserId,
+      });
+      cache.set(chatwootUserId, { email: null, fetchedAt: Date.now() });
       return null;
     }
-    const data = (await res.json()) as ChatwootAccountUser[];
-    let foundEmail: string | null = null;
-    for (const row of data) {
-      const userId = row.user?.id ?? row.user_id;
-      const email = row.user?.email ?? row.email ?? null;
-      if (typeof userId === "number" && email) {
-        cache.set(userId, { email, fetchedAt: Date.now() });
-        if (userId === chatwootUserId) foundEmail = email;
-      }
-    }
-    if (!foundEmail) {
-      cache.set(chatwootUserId, { email: null, fetchedAt: Date.now() });
-    }
-    return foundEmail;
+    const data = (await res.json()) as ChatwootUserResponse;
+    const email = data.email ?? null;
+    cache.set(chatwootUserId, { email, fetchedAt: Date.now() });
+    return email;
   } catch (err) {
     logger.warn("chatwoot agent lookup error", {
+      userId: chatwootUserId,
       err: err instanceof Error ? err.message : String(err),
     });
     return null;
