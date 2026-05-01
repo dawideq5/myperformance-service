@@ -161,13 +161,6 @@ export const NOTIF_EVENTS = {
     defaultEmail: true,
     requiresArea: "documenso",
   },
-  "documenso.signing_request": {
-    label: "Dokument do podpisu (Documenso)",
-    category: "apps",
-    defaultInApp: true,
-    defaultEmail: true,
-    requiresArea: "documenso",
-  },
   "documents.signature.completed": {
     label: "Dokument podpisany",
     category: "apps",
@@ -212,13 +205,6 @@ export const NOTIF_EVENTS = {
   },
   "moodle.grade.received": {
     label: "Otrzymano ocenę w Akademii (Moodle)",
-    category: "apps",
-    defaultInApp: true,
-    defaultEmail: false,
-    requiresArea: "moodle",
-  },
-  "moodle.new_grade": {
-    label: "Nowa ocena w MyPerformance Academy",
     category: "apps",
     defaultInApp: true,
     defaultEmail: false,

@@ -76,30 +76,39 @@ export async function GET() {
                         data.phoneNumber || 
                         "";
 
-    // Admin fetch — wymagane do mp_*_locked attributes (sticky security
-    // locks po enforce). Account API nie zwraca custom attributes.
+    // Admin fetch — wymagane gdy Account API nie zwraca requiredActions.
     let requiredActions = data.requiredActions || [];
-    let adminAttributes: Record<string, string[]> = {};
+    let kcUserId: string | null = null;
     try {
-      const userId = await keycloak.getUserIdFromToken(accessToken);
-      const adminToken = await keycloak.getServiceAccountToken();
-      const userResponse = await fetch(keycloak.getAdminUrl(`/users/${userId}`), {
-        headers: {
-          Authorization: `Bearer ${adminToken}`,
-          Accept: "application/json",
-        },
-      });
-      if (userResponse.ok) {
-        const userData = await userResponse.json();
-        if (!requiredActions || requiredActions.length === 0) {
+      kcUserId = await keycloak.getUserIdFromToken(accessToken);
+      if (!requiredActions || requiredActions.length === 0) {
+        const adminToken = await keycloak.getServiceAccountToken();
+        const userResponse = await fetch(keycloak.getAdminUrl(`/users/${kcUserId}`), {
+          headers: {
+            Authorization: `Bearer ${adminToken}`,
+            Accept: "application/json",
+          },
+        });
+        if (userResponse.ok) {
+          const userData = await userResponse.json();
           requiredActions = userData.requiredActions || [];
         }
-        adminAttributes = (userData.attributes as Record<string, string[]>) || {};
       }
     } catch (e) {
       console.warn("[account GET] Failed to fetch admin profile:", e);
     }
     requiredActions = keycloak.normalizeRequiredActions(requiredActions);
+
+    // Sticky security locks z lokalnej DB (KC odrzuca custom attributes).
+    let securityLocks = { totp: false, webauthn: false };
+    if (kcUserId) {
+      try {
+        const { getLocksForUser } = await import("@/lib/security-locks");
+        securityLocks = await getLocksForUser(kcUserId);
+      } catch (e) {
+        console.warn("[account GET] security-locks fetch failed:", e);
+      }
+    }
 
     const mergedData = {
       id: data.id || tokenPayload.sub,
@@ -111,14 +120,9 @@ export async function GET() {
       attributes: {
         "phone-number": phoneNumber ? [phoneNumber] : [],
         ...(data.attributes || {}),
-        ...(adminAttributes.mp_webauthn_locked
-          ? { mp_webauthn_locked: adminAttributes.mp_webauthn_locked }
-          : {}),
-        ...(adminAttributes.mp_totp_locked
-          ? { mp_totp_locked: adminAttributes.mp_totp_locked }
-          : {}),
       },
       requiredActions: requiredActions,
+      securityLocks,
     };
 
     return createSuccessResponse(mergedData);

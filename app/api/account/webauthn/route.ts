@@ -485,22 +485,24 @@ export async function DELETE(request: Request) {
       throw ApiError.badRequest("Missing credential ID");
     }
 
-    // Admin-forced check — sprawdzamy oba: aktywny requiredAction (jeszcze
-    // nie wykonany) ORAZ sticky attribute mp_webauthn_locked (zostaje po
-    // wykonaniu konfiguracji — żeby user nie mógł usunąć tuż po setupie).
+    // Admin-forced check — aktywny requiredAction LUB sticky lock w naszej DB
+    // (mp_user_security_locks). Sticky zostaje po wykonaniu setupu i blokuje
+    // user-self DELETE dopóki admin nie cofnie wymogu.
+    const { isLocked } = await import("@/lib/security-locks");
     await withAdminContext(accessToken, async (adminToken, userId) => {
       const userResp = await keycloak.adminRequest(
         `/users/${userId}`,
         adminToken,
       );
-      if (!userResp.ok) return;
-      const userData = await userResp.json();
-      const normalized = keycloak.normalizeRequiredActions(
-        userData.requiredActions || [],
-      );
-      const stickyLocked =
-        userData.attributes?.mp_webauthn_locked?.[0] === "true";
-      if (normalized.includes("WEBAUTHN_REGISTER") || stickyLocked) {
+      let normalized: string[] = [];
+      if (userResp.ok) {
+        const userData = await userResp.json();
+        normalized = keycloak.normalizeRequiredActions(
+          userData.requiredActions || [],
+        );
+      }
+      const sticky = await isLocked(userId, "webauthn");
+      if (normalized.includes("WEBAUTHN_REGISTER") || sticky) {
         throw new ApiError(
           "FORBIDDEN",
           "Klucz bezpieczeństwa został wymuszony przez administratora i nie może zostać usunięty.",

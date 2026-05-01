@@ -9,6 +9,7 @@ import {
   handleApiError,
 } from "@/lib/api-utils";
 import { requireAdminPanel } from "@/lib/admin-auth";
+import { setLock, clearLock } from "@/lib/security-locks";
 
 interface Ctx {
   params: Promise<{ id: string }>;
@@ -44,11 +45,8 @@ export async function DELETE(req: Request, { params }: Ctx) {
     await keycloak.removeUserRequiredAction(adminToken, id, action);
 
     // Zdjęcie sticky lock — admin cofa wymóg → user może znów usunąć credential.
-    if (isWebauthnAction(action)) {
-      await keycloak.updateUserAttributes(adminToken, id, { mp_webauthn_locked: [] });
-    } else if (isTotpAction(action)) {
-      await keycloak.updateUserAttributes(adminToken, id, { mp_totp_locked: [] });
-    }
+    if (isWebauthnAction(action)) await clearLock(id, "webauthn");
+    else if (isTotpAction(action)) await clearLock(id, "totp");
 
     return createSuccessResponse({ removed: action });
   } catch (error) {
@@ -74,13 +72,12 @@ export async function POST(req: Request, { params }: Ctx) {
 
     // Sticky security locks — set BEFORE wykonujemy actions. Po user
     // skonfiguruje credential, KC usunie required action z konta, ale
-    // attribute pozostaje → DELETE blokowany dopóki admin nie cofnie.
-    const locks: Record<string, string[]> = {};
-    if (actions.some(isWebauthnAction)) locks.mp_webauthn_locked = ["true"];
-    if (actions.some(isTotpAction)) locks.mp_totp_locked = ["true"];
-    if (Object.keys(locks).length > 0) {
-      await keycloak.updateUserAttributes(adminToken, id, locks);
-    }
+    // wpis w mp_user_security_locks pozostaje → DELETE blokowany dopóki
+    // admin nie cofnie wymogu.
+    const adminEmail =
+      (session.user as { email?: string } | undefined)?.email ?? null;
+    if (actions.some(isWebauthnAction)) await setLock(id, "webauthn", adminEmail);
+    if (actions.some(isTotpAction)) await setLock(id, "totp", adminEmail);
 
     if (body?.sendEmail !== false) {
       await keycloak.executeActionsEmail(adminToken, id, actions, {

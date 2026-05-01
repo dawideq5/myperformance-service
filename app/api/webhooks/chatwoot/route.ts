@@ -10,12 +10,13 @@ import { rateLimit } from "@/lib/rate-limit";
 const logger = log.child({ module: "chatwoot-webhook" });
 
 /**
- * Chatwoot webhook — strzela m.in. event `assignee_changed` przy
- * przypisaniu rozmowy do agenta. Mapujemy na chatwoot.conversation.assigned.
+ * Chatwoot webhook — events conversation/message + assignee changes.
  *
- * Auth: HMAC sygnatura (Chatwoot wspiera webhook secrets). Tryb fail-closed:
- * gdy CHATWOOT_WEBHOOK_SECRET nie ustawiony w env, zwracamy 503 — webhook
- * NIE jest publicznym endpointem do anonimowych powiadomień.
+ * Auth: Chatwoot v3 Account Webhooks NIE PODPISUJĄ HMAC (tylko Inbox API
+ * Webhooks to robią). Akceptujemy więc URL-bound secret jako query param
+ * `?token=<secret>` (timing-safe compare) — wpisany w Chatwoot webhook URL.
+ * Fallback: HMAC z X-Chatwoot-Signature dla inbox-level webhooków.
+ * Fail-closed bez ustawionego CHATWOOT_WEBHOOK_SECRET.
  */
 
 interface ChatwootPayload {
@@ -34,22 +35,50 @@ interface ChatwootPayload {
 
 type VerifyResult = "ok" | "no-secret" | "no-signature" | "bad-signature";
 
-function verifySignature(rawBody: string, signature: string | null): VerifyResult {
+function verifyAuth(
+  rawBody: string,
+  signature: string | null,
+  urlToken: string | null,
+): VerifyResult {
   const secret = process.env.CHATWOOT_WEBHOOK_SECRET?.trim();
   if (!secret) return "no-secret";
-  if (!signature) return "no-signature";
-  const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
-  const provided = signature.replace(/^sha256=/, "").trim();
-  if (provided.length !== expected.length) return "bad-signature";
-  try {
-    const ok = timingSafeEqual(
-      Buffer.from(expected, "hex"),
-      Buffer.from(provided, "hex"),
-    );
-    return ok ? "ok" : "bad-signature";
-  } catch {
+
+  // 1) URL-bound token (Chatwoot Account Webhooks bez HMAC).
+  if (urlToken) {
+    const provided = urlToken.trim();
+    if (provided.length === secret.length) {
+      try {
+        if (timingSafeEqual(Buffer.from(provided), Buffer.from(secret))) {
+          return "ok";
+        }
+      } catch {
+        /* fall through */
+      }
+    }
+  }
+
+  // 2) HMAC X-Chatwoot-Signature (Inbox API Webhooks).
+  if (signature) {
+    const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
+    const provided = signature.replace(/^sha256=/, "").trim();
+    if (provided.length === expected.length) {
+      try {
+        if (
+          timingSafeEqual(
+            Buffer.from(expected, "hex"),
+            Buffer.from(provided, "hex"),
+          )
+        ) {
+          return "ok";
+        }
+      } catch {
+        /* fall through */
+      }
+    }
     return "bad-signature";
   }
+
+  return "no-signature";
 }
 
 export async function POST(req: Request) {
@@ -68,16 +97,21 @@ export async function POST(req: Request) {
   }
 
   const rawBody = await req.text();
-  const signature = req.headers.get("x-chatwoot-signature") ?? req.headers.get("x-hub-signature-256");
-  const verdict = verifySignature(rawBody, signature);
+  const signature =
+    req.headers.get("x-chatwoot-signature") ??
+    req.headers.get("x-hub-signature-256");
+  const url = new URL(req.url);
+  const urlToken = url.searchParams.get("token");
+  const verdict = verifyAuth(rawBody, signature, urlToken);
   if (verdict === "no-secret") {
-    logger.error("CHATWOOT_WEBHOOK_SECRET nie ustawiony — odrzucam webhook (fail-closed)");
+    logger.error("CHATWOOT_WEBHOOK_SECRET nie ustawiony — odrzucam (fail-closed)");
     return NextResponse.json(
       { error: "webhook secret not configured" },
       { status: 503 },
     );
   }
   if (verdict !== "ok") {
+    logger.warn("chatwoot webhook auth failed", { verdict, hasSig: !!signature, hasToken: !!urlToken });
     return NextResponse.json({ error: "Bad signature" }, { status: 401 });
   }
 

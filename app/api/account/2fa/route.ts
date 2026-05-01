@@ -201,21 +201,23 @@ export async function DELETE() {
 
     const accessToken = session.accessToken ?? "";
 
-    // Admin-forced check: CONFIGURE_TOTP w requiredActions LUB sticky
-    // attribute mp_totp_locked (po wykonaniu setupu zostaje sticky lock).
+    // Admin-forced check: CONFIGURE_TOTP w requiredActions LUB sticky lock
+    // w mp_user_security_locks (po wykonaniu setupu zostaje sticky).
+    const { isLocked } = await import("@/lib/security-locks");
     await withAdminContext(accessToken, async (adminToken, userId) => {
       const userResp = await keycloak.adminRequest(
         `/users/${userId}`,
         adminToken,
       );
-      if (!userResp.ok) return;
-      const userData = await userResp.json();
-      const normalized = keycloak.normalizeRequiredActions(
-        userData.requiredActions || [],
-      );
-      const stickyLocked =
-        userData.attributes?.mp_totp_locked?.[0] === "true";
-      if (normalized.includes("CONFIGURE_TOTP") || stickyLocked) {
+      let normalized: string[] = [];
+      if (userResp.ok) {
+        const userData = await userResp.json();
+        normalized = keycloak.normalizeRequiredActions(
+          userData.requiredActions || [],
+        );
+      }
+      const sticky = await isLocked(userId, "totp");
+      if (normalized.includes("CONFIGURE_TOTP") || sticky) {
         throw new ApiError(
           "FORBIDDEN",
           "Aplikacja uwierzytelniająca została wymuszona przez administratora i nie może zostać usunięta.",
