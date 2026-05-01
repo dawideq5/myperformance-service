@@ -195,12 +195,17 @@ services:
           ('auth_oidc', 'field_map_email', 'email'),
           ('auth_oidc', 'field_updatelocal_email', 'always'),
           ('auth_oidc', 'field_lock_email', 'locked'),
-          ('auth_oidc', 'field_map_preferred_username', 'preferred_username'),
-          ('auth_oidc', 'bindingusernameclaim', 'preferred_username');
+          ('auth_oidc', 'field_map_preferred_username', 'email'),
+          ('auth_oidc', 'bindingusernameclaim', 'email');
 
         -- Enable plugin w core config (auth list).
         UPDATE mdl_config SET value = CONCAT(IFNULL(value,''), IF(IFNULL(value,'') LIKE '%oidc%', '', ',oidc'))
          WHERE name = 'auth';
+
+        -- Username = email (lowercase) wymaga `extendedusernamechars=1`,
+        -- inaczej Moodle odrzuca `@`/`.` w username i auth_oidc nie potrafi
+        -- utworzyć/zmatchować usera → "There was a problem logging you in".
+        REPLACE INTO mdl_config (name, value) VALUES ('extendedusernamechars', '1');
         SQL
         mysql -h mariadb -u moodle -p"$${MOODLE_DB_PASSWORD}" moodle < /tmp/seed-oidc.sql
         # 3. Uruchom Moodle upgrade (instaluje schemę plugina).

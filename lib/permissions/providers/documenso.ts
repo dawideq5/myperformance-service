@@ -242,14 +242,13 @@ export class DocumensoProvider implements PermissionProvider {
       );
       const updated = (res.rowCount ?? 0) > 0;
 
-      // UWAGA: NIE przypisujemy automatycznie organisation/team membership.
-      // Documenso area-role (documenso_member/manager/admin) decyduje
-      // wyłącznie o globalnym `User.roles` (USER vs USER+ADMIN). Members
-      // organizacji nadaje admin EXPLICITNIE przez panel /admin/users/[id]
-      // → tab Documenso (POST /api/admin/users/[id]/documenso). Auto-org
-      // assignment był usunięty 2026-05-01 — wcześniej każdy user z rolą
-      // documenso_* dostawał członkostwo w DOCUMENSO_ORGANISATION_ID, co
-      // łamało politykę "org membership tylko gdy admin sam to przyznał".
+      // UWAGA: provider.assignUserRole NIE rusza organisation/team membership.
+      // Auto-MEMBER zostało przywrócone 2026-05-01 — ale na poziomie SSO
+      // bridge (`ensureDocumensoOrganisationMembership` w lib/documenso.ts),
+      // nie tutaj. Powód: Documenso v2 odrzuca login bez OrganisationMember,
+      // więc każdy user z rolą KC documenso_* dostaje row MEMBER przy każdym
+      // SSO login. Elewacja MANAGER/ADMIN pozostaje EXPLICITNA — admin nadaje
+      // przez panel /admin/users/[id] → tab Documenso (POST /api/admin/users/[id]/documenso).
       await client.query("COMMIT");
 
       if (!updated) {

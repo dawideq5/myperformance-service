@@ -440,6 +440,49 @@ export class MoodleProvider implements PermissionProvider {
     return [...shortnames][0] ?? null;
   }
 
+  /**
+   * Pre-provisionuje usera w Moodle przed pierwszym SSO loginem. Zwraca
+   * Moodle user id (do dalszych operacji). Wywoływane przez launch route —
+   * eliminuje race między KC ID tokenem a tworzeniem konta przez auth_oidc
+   * i gwarantuje że `mdl_user.username = LOWER(email)` (matchuje
+   * `bindingusernameclaim=email`).
+   *
+   * Idempotentne: gdy user istnieje, robi tylko `syncUserProfile` i zwraca id.
+   */
+  async ensureUser(args: {
+    email: string;
+    displayName: string;
+    firstName?: string | null;
+    lastName?: string | null;
+    phone?: string | null;
+  }): Promise<number | null> {
+    if (!this.isConfigured()) return null;
+    const existing = await this.findUser(args.email);
+    if (existing) {
+      // Update profile danych jeśli są nowe.
+      await this.syncUserProfile({
+        email: args.email,
+        firstName: args.firstName ?? null,
+        lastName: args.lastName ?? null,
+        displayName: args.displayName,
+        phone: args.phone ?? null,
+      });
+      return existing.id;
+    }
+    const created = await this.findOrCreateUser(args.email, args.displayName);
+    // findOrCreateUser tworzy z firstname/lastname split z displayName — gdy
+    // mamy "lepsze" dane z KC (firstName/lastName z attributów), domknij update.
+    if (args.firstName || args.lastName || args.phone) {
+      await this.syncUserProfile({
+        email: args.email,
+        firstName: args.firstName ?? null,
+        lastName: args.lastName ?? null,
+        phone: args.phone ?? null,
+      }).catch(() => undefined);
+    }
+    return created.id;
+  }
+
   async syncUserProfile(args: ProfileSyncArgs): Promise<void> {
     if (!this.isConfigured()) return;
     const lookup = args.previousEmail ?? args.email;

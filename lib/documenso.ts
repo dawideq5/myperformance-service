@@ -339,6 +339,101 @@ export async function syncDocumensoUserRole(
   });
 }
 
+/**
+ * Auto-MEMBER membership w DOCUMENSO_ORGANISATION_ID przy SSO (przywrócone
+ * 2026-05-01). Documenso v2 odrzuca login użytkownika bez OrganisationMember,
+ * więc każdy z rolą KC `documenso_*` musi mieć MEMBER row w domyślnej org.
+ *
+ * Idempotent — `ON CONFLICT DO NOTHING` na obu insertach. Jeśli admin
+ * wcześniej zelewował usera do MANAGER/ADMIN przez panel, ta funkcja
+ * NIE nadpisze grupy (DELETE FROM other groups jest pominięte). Elewacja
+ * pozostaje EXPLICITNA — admin nadaje przez `/admin/users/[id]` → tab
+ * Documenso (POST /api/admin/users/[id]/documenso).
+ */
+export async function ensureDocumensoOrganisationMembership(
+  email: string,
+): Promise<"created" | "exists" | "skipped" | "user-missing" | "no-org" | "no-group"> {
+  if (!isDocumensoDbConfigured()) return "skipped";
+  const organisationId = getOptionalEnv("DOCUMENSO_ORGANISATION_ID").trim();
+  if (!organisationId) return "no-org";
+
+  return await withExternalClient("DOCUMENSO_DB_URL", async (client) => {
+    // Documenso v2 może rzucić deadlock_detected/serialization_failure
+    // gdy dwa równoległe SSO loginy tego samego usera trafią tu naraz.
+    // 3× retry z exp backoff — zgodnie z wzorem z permissions/providers/documenso.ts.
+    const delays = [50, 200, 800];
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const userRes = await client.query<{ id: number }>(
+          `SELECT id FROM "User" WHERE LOWER(email) = LOWER($1) LIMIT 1`,
+          [email],
+        );
+        const userId = userRes.rows[0]?.id;
+        if (!userId) return "user-missing";
+
+        // Czy user ma już OrganisationMember w tej org (z dowolną rolą)?
+        const existing = await client.query<{ id: string }>(
+          `SELECT id FROM "OrganisationMember"
+            WHERE "userId" = $1 AND "organisationId" = $2 LIMIT 1`,
+          [userId, organisationId],
+        );
+        if (existing.rows.length > 0) return "exists";
+
+        // Brak — tworzymy MEMBER + przypinamy do INTERNAL_ORGANISATION/MEMBER group.
+        await client.query("BEGIN");
+        try {
+          await client.query(
+            `INSERT INTO "OrganisationMember"
+               (id, "organisationId", "userId", "createdAt", "updatedAt")
+             VALUES (gen_random_uuid()::text, $1, $2, NOW(), NOW())
+             ON CONFLICT ("userId", "organisationId") DO NOTHING`,
+            [organisationId, userId],
+          );
+          const grpRes = await client.query<{ id: string }>(
+            `SELECT id FROM "OrganisationGroup"
+              WHERE "organisationId" = $1
+                AND "organisationRole" = 'MEMBER'::"OrganisationMemberRole"
+                AND type = 'INTERNAL_ORGANISATION'
+              LIMIT 1`,
+            [organisationId],
+          );
+          const groupId = grpRes.rows[0]?.id;
+          if (!groupId) {
+            await client.query("COMMIT");
+            return "no-group";
+          }
+          await client.query(
+            `INSERT INTO "OrganisationGroupMember" (id, "organisationMemberId", "groupId")
+             SELECT gen_random_uuid()::text, om.id, $1
+               FROM "OrganisationMember" om
+              WHERE om."userId" = $2 AND om."organisationId" = $3
+             ON CONFLICT ("organisationMemberId", "groupId") DO NOTHING`,
+            [groupId, userId, organisationId],
+          );
+          await client.query("COMMIT");
+          return "created";
+        } catch (err) {
+          await client.query("ROLLBACK").catch(() => {});
+          throw err;
+        }
+      } catch (err) {
+        const code = (err as { code?: string }).code;
+        if (code !== "40P01" && code !== "40001") throw err;
+        if (attempt < 2) {
+          logger.warn("ensureDocumensoOrganisationMembership retry on pg deadlock", {
+            attempt: attempt + 1,
+            code,
+          });
+          await new Promise((r) => setTimeout(r, delays[attempt]));
+          continue;
+        }
+        throw err;
+      }
+    }
+    return "skipped";
+  });
+}
+
 export function computeDocumensoStats(docs: DocumensoDocument[]): DocumensoDocumentStats {
   let pending = 0;
   let completed = 0;

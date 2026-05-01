@@ -181,7 +181,10 @@ async function syncMoodle({ email, firstName, lastName, phone, areaRole }) {
     const display = [firstName, lastName].filter(Boolean).join(" ") || email;
     const [fn, ...rest] = display.split(" ");
     const ln = rest.join(" ") || fn || "User";
-    const username = email.split("@")[0].toLowerCase().replace(/[^a-z0-9._-]/g, "");
+    // Username = full email lowercase — matchuje auth_oidc
+    // `bindingusernameclaim=email`. Wymaga `extendedusernamechars=1`
+    // w mdl_config (set przez infrastructure/moodle/docker-compose.yml).
+    const username = email.toLowerCase();
     const buf = new Uint8Array(20);
     crypto.getRandomValues(buf);
     const hex = Array.from(buf, (b) => b.toString(16).padStart(2, "0")).join("");

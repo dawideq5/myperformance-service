@@ -50,17 +50,30 @@ export async function GET() {
     );
   }
 
-  // Świeża propagacja profilu do Moodle przy każdym launch. auth_oidc sam
-  // tworzy usera przy pierwszym logowaniu, ale imię/nazwisko/email mogło się
-  // zmienić w KC od tego czasu — sync provider nadgoni.
+  // Pre-provisioning w Moodle PRZED redirectem do auth_oidc. Robimy to
+  // sami (a nie polegamy na auto-create przez plugin) bo:
+  //   - dashboard musi gwarantować `mdl_user.username = LOWER(email)` —
+  //     auth_oidc z `bindingusernameclaim=email` matchuje po username
+  //   - bez pre-provisioningu first-time SSO leci w błąd "There was a
+  //     problem logging you in" gdy plugin nie potrafi utworzyć konta
+  //     (np. niezweryfikowany email, kolizja username, missing claim)
+  // Świeży profil z KC = źródło prawdy dla firstname/lastname/email.
   const userId = session.user.id;
   if (userId) {
     const moodle = getProvider("moodle");
-    if (moodle?.isConfigured()) {
+    if (moodle?.isConfigured() && "ensureUser" in moodle && typeof moodle.ensureUser === "function") {
       try {
         const profile = await getFreshKcProfile(userId);
         if (profile.email) {
-          await moodle.syncUserProfile({
+          await (moodle as unknown as {
+            ensureUser: (a: {
+              email: string;
+              displayName: string;
+              firstName?: string | null;
+              lastName?: string | null;
+              phone?: string | null;
+            }) => Promise<number | null>;
+          }).ensureUser({
             email: profile.email,
             firstName: profile.firstName,
             lastName: profile.lastName,
@@ -69,7 +82,7 @@ export async function GET() {
           });
         }
       } catch (err) {
-        logger.warn("moodle profile sync failed (non-fatal)", {
+        logger.warn("moodle ensureUser failed (non-fatal, plugin może i tak utworzyć)", {
           userId,
           err: err instanceof Error ? err.message : String(err),
         });

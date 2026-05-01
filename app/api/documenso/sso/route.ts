@@ -6,7 +6,11 @@ import {
   canAccessDocumensoAsManager,
   canAccessDocumensoAsMember,
 } from "@/lib/admin-auth";
-import { syncDocumensoUserRole, getDocumensoBaseUrl } from "@/lib/documenso";
+import {
+  ensureDocumensoOrganisationMembership,
+  getDocumensoBaseUrl,
+  syncDocumensoUserRole,
+} from "@/lib/documenso";
 import { getPublicAppUrl } from "@/lib/app-url";
 import { getFreshKcProfile } from "@/lib/keycloak-profile";
 import { getProvider } from "@/lib/permissions/registry";
@@ -95,6 +99,24 @@ export async function GET(req: NextRequest) {
     await syncDocumensoUserRole(email, targetRole, profile.displayName);
   } catch (err) {
     logger.error("role sync failed", {
+      email,
+      err: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  // Auto-MEMBER membership w domyślnej Documenso organisation (przywrócone
+  // 2026-05-01). Documenso v2 odrzuca login bez OrganisationMember row,
+  // więc gwarantujemy minimum MEMBER. Elewacja MANAGER/ADMIN pozostaje
+  // explicit — admin nadaje przez /admin/users/[id] → tab Documenso.
+  try {
+    const result = await ensureDocumensoOrganisationMembership(email);
+    if (result === "created") {
+      logger.info("auto-MEMBER assigned on SSO", { email });
+    }
+  } catch (err) {
+    // Nie blokujemy loginu — jeśli auto-membership padnie, user dostanie
+    // 403 w Documenso UI, ale przynajmniej `User.roles` jest zsync'owane.
+    logger.warn("auto-MEMBER assignment failed (non-fatal)", {
       email,
       err: err instanceof Error ? err.message : String(err),
     });
