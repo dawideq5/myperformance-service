@@ -9,15 +9,30 @@ export interface Branding {
   legalName: string | null;
   fromDisplay: string | null;
   replyTo: string | null;
+  /** Slug profilu SMTP używanego domyślnie (referencja do mp_email_smtp_profiles.slug). */
+  defaultSmtpProfileSlug: string | null;
   updatedAt: string;
   updatedBy: string | null;
 }
 
+async function ensureBrandingColumns(): Promise<void> {
+  // Idempotent migration — column added in this feature; older deployments
+  // may not have it. Use IF NOT EXISTS so repeated calls are safe.
+  await withEmailClient(async (c) => {
+    await c.query(
+      `ALTER TABLE mp_branding
+         ADD COLUMN IF NOT EXISTS default_smtp_profile_slug TEXT`,
+    );
+  });
+}
+
 export async function getBranding(): Promise<Branding> {
+  await ensureBrandingColumns();
   return withEmailClient(async (c) => {
     const res = await c.query(
       `SELECT brand_name, brand_url, brand_logo_url, primary_color,
               support_email, legal_name, from_display, reply_to,
+              default_smtp_profile_slug,
               updated_at, updated_by
          FROM mp_branding WHERE id = 1`,
     );
@@ -31,6 +46,7 @@ export async function getBranding(): Promise<Branding> {
       legalName: r.legal_name,
       fromDisplay: r.from_display,
       replyTo: r.reply_to,
+      defaultSmtpProfileSlug: r.default_smtp_profile_slug ?? null,
       updatedAt: r.updated_at.toISOString(),
       updatedBy: r.updated_by,
     };
@@ -46,12 +62,14 @@ export interface BrandingPatch {
   legalName?: string | null;
   fromDisplay?: string | null;
   replyTo?: string | null;
+  defaultSmtpProfileSlug?: string | null;
 }
 
 export async function updateBranding(
   patch: BrandingPatch,
   actor: string,
 ): Promise<Branding> {
+  await ensureBrandingColumns();
   const next = await withEmailClient(async (c) => {
     await c.query(
       `UPDATE mp_branding SET
@@ -63,6 +81,7 @@ export async function updateBranding(
          legal_name      = COALESCE($6, legal_name),
          from_display    = COALESCE($7, from_display),
          reply_to        = COALESCE($8, reply_to),
+         default_smtp_profile_slug = COALESCE($10, default_smtp_profile_slug),
          updated_at      = now(),
          updated_by      = $9
        WHERE id = 1`,
@@ -76,6 +95,7 @@ export async function updateBranding(
         patch.fromDisplay ?? null,
         patch.replyTo ?? null,
         actor,
+        patch.defaultSmtpProfileSlug ?? null,
       ],
     );
     return getBranding();

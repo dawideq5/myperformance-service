@@ -3,7 +3,7 @@ ${msg("mpEmailVerificationCodeHeading")}
 
 ${msg("mpEmailVerificationCodeLead")}
 
-${code}
+${(code)!""}
 
 ${msg("mpVerificationCodeNotice")}
 

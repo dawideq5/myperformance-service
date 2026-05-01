@@ -1,11 +1,11 @@
 <#ftl output_format="plainText">
 ${msg("mpEmailVerificationHeading")}
 
-${msg("mpEmailVerificationLead", realmName)}
+${msg("mpEmailVerificationLead", (realmName)!"")}
 
-${link}
+${(link)!""}
 
-${msg("mpLinkExpiryNotice", linkExpirationFormatter(linkExpiration))}
+${msg("mpLinkExpiryNotice", (linkExpirationFormatter(linkExpiration))!"")}
 
 ${msg("mpEmailVerificationIgnore")}
 

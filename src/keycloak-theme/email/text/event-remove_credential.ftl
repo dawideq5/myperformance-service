@@ -1,7 +1,7 @@
 <#ftl output_format="plainText">
 ${msg("mpEventRemoveCredentialHeading")}
 
-${msg("mpEventRemoveCredentialLead", event.details.credential_type!"", event.date, event.ipAddress)}
+${msg("mpEventRemoveCredentialLead", (event.details.credential_type)!"", (event.date)!"", (event.ipAddress)!"")}
 
 ${msg("mpEventNotMeNotice")}
 

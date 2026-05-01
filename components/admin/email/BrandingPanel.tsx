@@ -12,7 +12,7 @@ import {
 } from "@/components/ui";
 import { api, ApiRequestError } from "@/lib/api-client";
 
-import type { Branding } from "./types";
+import type { Branding, SmtpProfileRow } from "./types";
 
 export function BrandingPanel() {
   const [data, setData] = useState<Branding | null>(null);
@@ -21,6 +21,7 @@ export function BrandingPanel() {
   const [propagating, setPropagating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [smtpProfiles, setSmtpProfiles] = useState<SmtpProfileRow[]>([]);
 
   const load = useCallback(async () => {
     setError(null);
@@ -31,6 +32,14 @@ export function BrandingPanel() {
       setData(r.branding);
     } catch (err) {
       setError(err instanceof ApiRequestError ? err.message : "Load failed");
+    }
+    try {
+      const r = await api.get<{ profiles: SmtpProfileRow[] }>(
+        "/api/admin/email/smtp-profiles",
+      );
+      setSmtpProfiles(r.profiles);
+    } catch {
+      // non-blocking — branding może działać bez listy profili
     }
   }, []);
 
@@ -157,6 +166,34 @@ export function BrandingPanel() {
             value={merged.replyTo ?? ""}
             onChange={(e) => setDraft({ ...draft, replyTo: e.target.value })}
           />
+          <div className="md:col-span-2">
+            <label className="block text-xs font-medium mb-1.5 text-[var(--text-muted)]">
+              Domyślny profil SMTP (per branding)
+            </label>
+            <select
+              className="w-full rounded-md border border-[var(--border-subtle)] bg-[var(--bg-card)] px-3 py-2 text-sm"
+              value={merged.defaultSmtpProfileSlug ?? ""}
+              onChange={(e) =>
+                setDraft({
+                  ...draft,
+                  defaultSmtpProfileSlug: e.target.value || null,
+                })
+              }
+            >
+              <option value="">
+                — użyj globalnego is_default (z tabeli profili) —
+              </option>
+              {smtpProfiles.map((p) => (
+                <option key={p.slug} value={p.slug}>
+                  {p.name} ({p.slug})
+                </option>
+              ))}
+            </select>
+            <div className="text-[11px] text-[var(--text-muted)] mt-1">
+              Jeśli ustawione — <code>sendMail</code> bez <code>profileSlug</code>
+              używa tego profilu. Edytuj profile w zakładce „Profile SMTP".
+            </div>
+          </div>
         </div>
         <div className="mt-6 flex gap-2 flex-wrap">
           <Button

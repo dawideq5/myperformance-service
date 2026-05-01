@@ -6,6 +6,7 @@ import {
   Layers,
   Mail,
   Palette,
+  Send,
   Server,
   Settings as SettingsIcon,
 } from "lucide-react";
@@ -23,6 +24,7 @@ import { BrandingPanel } from "@/components/admin/email/BrandingPanel";
 import { LayoutsPanel } from "@/components/admin/email/LayoutsPanel";
 import { PostalPanel } from "@/components/admin/email/PostalPanel";
 import { SmtpPanel } from "@/components/admin/email/SmtpPanel";
+import { SmtpProfilesPanel } from "@/components/admin/email/SmtpProfilesPanel";
 import { StartPanel } from "@/components/admin/email/StartPanel";
 import { TemplatesPanel } from "@/components/admin/email/TemplatesPanel";
 import type { TabId } from "@/components/admin/email/types";
@@ -54,6 +56,11 @@ export function EmailClient({
         id: "smtp",
         label: "Konfiguracje SMTP",
         icon: <SettingsIcon className="w-5 h-5" />,
+      },
+      {
+        id: "smtp-profiles",
+        label: "Profile SMTP (per marka)",
+        icon: <Send className="w-5 h-5" />,
       },
       {
         id: "branding",
@@ -114,6 +121,9 @@ export function EmailClient({
           </TabPanel>
           <TabPanel tabId="smtp" active={tab === "smtp"}>
             <SmtpPanel />
+          </TabPanel>
+          <TabPanel tabId="smtp-profiles" active={tab === "smtp-profiles"}>
+            <SmtpProfilesPanel />
           </TabPanel>
           <TabPanel tabId="branding" active={tab === "branding"}>
             <BrandingPanel />

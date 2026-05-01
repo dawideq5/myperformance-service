@@ -1,16 +1,16 @@
 <#ftl output_format="plainText">
-<#assign requiredActionsText><#if requiredActions??><#list requiredActions><#items as reqActionItem>${msg("requiredAction.${reqActionItem}")}<#sep>, </#items></#list><#else></#if></#assign>
+<#assign requiredActionsText><#if requiredActions??><#list requiredActions><#items as reqActionItem>${msg("requiredAction.${reqActionItem}")}<#sep>, </#sep></#items></#list><#else></#if></#assign>
 ${msg("mpExecuteActionsHeading")}
 
-${msg("mpExecuteActionsLead", realmName)}
+${msg("mpExecuteActionsLead", (realmName)!"")}
 
 - ${requiredActionsText}
 
 ${msg("mpExecuteActionsCallToAction")}
 
-${link}
+${(link)!""}
 
-${msg("mpLinkExpiryNotice", linkExpirationFormatter(linkExpiration))}
+${msg("mpLinkExpiryNotice", (linkExpirationFormatter(linkExpiration))!"")}
 
 ${msg("mpExecuteActionsIgnore")}
 

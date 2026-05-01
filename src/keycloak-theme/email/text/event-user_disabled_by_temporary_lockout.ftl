@@ -1,7 +1,7 @@
 <#ftl output_format="plainText">
 ${msg("mpEventLockoutTemporaryHeading")}
 
-${msg("mpEventLockoutTemporaryLead", event.date)}
+${msg("mpEventLockoutTemporaryLead", (event.date)!"")}
 
 ${msg("mpContactAdminNotice")}
 

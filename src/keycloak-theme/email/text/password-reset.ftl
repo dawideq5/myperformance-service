@@ -1,11 +1,11 @@
 <#ftl output_format="plainText">
 ${msg("mpPasswordResetHeading")}
 
-${msg("mpPasswordResetLead", realmName)}
+${msg("mpPasswordResetLead", (realmName)!"")}
 
-${link}
+${(link)!""}
 
-${msg("mpLinkExpiryNotice", linkExpirationFormatter(linkExpiration))}
+${msg("mpLinkExpiryNotice", (linkExpirationFormatter(linkExpiration))!"")}
 
 ${msg("mpPasswordResetIgnore")}
 

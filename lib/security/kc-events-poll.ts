@@ -1,10 +1,8 @@
 import { keycloak } from "@/lib/keycloak";
 import { withClient } from "@/lib/db";
 import { log } from "@/lib/logger";
-import { getUserIdByEmail, notifyUser } from "@/lib/notify";
+import { notifyUser } from "@/lib/notify";
 import { recordEvent } from "@/lib/security/db";
-import { checkBruteForce } from "@/lib/security/brute-force";
-import type { NotifEventKey } from "@/lib/preferences";
 
 const logger = log.child({ module: "kc-events-poll" });
 
@@ -125,14 +123,17 @@ async function setAdminCursor(ts: number): Promise<void> {
 }
 
 async function dispatch(event: KcEvent): Promise<void> {
+  // Polling jest **audit-only** dla typów które webhook /api/webhooks/keycloak
+  // już obsługuje (LOGIN_ERROR/UPDATE_PASSWORD/UPDATE_TOTP/REMOVE_TOTP/
+  // UPDATE_CREDENTIAL/REMOVE_CREDENTIAL). Bez tej granicy każdy event
+  // wysyłał 2 maile: jeden z webhook real-time, drugi z poll cycle.
+  // Webhook = single source of truth dla notyfikacji + brute-force.
+  // Polling = backup audit trail w mp_security_events + handler dla
+  // admin-events których webhook nie łapie (pollAdminEvents poniżej).
   const type = event.type ?? "";
-  const userId = event.userId;
   const email = event.details?.username;
   const ip = event.ipAddress;
 
-  // Każdy event dostaje wpis w mp_security_events (audit-trail), niezależnie
-  // od typu. recordEvent dodatkowo wystrzeliwuje admin.security.event.high
-  // dla severity=high|critical.
   if (type) {
     const sev =
       type.endsWith("_ERROR") || type === "LOGIN_ERROR" ? "medium" : "info";
@@ -147,92 +148,9 @@ async function dispatch(event: KcEvent): Promise<void> {
       details: {
         eventType: type,
         clientId: event.clientId,
-        userId,
+        userId: event.userId,
       },
     }).catch(() => undefined);
-  }
-
-  // LOGIN_ERROR → security.login.failed + brute-force check
-  if (type === "LOGIN_ERROR") {
-    if (ip) {
-      void checkBruteForce({ srcIp: ip, targetUser: email }).catch(() => undefined);
-    }
-    if (email) {
-      const uid = await getUserIdByEmail(email);
-      if (uid) {
-        await notifyUser(uid, "security.login.failed", {
-          title: "Nieudana próba logowania",
-          body: `Z IP ${ip ?? "?"} próbowano zalogować się na Twoje konto. Jeśli to nie Ty — zmień hasło i włącz 2FA.`,
-          severity: "warning",
-          payload: { ip, error: event.error, clientId: event.clientId },
-        });
-      }
-    }
-    return;
-  }
-
-  // UPDATE_PASSWORD → security.password.changed (forceEmail)
-  if (type === "UPDATE_PASSWORD" && userId) {
-    await notifyUser(userId, "security.password.changed", {
-      title: "Zmieniono hasło na Twoim koncie",
-      body: `Hasło zostało zmienione ${new Date().toLocaleString("pl-PL")}${ip ? `, z IP ${ip}` : ""}. Jeśli to nie Ty — natychmiast skontaktuj się z administratorem i włącz 2FA.`,
-      severity: "warning",
-      payload: { ip },
-      forceEmail: true,
-    });
-    return;
-  }
-
-  // SEND_RESET_PASSWORD / EXECUTE_ACTIONS — info-only event, nie generujemy
-  // powiadomienia (user sam triggerował akcję, niepotrzebny szum).
-
-  // REMOVE_TOTP / UPDATE_TOTP → security.totp.removed / .configured
-  if (type === "UPDATE_TOTP" && userId) {
-    await notifyUser(userId, "security.totp.configured", {
-      title: "Skonfigurowano aplikację 2FA",
-      body: `Aplikacja TOTP została skonfigurowana ${new Date().toLocaleString("pl-PL")}${ip ? `, z IP ${ip}` : ""}. Jeśli to nie Ty — natychmiast skontaktuj się z administratorem.`,
-      severity: "success",
-      payload: { ip },
-      forceEmail: true,
-    });
-    return;
-  }
-  if (type === "REMOVE_TOTP" && userId) {
-    await notifyUser(userId, "security.totp.removed", {
-      title: "Usunięto aplikację 2FA",
-      body: `Aplikacja TOTP została usunięta z konta ${new Date().toLocaleString("pl-PL")}${ip ? `, z IP ${ip}` : ""}. Jeśli to nie Ty — natychmiast skontaktuj się z administratorem.`,
-      severity: "warning",
-      payload: { ip },
-      forceEmail: true,
-    });
-    return;
-  }
-
-  // UPDATE_CREDENTIAL z type=webauthn / webauthn-passwordless
-  // → security.webauthn.configured. KC poll catch-uje przez generic event.
-  if (
-    (type === "UPDATE_CREDENTIAL" || type === "REGISTER") &&
-    userId &&
-    /webauthn/i.test(JSON.stringify(event.details ?? {}))
-  ) {
-    await notifyUser(userId, "security.webauthn.configured", {
-      title: "Zarejestrowano klucz bezpieczeństwa",
-      body: `Klucz bezpieczeństwa / passkey został zarejestrowany ${new Date().toLocaleString("pl-PL")}${ip ? `, z IP ${ip}` : ""}. Jeśli to nie Ty — natychmiast skontaktuj się z administratorem.`,
-      severity: "success",
-      payload: { ip },
-      forceEmail: true,
-    });
-    return;
-  }
-  if (type === "REMOVE_CREDENTIAL" && userId) {
-    await notifyUser(userId, "security.webauthn.removed", {
-      title: "Usunięto klucz bezpieczeństwa",
-      body: `Klucz bezpieczeństwa / passkey został usunięty ${new Date().toLocaleString("pl-PL")}${ip ? `, z IP ${ip}` : ""}. Jeśli to nie Ty — natychmiast skontaktuj się z administratorem.`,
-      severity: "warning",
-      payload: { ip },
-      forceEmail: true,
-    });
-    return;
   }
 }
 

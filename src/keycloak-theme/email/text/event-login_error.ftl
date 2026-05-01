@@ -1,7 +1,7 @@
 <#ftl output_format="plainText">
 ${msg("mpEventLoginErrorHeading")}
 
-${msg("mpEventLoginErrorLead", event.date, event.ipAddress)}
+${msg("mpEventLoginErrorLead", (event.date)!"", (event.ipAddress)!"")}
 
 ${msg("mpEventNotMeNotice")}
 

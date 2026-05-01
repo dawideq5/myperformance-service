@@ -1,7 +1,7 @@
 <#ftl output_format="plainText">
 ${msg("mpEventRemoveTotpHeading")}
 
-${msg("mpEventRemoveTotpLead", event.date, event.ipAddress)}
+${msg("mpEventRemoveTotpLead", (event.date)!"", (event.ipAddress)!"")}
 
 ${msg("mpEventNotMeNotice")}
 

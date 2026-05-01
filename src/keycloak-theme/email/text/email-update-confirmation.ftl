@@ -1,11 +1,11 @@
 <#ftl output_format="plainText">
 ${msg("mpEmailUpdateHeading")}
 
-${msg("mpEmailUpdateLead", realmName, newEmail)}
+${msg("mpEmailUpdateLead", (realmName)!"", (newEmail)!"")}
 
-${link}
+${(link)!""}
 
-${msg("mpLinkExpiryNotice", linkExpirationFormatter(linkExpiration))}
+${msg("mpLinkExpiryNotice", (linkExpirationFormatter(linkExpiration))!"")}
 
 ${msg("mpEmailUpdateIgnore")}
 

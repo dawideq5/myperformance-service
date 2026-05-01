@@ -6,8 +6,35 @@ export type TabId =
   | "templates"
   | "layouts"
   | "smtp"
+  | "smtp-profiles"
   | "branding"
   | "postal";
+
+// ── SMTP Profiles (per-brand outgoing mail config) ──────────────────────────
+
+export interface SmtpProfileRow {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  host: string;
+  port: number;
+  secure: boolean;
+  username: string;
+  passwordRef: string | null;
+  /** Always null in API responses (server masks it). UI uses
+   * `hasPasswordPlain` to render badge "wpisane w DB". */
+  passwordPlain: string | null;
+  hasPasswordPlain: boolean;
+  fromAddress: string;
+  fromName: string;
+  replyTo: string | null;
+  postalOrgName: string | null;
+  postalServerName: string | null;
+  isDefault: boolean;
+  updatedAt: string;
+  updatedBy: string | null;
+}
 
 // ── Templates ───────────────────────────────────────────────────────────────
 
@@ -110,6 +137,7 @@ export interface Branding {
   legalName: string | null;
   fromDisplay: string | null;
   replyTo: string | null;
+  defaultSmtpProfileSlug: string | null;
   updatedAt: string;
   updatedBy: string | null;
 }

@@ -2,14 +2,14 @@
 ${msg("mpOrgInviteHeading")}
 
 <#if firstName?? && lastName??>
-${msg("mpOrgInviteLeadPersonalized", firstName, lastName, organization.name)}
+${msg("mpOrgInviteLeadPersonalized", firstName, lastName, (organization.name)!"")}
 <#else>
-${msg("mpOrgInviteLead", organization.name)}
+${msg("mpOrgInviteLead", (organization.name)!"")}
 </#if>
 
-${link}
+${(link)!""}
 
-${msg("mpLinkExpiryNotice", linkExpirationFormatter(linkExpiration))}
+${msg("mpLinkExpiryNotice", (linkExpirationFormatter(linkExpiration))!"")}
 
 ${msg("mpOrgInviteIgnore")}
 

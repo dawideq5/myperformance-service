@@ -50,3 +50,12 @@ export {
 } from "./templates";
 export type { OvhConfig } from "./ovh-config";
 export { getOvhConfig, updateOvhConfig } from "./ovh-config";
+export type { SmtpProfile, SmtpProfileInput } from "./smtp-profiles";
+export {
+  ensureDefaultSmtpProfiles,
+  listSmtpProfiles,
+  getSmtpProfile,
+  getDefaultSmtpProfile,
+  upsertSmtpProfile,
+  deleteSmtpProfile,
+} from "./smtp-profiles";
