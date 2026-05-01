@@ -75,8 +75,25 @@ const securityHeaders = [
 
 const nextConfig = {
   output: "standalone",
-  reactStrictMode: true,
+  // Strict Mode dubluje mounty w dev — Leaflet rzuca "Map container
+  // is already initialized" bo drugi `L.map()` trafia na zajęty `_leaflet_id`.
+  // W prod Strict Mode nie podwaja, więc to wyłączenie nie zmniejsza
+  // bezpieczeństwa — jest to dev-only quirk biblioteki react-leaflet.
+  reactStrictMode: false,
   poweredByHeader: false,
+  // Pin tracing root do tego panelu — bez tego Next.js wykrywa lockfile
+  // root projektu i emituje warning na każdym restarcie.
+  outputFileTracingRoot: __dirname,
+  // Edge middleware NIE widzi process.env vars przekazanych z command-line.
+  // Mapping przez `env:` inlinuje wartości w bundle middleware'u, więc
+  // DEV_CERT_BYPASS=true działa po stronie Edge runtime.
+  env: {
+    DEV_CERT_BYPASS: process.env.DEV_CERT_BYPASS ?? "",
+    CERT_GATE_URL: process.env.CERT_GATE_URL ?? "",
+    CERT_GATE_SECRET: process.env.CERT_GATE_SECRET ?? "",
+    CERT_GATE_DEBUG: process.env.CERT_GATE_DEBUG ?? "",
+    MTLS_REQUIRED: process.env.MTLS_REQUIRED ?? "",
+  },
   experimental: {
     optimizePackageImports: ["lucide-react"],
   },

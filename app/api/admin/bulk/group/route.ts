@@ -9,6 +9,10 @@ import {
   createSuccessResponse,
   handleApiError,
 } from "@/lib/api-utils";
+import { syncNativeProvidersFromKcRoles } from "@/lib/permissions/sync";
+import { log } from "@/lib/logger";
+
+const logger = log.child({ module: "admin-bulk-group" });
 
 interface Payload {
   userIds: string[];
@@ -85,6 +89,19 @@ export async function POST(req: Request) {
           });
           continue;
         }
+        // Pre-create natywne konta dla composite roles z grupy. Bez tego
+        // bulk-add 50 userów do "Sprzedawca" → wszyscy widzą error przy
+        // pierwszym SSO do Moodle. Fire-and-forget — bulk operation nie
+        // czeka na 50× provider syncs.
+        void syncNativeProvidersFromKcRoles({
+          userId,
+          actor: `admin:bulk-group:${session?.user?.email ?? "unknown"}`,
+        }).catch((err) => {
+          logger.warn("syncNativeProvidersFromKcRoles failed (non-fatal)", {
+            userId,
+            err: err instanceof Error ? err.message : String(err),
+          });
+        });
         results.push({ userId, status: "ok", removedGroups });
       } catch (err) {
         results.push({

@@ -13,6 +13,7 @@ const preloadPhoneModel = () => {
   );
 };
 import { signOut } from "next-auth/react";
+import { DASHBOARD_HOME_URL } from "@/lib/dashboard-url";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -186,7 +187,7 @@ export function PanelHome({
           </p>
           <div className="flex gap-2 justify-center">
             <a
-              href="https://myperformance.pl/dashboard"
+              href={DASHBOARD_HOME_URL}
               className="px-4 py-2 rounded-lg text-sm font-medium"
               style={{
                 background: "var(--accent)",
@@ -228,7 +229,7 @@ export function PanelHome({
         >
           <div className="mx-auto max-w-7xl px-4 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-4">
             <a
-              href="https://myperformance.pl/dashboard"
+              href={DASHBOARD_HOME_URL}
               className="flex items-center gap-2 font-bold tracking-tight"
               style={{ color: "var(--text-main)" }}
             >
@@ -353,7 +354,7 @@ export function PanelHome({
         <div className="mx-auto max-w-7xl px-4 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
             <a
-              href="https://myperformance.pl/dashboard"
+              href={DASHBOARD_HOME_URL}
               className="flex-shrink-0 p-2 rounded-lg"
               style={{ color: "var(--text-muted)" }}
               aria-label="Wróć do dashboardu"

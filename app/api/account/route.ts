@@ -9,7 +9,6 @@ import {
   createSuccessResponse,
   requireSession,
 } from "@/lib/api-utils";
-import { withAdminContext } from "@/lib/keycloak-admin";
 import { enqueueProfilePropagation } from "@/lib/permissions/sync";
 
 export async function GET() {
@@ -119,6 +118,11 @@ export async function GET() {
   }
 }
 
+// Whitelist atrybutów, które user-facing /account może modyfikować.
+// firstName/lastName/email są CELOWO read-only po stronie usera —
+// admin-flow dla tych pól to /admin/users/[id]. Patrz feedback_security_no_runtime_toggle.
+const USER_EDITABLE_ATTRIBUTES = new Set<string>(["phone-number"]);
+
 export async function PUT(request: Request) {
   try {
     const session = await getServerSession(authOptions);
@@ -126,7 +130,47 @@ export async function PUT(request: Request) {
 
     const accessToken = session.accessToken ?? "";
     const body = await request.json();
-    const { firstName, lastName, email, attributes } = body;
+    const { firstName, lastName, email, attributes } = body as {
+      firstName?: unknown;
+      lastName?: unknown;
+      email?: unknown;
+      attributes?: Record<string, unknown>;
+    };
+
+    // Hard-reject zmian na polach należących do KC source-of-truth.
+    // Whitelist approach — wszystko co poza phone-number zostaje odrzucone
+    // z 400. Wysyłanie tych pól przez user-facing /account jest błędem
+    // klienta (UI wystawia je read-only), więc nie próbujemy ich silently
+    // ignorować — głośne 400 ułatwia diagnostykę.
+    if (firstName !== undefined) {
+      throw ApiError.badRequest(
+        "Imienia nie można edytować z poziomu konta użytkownika",
+        "firstName is read-only on user-facing /account; use /admin/users/:id",
+      );
+    }
+    if (lastName !== undefined) {
+      throw ApiError.badRequest(
+        "Nazwiska nie można edytować z poziomu konta użytkownika",
+        "lastName is read-only on user-facing /account; use /admin/users/:id",
+      );
+    }
+    if (email !== undefined) {
+      throw ApiError.badRequest(
+        "Adresu email nie można edytować z poziomu konta użytkownika",
+        "email is read-only on user-facing /account; use /admin/users/:id",
+      );
+    }
+
+    if (attributes && typeof attributes === "object") {
+      for (const key of Object.keys(attributes)) {
+        if (!USER_EDITABLE_ATTRIBUTES.has(key)) {
+          throw ApiError.badRequest(
+            `Atrybut "${key}" nie może być edytowany z poziomu konta użytkownika`,
+            `attribute "${key}" not in user-editable whitelist`,
+          );
+        }
+      }
+    }
 
     const userId = await keycloak.getUserIdFromToken(accessToken);
     const adminToken = await keycloak.getServiceAccountToken();
@@ -150,17 +194,28 @@ export async function PUT(request: Request) {
     }
 
     const currentUser = await userRes.json();
-    const isEmailChanged = email && email !== currentUser.email;
 
-    const updateBody: Record<string, unknown> = {};
-    if (firstName !== undefined) updateBody.firstName = firstName;
-    if (lastName !== undefined) updateBody.lastName = lastName;
-    if (email !== undefined) updateBody.email = email;
+    // Wyłącznie merge `phone-number` (i innych whitelisted attrs) —
+    // zachowujemy resztę current user attributes intact. firstName /
+    // lastName / email nie są w ogóle wkładane do updateBody.
+    const filteredAttributes: Record<string, string[]> = {};
+    if (attributes && typeof attributes === "object") {
+      for (const key of Object.keys(attributes)) {
+        if (!USER_EDITABLE_ATTRIBUTES.has(key)) continue;
+        const value = (attributes as Record<string, unknown>)[key];
+        if (Array.isArray(value)) {
+          filteredAttributes[key] = value.filter(
+            (v): v is string => typeof v === "string",
+          );
+        }
+      }
+    }
 
-    // Merge attributes
-    updateBody.attributes = {
-      ...(currentUser.attributes || {}),
-      ...(attributes || {}),
+    const updateBody: Record<string, unknown> = {
+      attributes: {
+        ...(currentUser.attributes || {}),
+        ...filteredAttributes,
+      },
     };
 
     const updateRes = await fetch(keycloak.getAdminUrl(`/users/${userId}`), {
@@ -182,38 +237,15 @@ export async function PUT(request: Request) {
       );
     }
 
-    let googleDisconnected = false;
-    if (isEmailChanged) {
-      try {
-        await withAdminContext(accessToken, async (adminToken, userId) => {
-          await keycloak.removeFederatedIdentity(adminToken, userId, "google");
-          await keycloak.updateUserAttributes(adminToken, userId, {
-            google_features_requested: [],
-          });
-          return null;
-        });
-        googleDisconnected = true;
-      } catch (disconnectErr) {
-        console.error(
-          "[API /account PUT] Failed to disconnect Google after email change:",
-          disconnectErr
-        );
-      }
-    }
-
-    // Propagacja nowego profilu do wszystkich natywnych aplikacji
-    // (Chatwoot, Directus, Moodle, Outline, Documenso, Postal). Odpala
-    // się asynchronicznie przez kolejkę z retry, żeby chwilowy down
-    // któregoś providera nie zablokował PUT-a. User zostaje zalogowany
-    // — cache'e w natywnych apkach odświeżymy push-em, nie forsowanym
-    // wylogowaniem KC.
-    const isProfileChanged =
-      (firstName !== undefined && firstName !== currentUser.firstName) ||
-      (lastName !== undefined && lastName !== currentUser.lastName) ||
-      isEmailChanged;
-    if (isProfileChanged) {
+    // Propagacja phone do natywnych providerów (Chatwoot/Directus/etc).
+    // KC source-of-truth → kolejka z retry. firstName/lastName/email
+    // niezmienione, więc jedyny powód propagacji to phone.
+    const phoneChanged =
+      filteredAttributes["phone-number"] !== undefined &&
+      JSON.stringify(filteredAttributes["phone-number"]) !==
+        JSON.stringify(currentUser.attributes?.["phone-number"] ?? []);
+    if (phoneChanged) {
       void enqueueProfilePropagation(userId, {
-        previousEmail: isEmailChanged ? currentUser.email : undefined,
         actor: session.user?.email ?? `user:${userId}`,
       }).catch((err) => {
         console.warn(
@@ -223,7 +255,10 @@ export async function PUT(request: Request) {
       });
     }
 
-    return createSuccessResponse({ googleDisconnected, profilePropagated: isProfileChanged });
+    return createSuccessResponse({
+      googleDisconnected: false,
+      profilePropagated: phoneChanged,
+    });
   } catch (error) {
     return handleApiError(error);
   }

@@ -3,6 +3,7 @@
 import { signOut } from "next-auth/react";
 import { ArrowLeft, LogOut, Truck, User as UserIcon } from "lucide-react";
 import { DriverDispatch } from "./tabs/DriverDispatch";
+import { DASHBOARD_HOME_URL } from "@/lib/dashboard-url";
 
 export function DriverHome({
   userLabel,
@@ -26,7 +27,7 @@ export function DriverHome({
         <div className="mx-auto max-w-7xl px-4 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
             <a
-              href="https://myperformance.pl/dashboard"
+              href={DASHBOARD_HOME_URL}
               className="flex-shrink-0 p-2 rounded-lg"
               style={{ color: "var(--text-muted)" }}
               aria-label="Wróć do dashboardu"

@@ -4,7 +4,7 @@ import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
 import { keycloak } from "@/lib/keycloak";
 import { requireAdminPanel } from "@/lib/admin-auth";
-import { withExternalClient } from "@/lib/db";
+import { ExternalServiceUnavailableError, withExternalClient } from "@/lib/db";
 import {
   ApiError,
   createSuccessResponse,
@@ -121,6 +121,15 @@ export async function GET(_req: Request, { params }: Ctx) {
       });
     });
   } catch (error) {
+    if (error instanceof ExternalServiceUnavailableError) {
+      return createSuccessResponse({
+        allOrganisations: [],
+        memberships: [],
+        documensoUserId: null,
+        userEmail: null,
+        degraded: true,
+      });
+    }
     return handleApiError(error);
   }
 }
@@ -230,6 +239,11 @@ export async function POST(req: Request, { params }: Ctx) {
       }
     });
   } catch (error) {
+    if (error instanceof ExternalServiceUnavailableError) {
+      return handleApiError(
+        ApiError.serviceUnavailable("Documenso niedostępne w trybie deweloperskim"),
+      );
+    }
     return handleApiError(error);
   }
 }

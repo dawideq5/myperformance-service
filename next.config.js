@@ -180,6 +180,10 @@ const securityHeaders = [
 const nextConfig = {
   reactStrictMode: true,
   output: "standalone",
+  // Pin tracing root do tego workspace — bez tego Next.js wykrywa
+  // wiele lockfiles w drzewie (panele/ + root) i emituje warning na
+  // każdym restarcie dev servera.
+  outputFileTracingRoot: __dirname,
   // mysql2 używa dynamicznego wymagania natywnych bindingów — bundler
   // Next'a go tree-shakuje/przekształca błędnie. Marking as server-external
   // packuje go tak jak `pg`.
@@ -229,6 +233,22 @@ const nextConfig = {
       ...(config.resolve.alias || {}),
       "@": path.resolve(__dirname),
     };
+    // Node.js built-ins nie istnieją w bundle przeglądarki. Moduły
+    // isomorficzne (np. lib/permissions/areas.ts) używają require("fs") tylko
+    // jako last-resort fallback — webpack musi je zignorować po stronie klienta.
+    if (!isServer) {
+      config.resolve.fallback = {
+        ...(config.resolve.fallback || {}),
+        fs: false,
+        path: false,
+        crypto: false,
+        stream: false,
+        net: false,
+        tls: false,
+        os: false,
+        child_process: false,
+      };
+    }
     // OpenTelemetry i gRPC używają Node.js built-ins (fs, stream, net, tls).
     // Webpack nie potrafi ich bundlować dla przeglądarki ani dla Edge runtime.
     // Instrumentation.ts jest server-only ale webpack i tak próbuje statycznie
@@ -250,6 +270,8 @@ const nextConfig = {
             "crypto", "stream", "fs", "net", "tls", "path", "os", "http",
             "https", "zlib", "events", "util", "buffer", "querystring",
             "url", "dns", "child_process", "process", "assert",
+            "string_decoder", "timers", "tty", "readline", "worker_threads",
+            "perf_hooks", "v8", "vm", "module", "punycode",
           ];
           if (request && NODE_BUILTINS.includes(request)) {
             return callback(null, `commonjs ${request}`);

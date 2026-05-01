@@ -10,20 +10,27 @@ interface Ctx {
   params: Promise<{ slug: string }>;
 }
 
-const PANEL_DOMAINS: Record<string, { domain: string; label: string }> = {
+const PANEL_DOMAINS: Record<string, { domain: string; label: string; devPort: number }> = {
   sprzedawca: {
     domain: "panelsprzedawcy.myperformance.pl",
     label: "Panel Sprzedawcy",
+    devPort: 3001,
   },
   serwisant: {
     domain: "panelserwisanta.myperformance.pl",
     label: "Panel Serwisanta",
+    devPort: 3002,
   },
   kierowca: {
     domain: "panelkierowcy.myperformance.pl",
     label: "Panel Kierowcy",
+    devPort: 3003,
   },
 };
+
+const isDevBypass =
+  process.env.NODE_ENV === "development" &&
+  process.env.DEV_CERT_BYPASS === "true";
 
 /**
  * Preflight launcher dla paneli mTLS. User klika tile na dashboardzie →
@@ -96,8 +103,9 @@ export async function GET(_req: Request, { params }: Ctx) {
 
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) {
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://myperformance.pl";
     return NextResponse.redirect(
-      new URL(`/login?callbackUrl=/panel/${slug}/launch`, "https://myperformance.pl"),
+      new URL(`/login?callbackUrl=/panel/${slug}/launch`, appUrl),
     );
   }
 
@@ -107,6 +115,11 @@ export async function GET(_req: Request, { params }: Ctx) {
       `<html><body style="font-family:sans-serif;padding:40px;text-align:center"><h2>Brak dostępu</h2><p>Nie masz uprawnień do ${panel.label}. Skontaktuj się z administratorem.</p><a href="/dashboard">← Dashboard</a></body></html>`,
       { status: 403, headers: { "Content-Type": "text/html; charset=utf-8" } },
     );
+  }
+
+  // DEV bypass — skip cert check i przekieruj na lokalny port panelu.
+  if (isDevBypass) {
+    return NextResponse.redirect(`http://localhost:${panel.devPort}/`);
   }
 
   // Cert check: szukamy active cert dla email usera.

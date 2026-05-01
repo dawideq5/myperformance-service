@@ -105,7 +105,10 @@ describe("documenso provider — assignUserRole transaction flow", () => {
     expect(updateCall?.args[1]).toEqual(["USER", "ADMIN"]);
   });
 
-  it("z DOCUMENSO_ORGANISATION_ID — wywołuje INSERT OrganisationMember + grupowy flow", async () => {
+  it("NIE auto-przypisuje organizacji nawet gdy DOCUMENSO_ORGANISATION_ID jest ustawione", async () => {
+    // Polityka 2026-05-01: assignUserRole zmienia tylko User.roles. Org
+    // membership musi być nadane explicite przez admina via panel
+    // /admin/users/[id] → tab Documenso.
     process.env.DOCUMENSO_ORGANISATION_ID = "org-uuid";
     mockQueryImpl = (sql) => {
       if (/^UPDATE "User"/i.test(sql.trim())) return { rowCount: 1, rows: [] };
@@ -131,21 +134,22 @@ describe("documenso provider — assignUserRole transaction flow", () => {
     const sqls = clientCalls.map((c) => c.sql.trim());
     expect(sqls).toContain("BEGIN");
     expect(sqls).toContain("COMMIT");
+    // ŻADEN z org-related queries nie powinien się wykonać.
     expect(
       sqls.some((s) =>
         /DELETE FROM "Organisation"\s+WHERE type = 'PERSONAL'/i.test(s),
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       sqls.some((s) =>
         /INSERT INTO "OrganisationMember"/i.test(s),
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       sqls.some((s) =>
         /INSERT INTO "OrganisationGroupMember"/i.test(s),
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("ROLLBACK gdy query rzuci nie-deadlock błąd (FK violation)", async () => {

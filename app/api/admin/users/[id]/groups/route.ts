@@ -9,6 +9,10 @@ import {
   handleApiError,
 } from "@/lib/api-utils";
 import { requireAdminPanel } from "@/lib/admin-auth";
+import { syncNativeProvidersFromKcRoles } from "@/lib/permissions/sync";
+import { log } from "@/lib/logger";
+
+const logger = log.child({ module: "admin-user-groups" });
 
 interface Ctx {
   params: Promise<{ id: string }>;
@@ -84,6 +88,24 @@ export async function POST(req: Request, { params }: Ctx) {
         );
       }
     }
+
+    // Po zmianie grup: kolejkuj sync natywnych providerów (Moodle, Chatwoot,
+    // Outline itd.) — composite roles z grup mapują na area natywny, więc
+    // user musi być pre-created w aplikacji ZANIM spróbuje SSO (inaczej
+    // np. Moodle: "There was a problem logging you in"). Fire-and-forget,
+    // job worker retryuje przy transient failures.
+    if (join.length > 0) {
+      void syncNativeProvidersFromKcRoles({
+        userId: id,
+        actor: `admin:groups-update:${session?.user?.email ?? "unknown"}`,
+      }).catch((err) => {
+        logger.warn("syncNativeProvidersFromKcRoles failed (non-fatal)", {
+          userId: id,
+          err: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
+
     return createSuccessResponse({ ok: true });
   } catch (error) {
     return handleApiError(error);

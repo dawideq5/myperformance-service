@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useSession } from "next-auth/react";
 import { Bell, Check, Trash2 } from "lucide-react";
 import Link from "next/link";
 
 import { Badge, useToast } from "@/components/ui";
 import { RelativeTime } from "@/components/ui";
-import { MessageSquare, GraduationCap, FileText, type LucideIcon } from "lucide-react";
+import { MessageSquare, GraduationCap, FileText, FileSignature, type LucideIcon } from "lucide-react";
 
 interface InboxItem {
   id: string;
@@ -47,6 +48,14 @@ const EVENT_KEY_STYLES: Array<{ prefix: string; style: EventStyle }> = [
     prefix: "knowledge.",
     style: { Icon: FileText, color: "text-emerald-400" },
   },
+  {
+    prefix: "documenso.",
+    style: { Icon: FileSignature, color: "text-amber-400" },
+  },
+  {
+    prefix: "documents.",
+    style: { Icon: FileSignature, color: "text-amber-400" },
+  },
 ];
 
 function getEventStyle(eventKey: string): EventStyle | null {
@@ -63,6 +72,7 @@ function getEventStyle(eventKey: string): EventStyle | null {
  * contextów (header backdrop-blur, hover transform, itd).
  */
 export function NotificationBell() {
+  const { status } = useSession();
   const [items, setItems] = useState<InboxItem[]>([]);
   const [unread, setUnread] = useState(0);
   const [open, setOpen] = useState(false);
@@ -117,12 +127,15 @@ export function NotificationBell() {
   }, [toast]);
 
   useEffect(() => {
+    // Czekamy aż NextAuth zhydratuje sesję — bez tego pierwszy fetch leci
+    // przed cookie session-token i wraca 401 widoczny w konsoli.
+    if (status !== "authenticated") return;
     void load();
     const iv = window.setInterval(() => {
       void load();
     }, POLL_INTERVAL_MS);
     return () => window.clearInterval(iv);
-  }, [load]);
+  }, [load, status]);
 
   useLayoutEffect(() => {
     if (!open || !buttonRef.current) return;

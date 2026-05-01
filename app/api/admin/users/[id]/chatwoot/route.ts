@@ -5,7 +5,7 @@ import { authOptions } from "@/app/auth";
 import { keycloak } from "@/lib/keycloak";
 import { getOptionalEnv } from "@/lib/env";
 import { requireAdminPanel } from "@/lib/admin-auth";
-import { withExternalClient } from "@/lib/db";
+import { ExternalServiceUnavailableError, withExternalClient } from "@/lib/db";
 import {
   ApiError,
   createSuccessResponse,
@@ -87,6 +87,15 @@ export async function GET(_req: Request, { params }: Ctx) {
       });
     });
   } catch (error) {
+    if (error instanceof ExternalServiceUnavailableError) {
+      return createSuccessResponse({
+        allInboxes: [],
+        assignedInboxIds: [],
+        chatwootUserId: null,
+        accountRole: null,
+        degraded: true,
+      });
+    }
     return handleApiError(error);
   }
 }
@@ -161,6 +170,11 @@ export async function POST(req: Request, { params }: Ctx) {
       return createSuccessResponse({ ok: true });
     });
   } catch (error) {
+    if (error instanceof ExternalServiceUnavailableError) {
+      return handleApiError(
+        ApiError.serviceUnavailable("Chatwoot niedostępne w trybie deweloperskim"),
+      );
+    }
     return handleApiError(error);
   }
 }

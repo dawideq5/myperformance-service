@@ -225,7 +225,6 @@ export class DocumensoProvider implements PermissionProvider {
       args.roleId && isTeamRole(args.roleId) ? args.roleId : ROLE_MEMBER;
     const globalRoles = documensoGlobalRolesForTeamRole(teamRole);
 
-    const cfg = getConfig();
     await withDeadlockRetry(async () => {
     const client = await getPool().connect();
     try {
@@ -243,91 +242,14 @@ export class DocumensoProvider implements PermissionProvider {
       );
       const updated = (res.rowCount ?? 0) > 0;
 
-      if (updated && (cfg.teamId !== null || cfg.organisationId !== null)) {
-        const userRes = await client.query<{ id: number }>(
-          `SELECT id FROM "User" WHERE LOWER(email) = LOWER($1) LIMIT 1`,
-          [args.email],
-        );
-        const userId = userRes.rows[0]?.id;
-        if (userId) {
-          // Documenso auto-tworzy "Personal Organisation" dla każdego nowego
-          // usera przy OIDC signup. Admin nie chce ich mnożyć — po dodaniu
-          // do shared org kasujemy personal orgs których owner to nasz user.
-          // ON DELETE CASCADE w OrganisationMember posprząta membership.
-          if (cfg.organisationId !== null) {
-            await client.query(
-              `DELETE FROM "Organisation"
-                WHERE type = 'PERSONAL' AND "ownerUserId" = $1 AND id <> $2`,
-              [userId, cfg.organisationId],
-            );
-          }
-          // Organisation + team membership (Documenso v2 model).
-          // Uwaga: `OrganisationMember` NIE ma kolumny `role` — role trzyma
-          // `OrganisationGroup.organisationRole`, a przypisanie robi się
-          // przez `OrganisationGroupMember`. Team-role dziedziczy przez
-          // `TeamGroup` binding (group → team → teamRole).
-          if (cfg.organisationId !== null) {
-            const orgRole =
-              teamRole === ROLE_ADMIN
-                ? "ADMIN"
-                : teamRole === ROLE_MANAGER
-                  ? "MANAGER"
-                  : "MEMBER";
-
-            // 1. Upewnij się że user jest członkiem org (idempotentnie).
-            await client.query(
-              `INSERT INTO "OrganisationMember"
-                 (id, "organisationId", "userId", "createdAt", "updatedAt")
-               VALUES (gen_random_uuid()::text, $1, $2, NOW(), NOW())
-               ON CONFLICT ("userId", "organisationId") DO NOTHING`,
-              [cfg.organisationId, userId],
-            );
-
-            // 2. Team membership w v2 idzie przez OrganisationGroupMember →
-            //    OrganisationGroup → TeamGroup. Seed Documenso tworzy 3
-            //    INTERNAL_ORGANISATION grupy (ADMIN/MANAGER/MEMBER) bindowane
-            //    do każdego team. Dodanie user do tej grupy automatycznie
-            //    przyznaje team-role zgodnie z TeamGroup binding.
-            const groupRes = await client.query<{ id: string }>(
-              `SELECT id FROM "OrganisationGroup"
-                WHERE "organisationId" = $1
-                  AND "organisationRole" = $2::"OrganisationMemberRole"
-                  AND type = 'INTERNAL_ORGANISATION'
-                LIMIT 1`,
-              [cfg.organisationId, orgRole],
-            );
-            const targetGroupId = groupRes.rows[0]?.id;
-
-            if (targetGroupId) {
-              // 3. Usuń user z innych INTERNAL_ORGANISATION grup tej org
-              //    (single-role-per-org na poziomie grupy).
-              await client.query(
-                `DELETE FROM "OrganisationGroupMember" ogm
-                  USING "OrganisationMember" om, "OrganisationGroup" og
-                  WHERE ogm."organisationMemberId" = om.id
-                    AND ogm."groupId" = og.id
-                    AND om."userId" = $1
-                    AND og."organisationId" = $2
-                    AND og.type = 'INTERNAL_ORGANISATION'
-                    AND og.id <> $3`,
-                [userId, cfg.organisationId, targetGroupId],
-              );
-              // 4. Upewnij się że user jest w target grupie. INSERT przez
-              //    JOIN z OrganisationMember (FK) + unique constraint
-              //    (organisationMemberId, groupId) pilnuje idempotency.
-              await client.query(
-                `INSERT INTO "OrganisationGroupMember"
-                   (id, "organisationMemberId", "groupId")
-                 SELECT gen_random_uuid()::text, om.id, $1
-                   FROM "OrganisationMember" om
-                  WHERE om."userId" = $2 AND om."organisationId" = $3
-                 ON CONFLICT ("organisationMemberId", "groupId") DO NOTHING`,
-                [targetGroupId, userId, cfg.organisationId],
-              );
-            }
-          }
-        }
-      }
+      // UWAGA: NIE przypisujemy automatycznie organisation/team membership.
+      // Documenso area-role (documenso_member/manager/admin) decyduje
+      // wyłącznie o globalnym `User.roles` (USER vs USER+ADMIN). Members
+      // organizacji nadaje admin EXPLICITNIE przez panel /admin/users/[id]
+      // → tab Documenso (POST /api/admin/users/[id]/documenso). Auto-org
+      // assignment był usunięty 2026-05-01 — wcześniej każdy user z rolą
+      // documenso_* dostawał członkostwo w DOCUMENSO_ORGANISATION_ID, co
+      // łamało politykę "org membership tylko gdy admin sam to przyznał".
       await client.query("COMMIT");
 
       if (!updated) {

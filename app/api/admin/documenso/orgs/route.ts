@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
 import { requireAdminPanel } from "@/lib/admin-auth";
-import { withExternalClient } from "@/lib/db";
+import { ExternalServiceUnavailableError, withExternalClient } from "@/lib/db";
 import {
   createSuccessResponse,
   handleApiError,
@@ -41,6 +41,9 @@ export async function GET() {
       });
     });
   } catch (error) {
+    if (error instanceof ExternalServiceUnavailableError) {
+      return createSuccessResponse({ organisations: [], degraded: true });
+    }
     return handleApiError(error);
   }
 }

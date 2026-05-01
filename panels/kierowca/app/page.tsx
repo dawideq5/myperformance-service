@@ -7,9 +7,12 @@ export default async function HomePage() {
   const session = await getServerSession(authOptions);
   if (!session) redirect("/login");
 
+  const devBypass =
+    process.env.NODE_ENV === "development" &&
+    process.env.DEV_CERT_BYPASS === "true";
   const roles = (session.user as { roles?: string[] } | undefined)?.roles ?? [];
   const hasRole = roles.includes("kierowca") || roles.includes("admin");
-  if (!hasRole) redirect("/forbidden");
+  if (!devBypass && !hasRole) redirect("/forbidden");
 
   const userLabel = session.user?.name ?? session.user?.email ?? "";
   const userEmail = session.user?.email ?? "";

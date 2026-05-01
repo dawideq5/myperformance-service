@@ -9,6 +9,7 @@ import {
   requireSession,
 } from "@/lib/api-utils";
 import { withClient } from "@/lib/db";
+import { isUserVisibleEvent } from "@/lib/preferences";
 
 interface InboxRow {
   id: string;
@@ -38,6 +39,13 @@ export async function GET(request: Request) {
       200,
     );
 
+    // Pobieramy z marginesem (×3) bo w mp_inbox są też audit eventy
+    // (security.*) których nie pokazujemy userowi — odfiltrowujemy je
+    // post-fetch przez `isUserVisibleEvent`. Limit×3 daje zapas żeby
+    // user widział `limit` user-facing eventów nawet jeśli ostatnie
+    // 50 wpisów to był burst security audit (np. po brute force).
+    const fetchLimit = Math.min(limit * 3, 600);
+
     const r = await withClient((c) =>
       c.query<InboxRow>(
         `SELECT id::text, event_key, title, body, severity,
@@ -47,21 +55,34 @@ export async function GET(request: Request) {
             ${unreadOnly ? "AND read_at IS NULL" : ""}
           ORDER BY created_at DESC
           LIMIT $2`,
-        [userId(session), limit],
+        [userId(session), fetchLimit],
       ),
     );
 
+    const visible = r.rows
+      .filter((row) => isUserVisibleEvent(row.event_key))
+      .slice(0, limit);
+
+    // Unread count też user-visible-only — bell badge nie powinien
+    // świecić gdy jedyne nieprzeczytane są to "security.login.new_device".
+    // Liczymy w aplikacji (mała liczba wierszy) zamiast budować skomplikowany
+    // SQL z dynamiczną listą event_keys.
     const totalUnread = await withClient(async (c) => {
-      const t = await c.query<{ n: string }>(
-        `SELECT COUNT(*)::text AS n FROM mp_inbox
-          WHERE user_id = $1 AND read_at IS NULL`,
+      const t = await c.query<{ event_key: string; n: string }>(
+        `SELECT event_key, COUNT(*)::text AS n FROM mp_inbox
+          WHERE user_id = $1 AND read_at IS NULL
+          GROUP BY event_key`,
         [userId(session)],
       );
-      return Number(t.rows[0]?.n ?? "0");
+      let total = 0;
+      for (const row of t.rows) {
+        if (isUserVisibleEvent(row.event_key)) total += Number(row.n);
+      }
+      return total;
     });
 
     return createSuccessResponse({
-      items: r.rows,
+      items: visible,
       unread: totalUnread,
     });
   } catch (error) {

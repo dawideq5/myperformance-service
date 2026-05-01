@@ -817,3 +817,83 @@ export async function enqueueAreaRoleAssignment(
     },
   });
 }
+
+/**
+ * Po zmianie członkostwa user-a w grupach KC (composite roles → realm roles)
+ * upewniamy się, że natywne aplikacje mają pre-created konto + przypisaną
+ * rolę. BEZ tego user dodany do grupy "Sprzedawca" (mappingowanej na
+ * `moodle_student`) widzi błąd przy SSO do Moodle bo `mdl_user` nie istnieje.
+ *
+ * Strategia:
+ *   1. Pobierz EFEKTYWNE realm role usera (composite z grup są resolvowane
+ *      przez `/role-mappings/realm/composite`).
+ *   2. Dla każdej roli, która mapuje na area natywny — kolejkuj
+ *      `role.assign` job (idempotent, retry/backoff).
+ *
+ * Fire-and-forget — caller nie czeka na natywne providery (Moodle WS może
+ * być wolne, Documenso DB może mieć latency). Job worker robi retry przy
+ * transient failures.
+ *
+ * Idempotent: ponowne wywołanie dla tego samego usera nie psuje stanu —
+ * `assignUserRole` providerów jest upsertem.
+ */
+export async function syncNativeProvidersFromKcRoles(args: {
+  userId: string;
+  actor?: string;
+}): Promise<void> {
+  ensureHandlersRegistered();
+  const adminToken = await keycloak.getServiceAccountToken();
+
+  // Effective roles = direct + composite (z group memberships). Endpoint
+  // `/users/{id}/role-mappings/realm/composite` zwraca wszystkie role które
+  // user ma efektywnie (włącznie z tymi z grup composite).
+  const res = await keycloak.adminRequest(
+    `/users/${args.userId}/role-mappings/realm/composite`,
+    adminToken,
+  );
+  if (!res.ok) {
+    logger.warn("syncNativeProvidersFromKcRoles: failed to list effective roles", {
+      userId: args.userId,
+      status: res.status,
+    });
+    return;
+  }
+  const effectiveRoles = (await res.json()) as RoleRepresentation[];
+
+  // Group by area — user może mieć tylko jedną rolę per area, więc gdy
+  // multiple match (rare drift), bierzemy najwyższy priority seed.
+  const byArea = new Map<string, string>();
+  for (const role of effectiveRoles) {
+    const area = findAreaForRole(role.name);
+    if (!area || area.provider !== "native") continue;
+    const existing = byArea.get(area.id);
+    if (!existing) {
+      byArea.set(area.id, role.name);
+      continue;
+    }
+    // Resolve conflict — preferuj seed z wyższym priority.
+    const existingSeed = area.kcRoles.find((s) => s.name === existing);
+    const newSeed = area.kcRoles.find((s) => s.name === role.name);
+    const existingPrio = existingSeed?.priority ?? 50;
+    const newPrio = newSeed?.priority ?? 50;
+    if (newPrio > existingPrio) {
+      byArea.set(area.id, role.name);
+    }
+  }
+
+  for (const [areaId, roleName] of byArea) {
+    await enqueueAreaRoleAssignment({
+      userId: args.userId,
+      areaId,
+      roleName,
+      actor: args.actor ?? "system:group-sync",
+    }).catch((err: unknown) => {
+      logger.warn("enqueueAreaRoleAssignment failed (non-fatal)", {
+        userId: args.userId,
+        areaId,
+        roleName,
+        err: err instanceof Error ? err.message : String(err),
+      });
+    });
+  }
+}

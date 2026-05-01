@@ -1,10 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  AlertTriangle,
-  ChevronDown,
-  ChevronRight,
   EyeOff,
   Fingerprint,
   MapPin,
@@ -26,14 +23,22 @@ import {
 } from "@/lib/services/certificates-service";
 import { BindingDetails } from "./BindingEventsPanel";
 
-/** Czy certyfikat jest "autoryzowany" — aktywny i ma przypisaną lokalizację */
-function isAuthorized(c: IssuedCertificate): boolean {
-  if (c.revokedAt) return false;
-  const now = new Date();
-  if (new Date(c.notAfter) < now) return false;
-  if (!c.locationId) return false;
-  return true;
+/** Klasyfikacja statusu certyfikatu — używana do badge i filtra. */
+type CertStatus = "active" | "no-location" | "expired" | "revoked";
+
+function classify(c: IssuedCertificate): CertStatus {
+  if (c.revokedAt) return "revoked";
+  if (new Date(c.notAfter) < new Date()) return "expired";
+  if (!c.locationId) return "no-location";
+  return "active";
 }
+
+const STATUS_LABEL: Record<CertStatus, string> = {
+  active: "autoryzowany",
+  "no-location": "bez lokalizacji",
+  expired: "wygasły",
+  revoked: "unieważniony",
+};
 
 /** Ile dni do wygaśnięcia (może być ujemne) */
 function daysLeft(notAfter: string): number {
@@ -70,11 +75,44 @@ export function CertListPanel({
   const [hiding, setHiding] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [assigningCert, setAssigningCert] = useState<IssuedCertificate | null>(null);
-  const [authOpen, setAuthOpen] = useState(true);
-  const [unauthOpen, setUnauthOpen] = useState(true);
+  // Flat-list controls — admin chce jedną listę z filtrem statusu i sortowaniem
+  // (poprzedni podział na "Autoryzowane" / "Nieautoryzowane" mylił, bo czasem
+  // cert był aktywny ale bez lokalizacji = nieautoryzowany; admin tracił
+  // kontekst).
+  const [filter, setFilter] = useState<"all" | CertStatus>("all");
+  const [sort, setSort] = useState<"newest" | "expiry" | "name">("newest");
 
-  const authorized = certs.filter(isAuthorized);
-  const unauthorized = certs.filter((c) => !isAuthorized(c));
+  const filtered = useMemo(() => {
+    const list = filter === "all" ? certs : certs.filter((c) => classify(c) === filter);
+    const sorted = [...list];
+    if (sort === "newest") {
+      sorted.sort((a, b) => {
+        const tA = new Date(a.notAfter).getTime();
+        const tB = new Date(b.notAfter).getTime();
+        return tB - tA;
+      });
+    } else if (sort === "expiry") {
+      sorted.sort(
+        (a, b) =>
+          new Date(a.notAfter).getTime() - new Date(b.notAfter).getTime(),
+      );
+    } else {
+      sorted.sort((a, b) => a.subject.localeCompare(b.subject));
+    }
+    return sorted;
+  }, [certs, filter, sort]);
+
+  const counts = useMemo(() => {
+    const c: Record<CertStatus | "all", number> = {
+      all: certs.length,
+      active: 0,
+      "no-location": 0,
+      expired: 0,
+      revoked: 0,
+    };
+    for (const cert of certs) c[classify(cert)] += 1;
+    return c;
+  }, [certs]);
 
   async function revoke(id: string) {
     if (!confirm("Unieważnić certyfikat? Operacja jest nieodwracalna.")) return;
@@ -143,86 +181,59 @@ export function CertListPanel({
           Brak wystawionych certyfikatów.
         </p>
       ) : (
-        <div className="mt-5 space-y-6">
-          {/* ---- Sekcja 1: Autoryzowane ---- */}
-          <section>
-            <button
-              type="button"
-              onClick={() => setAuthOpen((v) => !v)}
-              className="flex items-center gap-2 w-full text-left mb-3 group"
-            >
-              {authOpen ? (
-                <ChevronDown className="w-4 h-4 text-emerald-400" />
-              ) : (
-                <ChevronRight className="w-4 h-4 text-emerald-400" />
-              )}
-              <ShieldCheck className="w-4 h-4 text-emerald-400" />
-              <span className="text-sm font-semibold text-[var(--text-main)]">
-                Autoryzowane urządzenia
-              </span>
-              <span className="ml-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/15 text-emerald-400">
-                {authorized.length}
-              </span>
-            </button>
-            {authOpen && (
-              authorized.length === 0 ? (
-                <p className="text-sm text-[var(--text-muted)] py-4 pl-6">
-                  Brak autoryzowanych urządzeń. Wystaw certyfikat i przypisz lokalizację.
-                </p>
-              ) : (
-                <div className="grid sm:grid-cols-2 gap-3">
-                  {authorized.map((c) => (
-                    <DeviceCard
-                      key={c.id}
-                      cert={c}
-                      authorized
-                      {...sharedRowProps}
-                    />
-                  ))}
-                </div>
-              )
-            )}
-          </section>
+        <div className="mt-5 space-y-4">
+          {/* ---- Filtr + sort (jedna lista, bez podziału na sekcje) ---- */}
+          <div className="flex flex-wrap items-center gap-2 pb-3 border-b border-[var(--border-subtle)]">
+            <div className="flex flex-wrap gap-1">
+              {(
+                [
+                  ["all", "Wszystkie"],
+                  ["active", STATUS_LABEL.active],
+                  ["no-location", STATUS_LABEL["no-location"]],
+                  ["expired", STATUS_LABEL.expired],
+                  ["revoked", STATUS_LABEL.revoked],
+                ] as Array<[typeof filter, string]>
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setFilter(key)}
+                  className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors ${
+                    filter === key
+                      ? "border-[var(--accent)] text-[var(--accent)] bg-[var(--accent)]/10"
+                      : "border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-main)]"
+                  }`}
+                >
+                  {label}
+                  <span className="ml-1 opacity-70">({counts[key]})</span>
+                </button>
+              ))}
+            </div>
+            <div className="ml-auto flex items-center gap-2">
+              <label className="text-[11px] text-[var(--text-muted)]">Sortuj:</label>
+              <select
+                value={sort}
+                onChange={(e) => setSort(e.target.value as typeof sort)}
+                className="text-[11px] px-2 py-1 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-main)]"
+              >
+                <option value="newest">Najnowsze</option>
+                <option value="expiry">Najbliżej wygaśnięcia</option>
+                <option value="name">Nazwa A-Z</option>
+              </select>
+            </div>
+          </div>
 
-          {/* ---- Sekcja 2: Nieautoryzowane / Wygasłe ---- */}
-          <section>
-            <button
-              type="button"
-              onClick={() => setUnauthOpen((v) => !v)}
-              className="flex items-center gap-2 w-full text-left mb-3"
-            >
-              {unauthOpen ? (
-                <ChevronDown className="w-4 h-4 text-[var(--text-muted)]" />
-              ) : (
-                <ChevronRight className="w-4 h-4 text-[var(--text-muted)]" />
-              )}
-              <AlertTriangle className="w-4 h-4 text-amber-400" />
-              <span className="text-sm font-semibold text-[var(--text-main)]">
-                Nieautoryzowane / Wygasłe
-              </span>
-              <span className="ml-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-500/15 text-amber-400">
-                {unauthorized.length}
-              </span>
-            </button>
-            {unauthOpen && (
-              unauthorized.length === 0 ? (
-                <p className="text-sm text-[var(--text-muted)] py-4 pl-6">
-                  Brak nieautoryzowanych certyfikatów.
-                </p>
-              ) : (
-                <div className="grid sm:grid-cols-2 gap-3">
-                  {unauthorized.map((c) => (
-                    <DeviceCard
-                      key={c.id}
-                      cert={c}
-                      authorized={false}
-                      {...sharedRowProps}
-                    />
-                  ))}
-                </div>
-              )
-            )}
-          </section>
+          {filtered.length === 0 ? (
+            <p className="text-sm text-[var(--text-muted)] py-6 text-center">
+              Brak certyfikatów pasujących do filtra.
+            </p>
+          ) : (
+            <div className="grid sm:grid-cols-2 gap-3">
+              {filtered.map((c) => (
+                <DeviceCard key={c.id} cert={c} {...sharedRowProps} />
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -248,7 +259,6 @@ export function CertListPanel({
 
 function DeviceCard({
   cert,
-  authorized,
   revoking,
   hiding,
   onRevoke,
@@ -257,7 +267,6 @@ function DeviceCard({
   lastEvent,
 }: {
   cert: IssuedCertificate;
-  authorized: boolean;
   revoking: string | null;
   hiding: string | null;
   onRevoke: (id: string) => void;
@@ -265,6 +274,8 @@ function DeviceCard({
   onAssignLocations: (cert: IssuedCertificate) => void;
   lastEvent: LiveBindingEvent | null;
 }) {
+  const status = classify(cert);
+  const authorized = status === "active";
   const [expanded, setExpanded] = useState(false);
   const [binding, setBinding] = useState<DeviceBinding | null>(null);
   const [events, setEvents] = useState<BindingEventRow[]>([]);

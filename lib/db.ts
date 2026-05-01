@@ -1,4 +1,5 @@
 import { Pool, type PoolClient } from "pg";
+import mysql from "mysql2/promise";
 import { getOptionalEnv } from "@/lib/env";
 import { log } from "@/lib/logger";
 
@@ -20,11 +21,13 @@ export function getPool(): Pool {
   if (pool) return pool;
   const url = getOptionalEnv("DATABASE_URL").trim();
   if (!url) throw new Error("DATABASE_URL not configured");
+  const sslDisabled = url.includes("sslmode=disable");
   pool = new Pool({
     connectionString: url,
     max: 10,
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 5_000,
+    ssl: sslDisabled ? false : undefined,
   });
   pool.on("error", (err) => {
     logger.error("pg pool error", { err: err.message });
@@ -86,14 +89,108 @@ export function getExternalPool(envName: string): Pool {
   return p;
 }
 
+/**
+ * Dev-only: external services używają Docker-internal hostnames
+ * (`database-c9d...`, `mariadb-iut9w...`) które są resolvowane tylko
+ * wewnątrz prod docker network. Z lokalnej maszyny dostajemy ENOTFOUND.
+ * Pierwszy fail zapamiętujemy w `unavailableExternals` i kolejne calle
+ * od razu rzucają lekki błąd zamiast spamować pool reconnect-stormem.
+ */
+const unavailableExternals = new Set<string>();
+
+export class ExternalServiceUnavailableError extends Error {
+  constructor(envName: string, cause: string) {
+    super(`External service ${envName} unavailable in dev: ${cause}`);
+    this.name = "ExternalServiceUnavailableError";
+  }
+}
+
+function isUnreachableError(err: unknown): boolean {
+  const code = (err as { code?: string })?.code;
+  return (
+    code === "ENOTFOUND" ||
+    code === "EAI_AGAIN" ||
+    code === "ECONNREFUSED" ||
+    code === "EHOSTUNREACH" ||
+    code === "ETIMEDOUT"
+  );
+}
+
 export async function withExternalClient<T>(
   envName: string,
   fn: (c: PoolClient) => Promise<T>,
 ): Promise<T> {
-  const c = await getExternalPool(envName).connect();
+  if (unavailableExternals.has(envName)) {
+    throw new ExternalServiceUnavailableError(envName, "previously unreachable");
+  }
+  let c: PoolClient;
+  try {
+    c = await getExternalPool(envName).connect();
+  } catch (err) {
+    if (process.env.NODE_ENV === "development" && isUnreachableError(err)) {
+      if (!unavailableExternals.has(envName)) {
+        unavailableExternals.add(envName);
+        logger.warn(`external service ${envName} unreachable in dev — disabling`, {
+          err: (err as Error).message,
+        });
+      }
+      throw new ExternalServiceUnavailableError(envName, (err as Error).message);
+    }
+    throw err;
+  }
   try {
     return await fn(c);
   } finally {
     c.release();
+  }
+}
+
+/**
+ * MySQL counterpart dla withExternalClient — Moodle używa MariaDB/MySQL,
+ * więc pg Pool nie zadziała. Te same reguły: jeden pool per envName,
+ * dev graceful-degrade dla docker-internal hostnamów.
+ */
+const externalMysqlPools = new Map<string, mysql.Pool>();
+
+export function getExternalMysqlPool(envName: string): mysql.Pool {
+  const cached = externalMysqlPools.get(envName);
+  if (cached) return cached;
+  const url = getOptionalEnv(envName).trim();
+  if (!url) throw new Error(`${envName} not configured`);
+  const p = mysql.createPool({
+    uri: url,
+    connectionLimit: 5,
+    waitForConnections: true,
+    connectTimeout: 10_000,
+  });
+  externalMysqlPools.set(envName, p);
+  return p;
+}
+
+export async function withExternalMysql<T>(
+  envName: string,
+  fn: (p: mysql.Pool) => Promise<T>,
+): Promise<T> {
+  if (unavailableExternals.has(envName)) {
+    throw new ExternalServiceUnavailableError(envName, "previously unreachable");
+  }
+  try {
+    const p = getExternalMysqlPool(envName);
+    // Probe — `getConnection` próbuje resolve+TCP. Bez tego ENOTFOUND wypływa
+    // dopiero przy pierwszym `execute()` co utrudnia jednoznaczne złapanie.
+    const probe = await p.getConnection();
+    probe.release();
+    return await fn(p);
+  } catch (err) {
+    if (process.env.NODE_ENV === "development" && isUnreachableError(err)) {
+      if (!unavailableExternals.has(envName)) {
+        unavailableExternals.add(envName);
+        logger.warn(`external mysql ${envName} unreachable in dev — disabling`, {
+          err: (err as Error).message,
+        });
+      }
+      throw new ExternalServiceUnavailableError(envName, (err as Error).message);
+    }
+    throw err;
   }
 }

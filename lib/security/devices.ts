@@ -150,7 +150,13 @@ export async function recordSighting(s: SightingInput): Promise<void> {
     });
   }
 
-  if (isNewForUser && s.userId) {
+  // W trybie dev (lokalna pusta baza) KAŻDE logowanie wygląda jak "nowe
+  // urządzenie" i spamuje Postal aż przekroczy quota 200/h. Wyłączamy.
+  const devBypass =
+    process.env.NODE_ENV === "development" &&
+    process.env.DEV_CERT_BYPASS === "true";
+
+  if (isNewForUser && s.userId && !devBypass) {
     // dynamic import — `lib/notify` używa `lib/keycloak` które łączy się
     // z KC tylko gdy faktycznie potrzebne; unikamy circular boot przy starcie.
     void import("@/lib/notify").then(({ notifyUser }) =>

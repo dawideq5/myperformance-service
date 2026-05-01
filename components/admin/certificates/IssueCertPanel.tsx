@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { FileSignature, Monitor, ShieldCheck } from "lucide-react";
 import {
   Alert,
@@ -17,7 +17,6 @@ import {
   validateIssueInput,
   type IssueResult,
 } from "@/lib/services/certificates-service";
-import type { Location } from "@/lib/locations";
 
 /** Etykiety presetów ważności. */
 function presetLabel(days: number): string {
@@ -33,30 +32,19 @@ export function IssueCertPanel({
 }: {
   onIssued: () => Promise<void>;
 }) {
-  // Formularz — model urządzenie-lokalizacja
+  // Formularz — TYLKO dane urządzenia. Lokalizacje są przypisywane PO
+  // wystawieniu, w dialogu "Punkty" obok każdego certu na liście — wybór
+  // lokalizacji w trakcie issuance był mylący (zerowy/pojedynczy/wielo­krotny
+  // mapping nie pasował do flow).
   const [deviceName, setDeviceName] = useState("");
-  const [locationId, setLocationId] = useState("");
   const [description, setDescription] = useState("");
   const [email, setEmail] = useState("");
   const [roles, setRoles] = useState<string[]>(["sprzedawca"]);
   const [validityDays, setValidityDays] = useState<number>(365);
 
-  const [locations, setLocations] = useState<Location[]>([]);
-  const [locLoading, setLocLoading] = useState(false);
-
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<IssueResult | null>(null);
-
-  // Pobierz listę lokalizacji
-  useEffect(() => {
-    setLocLoading(true);
-    fetch("/api/locations", { credentials: "same-origin", cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((data: { locations: Location[] }) => setLocations(data.locations ?? []))
-      .catch(() => setLocations([]))
-      .finally(() => setLocLoading(false));
-  }, []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -79,7 +67,6 @@ export function IssueCertPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           deviceName: deviceName.trim(),
-          locationId: locationId || undefined,
           description: description.trim() || undefined,
           email: email.trim() || undefined,
           roles,
@@ -102,7 +89,6 @@ export function IssueCertPanel({
       });
 
       setDeviceName("");
-      setLocationId("");
       setDescription("");
       setEmail("");
       await onIssued();
@@ -129,7 +115,7 @@ export function IssueCertPanel({
         <CardHeader
           icon={<FileSignature className="w-6 h-6 text-[var(--accent)]" />}
           title="Wystaw certyfikat dla urządzenia"
-          description="Certyfikat jest przypisany do komputera/stanowiska — nie do konkretnej osoby. Wszyscy pracownicy przypisanej lokalizacji korzystają z tego samego certyfikatu urządzenia."
+          description="Certyfikat jest przypisany do komputera/stanowiska — nie do konkretnej osoby. Lokalizacje przypisuje się po wystawieniu, na liście certyfikatów (przycisk Punkty)."
         />
         <form onSubmit={submit} className="grid md:grid-cols-2 gap-4 mt-6">
           {/* Nazwa urządzenia (CN) */}
@@ -141,29 +127,9 @@ export function IssueCertPanel({
             onChange={(e) => setDeviceName(e.target.value)}
           />
 
-          {/* Lokalizacja */}
-          <div className="flex flex-col gap-1">
-            <label className="text-sm font-medium text-[var(--text-muted)]">
-              Lokalizacja
-            </label>
-            <select
-              value={locationId}
-              onChange={(e) => setLocationId(e.target.value)}
-              className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-2 text-sm text-[var(--text-main)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] disabled:opacity-50"
-              disabled={locLoading}
-            >
-              <option value="">— wybierz lokalizację (opcjonalne) —</option>
-              {locations.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.name}
-                  {l.address ? ` · ${l.address}` : ""}
-                </option>
-              ))}
-            </select>
-            {locLoading && (
-              <p className="text-xs text-[var(--text-muted)]">Ładowanie lokalizacji…</p>
-            )}
-          </div>
+          {/* Lokalizacja — usunięta z formularza wystawiania.
+              Lokalizacje przypisuje się oddzielnie (przycisk "Punkty"
+              obok każdego certyfikatu na liście wydanych). */}
 
           {/* Rola panelu */}
           <div>

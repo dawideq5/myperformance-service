@@ -9,19 +9,30 @@ import { withClient } from "@/lib/db";
  *   - null = każdy zalogowany user (osobiste eventy: security, własne konto)
  *   - "infrastructure" = tylko infra adminzy (snapshoty, backupy, security events)
  *   - "documenso" / "moodle" / "chatwoot" = tylko userzy mający dostęp do tej apki
+ *
+ * `userVisible` (default true): czy event ma się pojawić w bell-icon
+ * dropdown (NotificationBell) i toastach. Eventy security.* są zapisywane
+ * do mp_inbox jako audit trail (i dalej trafiają na email gdy user ma email
+ * channel włączony), ale NIE pokazujemy ich w UI dropdown — user nie chce
+ * widzieć "security.login.new_device" obok "Nowa wiadomość w Chatwoocie".
+ *
  * Filtrowanie jest na poziomie:
  *   - PreferencesTab UI (matrix nie pokazuje eventów do których brak dostępu)
  *   - notifyUser dispatcher (gate przy sendzie — nie warto pchać do mp_inbox
  *     userowi który i tak nie zobaczy ze względu na uprawnienia)
+ *   - GET /api/account/inbox (user-facing) — odfiltrowuje userVisible:false
  */
 export const NOTIF_EVENTS = {
-  // Bezpieczeństwo — każdy zalogowany user (dotyczy własnego konta)
+  // Bezpieczeństwo — każdy zalogowany user (dotyczy własnego konta).
+  // userVisible:false → nie pokazujemy w bell dropdown (techniczny szum),
+  // ale dalej zapisujemy do mp_inbox jako audit + email gdy włączony.
   "security.login.new_device": {
     label: "Nowe urządzenie loguje się na konto",
     category: "security",
     defaultInApp: true,
     defaultEmail: true,
     requiresArea: null,
+    userVisible: false,
   },
   "security.login.failed": {
     label: "Nieudana próba logowania na Twoje konto",
@@ -29,6 +40,7 @@ export const NOTIF_EVENTS = {
     defaultInApp: true,
     defaultEmail: false,
     requiresArea: null,
+    userVisible: false,
   },
   "security.totp.configured": {
     label: "Skonfigurowano aplikację 2FA",
@@ -36,6 +48,7 @@ export const NOTIF_EVENTS = {
     defaultInApp: true,
     defaultEmail: true,
     requiresArea: null,
+    userVisible: false,
   },
   "security.totp.removed": {
     label: "Usunięto aplikację 2FA",
@@ -43,6 +56,7 @@ export const NOTIF_EVENTS = {
     defaultInApp: true,
     defaultEmail: true,
     requiresArea: null,
+    userVisible: false,
   },
   "security.webauthn.configured": {
     label: "Zarejestrowano klucz bezpieczeństwa / passkey",
@@ -50,6 +64,7 @@ export const NOTIF_EVENTS = {
     defaultInApp: true,
     defaultEmail: true,
     requiresArea: null,
+    userVisible: false,
   },
   "security.webauthn.removed": {
     label: "Usunięto klucz bezpieczeństwa / passkey",
@@ -57,6 +72,7 @@ export const NOTIF_EVENTS = {
     defaultInApp: true,
     defaultEmail: true,
     requiresArea: null,
+    userVisible: false,
   },
 
   // Knowledge / Outline — comments, mentions, document publish.
@@ -94,6 +110,7 @@ export const NOTIF_EVENTS = {
     defaultInApp: true,
     defaultEmail: true,
     requiresArea: null,
+    userVisible: false,
   },
   "security.password.changed": {
     label: "Zmieniono hasło",
@@ -101,6 +118,7 @@ export const NOTIF_EVENTS = {
     defaultInApp: true,
     defaultEmail: true,
     requiresArea: null,
+    userVisible: false,
   },
 
   // Konto — własne. Każdy user. Cert events tylko dla userów mających cert
@@ -143,6 +161,13 @@ export const NOTIF_EVENTS = {
     defaultEmail: true,
     requiresArea: "documenso",
   },
+  "documenso.signing_request": {
+    label: "Dokument do podpisu (Documenso)",
+    category: "apps",
+    defaultInApp: true,
+    defaultEmail: true,
+    requiresArea: "documenso",
+  },
   "documents.signature.completed": {
     label: "Dokument podpisany",
     category: "apps",
@@ -171,6 +196,13 @@ export const NOTIF_EVENTS = {
     defaultEmail: false,
     requiresArea: "chatwoot",
   },
+  "chatwoot.unread_message": {
+    label: "Nieprzeczytana wiadomość w Chatwoocie",
+    category: "apps",
+    defaultInApp: true,
+    defaultEmail: false,
+    requiresArea: "chatwoot",
+  },
   "chatwoot.conversation.resolved": {
     label: "Rozmowa oznaczona jako rozwiązana (Chatwoot)",
     category: "apps",
@@ -180,6 +212,13 @@ export const NOTIF_EVENTS = {
   },
   "moodle.grade.received": {
     label: "Otrzymano ocenę w Akademii (Moodle)",
+    category: "apps",
+    defaultInApp: true,
+    defaultEmail: false,
+    requiresArea: "moodle",
+  },
+  "moodle.new_grade": {
+    label: "Nowa ocena w MyPerformance Academy",
     category: "apps",
     defaultInApp: true,
     defaultEmail: false,
@@ -313,4 +352,39 @@ export function shouldNotify(
     channel === "inApp" ? prefs.notifInApp[event] : prefs.notifEmail[event];
   if (typeof override === "boolean") return override;
   return channel === "inApp" ? def.defaultInApp : def.defaultEmail;
+}
+
+/**
+ * Czy event powinien być pokazany w bell-icon dropdown / toastach.
+ *
+ * Domyślnie `true`. Eventy security.* (login.new_device, brute_force,
+ * webauthn.*, totp.*, password.changed, login.failed) mają `userVisible:false`
+ * — są zapisywane do mp_inbox jako audit trail i wysyłane mailem (gdy user
+ * opt-in), ale NIE pojawiają się w UI dropdown — to "techniczny szum"
+ * którego user nie chce widzieć obok user-facing powiadomień typu "Nowa
+ * wiadomość w Chatwoocie".
+ *
+ * Funkcja akceptuje `string` (nie `NotifEventKey`) bo używamy jej w API
+ * route na surowych event_key z DB — historyczne mogą być spoza catalog
+ * (po refactorze key bywały zmieniane).
+ */
+export function isUserVisibleEvent(eventKey: string): boolean {
+  // Catch-all: każdy security.* jest non-visible nawet jeśli nie ma wpisu
+  // w katalogu (np. zmieniono key bez aktualizacji aliasu).
+  if (eventKey.startsWith("security.")) return false;
+  const def = (NOTIF_EVENTS as Record<string, { userVisible?: boolean }>)[
+    eventKey
+  ];
+  if (!def) return true; // unknown event → fail-open (lepiej widzieć niż gubić)
+  return def.userVisible !== false;
+}
+
+/**
+ * Lista event_keys które są "user-visible" — używana przez API
+ * GET /api/account/inbox jako whitelist filter.
+ */
+export function userVisibleEventKeys(): string[] {
+  return Object.entries(NOTIF_EVENTS)
+    .filter(([, def]) => (def as { userVisible?: boolean }).userVisible !== false)
+    .map(([key]) => key);
 }

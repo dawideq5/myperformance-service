@@ -102,6 +102,33 @@ export async function register(): Promise<void> {
     }
   }
 
+  // Chatwoot unread polling — bezpiecznik na wypadek gdyby webhook
+  // `message_created` nie dotarł. Default 5 min — wiadomości nieczytane
+  // są mniej time-critical niż KC security events. CHATWOOT_DATABASE_URL
+  // musi być ustawione (read-only user wystarczy); bez niego polling
+  // job no-op-uje.
+  try {
+    const { pollChatwootUnread } = await import("@/lib/chatwoot/notifications");
+    const chatwootInterval =
+      process.env.NODE_ENV === "development" ? 10 * 60_000 : 5 * 60_000;
+    setInterval(() => {
+      void pollChatwootUnread().catch(() => undefined);
+    }, chatwootInterval).unref?.();
+    setTimeout(() => {
+      void pollChatwootUnread().catch(() => undefined);
+    }, 15_000).unref?.();
+    // eslint-disable-next-line no-console
+    console.log(
+      `[instrumentation] chatwoot-unread-poll started (every ${chatwootInterval}ms)`,
+    );
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      "[instrumentation] chatwoot-unread-poll init failed:",
+      err instanceof Error ? err.message : err,
+    );
+  }
+
   // Background timer pollujący KC events co 5s. Phasetwo webhook delivery
   // jest niesprawne w naszym setupie (storeWebhookEvents=true ale send
   // worker nie startuje), więc czytamy KC Admin API bezpośrednio.
@@ -109,7 +136,10 @@ export async function register(): Promise<void> {
   // generowało user-perceived "powiadomienia są opóźnione".
   try {
     const { pollKcEvents } = await import("@/lib/security/kc-events-poll");
-    const interval = 5_000;
+    // 5s w prod (real-time bell). 60s w dev — KC eventy są rzadkie a
+    // spam logów przy retry-loopach (cursor fetch, KC token, networking)
+    // psuje sygnał w terminalu.
+    const interval = process.env.NODE_ENV === "development" ? 60_000 : 5_000;
     setInterval(() => {
       void pollKcEvents().catch(() => undefined);
     }, interval).unref?.();

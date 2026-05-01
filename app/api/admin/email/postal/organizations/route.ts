@@ -9,6 +9,7 @@ import {
   createOrganization,
 } from "@/lib/email/postal";
 import { appendPostalAudit } from "@/lib/email/db";
+import { ExternalServiceUnavailableError } from "@/lib/db";
 import {
   ApiError,
   createSuccessResponse,
@@ -25,6 +26,9 @@ export async function GET() {
     const organizations = await listOrganizations();
     return createSuccessResponse({ organizations, configured: true });
   } catch (error) {
+    if (error instanceof ExternalServiceUnavailableError) {
+      return createSuccessResponse({ organizations: [], configured: true, degraded: true });
+    }
     return handleApiError(error);
   }
 }
@@ -62,6 +66,11 @@ export async function POST(req: Request) {
     });
     return createSuccessResponse({ organization: org });
   } catch (error) {
+    if (error instanceof ExternalServiceUnavailableError) {
+      return handleApiError(
+        ApiError.serviceUnavailable("Postal niedostępne w trybie deweloperskim"),
+      );
+    }
     return handleApiError(error);
   }
 }

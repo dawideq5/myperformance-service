@@ -9,6 +9,7 @@ import {
   deleteCredential,
 } from "@/lib/email/postal";
 import { appendPostalAudit } from "@/lib/email/db";
+import { ExternalServiceUnavailableError } from "@/lib/db";
 import {
   ApiError,
   createSuccessResponse,
@@ -19,6 +20,15 @@ interface Ctx {
   params: Promise<{ id: string }>;
 }
 
+function handlePostalError(error: unknown) {
+  if (error instanceof ExternalServiceUnavailableError) {
+    return handleApiError(
+      ApiError.serviceUnavailable("Postal niedostępne w trybie deweloperskim"),
+    );
+  }
+  return handleApiError(error);
+}
+
 export async function GET(_req: Request, { params }: Ctx) {
   try {
     const session = await getServerSession(authOptions);
@@ -27,6 +37,9 @@ export async function GET(_req: Request, { params }: Ctx) {
     const credentials = await listCredentials(Number(id));
     return createSuccessResponse({ credentials });
   } catch (error) {
+    if (error instanceof ExternalServiceUnavailableError) {
+      return createSuccessResponse({ credentials: [], degraded: true });
+    }
     return handleApiError(error);
   }
 }
@@ -60,7 +73,7 @@ export async function POST(req: Request, { params }: Ctx) {
     });
     return createSuccessResponse({ credential: cred });
   } catch (error) {
-    return handleApiError(error);
+    return handlePostalError(error);
   }
 }
 
@@ -82,6 +95,6 @@ export async function DELETE(req: Request, { params }: Ctx) {
     });
     return createSuccessResponse({ ok: true });
   } catch (error) {
-    return handleApiError(error);
+    return handlePostalError(error);
   }
 }

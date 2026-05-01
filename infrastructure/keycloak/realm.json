@@ -977,6 +977,7 @@
   "supportedLocales": ["en", "pl"],
   "defaultLocale": "pl",
   "loginTheme": "myperformance",
+  "emailTheme": "myperformance",
 
   "attributes": {
     "cibaBackchannelTokenDeliveryMode": "poll",

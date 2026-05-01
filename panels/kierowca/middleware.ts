@@ -79,6 +79,12 @@ async function verifyDeviceBinding(req: Request): Promise<{
 
 export default withAuth(
   async function middleware(req) {
+    const devBypass =
+      process.env.NODE_ENV === "development" &&
+      process.env.DEV_CERT_BYPASS === "true";
+
+    if (devBypass) return NextResponse.next();
+
     const token = req.nextauth.token as { accessToken?: string; roles?: string[] } | null;
     if (!token?.accessToken) {
       return NextResponse.redirect(new URL("/login", req.url));
@@ -87,12 +93,8 @@ export default withAuth(
     if (!roles.includes(REQUIRED_ROLE) && !roles.includes("admin")) {
       return NextResponse.redirect(new URL("/forbidden", req.url));
     }
-    // Dev bypass — skip mTLS serial check when running locally without a cert
     // Production: Traefik rejects the connection before this code runs
-    const devBypass =
-      process.env.NODE_ENV === "development" &&
-      process.env.DEV_CERT_BYPASS === "true";
-    if (!devBypass && process.env.MTLS_REQUIRED === "true") {
+    if (process.env.MTLS_REQUIRED === "true") {
       const serial = extractCertSerial(req.headers);
       if (!serial) {
         return NextResponse.redirect(new URL("/forbidden/no-cert", req.url));

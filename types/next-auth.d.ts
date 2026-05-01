@@ -33,8 +33,6 @@ declare module "next-auth/jwt" {
     refreshToken?: string;
     expiresAt?: number;
     keycloakError?: boolean;
-    userAttributes?: Record<string, string[]>;
-    emailVerified?: boolean;
     sid?: string;
     error?: string;
   }

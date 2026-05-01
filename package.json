@@ -3,7 +3,12 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "PORT=3000 next dev",
+    "dev": "bash scripts/dev-hybrid.sh",
+    "dev:panels": "bash scripts/dev-hybrid.sh --panels",
+    "dev:bare": "PORT=3000 next dev",
+    "dev:db": "docker compose -f docker-compose.dev.yml up -d postgres-dev",
+    "dev:db:stop": "docker compose -f docker-compose.dev.yml stop postgres-dev",
+    "dev:db:reset": "docker compose -f docker-compose.dev.yml down -v && docker compose -f docker-compose.dev.yml up -d postgres-dev",
     "build": "next build",
     "dev:keycloak-theme": "vite",
     "build:keycloak-theme-app": "vite build",
@@ -16,8 +21,6 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
-    "dev:hybrid": "bash scripts/dev-hybrid.sh",
-    "dev:hybrid:tunnel": "bash scripts/dev-hybrid.sh --tunnel",
     "dev:webhooks": "bash scripts/tunnel-webhooks.sh",
     "deploy": "bash scripts/promote-to-prod.sh"
   },

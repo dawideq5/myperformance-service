@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, Plus, Shield, Trash2, Users, X } from "lucide-react";
+import { Layers, Loader2, Plus, Shield, Trash2, Users, X } from "lucide-react";
 
 import {
   Alert,
@@ -19,11 +19,20 @@ import { ApiRequestError } from "@/lib/api-client";
 import {
   adminGroupService,
   adminUserService,
+  chatwootCatalogService,
+  documensoCatalogService,
+  groupResourcesService,
+  moodleCatalogService,
   permissionAreaService,
   type AdminGroup,
   type AdminGroupMember,
   type AdminUserSummary,
   type AreaSummary,
+  type ChatwootInbox,
+  type DocumensoOrganisation,
+  type GroupResourceKind,
+  type GroupResourceMapping,
+  type MoodleCourseRow,
 } from "@/app/account/account-service";
 
 interface GroupsClientProps {
@@ -42,6 +51,7 @@ export function GroupsClient({ userLabel, userEmail, embedded }: GroupsClientPro
   const [createOpen, setCreateOpen] = useState(false);
   const [editFor, setEditFor] = useState<AdminGroup | null>(null);
   const [membersFor, setMembersFor] = useState<AdminGroup | null>(null);
+  const [resourcesFor, setResourcesFor] = useState<AdminGroup | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -231,6 +241,15 @@ export function GroupsClient({ userLabel, userEmail, embedded }: GroupsClientPro
                         <Button
                           variant="ghost"
                           size="sm"
+                          onClick={() => setResourcesFor(g)}
+                          leftIcon={<Layers className="w-3.5 h-3.5" aria-hidden="true" />}
+                          title="Zasoby auto-przyznawane członkom (Documenso/Moodle/Chatwoot)"
+                        >
+                          Zasoby
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           onClick={() => void deleteGroup(g)}
                           className="text-red-500 hover:text-red-600"
                           title="Usuń grupę"
@@ -276,6 +295,12 @@ export function GroupsClient({ userLabel, userEmail, embedded }: GroupsClientPro
           setNotice("Członkostwo zaktualizowane");
           void refresh();
         }}
+      />
+
+      <ResourcesDialog
+        group={resourcesFor}
+        onClose={() => setResourcesFor(null)}
+        onChanged={(msg) => setNotice(msg)}
       />
     </Wrapper>
   );
@@ -678,6 +703,326 @@ function MembersDialog({
             ))}
           </ul>
         )}
+      </section>
+    </Dialog>
+  );
+}
+
+// ─── ResourcesDialog ──────────────────────────────────────────────────────────
+// Mapuje grupę KC → konkretne zasoby (Documenso org / Moodle course /
+// Chatwoot inbox) które każdy nowy członek dostaje automatycznie. Patrz
+// `lib/permissions/group-resources.ts` (tabela mp_group_resources).
+
+const KIND_LABEL: Record<GroupResourceKind, string> = {
+  documenso_org: "Documenso (organizacja)",
+  moodle_course: "Moodle (kurs)",
+  chatwoot_inbox: "Chatwoot (inbox)",
+};
+
+function ResourcesDialog({
+  group,
+  onClose,
+  onChanged,
+}: {
+  group: AdminGroup | null;
+  onClose: () => void;
+  onChanged: (msg: string) => void;
+}) {
+  const [mappings, setMappings] = useState<GroupResourceMapping[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState<string | null>(null);
+
+  // catalogi
+  const [orgs, setOrgs] = useState<DocumensoOrganisation[]>([]);
+  const [courses, setCourses] = useState<MoodleCourseRow[]>([]);
+  const [inboxes, setInboxes] = useState<ChatwootInbox[]>([]);
+
+  // form state
+  const [kind, setKind] = useState<GroupResourceKind>("documenso_org");
+  const [resourceId, setResourceId] = useState("");
+  const [roleHint, setRoleHint] = useState<string>("");
+
+  const reload = useCallback(async (groupId: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await groupResourcesService.list(groupId);
+      setMappings(res.resources);
+    } catch (err) {
+      setError(
+        err instanceof ApiRequestError
+          ? err.message
+          : "Nie udało się pobrać mappingów",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!group) return;
+    setResourceId("");
+    setRoleHint("");
+    setKind("documenso_org");
+    void reload(group.id);
+    // catalogi pobieramy raz on-open; ignoruj błędy (degraded mode dozwolony)
+    void documensoCatalogService
+      .list()
+      .then((r) => setOrgs(r.organisations))
+      .catch(() => setOrgs([]));
+    void moodleCatalogService
+      .list()
+      .then((r) => setCourses(r.courses))
+      .catch(() => setCourses([]));
+    void chatwootCatalogService
+      .list()
+      .then((r) => setInboxes(r.inboxes))
+      .catch(() => setInboxes([]));
+  }, [group, reload]);
+
+  const add = useCallback(async () => {
+    if (!group) return;
+    if (!resourceId) {
+      setError("Wybierz zasób z listy");
+      return;
+    }
+    setPending("add");
+    setError(null);
+    try {
+      await groupResourcesService.add(group.id, {
+        kind,
+        resourceId,
+        roleHint: roleHint.trim() || null,
+      });
+      setResourceId("");
+      setRoleHint("");
+      await reload(group.id);
+      onChanged(`Dodano mapping ${KIND_LABEL[kind]} do grupy "${group.name}"`);
+    } catch (err) {
+      setError(
+        err instanceof ApiRequestError
+          ? err.message
+          : "Nie udało się dodać mappingu",
+      );
+    } finally {
+      setPending(null);
+    }
+  }, [group, kind, resourceId, roleHint, reload, onChanged]);
+
+  const remove = useCallback(
+    async (m: GroupResourceMapping) => {
+      if (!group) return;
+      if (!window.confirm("Usunąć ten mapping? Istniejący członkowie grupy zachowują swoje granty — usunięcie wpływa tylko na przyszłe dołączenia."))
+        return;
+      setPending(m.id);
+      setError(null);
+      try {
+        await groupResourcesService.remove(group.id, m.id);
+        await reload(group.id);
+        onChanged(`Mapping usunięty`);
+      } catch (err) {
+        setError(
+          err instanceof ApiRequestError
+            ? err.message
+            : "Nie udało się usunąć mappingu",
+        );
+      } finally {
+        setPending(null);
+      }
+    },
+    [group, reload, onChanged],
+  );
+
+  // helpers do prezentacji nazw zasobów w już istniejących mappingach
+  const labelFor = useCallback(
+    (m: GroupResourceMapping): string => {
+      switch (m.kind) {
+        case "documenso_org": {
+          const org = orgs.find((o) => o.id === m.resourceId);
+          return org ? `${org.name} (${org.type})` : m.resourceId;
+        }
+        case "moodle_course": {
+          const c = courses.find((x) => String(x.id) === m.resourceId);
+          return c ? `${c.fullname} [${c.shortname}]` : `course #${m.resourceId}`;
+        }
+        case "chatwoot_inbox": {
+          const i = inboxes.find((x) => String(x.id) === m.resourceId);
+          return i ? `${i.name} (${i.channel_type})` : `inbox #${m.resourceId}`;
+        }
+      }
+    },
+    [orgs, courses, inboxes],
+  );
+
+  return (
+    <Dialog
+      open={!!group}
+      onClose={onClose}
+      size="lg"
+      title={group ? `Zasoby grupy: ${group.name}` : ""}
+      description="Mappingi auto-przyznawania: po dodaniu użytkownika do tej grupy automatycznie zostanie dodany do wybranego zasobu (Documenso org / Moodle course / Chatwoot inbox). Po usunięciu z grupy — odebrany."
+      footer={
+        <Button variant="ghost" onClick={onClose}>
+          <X className="w-4 h-4 mr-1.5" aria-hidden="true" />
+          Zamknij
+        </Button>
+      }
+    >
+      {error && (
+        <div className="mb-3">
+          <Alert tone="error">{error}</Alert>
+        </div>
+      )}
+
+      <section className="mb-5">
+        <h4 className="text-xs uppercase tracking-wider text-[var(--text-muted)] mb-2">
+          Istniejące mappingi
+        </h4>
+        {loading ? (
+          <p className="text-sm text-[var(--text-muted)]">
+            <Loader2 className="w-4 h-4 animate-spin inline-block mr-2" aria-hidden="true" />
+            Wczytywanie…
+          </p>
+        ) : mappings.length === 0 ? (
+          <p className="text-sm text-[var(--text-muted)]">
+            Brak mappingów — członkowie tej grupy nie dostają żadnych
+            dodatkowych zasobów automatycznie.
+          </p>
+        ) : (
+          <ul className="space-y-1">
+            {mappings.map((m) => (
+              <li
+                key={m.id}
+                className="flex items-center justify-between gap-2 px-3 py-1.5 rounded border border-[var(--border-subtle)] text-sm"
+              >
+                <span className="flex items-center gap-2">
+                  <Badge tone="info" className="text-[10px] uppercase">
+                    {KIND_LABEL[m.kind]}
+                  </Badge>
+                  <span className="text-[var(--text-main)]">{labelFor(m)}</span>
+                  {m.roleHint && (
+                    <span className="text-[10px] text-[var(--text-muted)] font-mono">
+                      role: {m.roleHint}
+                    </span>
+                  )}
+                </span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-red-500 hover:text-red-600"
+                  disabled={pending === m.id}
+                  loading={pending === m.id}
+                  onClick={() => void remove(m)}
+                >
+                  <Trash2 className="w-4 h-4" aria-hidden="true" />
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="space-y-3 border-t border-[var(--border-subtle)] pt-4">
+        <h4 className="text-xs uppercase tracking-wider text-[var(--text-muted)]">
+          Dodaj mapping
+        </h4>
+        <FieldWrapper id="res-kind" label="Typ zasobu" required>
+          <select
+            id="res-kind"
+            value={kind}
+            onChange={(e) => {
+              setKind(e.target.value as GroupResourceKind);
+              setResourceId("");
+              setRoleHint("");
+            }}
+            className="w-full px-3 py-2 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-sm"
+          >
+            <option value="documenso_org">Documenso (organizacja)</option>
+            <option value="moodle_course">Moodle (kurs)</option>
+            <option value="chatwoot_inbox">Chatwoot (inbox)</option>
+          </select>
+        </FieldWrapper>
+
+        {kind === "documenso_org" && (
+          <>
+            <FieldWrapper id="res-doc-org" label="Organizacja Documenso" required>
+              <select
+                id="res-doc-org"
+                value={resourceId}
+                onChange={(e) => setResourceId(e.target.value)}
+                className="w-full px-3 py-2 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-sm"
+              >
+                <option value="">— wybierz —</option>
+                {orgs.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name} ({o.type})
+                  </option>
+                ))}
+              </select>
+            </FieldWrapper>
+            <FieldWrapper id="res-doc-role" label="Rola (opcjonalnie)">
+              <select
+                id="res-doc-role"
+                value={roleHint}
+                onChange={(e) => setRoleHint(e.target.value)}
+                className="w-full px-3 py-2 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-sm"
+              >
+                <option value="">domyślna (MEMBER)</option>
+                <option value="ADMIN">ADMIN</option>
+                <option value="MANAGER">MANAGER</option>
+                <option value="MEMBER">MEMBER</option>
+              </select>
+            </FieldWrapper>
+          </>
+        )}
+
+        {kind === "moodle_course" && (
+          <FieldWrapper id="res-moodle-course" label="Kurs Moodle" required>
+            <select
+              id="res-moodle-course"
+              value={resourceId}
+              onChange={(e) => setResourceId(e.target.value)}
+              className="w-full px-3 py-2 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-sm"
+            >
+              <option value="">— wybierz —</option>
+              {courses.map((c) => (
+                <option key={c.id} value={String(c.id)}>
+                  {c.fullname} [{c.shortname}]
+                </option>
+              ))}
+            </select>
+          </FieldWrapper>
+        )}
+
+        {kind === "chatwoot_inbox" && (
+          <FieldWrapper id="res-cw-inbox" label="Inbox Chatwoot" required>
+            <select
+              id="res-cw-inbox"
+              value={resourceId}
+              onChange={(e) => setResourceId(e.target.value)}
+              className="w-full px-3 py-2 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-sm"
+            >
+              <option value="">— wybierz —</option>
+              {inboxes.map((i) => (
+                <option key={i.id} value={String(i.id)}>
+                  {i.name} ({i.channel_type})
+                </option>
+              ))}
+            </select>
+          </FieldWrapper>
+        )}
+
+        <div className="flex justify-end">
+          <Button
+            onClick={() => void add()}
+            disabled={pending === "add" || !resourceId}
+            loading={pending === "add"}
+            leftIcon={<Plus className="w-4 h-4" aria-hidden="true" />}
+          >
+            Dodaj mapping
+          </Button>
+        </div>
       </section>
     </Dialog>
   );

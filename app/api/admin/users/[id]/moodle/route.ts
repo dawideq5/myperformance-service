@@ -1,11 +1,10 @@
 export const dynamic = "force-dynamic";
 
-import mysql from "mysql2/promise";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
 import { keycloak } from "@/lib/keycloak";
-import { getOptionalEnv } from "@/lib/env";
 import { requireAdminPanel } from "@/lib/admin-auth";
+import { ExternalServiceUnavailableError, withExternalMysql } from "@/lib/db";
 import {
   ApiError,
   createSuccessResponse,
@@ -14,19 +13,6 @@ import {
 
 interface Ctx {
   params: Promise<{ id: string }>;
-}
-
-let pool: mysql.Pool | null = null;
-function getPool(): mysql.Pool {
-  if (pool) return pool;
-  const url = getOptionalEnv("MOODLE_DB_URL");
-  if (!url) throw new ApiError("SERVICE_UNAVAILABLE", "MOODLE_DB_URL not set", 503);
-  pool = mysql.createPool({
-    uri: url,
-    connectionLimit: 3,
-    waitForConnections: true,
-  });
-  return pool;
 }
 
 interface CourseRow {
@@ -64,36 +50,45 @@ export async function GET(_req: Request, { params }: Ctx) {
       });
     }
 
-    const p = getPool();
-    const [userRows] = await p.execute(
-      `SELECT id FROM mdl_user WHERE LOWER(email) = LOWER(?) LIMIT 1`,
-      [email],
-    );
-    const moodleUserId = (userRows as Array<{ id: number }>)[0]?.id ?? null;
-
-    const [courseRows] = await p.execute(
-      `SELECT id, shortname, fullname, visible FROM mdl_course
-        WHERE id > 1 ORDER BY fullname`,
-    );
-
-    let enrolledCourseIds: number[] = [];
-    if (moodleUserId !== null) {
-      const [enrolmentRows] = await p.execute(
-        `SELECT e.courseid AS courseid, ue.status AS status
-           FROM mdl_user_enrolments ue
-           JOIN mdl_enrol e ON e.id = ue.enrolid
-          WHERE ue.userid = ? AND ue.status = 0`,
-        [moodleUserId],
+    return await withExternalMysql("MOODLE_DB_URL", async (p) => {
+      const [userRows] = await p.execute(
+        `SELECT id FROM mdl_user WHERE LOWER(email) = LOWER(?) LIMIT 1`,
+        [email],
       );
-      enrolledCourseIds = (enrolmentRows as EnrolmentRow[]).map((r) => r.courseid);
-    }
+      const moodleUserId = (userRows as Array<{ id: number }>)[0]?.id ?? null;
 
-    return createSuccessResponse({
-      allCourses: courseRows as CourseRow[],
-      enrolledCourseIds,
-      moodleUserId,
+      const [courseRows] = await p.execute(
+        `SELECT id, shortname, fullname, visible FROM mdl_course
+          WHERE id > 1 ORDER BY fullname`,
+      );
+
+      let enrolledCourseIds: number[] = [];
+      if (moodleUserId !== null) {
+        const [enrolmentRows] = await p.execute(
+          `SELECT e.courseid AS courseid, ue.status AS status
+             FROM mdl_user_enrolments ue
+             JOIN mdl_enrol e ON e.id = ue.enrolid
+            WHERE ue.userid = ? AND ue.status = 0`,
+          [moodleUserId],
+        );
+        enrolledCourseIds = (enrolmentRows as EnrolmentRow[]).map((r) => r.courseid);
+      }
+
+      return createSuccessResponse({
+        allCourses: courseRows as CourseRow[],
+        enrolledCourseIds,
+        moodleUserId,
+      });
     });
   } catch (error) {
+    if (error instanceof ExternalServiceUnavailableError) {
+      return createSuccessResponse({
+        allCourses: [],
+        enrolledCourseIds: [],
+        moodleUserId: null,
+        degraded: true,
+      });
+    }
     return handleApiError(error);
   }
 }
@@ -132,85 +127,95 @@ export async function POST(req: Request, { params }: Ctx) {
     const email = userData.email;
     if (!email) throw ApiError.badRequest("User has no email");
 
-    const p = getPool();
-    let moodleUserId: number | undefined;
-    const [userRows] = await p.execute(
-      `SELECT id FROM mdl_user WHERE LOWER(email) = LOWER(?) LIMIT 1`,
-      [email],
-    );
-    moodleUserId = (userRows as Array<{ id: number }>)[0]?.id;
-
-    // Pre-create — gdy user nie zalogował się jeszcze do Moodle, sami
-    // tworzymy konto przez provider (WS core_user_create_users z auth=oidc).
-    // Przy pierwszym SSO loginie OIDC złączy się po emailu.
-    if (!moodleUserId && body.action === "add") {
-      const { MoodleProvider } = await import("@/lib/permissions/providers/moodle");
-      const provider = new MoodleProvider();
-      const displayName =
-        [userData.firstName, userData.lastName].filter(Boolean).join(" ").trim() ||
-        email;
-      await provider.assignUserRole({ email, displayName, roleId: null });
-      const [rows] = await p.execute(
+    return await withExternalMysql("MOODLE_DB_URL", async (p) => {
+      // ZMIANA 2026-05-01: explicit-only provisioning. Tworzenie konta usera
+      // w Moodle następuje TYLKO przy pierwszym świadomym `add` enrolment'cie
+      // — wcześniej wymagamy, żeby user był już w mdl_user (login SSO lub
+      // wcześniejsze enrol). Wcześniej każdy `signIn` push-pre-tworzył konta
+      // we wszystkich providerach, co dawało puchnące shadow-DB.
+      const [userRows] = await p.execute(
         `SELECT id FROM mdl_user WHERE LOWER(email) = LOWER(?) LIMIT 1`,
         [email],
       );
-      moodleUserId = (rows as Array<{ id: number }>)[0]?.id;
-    }
-    if (!moodleUserId) {
-      throw ApiError.conflict("Nie udało się utworzyć użytkownika w Moodle");
-    }
+      let moodleUserId: number | undefined =
+        (userRows as Array<{ id: number }>)[0]?.id;
 
-    // Manual enrol instance.
-    const [enrolRows] = await p.execute(
-      `SELECT id FROM mdl_enrol WHERE courseid = ? AND enrol = 'manual' LIMIT 1`,
-      [body.courseId],
-    );
-    const enrolId = (enrolRows as Array<{ id: number }>)[0]?.id;
-    if (!enrolId) {
-      throw ApiError.conflict(
-        "Kurs nie ma metody zapisu 'manual'. Dodaj ją w Moodle (Course settings → Enrolment methods).",
-      );
-    }
+      if (!moodleUserId && body.action === "add") {
+        // Tworzymy konto Moodle tylko teraz, przy ŚWIADOMEJ akcji admina.
+        // OIDC złączy się po emailu przy pierwszym loginie SSO.
+        const { MoodleProvider } = await import("@/lib/permissions/providers/moodle");
+        const provider = new MoodleProvider();
+        const displayName =
+          [userData.firstName, userData.lastName].filter(Boolean).join(" ").trim() ||
+          email;
+        await provider.assignUserRole({ email, displayName, roleId: null });
+        const [rows] = await p.execute(
+          `SELECT id FROM mdl_user WHERE LOWER(email) = LOWER(?) LIMIT 1`,
+          [email],
+        );
+        moodleUserId = (rows as Array<{ id: number }>)[0]?.id;
+      }
+      if (!moodleUserId) {
+        throw ApiError.conflict("Nie udało się utworzyć użytkownika w Moodle");
+      }
 
-    // Course context (contextlevel=50).
-    const [ctxRows] = await p.execute(
-      `SELECT id FROM mdl_context WHERE contextlevel = 50 AND instanceid = ? LIMIT 1`,
-      [body.courseId],
-    );
-    const contextId = (ctxRows as Array<{ id: number }>)[0]?.id;
-    if (!contextId) {
-      throw ApiError.conflict("Brak context-row dla kursu.");
-    }
+      // Manual enrol instance.
+      const [enrolRows] = await p.execute(
+        `SELECT id FROM mdl_enrol WHERE courseid = ? AND enrol = 'manual' LIMIT 1`,
+        [body.courseId],
+      );
+      const enrolId = (enrolRows as Array<{ id: number }>)[0]?.id;
+      if (!enrolId) {
+        throw ApiError.conflict(
+          "Kurs nie ma metody zapisu 'manual'. Dodaj ją w Moodle (Course settings → Enrolment methods).",
+        );
+      }
 
-    if (body.action === "remove") {
-      await p.execute(
-        `DELETE FROM mdl_user_enrolments WHERE userid = ? AND enrolid = ?`,
-        [moodleUserId, enrolId],
+      // Course context (contextlevel=50).
+      const [ctxRows] = await p.execute(
+        `SELECT id FROM mdl_context WHERE contextlevel = 50 AND instanceid = ? LIMIT 1`,
+        [body.courseId],
       );
-      await p.execute(
-        `DELETE FROM mdl_role_assignments WHERE userid = ? AND contextid = ?`,
-        [moodleUserId, contextId],
-      );
-    } else {
-      const now = Math.floor(Date.now() / 1000);
-      await p.execute(
-        `INSERT INTO mdl_user_enrolments
-           (status, enrolid, userid, timestart, timeend, modifierid, timecreated, timemodified)
-         VALUES (0, ?, ?, ?, 0, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE status=0, timemodified=VALUES(timemodified)`,
-        [enrolId, moodleUserId, now, moodleUserId, now, now],
-      );
-      // student role id=5 (canonical w każdej Moodle instalacji).
-      await p.execute(
-        `INSERT INTO mdl_role_assignments
-           (roleid, contextid, userid, timemodified, modifierid, component, itemid, sortorder)
-         VALUES (5, ?, ?, ?, ?, '', 0, 0)
-         ON DUPLICATE KEY UPDATE timemodified=VALUES(timemodified)`,
-        [contextId, moodleUserId, now, moodleUserId],
-      );
-    }
-    return createSuccessResponse({ ok: true });
+      const contextId = (ctxRows as Array<{ id: number }>)[0]?.id;
+      if (!contextId) {
+        throw ApiError.conflict("Brak context-row dla kursu.");
+      }
+
+      if (body.action === "remove") {
+        await p.execute(
+          `DELETE FROM mdl_user_enrolments WHERE userid = ? AND enrolid = ?`,
+          [moodleUserId, enrolId],
+        );
+        await p.execute(
+          `DELETE FROM mdl_role_assignments WHERE userid = ? AND contextid = ?`,
+          [moodleUserId, contextId],
+        );
+      } else {
+        const now = Math.floor(Date.now() / 1000);
+        await p.execute(
+          `INSERT INTO mdl_user_enrolments
+             (status, enrolid, userid, timestart, timeend, modifierid, timecreated, timemodified)
+           VALUES (0, ?, ?, ?, 0, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE status=0, timemodified=VALUES(timemodified)`,
+          [enrolId, moodleUserId, now, moodleUserId, now, now],
+        );
+        // student role id=5 (canonical w każdej Moodle instalacji).
+        await p.execute(
+          `INSERT INTO mdl_role_assignments
+             (roleid, contextid, userid, timemodified, modifierid, component, itemid, sortorder)
+           VALUES (5, ?, ?, ?, ?, '', 0, 0)
+           ON DUPLICATE KEY UPDATE timemodified=VALUES(timemodified)`,
+          [contextId, moodleUserId, now, moodleUserId],
+        );
+      }
+      return createSuccessResponse({ ok: true });
+    });
   } catch (error) {
+    if (error instanceof ExternalServiceUnavailableError) {
+      return handleApiError(
+        new ApiError("SERVICE_UNAVAILABLE", "Moodle niedostępne w trybie deweloperskim", 503),
+      );
+    }
     return handleApiError(error);
   }
 }

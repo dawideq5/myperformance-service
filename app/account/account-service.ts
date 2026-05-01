@@ -33,11 +33,16 @@ export interface KadromierzShift {
   location_id?: number | string;
 }
 
+/**
+ * Payload dla user-facing /account PUT. Backend akceptuje WYŁĄCZNIE
+ * `attributes["phone-number"]` — firstName/lastName/email są read-only
+ * po stronie usera (tylko admin /admin/users/[id] może je zmieniać).
+ * Wysłanie tych pól z tego endpointa zwróci 400.
+ */
 interface ProfileUpdatePayload {
-  firstName?: string;
-  lastName?: string;
-  email?: string;
-  attributes?: Record<string, string[] | undefined>;
+  attributes?: {
+    "phone-number"?: string[];
+  };
 }
 
 export const accountService = {
@@ -665,6 +670,50 @@ export const adminGroupService = {
 };
 
 // ---------------------------------------------------------------------------
+// Group → resource mappings (mp_group_resources)
+// Auto-grant Documenso org / Moodle course / Chatwoot inbox membership when
+// admin assigns user to a KC group.
+// ---------------------------------------------------------------------------
+
+export type GroupResourceKind =
+  | "documenso_org"
+  | "moodle_course"
+  | "chatwoot_inbox";
+
+export interface GroupResourceMapping {
+  id: string;
+  groupId: string;
+  kind: GroupResourceKind;
+  resourceId: string;
+  roleHint: string | null;
+  createdAt: string;
+  createdBy: string | null;
+}
+
+export const groupResourcesService = {
+  list: (groupId: string) =>
+    api.get<{ resources: GroupResourceMapping[] }>(
+      `/api/admin/groups/${encodeURIComponent(groupId)}/resources`,
+    ),
+  add: (
+    groupId: string,
+    payload: {
+      kind: GroupResourceKind;
+      resourceId: string;
+      roleHint?: string | null;
+    },
+  ) =>
+    api.post<{ mapping: GroupResourceMapping }, typeof payload>(
+      `/api/admin/groups/${encodeURIComponent(groupId)}/resources`,
+      payload,
+    ),
+  remove: (groupId: string, mappingId: string) =>
+    api.delete<{ ok: true }>(
+      `/api/admin/groups/${encodeURIComponent(groupId)}/resources?mappingId=${encodeURIComponent(mappingId)}`,
+    ),
+};
+
+// ---------------------------------------------------------------------------
 // Documenso multi-org membership
 // ---------------------------------------------------------------------------
 
@@ -707,6 +756,7 @@ export const documensoMembershipService = {
       memberships: DocumensoMembership[];
       documensoUserId: number | null;
       userEmail: string | null;
+      degraded?: boolean;
     }>(`/api/admin/users/${encodeURIComponent(userId)}/documenso`),
 
   add: (userId: string, organisationId: string, role?: "ADMIN" | "MANAGER" | "MEMBER") =>
@@ -743,6 +793,7 @@ export const chatwootInboxService = {
       assignedInboxIds: number[];
       chatwootUserId: number | null;
       accountRole: number | null;
+      degraded?: boolean;
     }>(`/api/admin/users/${encodeURIComponent(userId)}/chatwoot`),
   add: (userId: string, inboxId: number) =>
     api.post<{ ok: true }, { action: "add"; inboxId: number }>(
@@ -769,6 +820,7 @@ export const moodleCourseService = {
       allCourses: MoodleCourseRow[];
       enrolledCourseIds: number[];
       moodleUserId: number | null;
+      degraded?: boolean;
     }>(`/api/admin/users/${encodeURIComponent(userId)}/moodle`),
   add: (userId: string, courseId: number) =>
     api.post<{ ok: true }, { action: "add"; courseId: number }>(

@@ -5,6 +5,7 @@ import {
   Check,
   ChevronRight,
   Clock,
+  Lock,
   Mail,
   ShieldCheck,
   Smartphone,
@@ -18,7 +19,6 @@ import {
   Button,
   Card,
   CardHeader,
-  Input,
   OnboardingCard,
 } from "@/components/ui";
 import { PhoneInput } from "@/components/PhoneInput";
@@ -52,10 +52,12 @@ function ReadonlyField({
   label,
   children,
   muted,
+  hint,
 }: {
   label: string;
   children: React.ReactNode;
   muted?: boolean;
+  hint?: string;
 }) {
   return (
     <div className="space-y-1.5">
@@ -69,6 +71,12 @@ function ReadonlyField({
       >
         {children}
       </div>
+      {hint && (
+        <p className="text-xs text-[var(--text-muted)] flex items-center gap-1">
+          <Lock className="w-3 h-3" aria-hidden="true" />
+          {hint}
+        </p>
+      )}
     </div>
   );
 }
@@ -77,10 +85,7 @@ export function ProfileTab() {
   const { profile, patchProfile, refetchProfile } = useAccount();
   const phoneId = useId();
 
-  const [editing, setEditing] = useState(false);
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [email, setEmail] = useState("");
+  const [editingPhone, setEditingPhone] = useState(false);
   const [phonePrefix, setPhonePrefix] = useState("+48");
   const [phoneLocal, setPhoneLocal] = useState("");
   const [showSuccess, setShowSuccess] = useState(false);
@@ -92,21 +97,29 @@ export function ProfileTab() {
     setPhoneLocal(local);
   }, [profile]);
 
-  const startEditing = useCallback(() => {
-    setFirstName(profile?.firstName ?? "");
-    setLastName(profile?.lastName ?? "");
-    setEmail(profile?.email ?? "");
+  const startEditingPhone = useCallback(() => {
     setShowSuccess(false);
-    setEditing(true);
+    setEditingPhone(true);
+  }, []);
+
+  const cancelEditingPhone = useCallback(() => {
+    if (!profile) {
+      setEditingPhone(false);
+      return;
+    }
+    const { prefix, local } = parsePhone(profile.attributes?.["phone-number"]?.[0]);
+    setPhonePrefix(prefix);
+    setPhoneLocal(local);
+    setEditingPhone(false);
   }, [profile]);
 
   const saveAction = useAsyncAction(
     async () => {
       const fullPhone = phoneLocal ? `${phonePrefix} ${phoneLocal}` : "";
+      // Wysyłamy WYŁĄCZNIE phone-number — backend i tak odrzuca firstName/
+      // lastName/email z 400, ale klient też nie powinien ich w ogóle
+      // umieszczać w payloadzie (clean whitelist on both sides).
       await accountService.updateProfile({
-        firstName,
-        lastName,
-        email,
         attributes: { "phone-number": fullPhone ? [fullPhone] : [] },
       });
       return { fullPhone };
@@ -115,20 +128,17 @@ export function ProfileTab() {
       resolveError: (err) =>
         err instanceof ApiRequestError
           ? err.message
-          : "Nie udało się zapisać zmian",
+          : "Nie udało się zapisać numeru telefonu",
       onSuccess: ({ fullPhone }) => {
         if (!profile) return;
         patchProfile({
           ...profile,
-          firstName,
-          lastName,
-          email,
           attributes: {
             ...(profile.attributes ?? {}),
             "phone-number": fullPhone ? [fullPhone] : [],
           },
         });
-        setEditing(false);
+        setEditingPhone(false);
         setShowSuccess(true);
       },
     },
@@ -157,12 +167,13 @@ export function ProfileTab() {
     <div className="space-y-6">
       <OnboardingCard
         storageKey="account-profile"
-        title="Profil = SoT dla wszystkich aplikacji"
+        title="Twoje dane są chronione"
       >
-        Zmiana danych tutaj propaguje się do Chatwoot, Documenso, Outline,
-        Moodle, Directus i Postal w ciągu kilku sekund (kolejka z retry).
-        Email zmiany powoduje rozłączenie Google (musisz połączyć ponownie),
-        bo Keycloak traktuje email jako klucz federowanej tożsamości.
+        Imię, nazwisko i adres email są zarządzane przez administratora —
+        gwarantuje to spójność tożsamości we wszystkich aplikacjach (Chatwoot,
+        Documenso, Outline, Moodle, Directus, Postal). Jeśli któreś z tych
+        pól wymaga zmiany, skontaktuj się z administratorem. Numer telefonu
+        możesz aktualizować samodzielnie.
       </OnboardingCard>
 
       <Card padding="md">
@@ -170,11 +181,6 @@ export function ProfileTab() {
           <h2 className="text-lg font-semibold text-[var(--text-main)]">
             Dane osobowe
           </h2>
-          {!editing && (
-            <Button variant="link" size="sm" onClick={startEditing}>
-              Edytuj
-            </Button>
-          )}
         </div>
 
         {showSuccess && (
@@ -182,7 +188,7 @@ export function ProfileTab() {
             <Alert tone="success">
               <span className="inline-flex items-center gap-2">
                 <Check className="w-4 h-4" aria-hidden="true" />
-                Dane zostały zapisane
+                Numer telefonu został zapisany
               </span>
             </Alert>
           </div>
@@ -196,32 +202,57 @@ export function ProfileTab() {
           </div>
         )}
 
-        {editing ? (
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid md:grid-cols-2 gap-4">
-              <Input
-                label="Imię"
-                value={firstName}
-                onChange={(e) => setFirstName(e.target.value)}
-                autoComplete="given-name"
-                disabled={saveAction.pending}
+        <div className="grid md:grid-cols-2 gap-6">
+          <ReadonlyField
+            label="Imię"
+            hint="Tylko administrator może zmienić"
+          >
+            {profile?.firstName || "—"}
+          </ReadonlyField>
+          <ReadonlyField
+            label="Nazwisko"
+            hint="Tylko administrator może zmienić"
+          >
+            {profile?.lastName || "—"}
+          </ReadonlyField>
+          <ReadonlyField label="Nazwa użytkownika" muted>
+            {profile?.username || "—"}
+          </ReadonlyField>
+          <ReadonlyField
+            label="Email"
+            hint="Tylko administrator może zmienić"
+          >
+            <div className="flex items-center gap-2">
+              <Mail
+                className="w-4 h-4 text-[var(--text-muted)]"
+                aria-hidden="true"
               />
-              <Input
-                label="Nazwisko"
-                value={lastName}
-                onChange={(e) => setLastName(e.target.value)}
-                autoComplete="family-name"
-                disabled={saveAction.pending}
-              />
+              <span className="truncate">{profile?.email || "—"}</span>
+              {profile?.emailVerified && (
+                <ShieldCheck
+                  className="w-4 h-4 text-green-500 ml-auto"
+                  aria-label="Zweryfikowany"
+                />
+              )}
             </div>
-            <Input
-              label="Email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              autoComplete="email"
-              disabled={saveAction.pending}
-            />
+          </ReadonlyField>
+        </div>
+      </Card>
+
+      <Card padding="md">
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-lg font-semibold text-[var(--text-main)]">
+            Numer telefonu
+          </h2>
+          {!editingPhone && (
+            <Button variant="link" size="sm" onClick={startEditingPhone}>
+              Edytuj
+            </Button>
+          )}
+        </div>
+
+        {editingPhone ? (
+          <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1.5">
               <label
                 htmlFor={phoneId}
@@ -246,7 +277,7 @@ export function ProfileTab() {
               <Button
                 type="button"
                 variant="secondary"
-                onClick={() => setEditing(false)}
+                onClick={cancelEditingPhone}
                 disabled={saveAction.pending}
               >
                 Anuluj
@@ -254,41 +285,15 @@ export function ProfileTab() {
             </div>
           </form>
         ) : (
-          <div className="grid md:grid-cols-2 gap-6">
-            <ReadonlyField label="Imię">
-              {profile?.firstName || "—"}
-            </ReadonlyField>
-            <ReadonlyField label="Nazwisko">
-              {profile?.lastName || "—"}
-            </ReadonlyField>
-            <ReadonlyField label="Nazwa użytkownika" muted>
-              {profile?.username || "—"}
-            </ReadonlyField>
-            <ReadonlyField label="Email">
-              <div className="flex items-center gap-2">
-                <Mail
-                  className="w-4 h-4 text-[var(--text-muted)]"
-                  aria-hidden="true"
-                />
-                <span className="truncate">{profile?.email || "—"}</span>
-                {profile?.emailVerified && (
-                  <ShieldCheck
-                    className="w-4 h-4 text-green-500 ml-auto"
-                    aria-label="Zweryfikowany"
-                  />
-                )}
-              </div>
-            </ReadonlyField>
-            <ReadonlyField label="Numer telefonu">
-              <div className="flex items-center gap-2">
-                <Smartphone
-                  className="w-4 h-4 text-[var(--text-muted)]"
-                  aria-hidden="true"
-                />
-                <span>{profile?.attributes?.["phone-number"]?.[0] || "—"}</span>
-              </div>
-            </ReadonlyField>
-          </div>
+          <ReadonlyField label="Aktualny numer">
+            <div className="flex items-center gap-2">
+              <Smartphone
+                className="w-4 h-4 text-[var(--text-muted)]"
+                aria-hidden="true"
+              />
+              <span>{profile?.attributes?.["phone-number"]?.[0] || "—"}</span>
+            </div>
+          </ReadonlyField>
         )}
       </Card>
 

@@ -4,7 +4,7 @@ import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
 import { getOptionalEnv } from "@/lib/env";
 import { requireAdminPanel } from "@/lib/admin-auth";
-import { withExternalClient } from "@/lib/db";
+import { ExternalServiceUnavailableError, withExternalClient } from "@/lib/db";
 import {
   createSuccessResponse,
   handleApiError,
@@ -31,6 +31,9 @@ export async function GET() {
     });
     return createSuccessResponse({ inboxes });
   } catch (error) {
+    if (error instanceof ExternalServiceUnavailableError) {
+      return createSuccessResponse({ inboxes: [], degraded: true });
+    }
     return handleApiError(error);
   }
 }

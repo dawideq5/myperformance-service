@@ -4,10 +4,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  Activity,
   ArrowLeft,
   Ban,
   Check,
+  ExternalLink,
   KeyRound,
   Link2,
   Loader2,
@@ -38,8 +38,6 @@ import {
 import { PermissionsPanel } from "./PermissionsPanel";
 import { SecurityPanel } from "./SecurityPanel";
 import { IntegrationsPanel } from "./IntegrationsPanel";
-import { ActivityLog } from "./ActivityLog";
-import { SessionsCard } from "./SessionsCard";
 
 /**
  * /admin/users/[id] — szczegóły użytkownika (edycja end-to-end).
@@ -60,6 +58,8 @@ interface Props {
   selfId?: string;
   callerLabel: string;
   callerEmail?: string;
+  /** Deep-link do Keycloak Admin Console — replacement dla sekcji Sesje/Logi. */
+  kcUserUrl?: string | null;
 }
 
 type User = AdminUserSummary & { attributes: Record<string, string[]> };
@@ -87,6 +87,7 @@ export function UserDetailClient({
   selfId,
   callerLabel,
   callerEmail,
+  kcUserUrl,
 }: Props) {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
@@ -101,6 +102,21 @@ export function UserDetailClient({
     phone: "",
   });
   const [pendingAction, setPendingAction] = useState<string | null>(null);
+  // brute-force lock status — używamy go do gating przycisku "Odblokuj"
+  // (admin nie powinien widzieć aktywnej akcji na nie-zablokowanym koncie).
+  const [lockStatus, setLockStatus] = useState<{
+    disabled: boolean;
+    numFailures: number;
+  } | null>(null);
+
+  const refreshLockStatus = useCallback(async () => {
+    try {
+      const s = await adminUserService.getLockStatus(userId);
+      setLockStatus({ disabled: s.disabled, numFailures: s.numFailures });
+    } catch {
+      setLockStatus(null);
+    }
+  }, [userId]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -115,6 +131,7 @@ export function UserDetailClient({
         phone:
           res.attributes?.phoneNumber?.[0] ?? res.attributes?.phone?.[0] ?? "",
       });
+      void refreshLockStatus();
     } catch (err) {
       setError(
         err instanceof ApiRequestError
@@ -124,7 +141,7 @@ export function UserDetailClient({
     } finally {
       setLoading(false);
     }
-  }, [userId]);
+  }, [userId, refreshLockStatus]);
 
   useEffect(() => {
     void refresh();
@@ -230,6 +247,7 @@ export function UserDetailClient({
     try {
       await adminUserService.unlock(userId);
       setNotice("Blokada brute-force zdjęta");
+      void refreshLockStatus();
     } catch (err) {
       setError(
         err instanceof ApiRequestError
@@ -239,7 +257,7 @@ export function UserDetailClient({
     } finally {
       setPendingAction(null);
     }
-  }, [user, userId]);
+  }, [user, userId, refreshLockStatus]);
 
   const deleteAccount = useCallback(async () => {
     if (!user || isSelf) return;
@@ -378,11 +396,35 @@ export function UserDetailClient({
             size="sm"
             onClick={() => void unlock()}
             loading={pendingAction === "unlock"}
-            disabled={!!pendingAction}
+            // Disabled gdy konto nie jest zablokowane przez brute-force —
+            // odblokowanie nie-zablokowanego konta to no-op, więc nie kuszmy
+            // adminów falszywym wrażeniem zmiany. Pozostaje aktywne tylko gdy
+            // KC zwrócił `disabled=true` lub `numFailures>0`.
+            disabled={
+              !!pendingAction ||
+              !lockStatus ||
+              (!lockStatus.disabled && lockStatus.numFailures === 0)
+            }
             leftIcon={<Unlock className="w-4 h-4" aria-hidden="true" />}
+            title={
+              lockStatus && (lockStatus.disabled || lockStatus.numFailures > 0)
+                ? `Konto zablokowane (${lockStatus.numFailures} nieudanych prób)`
+                : "Konto nie jest zablokowane przez brute-force"
+            }
           >
             Odblokuj
           </Button>
+          {kcUserUrl && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => window.open(kcUserUrl, "_blank", "noopener,noreferrer")}
+              leftIcon={<ExternalLink className="w-4 h-4" aria-hidden="true" />}
+              title="Otwórz tę kartę użytkownika w Keycloak Admin Console (sesje, eventy, federated identity, role mappings)"
+            >
+              Otwórz w Keycloak
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="sm"
@@ -411,7 +453,9 @@ export function UserDetailClient({
       <Section title="Uprawnienia w aplikacjach" icon={Shield}>
         <PermissionsPanel
           userId={userId}
-          onChanged={() => setNotice("Uprawnienia zaktualizowane")}
+          onChanged={(summary) =>
+            setNotice(summary ?? "Uprawnienia zaktualizowane")
+          }
         />
       </Section>
 
@@ -429,16 +473,11 @@ export function UserDetailClient({
         <IntegrationsPanel userId={userId} />
       </Section>
 
-      <Section title="Sesje" icon={LogOut}>
-        <SessionsCard
-          userId={userId}
-          onAllTerminated={() => setNotice("Wszystkie sesje zakończone")}
-        />
-      </Section>
-
-      <Section title="Logi aktywności" icon={Activity}>
-        <ActivityLog userId={userId} />
-      </Section>
+      {/*
+        Sekcje "Sesje" + "Logi aktywności" zostały usunięte — Keycloak Admin
+        Console ma to natywnie (Users → Sessions, Events). Nie duplikujemy.
+        Przycisk "Otwórz w Keycloak" w nagłówku linkuje wprost do tej karty.
+      */}
 
       <Section title="Dane profilu" icon={Pencil}>
         <Card padding="md">

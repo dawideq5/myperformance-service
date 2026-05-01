@@ -5,11 +5,21 @@ import { authOptions } from "@/app/auth";
 import { requireEmail } from "@/lib/admin-auth";
 import { updateServer, deleteServer } from "@/lib/email/postal";
 import { appendPostalAudit } from "@/lib/email/db";
+import { ExternalServiceUnavailableError } from "@/lib/db";
 import {
   ApiError,
   createSuccessResponse,
   handleApiError,
 } from "@/lib/api-utils";
+
+function handlePostalError(error: unknown) {
+  if (error instanceof ExternalServiceUnavailableError) {
+    return handleApiError(
+      ApiError.serviceUnavailable("Postal niedostępne w trybie deweloperskim"),
+    );
+  }
+  return handleApiError(error);
+}
 
 interface Ctx {
   params: Promise<{ id: string }>;
@@ -39,7 +49,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
     });
     return createSuccessResponse({ ok: true });
   } catch (error) {
-    return handleApiError(error);
+    return handlePostalError(error);
   }
 }
 
@@ -58,6 +68,6 @@ export async function DELETE(_req: Request, { params }: Ctx) {
     });
     return createSuccessResponse({ ok: true });
   } catch (error) {
-    return handleApiError(error);
+    return handlePostalError(error);
   }
 }

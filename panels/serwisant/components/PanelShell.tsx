@@ -2,6 +2,7 @@
 
 import { signOut } from "next-auth/react";
 import { ArrowLeft, LogOut, User as UserIcon } from "lucide-react";
+import { DASHBOARD_HOME_URL } from "@/lib/dashboard-url";
 
 interface PanelShellProps {
   title: string;
@@ -22,7 +23,7 @@ export function PanelShell({ title, subtitle, userLabel, roles }: PanelShellProp
       >
         <div className="mx-auto max-w-6xl px-6 h-16 flex items-center justify-between gap-4">
           <a
-            href="https://myperformance.pl/dashboard"
+            href={DASHBOARD_HOME_URL}
             className="flex items-center gap-2 font-bold tracking-tight"
             style={{ color: "var(--text-main)" }}
           >

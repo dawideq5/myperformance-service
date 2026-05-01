@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  ChevronDown,
+  ChevronRight,
   FileSignature,
   GraduationCap,
   Loader2,
@@ -92,7 +94,11 @@ function computeGroupDiff(
 
 interface PermissionsPanelProps {
   userId: string;
-  onChanged?: () => void;
+  /**
+   * Wywoływane po każdej zmianie. `summary` opisuje zmianę zwięźle (jeden
+   * komunikat zamiast osobnych "Usunięto X" + "Przyznano Y" przy upgradzie).
+   */
+  onChanged?: (summary?: string) => void;
 }
 
 export function PermissionsPanel({ userId, onChanged }: PermissionsPanelProps) {
@@ -115,6 +121,30 @@ export function PermissionsPanel({ userId, onChanged }: PermissionsPanelProps) {
         setValue(map);
       });
   }, [userId]);
+
+  // Pomocnicze: dla danego area + result z API formatuje JEDEN komunikat:
+  //   - "Usunięto rolę X w Y"  (gdy added=[])
+  //   - "Przyznano rolę X w Y" (gdy removed=[])
+  //   - "Zmieniono X → Y w Z"  (gdy oba — najczęsta sytuacja przy zmianie poziomu)
+  const buildSummary = useCallback(
+    (areaId: string, removed: string[], added: string[]): string => {
+      const area = areas.find((a) => a.id === areaId);
+      const areaLabel = area?.label ?? areaId;
+      const labelOf = (roleName: string) =>
+        area?.roles.find((r) => r.name === roleName)?.label ?? roleName;
+      if (added.length > 0 && removed.length > 0) {
+        return `Zmieniono uprawnienie ${labelOf(removed[0])} → ${labelOf(added[0])} w ${areaLabel}`;
+      }
+      if (added.length > 0) {
+        return `Przyznano uprawnienie ${labelOf(added[0])} w ${areaLabel}`;
+      }
+      if (removed.length > 0) {
+        return `Cofnięto uprawnienie ${labelOf(removed[0])} w ${areaLabel}`;
+      }
+      return `Uprawnienia w ${areaLabel} zaktualizowane`;
+    },
+    [areas],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -153,10 +183,15 @@ export function PermissionsPanel({ userId, onChanged }: PermissionsPanelProps) {
 
   const persist = useCallback(
     async (areaId: string, roleName: string | null) => {
-      await adminUserService.setAreaRole(userId, { areaId, roleName });
-      onChanged?.();
+      const res = await adminUserService.setAreaRole(userId, { areaId, roleName });
+      const summary = buildSummary(
+        areaId,
+        res.result?.removed ?? [],
+        res.result?.added ?? [],
+      );
+      onChanged?.(summary);
     },
-    [userId, onChanged],
+    [userId, onChanged, buildSummary],
   );
 
   const selectedPickGroup = useMemo(
@@ -411,12 +446,14 @@ function ChatwootInboxSection({ userId }: { userId: string }) {
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [degraded, setDegraded] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const r = await chatwootInboxService.list(userId);
+      setDegraded(r.degraded === true);
       setAllInboxes(r.allInboxes);
       setAssigned(new Set(r.assignedInboxIds));
       setChatwootUserId(r.chatwootUserId);
@@ -459,38 +496,108 @@ function ChatwootInboxSection({ userId }: { userId: string }) {
     );
   }
 
+  // Grupowanie inbox-ów po account_id — drzewko: account → inboxes.
+  // W większości deploymentów istnieje tylko 1 account (`CHATWOOT_ACCOUNT_ID`),
+  // ale infra wspiera multi-tenant, więc zachowujemy podział żeby admin
+  // widział, do którego konta należy każdy inbox.
+  const inboxesByAccount = useMemo(() => {
+    const map = new Map<number, ChatwootInbox[]>();
+    for (const i of allInboxes) {
+      const arr = map.get(i.account_id) ?? [];
+      arr.push(i);
+      map.set(i.account_id, arr);
+    }
+    return [...map.entries()].sort(([a], [b]) => a - b);
+  }, [allInboxes]);
+
   return (
     <Card padding="md">
       <div className="mb-3">
         <h3 className="text-sm font-medium text-[var(--text-main)] flex items-center gap-2">
           <MessageSquare className="w-4 h-4" aria-hidden="true" />
-          Chatwoot — kanały (inboxes)
+          Wsparcie (Chatwoot) — drzewko kont i kanałów
         </h3>
         <p className="text-xs text-[var(--text-muted)] mt-0.5">
           Każdy zaznaczony kanał daje user dostęp do rozmów z tego inboxa.
         </p>
       </div>
       {error && <Alert tone="error">{error}</Alert>}
-      {allInboxes.length === 0 ? (
+      {degraded ? (
+        <Alert tone="info">
+          Chatwoot niedostępny w trybie deweloperskim — DB hostuje się tylko w prod docker network.
+        </Alert>
+      ) : allInboxes.length === 0 ? (
         <p className="text-sm text-[var(--text-muted)]">
           Brak kanałów w Chatwoocie.
         </p>
       ) : (
-        <ul className="space-y-1.5">
-          {allInboxes.map((i) => (
-            <AccessTile
-              key={i.id}
-              title={i.name}
-              subtitle={i.channel_type.replace("Channel::", "")}
-              hasAccess={assigned.has(i.id)}
-              pending={pending === i.id}
-              disabled={pending !== null}
-              onToggle={() => void toggle(i)}
-            />
+        <div className="space-y-3">
+          {inboxesByAccount.map(([accountId, inboxes]) => (
+            <CollapsibleSubtree
+              key={accountId}
+              title={`Account #${accountId}`}
+              subtitle={`${inboxes.length} ${inboxes.length === 1 ? "kanał" : "kanałów"}`}
+              defaultOpen
+            >
+              <ul className="space-y-1.5">
+                {inboxes.map((i) => (
+                  <AccessTile
+                    key={i.id}
+                    title={i.name}
+                    subtitle={i.channel_type.replace("Channel::", "")}
+                    hasAccess={assigned.has(i.id)}
+                    pending={pending === i.id}
+                    disabled={pending !== null}
+                    onToggle={() => void toggle(i)}
+                  />
+                ))}
+              </ul>
+            </CollapsibleSubtree>
           ))}
-        </ul>
+        </div>
       )}
     </Card>
+  );
+}
+
+// Generic collapsible — używany w drzewkach Chatwoot/Moodle żeby grupować
+// pozycje i nie zalewać admina pełną listą gdy jest ich dużo.
+function CollapsibleSubtree({
+  title,
+  subtitle,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="rounded-lg border border-[var(--border-subtle)]">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center gap-2 px-3 py-2 text-left"
+        aria-expanded={open}
+      >
+        {open ? (
+          <ChevronDown className="w-4 h-4 text-[var(--text-muted)]" aria-hidden="true" />
+        ) : (
+          <ChevronRight className="w-4 h-4 text-[var(--text-muted)]" aria-hidden="true" />
+        )}
+        <span className="text-sm font-medium text-[var(--text-main)]">{title}</span>
+        {subtitle && (
+          <span className="text-xs text-[var(--text-muted)] ml-1">{subtitle}</span>
+        )}
+      </button>
+      {open && (
+        <div className="px-3 pb-3 pt-1 border-t border-[var(--border-subtle)]">
+          {children}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -502,12 +609,14 @@ function MoodleCourseSection({ userId }: { userId: string }) {
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [degraded, setDegraded] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const r = await moodleCourseService.list(userId);
+      setDegraded(r.degraded === true);
       setAllCourses(r.allCourses);
       setEnrolled(new Set(r.enrolledCourseIds));
       setMoodleUserId(r.moodleUserId);
@@ -555,7 +664,7 @@ function MoodleCourseSection({ userId }: { userId: string }) {
       <div className="mb-3">
         <h3 className="text-sm font-medium text-[var(--text-main)] flex items-center gap-2">
           <GraduationCap className="w-4 h-4" aria-hidden="true" />
-          Akademia (Moodle) — kursy
+          Akademia (Moodle) — drzewko kursów
         </h3>
         <p className="text-xs text-[var(--text-muted)] mt-0.5">
           Zapisanie usera do kursu daje dostęp jako student. Wymaga aby kurs
@@ -563,7 +672,11 @@ function MoodleCourseSection({ userId }: { userId: string }) {
         </p>
       </div>
       {error && <Alert tone="error">{error}</Alert>}
-      {allCourses.length === 0 ? (
+      {degraded ? (
+        <Alert tone="info">
+          Moodle niedostępne w trybie deweloperskim — DB hostuje się tylko w prod docker network.
+        </Alert>
+      ) : allCourses.length === 0 ? (
         <p className="text-sm text-[var(--text-muted)]">Brak kursów.</p>
       ) : (
         <ul className="space-y-1.5">
@@ -593,12 +706,14 @@ function DocumensoMembershipSection({ userId }: { userId: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
+  const [degraded, setDegraded] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const r = await documensoMembershipService.list(userId);
+      setDegraded(r.degraded === true);
       setAllOrgs(r.allOrganisations);
       setMemberships(r.memberships);
       setDocumensoUserId(r.documensoUserId);
@@ -654,14 +769,18 @@ function DocumensoMembershipSection({ userId }: { userId: string }) {
       <div className="mb-3">
         <h3 className="text-sm font-medium text-[var(--text-main)] flex items-center gap-2">
           <FileSignature className="w-4 h-4" aria-hidden="true" />
-          Dokumenty (Documenso) — organizacje
+          Dokumenty (Documenso) — drzewko organizacji
         </h3>
         <p className="text-xs text-[var(--text-muted)] mt-0.5">
-          Przyznanie dostępu = członek organizacji wraz ze wszystkimi jej zespołami.
+          Toggle organizacji = członkostwo z dostępem do wszystkich jej zespołów. Rozwiń aby zobaczyć zespoły wewnątrz.
         </p>
       </div>
       {error && <div className="mb-3"><Alert tone="error">{error}</Alert></div>}
-      {allOrgs.length === 0 ? (
+      {degraded ? (
+        <Alert tone="info">
+          Documenso niedostępne w trybie deweloperskim — DB hostuje się tylko w prod docker network.
+        </Alert>
+      ) : allOrgs.length === 0 ? (
         <p className="text-sm text-[var(--text-muted)]">Brak organizacji.</p>
       ) : (
         <ul className="space-y-1.5">
@@ -679,26 +798,111 @@ function DocumensoMembershipSection({ userId }: { userId: string }) {
             const subtitle = `${o.teams.length} ${o.teams.length === 1 ? "zespół" : "zespoły"}${
               roleLabel ? ` · ${roleLabel}` : ""
             }`;
-            return <AccessTile
-              key={o.id}
-              title={o.name}
-              subtitle={subtitle}
-              tags={o.teams.map((t) => t.name)}
-              hasAccess={has}
-              pending={pending === o.id}
-              disabled={pending !== null}
-              onToggle={() => void toggle(o.id)}
-            />;
+            return (
+              <DocumensoOrgNode
+                key={o.id}
+                title={o.name}
+                subtitle={subtitle}
+                teams={o.teams.map((t) => ({ id: t.id, name: t.name }))}
+                hasAccess={has}
+                pending={pending === o.id}
+                disabled={pending !== null}
+                onToggle={() => void toggle(o.id)}
+              />
+            );
           })}
         </ul>
       )}
       {documensoUserId === null && (
         <p className="mt-3 text-xs text-[var(--text-muted)]">
-          Konto Documenso zostanie utworzone automatycznie przy pierwszym
-          przypisaniu (pre-provisioning), OIDC złączy je przy pierwszym loginie.
+          Konto Documenso powstaje przy pierwszym przyznaniu dostępu — OIDC złączy je przy pierwszym loginie.
         </p>
       )}
     </Card>
+  );
+}
+
+// Tree-node dla Documenso org: collapsible z toggle dostępu na poziomie org.
+// Backend: Documenso v2 nie wystawia per-team membership — team członkostwo
+// dziedziczy się z organisation membership. Dlatego zespoły są tu read-only
+// (informacyjnie, żeby admin widział co user dostaje).
+function DocumensoOrgNode({
+  title,
+  subtitle,
+  teams,
+  hasAccess,
+  pending,
+  disabled,
+  onToggle,
+}: {
+  title: string;
+  subtitle?: string;
+  teams: Array<{ id: number; name: string }>;
+  hasAccess: boolean;
+  pending: boolean;
+  disabled: boolean;
+  onToggle: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <li
+      className={`rounded-lg border transition-colors ${
+        hasAccess
+          ? "border-green-500/40 bg-green-500/5"
+          : "border-[var(--border-subtle)]"
+      }`}
+    >
+      <div className="flex items-center justify-between gap-3 px-3 py-2.5">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="flex items-center gap-2 flex-1 min-w-0 text-left"
+          aria-expanded={open}
+        >
+          {open ? (
+            <ChevronDown className="w-4 h-4 flex-shrink-0 text-[var(--text-muted)]" aria-hidden="true" />
+          ) : (
+            <ChevronRight className="w-4 h-4 flex-shrink-0 text-[var(--text-muted)]" aria-hidden="true" />
+          )}
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-[var(--text-main)] truncate">{title}</div>
+            {subtitle && (
+              <div className="text-xs text-[var(--text-muted)] truncate">{subtitle}</div>
+            )}
+          </div>
+        </button>
+        <Button
+          size="sm"
+          variant={hasAccess ? "secondary" : "primary"}
+          onClick={onToggle}
+          loading={pending}
+          disabled={disabled}
+          className="min-w-[130px] flex-shrink-0"
+        >
+          {hasAccess ? "Wyłącz dostęp" : "Włącz dostęp"}
+        </Button>
+      </div>
+      {open && teams.length > 0 && (
+        <ul className="border-t border-[var(--border-subtle)] divide-y divide-[var(--border-subtle)] bg-[var(--bg-main)]/40 rounded-b-lg">
+          {teams.map((t) => (
+            <li
+              key={t.id}
+              className="px-9 py-1.5 text-xs flex items-center justify-between"
+            >
+              <span className="text-[var(--text-main)]">{t.name}</span>
+              <Badge tone={hasAccess ? "success" : "neutral"} className="text-[10px]">
+                {hasAccess ? "dostęp dziedziczony" : "brak"}
+              </Badge>
+            </li>
+          ))}
+        </ul>
+      )}
+      {open && teams.length === 0 && (
+        <div className="px-9 py-2 text-xs text-[var(--text-muted)] border-t border-[var(--border-subtle)]">
+          Brak zespołów w tej organizacji.
+        </div>
+      )}
+    </li>
   );
 }
 

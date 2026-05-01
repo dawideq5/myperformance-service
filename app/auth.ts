@@ -1,11 +1,10 @@
 import type { AuthOptions } from "next-auth";
-import type { JWT } from "next-auth/jwt";
 import KeycloakProvider from "next-auth/providers/keycloak";
 import { keycloak } from "@/lib/keycloak";
 import { getRequiredEnv } from "@/lib/env";
 import { SESSION_MAX_AGE_SECONDS } from "@/lib/constants";
 import { log } from "@/lib/logger";
-import { enqueueProfilePropagation } from "@/lib/permissions/sync";
+// `enqueueProfilePropagation` celowo NIE jest tu importowany — patrz `events:` poniżej.
 
 const logger = log.child({ module: "auth" });
 
@@ -108,27 +107,6 @@ function isRefreshSuccess(
   return (r as RefreshResult).accessToken !== undefined;
 }
 
-/** Fetches user attributes from Keycloak Account API and caches them in the JWT token. */
-async function hydrateTokenAttributes(token: JWT): Promise<void> {
-  if (!token.accessToken) return;
-  try {
-    const res = await fetch(keycloak.getAccountUrl("/account"), {
-      headers: {
-        Authorization: `Bearer ${token.accessToken}`,
-        Accept: "application/json",
-      },
-      signal: AbortSignal.timeout(5_000),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      token.userAttributes = data.attributes || {};
-      token.emailVerified = data.emailVerified ?? false;
-    }
-  } catch {
-    // Non-fatal — stale attributes will be used until next refresh
-  }
-}
-
 let _authOptions: AuthOptions | null = null;
 
 function buildAuthOptions(): AuthOptions {
@@ -163,8 +141,8 @@ function buildAuthOptions(): AuthOptions {
     // HTTPS, but an explicit name of `next-auth.session-token` caused a
     // write/read mismatch and an infinite login redirect loop.
     callbacks: {
-      async jwt({ token, account, trigger }) {
-        // First login — store tokens and fetch initial user attributes
+      async jwt({ token, account }) {
+        // First login — store tokens
         if (account) {
           token.accessToken = account.access_token;
           token.refreshToken = account.refresh_token;
@@ -176,12 +154,6 @@ function buildAuthOptions(): AuthOptions {
             : 300;
           token.expiresAt = Math.floor(Date.now() / 1000) + expiresIn;
           token.keycloakError = false;
-          return token;
-        }
-
-        // Client called update() — re-fetch attributes with current token
-        if (trigger === "update") {
-          await hydrateTokenAttributes(token);
           return token;
         }
 
@@ -210,7 +182,6 @@ function buildAuthOptions(): AuthOptions {
             token.refreshToken = refreshed.refreshToken;
             token.expiresAt = refreshed.expiresAt;
             token.keycloakError = false;
-            await hydrateTokenAttributes(token);
             return token;
           }
 
@@ -294,28 +265,17 @@ function buildAuthOptions(): AuthOptions {
       signIn: "/login",
       error: "/login",
     },
-    // Mirror Keycloak → downstream services on every successful login.
-    // Fire-and-forget: profile propagation reaches 5+ providers (Chatwoot,
-    // Directus, Moodle, Outline, Documenso DB, Postal DB) and would stall
-    // the handshake if we awaited. Any failure is logged but never bubbles
-    // back to the user — they still end up logged in; the next login will
-    // retry the propagation.
-    events: {
-      async signIn({ user }) {
-        const userId = (user as { id?: string } | undefined)?.id;
-        if (!userId) return;
-        // Kolejka z retry/backoff — jeśli któryś provider jest chwilowo down
-        // (np. Chatwoot restart), job się retryuje zamiast cicho tracić sync.
-        void enqueueProfilePropagation(userId, {
-          actor: `signin:${user.email ?? userId}`,
-        }).catch((err) => {
-          logger.warn("enqueueProfilePropagation on signIn failed", {
-            userId,
-            err: err instanceof Error ? err.message : String(err),
-          });
-        });
-      },
-    },
+    // ZMIANA 2026-05-01: NIE auto-propagujemy profilu na signIn. Tworzenie
+    // konta w Documenso/Chatwoot/Moodle/Outline/Directus odbywa się TYLKO
+    // gdy admin świadomie nadaje dostęp w `/admin/users/[id]`. Login do
+    // dashboardu nie powinien implicite tworzyć membership w aplikacjach,
+    // których user nigdy nie miał używać. Provisioning został przeniesiony
+    // do explicit grant w Permissions panel.
+    //
+    // Re-enable: jeśli któryś provider potrzebuje sync profilu (np. zmiana
+    // email/imienia) → podpiąć pod webhook w `app/api/users/[id]` PUT,
+    // nie pod signIn.
+    events: {},
     // Secure cookies: w produkcji ZAWSZE true. NextAuth z useSecureCookies=true
     // automatycznie:
     //   - dodaje __Secure- prefix do session-token, callback-url, pkce/state
