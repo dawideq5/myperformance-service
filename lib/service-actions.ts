@@ -15,6 +15,13 @@ export type ServiceActionKind =
   | "client_signed"
   | "client_rejected"
   | "annex_issued"
+  | "status_change"
+  | "quote_changed"
+  | "annex_created"
+  | "annex_accepted"
+  | "annex_rejected"
+  | "photo_uploaded"
+  | "photo_deleted"
   | "other";
 
 export interface ServiceAction {

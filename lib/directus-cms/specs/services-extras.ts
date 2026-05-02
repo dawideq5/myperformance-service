@@ -369,6 +369,13 @@ export const SERVICES_EXTRAS_SPECS: CollectionSpec[] = [
               { text: "Klient podpisał", value: "client_signed" },
               { text: "Klient odrzucił", value: "client_rejected" },
               { text: "Aneks wystawiony", value: "annex_issued" },
+              { text: "Zmiana statusu", value: "status_change" },
+              { text: "Zmiana wyceny", value: "quote_changed" },
+              { text: "Aneks utworzony", value: "annex_created" },
+              { text: "Aneks zaakceptowany", value: "annex_accepted" },
+              { text: "Aneks odrzucony", value: "annex_rejected" },
+              { text: "Zdjęcie dodane", value: "photo_uploaded" },
+              { text: "Zdjęcie usunięte", value: "photo_deleted" },
               { text: "Inne", value: "other" },
             ],
           },
@@ -512,6 +519,380 @@ export const SERVICES_EXTRAS_SPECS: CollectionSpec[] = [
       { field: "notes", type: "text", meta: { interface: "input-multiline", width: "full" } },
       { field: "created_at", type: "timestamp", meta: { interface: "datetime", readonly: true, width: "half", display: "datetime", display_options: { relative: true } } },
       { field: "updated_at", type: "timestamp", meta: { interface: "datetime", readonly: true, width: "half", display: "datetime", display_options: { relative: true } } },
+    ],
+  },
+
+  // === Zdjęcia zlecenia (panel serwisanta — etapy intake/diagnosis/repair) ===
+  // Każde zdjęcie powiązane ze service_id + stage. Soft-delete (deleted_at).
+  // Storage: Directus Files (folder "service-photos") + opcjonalny MinIO ref.
+  {
+    collection: "mp_service_photos",
+    meta: {
+      icon: "photo_library",
+      note: "Zdjęcia zleceń serwisowych — przyjęcie, diagnoza, naprawa, przed wydaniem.",
+      display_template: "{{ticket_number}} — {{stage}} ({{uploaded_at}})",
+      sort_field: "-uploaded_at",
+    },
+    fields: [
+      {
+        field: "id",
+        type: "uuid",
+        schema: { is_primary_key: true },
+        meta: { hidden: true, readonly: true, special: ["uuid"] },
+      },
+      {
+        field: "service_id",
+        type: "uuid",
+        schema: { is_nullable: false },
+        meta: { interface: "input", readonly: true, width: "half" },
+      },
+      {
+        field: "ticket_number",
+        type: "string",
+        meta: { interface: "input", readonly: true, width: "half", options: { font: "monospace" } },
+      },
+      {
+        field: "storage_kind",
+        type: "string",
+        schema: { default_value: "directus", is_nullable: false },
+        meta: {
+          interface: "select-dropdown",
+          width: "half",
+          options: {
+            choices: [
+              { text: "Directus Files", value: "directus" },
+              { text: "MinIO", value: "minio" },
+            ],
+          },
+        },
+      },
+      {
+        field: "storage_ref",
+        type: "string",
+        schema: { is_nullable: true },
+        meta: {
+          interface: "input",
+          width: "half",
+          options: { font: "monospace" },
+          note: "ID pliku w Directus Files lub key MinIO.",
+        },
+      },
+      {
+        field: "url",
+        type: "string",
+        schema: { is_nullable: true },
+        meta: {
+          interface: "input",
+          width: "full",
+          options: { iconLeft: "link" },
+          note: "Publiczny URL przez auth proxy /api/public/service-photos/{id}.",
+        },
+      },
+      {
+        field: "thumbnail_url",
+        type: "string",
+        schema: { is_nullable: true },
+        meta: { interface: "input", width: "full", note: "Opcjonalny thumbnail." },
+      },
+      {
+        field: "stage",
+        type: "string",
+        schema: { default_value: "intake", is_nullable: false },
+        meta: {
+          interface: "select-dropdown",
+          width: "half",
+          display: "labels",
+          options: {
+            choices: [
+              { text: "Przyjęcie", value: "intake" },
+              { text: "Diagnoza", value: "diagnosis" },
+              { text: "Naprawa", value: "in_repair" },
+              { text: "Przed wydaniem", value: "before_delivery" },
+              { text: "Inne", value: "other" },
+            ],
+          },
+        },
+      },
+      {
+        field: "note",
+        type: "text",
+        meta: { interface: "input-multiline", width: "full" },
+      },
+      {
+        field: "uploaded_by",
+        type: "string",
+        meta: { interface: "input", readonly: true, width: "half", options: { iconLeft: "person" } },
+      },
+      {
+        field: "uploaded_at",
+        type: "timestamp",
+        schema: { default_value: "now()" },
+        meta: { interface: "datetime", readonly: true, width: "half", special: ["date-created"] },
+      },
+      { field: "filename", type: "string", schema: { is_nullable: true }, meta: { interface: "input", readonly: true, width: "half" } },
+      { field: "size_bytes", type: "bigInteger", schema: { is_nullable: true }, meta: { interface: "input", readonly: true, width: "half" } },
+      { field: "content_type", type: "string", schema: { is_nullable: true }, meta: { interface: "input", readonly: true, width: "half" } },
+      {
+        field: "deleted_at",
+        type: "timestamp",
+        schema: { is_nullable: true },
+        meta: { interface: "datetime", readonly: true, width: "half", note: "Soft delete — null = aktywne." },
+      },
+    ],
+  },
+
+  // === Historia zmian wyceny ===
+  // Każda zmiana amount_estimate w mp_services rejestrowana tutaj. delta jest
+  // GENERATED kolumną (Postgres), Directus traktuje ją jako zwykły numeric.
+  // Powiązanie z annex_id pozwala odtworzyć kto/jak zaaprobował zmianę.
+  {
+    collection: "mp_service_quote_history",
+    meta: {
+      icon: "history_toggle_off",
+      note: "Historia zmian wyceny serwisu — kto, kiedy, o ile zmienił kwotę i czy istnieje aneks.",
+      display_template: "{{ticket_number}} — Δ {{delta}} PLN ({{changed_at}})",
+      sort_field: "-changed_at",
+    },
+    fields: [
+      {
+        field: "id",
+        type: "uuid",
+        schema: { is_primary_key: true },
+        meta: { hidden: true, readonly: true, special: ["uuid"] },
+      },
+      {
+        field: "service_id",
+        type: "uuid",
+        schema: { is_nullable: false },
+        meta: { interface: "input", readonly: true, width: "half" },
+      },
+      {
+        field: "ticket_number",
+        type: "string",
+        meta: { interface: "input", readonly: true, width: "half", options: { font: "monospace" } },
+      },
+      {
+        field: "old_amount",
+        type: "decimal",
+        schema: { numeric_precision: 10, numeric_scale: 2, is_nullable: true },
+        meta: { interface: "input", readonly: true, width: "third", options: { iconLeft: "payments" } },
+      },
+      {
+        field: "new_amount",
+        type: "decimal",
+        schema: { numeric_precision: 10, numeric_scale: 2, is_nullable: true },
+        meta: { interface: "input", readonly: true, width: "third", options: { iconLeft: "payments" } },
+      },
+      {
+        field: "delta",
+        type: "decimal",
+        schema: { numeric_precision: 10, numeric_scale: 2, is_nullable: true },
+        meta: {
+          interface: "input",
+          readonly: true,
+          width: "third",
+          options: { iconLeft: "trending_up" },
+          note: "Wirtualna kolumna — wyliczana w app layer (new_amount - old_amount).",
+        },
+      },
+      {
+        field: "reason",
+        type: "text",
+        schema: { is_nullable: true },
+        meta: { interface: "input-multiline", width: "full" },
+      },
+      {
+        field: "items",
+        type: "json",
+        schema: { is_nullable: true },
+        meta: {
+          interface: "input-code",
+          width: "full",
+          options: { language: "json" },
+          note: "Pozycje wyceny [{name, qty, price}].",
+        },
+      },
+      {
+        field: "annex_id",
+        type: "uuid",
+        schema: { is_nullable: true },
+        meta: {
+          interface: "input",
+          readonly: true,
+          width: "half",
+          note: "ID aneksu który zatwierdził zmianę (mp_service_annexes.id).",
+        },
+      },
+      {
+        field: "changed_by_email",
+        type: "string",
+        schema: { is_nullable: true },
+        meta: { interface: "input", readonly: true, width: "half" },
+      },
+      {
+        field: "changed_by_name",
+        type: "string",
+        schema: { is_nullable: true },
+        meta: { interface: "input", readonly: true, width: "half" },
+      },
+      {
+        field: "changed_at",
+        type: "timestamp",
+        schema: { default_value: "now()" },
+        meta: { interface: "datetime", readonly: true, width: "half", special: ["date-created"] },
+      },
+    ],
+  },
+
+  // === Aneksy do zlecenia (zmiana ceny / zakresu) ===
+  // Aneks dokumentuje istotną zmianę warunków po wystawieniu pierwotnego
+  // potwierdzenia. Akceptacja: Documenso (e-podpis), telefon (manual)
+  // lub email (manual po linku z Postal/Chatwoot).
+  {
+    collection: "mp_service_annexes",
+    meta: {
+      icon: "post_add",
+      note: "Aneksy do zleceń serwisowych — zmiany ceny / zakresu wymagające akceptacji klienta.",
+      display_template: "{{ticket_number}} — Δ {{delta_amount}} PLN ({{acceptance_status}})",
+      sort_field: "-created_at",
+    },
+    fields: [
+      {
+        field: "id",
+        type: "uuid",
+        schema: { is_primary_key: true },
+        meta: { hidden: true, readonly: true, special: ["uuid"] },
+      },
+      {
+        field: "service_id",
+        type: "uuid",
+        schema: { is_nullable: false },
+        meta: { interface: "input", readonly: true, width: "half" },
+      },
+      {
+        field: "ticket_number",
+        type: "string",
+        meta: { interface: "input", readonly: true, width: "half", options: { font: "monospace" } },
+      },
+      {
+        field: "delta_amount",
+        type: "decimal",
+        schema: { numeric_precision: 10, numeric_scale: 2, is_nullable: false },
+        meta: { interface: "input", required: true, width: "half", options: { iconLeft: "payments" } },
+      },
+      {
+        field: "reason",
+        type: "text",
+        schema: { is_nullable: false },
+        meta: { interface: "input-multiline", required: true, width: "full" },
+      },
+      {
+        field: "acceptance_method",
+        type: "string",
+        schema: { is_nullable: false },
+        meta: {
+          interface: "select-dropdown",
+          required: true,
+          width: "half",
+          options: {
+            choices: [
+              { text: "Documenso (e-podpis)", value: "documenso" },
+              { text: "Telefon", value: "phone" },
+              { text: "Email", value: "email" },
+            ],
+          },
+        },
+      },
+      {
+        field: "acceptance_status",
+        type: "string",
+        schema: { default_value: "pending", is_nullable: false },
+        meta: {
+          interface: "select-dropdown",
+          width: "half",
+          display: "labels",
+          options: {
+            choices: [
+              { text: "Oczekuje", value: "pending" },
+              { text: "Zaakceptowany", value: "accepted" },
+              { text: "Odrzucony", value: "rejected" },
+              { text: "Wygasł", value: "expired" },
+            ],
+          },
+        },
+      },
+      {
+        field: "documenso_doc_id",
+        type: "bigInteger",
+        schema: { is_nullable: true },
+        meta: { interface: "input", readonly: true, width: "half" },
+      },
+      {
+        field: "documenso_signing_url",
+        type: "string",
+        schema: { is_nullable: true },
+        meta: { interface: "input", readonly: true, width: "full" },
+      },
+      {
+        field: "customer_name",
+        type: "string",
+        schema: { is_nullable: true },
+        meta: { interface: "input", width: "half" },
+      },
+      {
+        field: "message_id",
+        type: "string",
+        schema: { is_nullable: true },
+        meta: { interface: "input", width: "half", options: { font: "monospace" }, note: "ID wiadomości email/telefon (audit)." },
+      },
+      {
+        field: "conversation_id",
+        type: "integer",
+        schema: { is_nullable: true },
+        meta: { interface: "input", readonly: true, width: "half", options: { iconLeft: "chat" } },
+      },
+      {
+        field: "note",
+        type: "text",
+        schema: { is_nullable: true },
+        meta: { interface: "input-multiline", width: "full" },
+      },
+      {
+        field: "pdf_hash",
+        type: "string",
+        schema: { is_nullable: true },
+        meta: { interface: "input", readonly: true, width: "full", options: { font: "monospace" }, note: "SHA-256 wygenerowanego PDF aneksu." },
+      },
+      {
+        field: "created_by_email",
+        type: "string",
+        schema: { is_nullable: true },
+        meta: { interface: "input", readonly: true, width: "half" },
+      },
+      {
+        field: "created_by_name",
+        type: "string",
+        schema: { is_nullable: true },
+        meta: { interface: "input", readonly: true, width: "half" },
+      },
+      {
+        field: "created_at",
+        type: "timestamp",
+        schema: { default_value: "now()" },
+        meta: { interface: "datetime", readonly: true, width: "half", special: ["date-created"] },
+      },
+      {
+        field: "accepted_at",
+        type: "timestamp",
+        schema: { is_nullable: true },
+        meta: { interface: "datetime", readonly: true, width: "half" },
+      },
+      {
+        field: "rejected_at",
+        type: "timestamp",
+        schema: { is_nullable: true },
+        meta: { interface: "datetime", readonly: true, width: "half" },
+      },
     ],
   },
 ];

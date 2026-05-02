@@ -5,9 +5,14 @@ import { NextResponse } from "next/server";
 import { createHmac, timingSafeEqual } from "crypto";
 import { log } from "@/lib/logger";
 import { getUserIdByEmail, notifyUser } from "@/lib/notify";
-import { findServiceByDocumensoId, updateService } from "@/lib/services";
+import { findServiceByDocumensoId, updateService, getService } from "@/lib/services";
 import { logServiceAction } from "@/lib/service-actions";
 import { downloadDocumentPdf } from "@/lib/documenso";
+import {
+  findAnnexByDocumensoId,
+  updateServiceAnnex,
+} from "@/lib/service-annexes";
+import { createQuoteHistoryEntry } from "@/lib/service-quote-history";
 import { sendMail } from "@/lib/smtp";
 import { renderSignedReceiptEmail } from "@/lib/email/signed-receipt";
 import { getLocation } from "@/lib/locations";
@@ -440,9 +445,72 @@ export async function POST(req: Request) {
           });
         }
       } else {
-        logger.warn("documenso webhook: service not found for docId", {
-          docId: doc.id,
-        });
+        // Brak match'u w mp_services — sprawdź mp_service_annexes (Documenso
+        // doc utworzony przez POST /annex). Idempotent UPDATE: jeśli już
+        // accepted, no-op.
+        const annex = await findAnnexByDocumensoId(Number(doc.id));
+        if (annex) {
+          if (annex.acceptanceStatus === "accepted") {
+            logger.info("annex already accepted — no-op", {
+              annexId: annex.id,
+              docId: doc.id,
+            });
+          } else {
+            try {
+              const acceptedAt = new Date().toISOString();
+              await updateServiceAnnex(annex.id, {
+                acceptanceStatus: "accepted",
+                acceptedAt,
+              });
+              const svc = await getService(annex.serviceId);
+              if (svc) {
+                const oldAmount =
+                  typeof svc.amountEstimate === "number"
+                    ? svc.amountEstimate
+                    : 0;
+                const newAmount = Number(
+                  (oldAmount + annex.deltaAmount).toFixed(2),
+                );
+                await updateService(svc.id, { amountEstimate: newAmount });
+                await createQuoteHistoryEntry({
+                  serviceId: svc.id,
+                  ticketNumber: svc.ticketNumber,
+                  oldAmount,
+                  newAmount,
+                  reason: `Aneks zaakceptowany przez Documenso: ${annex.reason}`,
+                  annexId: annex.id,
+                  changedByEmail: null,
+                  changedByName: "Klient (Documenso)",
+                });
+              }
+              void logServiceAction({
+                serviceId: annex.serviceId,
+                ticketNumber: annex.ticketNumber,
+                action: "annex_accepted",
+                actor: { name: "Klient (Documenso)" },
+                summary: `Aneks zaakceptowany — Δ ${annex.deltaAmount} PLN`,
+                payload: {
+                  annexId: annex.id,
+                  documensoDocId: Number(doc.id),
+                  deltaAmount: annex.deltaAmount,
+                },
+              });
+              logger.info("annex accepted via Documenso", {
+                annexId: annex.id,
+                docId: doc.id,
+              });
+            } catch (e) {
+              logger.warn("annex accept persist failed", {
+                annexId: annex.id,
+                err: e instanceof Error ? e.message : String(e),
+              });
+            }
+          }
+        } else {
+          logger.warn("documenso webhook: no service or annex match", {
+            docId: doc.id,
+          });
+        }
       }
     }
     logger.info("documenso doc completed", { docId: doc?.id });
@@ -477,6 +545,33 @@ export async function POST(req: Request) {
           });
         } catch {
           /* ignore — notify still goes through */
+        }
+      } else {
+        // Może to być rejection aneksu — sprawdź mp_service_annexes.
+        const annex = await findAnnexByDocumensoId(Number(doc.id));
+        if (annex && annex.acceptanceStatus === "pending") {
+          try {
+            await updateServiceAnnex(annex.id, {
+              acceptanceStatus: "rejected",
+              rejectedAt: new Date().toISOString(),
+            });
+            void logServiceAction({
+              serviceId: annex.serviceId,
+              ticketNumber: annex.ticketNumber,
+              action: "annex_rejected",
+              actor: { name: "Klient (Documenso)" },
+              summary: `Aneks odrzucony — Δ ${annex.deltaAmount} PLN`,
+              payload: {
+                annexId: annex.id,
+                documensoDocId: Number(doc.id),
+              },
+            });
+          } catch (e) {
+            logger.warn("annex reject persist failed", {
+              annexId: annex.id,
+              err: e instanceof Error ? e.message : String(e),
+            });
+          }
         }
       }
     }

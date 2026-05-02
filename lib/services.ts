@@ -17,12 +17,117 @@ export type ServiceStatus =
   | "received"
   | "diagnosing"
   | "awaiting_quote"
+  | "awaiting_parts"
   | "repairing"
   | "testing"
   | "ready"
   | "delivered"
+  | "on_hold"
+  | "rejected_by_customer"
+  | "returned_no_repair"
+  | "closed"
   | "cancelled"
   | "archived";
+
+/** Display alias dla statusu — używany w UI (panel serwisanta), nie zmienia
+ * underlying value w DB. Backward compat z istniejącym kodem zostaje. */
+export interface StatusMeta {
+  /** Stabilny kod statusu w DB. */
+  status: ServiceStatus;
+  /** Polska etykieta UI. */
+  label: string;
+  /** Stabilny alias display (np. "in_repair" dla `repairing`). */
+  displayAlias: string;
+  /** Czy status jest finalny — nie pozwala dalej tranzytować. */
+  final: boolean;
+}
+
+export const SERVICE_STATUS_META: Record<ServiceStatus, StatusMeta> = {
+  received: {
+    status: "received",
+    label: "Przyjęty",
+    displayAlias: "received",
+    final: false,
+  },
+  diagnosing: {
+    status: "diagnosing",
+    label: "Diagnoza",
+    displayAlias: "diagnosing",
+    final: false,
+  },
+  awaiting_quote: {
+    status: "awaiting_quote",
+    label: "Wycena u klienta",
+    displayAlias: "awaiting_quote_approval",
+    final: false,
+  },
+  awaiting_parts: {
+    status: "awaiting_parts",
+    label: "Oczekiwanie na części",
+    displayAlias: "awaiting_parts",
+    final: false,
+  },
+  repairing: {
+    status: "repairing",
+    label: "Naprawa",
+    displayAlias: "in_repair",
+    final: false,
+  },
+  testing: {
+    status: "testing",
+    label: "Kontrola jakości",
+    displayAlias: "quality_check",
+    final: false,
+  },
+  ready: {
+    status: "ready",
+    label: "Gotowy do odbioru",
+    displayAlias: "ready_for_pickup",
+    final: false,
+  },
+  delivered: {
+    status: "delivered",
+    label: "Wydany",
+    displayAlias: "delivered",
+    final: false,
+  },
+  on_hold: {
+    status: "on_hold",
+    label: "Wstrzymany",
+    displayAlias: "on_hold",
+    final: false,
+  },
+  rejected_by_customer: {
+    status: "rejected_by_customer",
+    label: "Klient odmówił wyceny",
+    displayAlias: "rejected_by_customer",
+    final: false,
+  },
+  returned_no_repair: {
+    status: "returned_no_repair",
+    label: "Zwrócony bez naprawy",
+    displayAlias: "returned_no_repair",
+    final: false,
+  },
+  closed: {
+    status: "closed",
+    label: "Zamknięty",
+    displayAlias: "closed",
+    final: true,
+  },
+  cancelled: {
+    status: "cancelled",
+    label: "Anulowane",
+    displayAlias: "cancelled",
+    final: true,
+  },
+  archived: {
+    status: "archived",
+    label: "Archiwum",
+    displayAlias: "archived",
+    final: true,
+  },
+};
 
 export type ServiceType =
   | "phone"
@@ -192,6 +297,13 @@ export interface ServiceTicket {
   promisedAt: string | null;
   createdAt: string | null;
   updatedAt: string | null;
+  /** Poprzedni status — używany żeby resume po `on_hold`. Ustawiany
+   * automatycznie przy tranzycji do `on_hold`, czyszczony po wznowieniu. */
+  previousStatus: ServiceStatus | null;
+  /** Powód wstrzymania zlecenia (on_hold). */
+  holdReason: string | null;
+  /** Powód anulowania zlecenia (cancelled). */
+  cancellationReason: string | null;
 }
 
 interface ServiceRow {
@@ -229,6 +341,9 @@ interface ServiceRow {
   promised_at: string | null;
   created_at: string | null;
   updated_at: string | null;
+  previous_status?: string | null;
+  hold_reason?: string | null;
+  cancellation_reason?: string | null;
 }
 
 function num(v: number | string | null): number | null {
@@ -316,6 +431,9 @@ function mapRow(r: ServiceRow): ServiceTicket {
     promisedAt: r.promised_at ?? null,
     createdAt: r.created_at ?? null,
     updatedAt: r.updated_at ?? null,
+    previousStatus: (r.previous_status ?? null) as ServiceStatus | null,
+    holdReason: r.hold_reason ?? null,
+    cancellationReason: r.cancellation_reason ?? null,
   };
 }
 
@@ -565,6 +683,12 @@ export async function createService(
 
 export interface UpdateServiceInput {
   status?: ServiceStatus;
+  /** Powód wstrzymania — wymagany gdy status → on_hold (egzekwowane przez API). */
+  holdReason?: string | null;
+  /** Powód anulowania — opcjonalny przy status → cancelled / returned_no_repair. */
+  cancellationReason?: string | null;
+  /** Poprzedni status — ustawiane przez API auto przy on_hold (resume). */
+  previousStatus?: ServiceStatus | null;
   diagnosis?: string | null;
   description?: string | null;
   amountEstimate?: number | null;
@@ -614,20 +738,110 @@ function mergeJsonb(
   return out;
 }
 
-/** Dozwolone tranzycje statusu serwisu. Cykl pracy:
- * received → diagnosing → awaiting_quote → repairing → testing → ready → delivered.
- * Z każdego stanu można też anulować (cancelled) lub zarchiwizować (archived).
- * Cofanie nie jest dozwolone — zapobiega kasowaniu pracy serwisanta przez
- * przypadkowe kliknięcie sprzedawcy. */
+/** Rola wnioskująca o tranzycję statusu. Sprzedawca ma zawężony zakres
+ * (tylko wydanie + zamknięcie), serwisant pełen flow naprawy. */
+export type ServiceTransitionRole = "service" | "sales";
+
+/** Pełna macierz dozwolonych tranzycji statusu serwisu (rola `service`).
+ *
+ * Kluczowe założenia:
+ *   - `on_hold` zachowuje `previous_status` w DB i wznawia tylko do tej
+ *     wartości — endpoint PATCH /status musi wykryć resume i przepisać
+ *     `previous_status` z powrotem do `status` zamiast wymuszać tu
+ *     wszystkie kombinacje.
+ *   - `archived` pozostaje "ukrytym" finalem dostępnym z dowolnego stanu,
+ *     żeby istniejące UI archiwizujące zamknięte zlecenia nadal działało
+ *     (backward compat).
+ *   - `cancelled` jest finalny — używany przez stare kody. Nowe flow
+ *     preferuje `closed` (po `delivered`/`returned_no_repair`).
+ */
 const STATUS_TRANSITIONS: Record<ServiceStatus, ServiceStatus[]> = {
-  received: ["diagnosing", "awaiting_quote", "repairing", "cancelled", "archived"],
-  diagnosing: ["awaiting_quote", "repairing", "cancelled", "archived"],
-  awaiting_quote: ["repairing", "cancelled", "archived"],
-  repairing: ["testing", "ready", "cancelled", "archived"],
-  testing: ["ready", "repairing", "cancelled", "archived"],
-  ready: ["delivered", "archived"],
-  delivered: ["archived"],
+  received: [
+    "diagnosing",
+    "awaiting_quote",
+    "awaiting_parts",
+    "repairing",
+    "on_hold",
+    "rejected_by_customer",
+    "returned_no_repair",
+    "cancelled",
+    "archived",
+  ],
+  diagnosing: [
+    "awaiting_quote",
+    "awaiting_parts",
+    "repairing",
+    "on_hold",
+    "rejected_by_customer",
+    "returned_no_repair",
+    "cancelled",
+    "archived",
+  ],
+  awaiting_quote: [
+    "awaiting_parts",
+    "repairing",
+    "on_hold",
+    "rejected_by_customer",
+    "returned_no_repair",
+    "cancelled",
+    "archived",
+  ],
+  awaiting_parts: [
+    "repairing",
+    "on_hold",
+    "rejected_by_customer",
+    "returned_no_repair",
+    "cancelled",
+    "archived",
+  ],
+  repairing: [
+    "awaiting_parts",
+    "testing",
+    "on_hold",
+    "rejected_by_customer",
+    "returned_no_repair",
+    "cancelled",
+    "archived",
+  ],
+  testing: ["ready", "repairing", "on_hold", "cancelled", "archived"],
+  ready: ["delivered", "closed", "archived"],
+  delivered: ["closed", "archived"],
+  on_hold: [
+    // resume — endpoint PATCH /status ma odczytać `previous_status` z rekordu
+    // i tu walidujemy dowolny non-final stan jako dozwolony cel.
+    "received",
+    "diagnosing",
+    "awaiting_quote",
+    "awaiting_parts",
+    "repairing",
+    "testing",
+    "ready",
+    "cancelled",
+    "archived",
+  ],
+  rejected_by_customer: ["returned_no_repair", "closed", "archived"],
+  returned_no_repair: ["closed", "archived"],
+  closed: [],
   cancelled: ["archived"],
+  archived: [],
+};
+
+/** Tranzycje dozwolone dla roli sprzedaży — bardzo zawężone. Sprzedawca może
+ * tylko wydać urządzenie klientowi i zamknąć zlecenie po wydaniu. */
+const SALES_TRANSITIONS: Record<ServiceStatus, ServiceStatus[]> = {
+  received: [],
+  diagnosing: [],
+  awaiting_quote: [],
+  awaiting_parts: [],
+  repairing: [],
+  testing: [],
+  ready: ["delivered"],
+  delivered: ["closed"],
+  on_hold: [],
+  rejected_by_customer: [],
+  returned_no_repair: [],
+  closed: [],
+  cancelled: [],
   archived: [],
 };
 
@@ -641,12 +855,28 @@ export class StatusTransitionError extends Error {
   }
 }
 
+/**
+ * Czy rola `role` może wykonać tranzycję `from → to`.
+ *
+ * Domyślnie używaj `service`. Sprzedawca ma własną krótszą listę.
+ */
+export function canTransition(
+  from: ServiceStatus,
+  to: ServiceStatus,
+  role: ServiceTransitionRole = "service",
+): boolean {
+  if (from === to) return true;
+  const matrix = role === "sales" ? SALES_TRANSITIONS : STATUS_TRANSITIONS;
+  return (matrix[from] ?? []).includes(to);
+}
+
+/** Backward compat — istniejące call-sites (np. updateService) przechodzą
+ * przez to zachowanie domyślnie z rolą `service`. */
 export function isAllowedTransition(
   from: ServiceStatus,
   to: ServiceStatus,
 ): boolean {
-  if (from === to) return true;
-  return (STATUS_TRANSITIONS[from] ?? []).includes(to);
+  return canTransition(from, to, "service");
 }
 
 export async function updateService(
@@ -676,6 +906,11 @@ export async function updateService(
     updated_at: new Date().toISOString(),
   };
   if (input.status !== undefined) patch.status = input.status;
+  if (input.holdReason !== undefined) patch.hold_reason = input.holdReason;
+  if (input.cancellationReason !== undefined)
+    patch.cancellation_reason = input.cancellationReason;
+  if (input.previousStatus !== undefined)
+    patch.previous_status = input.previousStatus;
   if (input.diagnosis !== undefined) patch.diagnosis = input.diagnosis;
   if (input.amountEstimate !== undefined)
     patch.amount_estimate = input.amountEstimate;

@@ -54,7 +54,10 @@ async function handle(
     signal: AbortSignal.timeout(15_000),
   };
   if (req.method !== "GET" && req.method !== "HEAD") {
-    init.body = await req.text();
+    // Binary-safe: arrayBuffer() zachowuje bytes dla multipart/form-data
+    // (upload zdjęć serwisowych) i innych binarnych payloadów. text()
+    // psułby UTF-8 boundary marker.
+    init.body = await req.arrayBuffer();
   }
   try {
     const r = await fetch(targetUrl, init);

@@ -228,6 +228,8 @@ const STATUS_MESSAGES: Record<string, string> = {
     "Twoje urządzenie zostało przekazane technikowi do diagnozy. Damy znać, gdy będziemy mieli wyniki.",
   awaiting_quote:
     "Mamy dla Ciebie wycenę naprawy. Sprawdź szczegóły i daj nam znać, czy akceptujesz zlecenie.",
+  awaiting_parts:
+    "Czekamy na dostawę części niezbędnych do naprawy Twojego urządzenia. Poinformujemy, gdy ruszymy z pracą.",
   repairing:
     "Rozpoczęliśmy naprawę Twojego urządzenia. Damy znać, gdy będzie gotowe.",
   testing:
@@ -236,9 +238,121 @@ const STATUS_MESSAGES: Record<string, string> = {
     "Twoje urządzenie jest gotowe do odbioru! Zapraszamy do naszego punktu w godzinach otwarcia.",
   delivered:
     "Dziękujemy za skorzystanie z naszego serwisu! Mamy nadzieję, że jesteś zadowolony/a z naprawy.",
+  on_hold:
+    "Realizacja zlecenia została chwilowo wstrzymana. Odezwiemy się, gdy będziemy mogli kontynuować.",
+  rejected_by_customer:
+    "Zgodnie z Twoją decyzją wstrzymaliśmy naprawę. Urządzenie jest przygotowywane do zwrotu.",
+  returned_no_repair:
+    "Twoje urządzenie zostało zwrócone bez przeprowadzenia naprawy. Dziękujemy za kontakt z nami.",
+  closed:
+    "Zlecenie zostało zamknięte. W razie pytań pozostajemy do dyspozycji.",
   cancelled:
     "Niestety zlecenie zostało anulowane. W razie pytań odpisz tutaj.",
 };
+
+export interface CustomerConversationSummary {
+  id: number;
+  status: string;
+  unreadCount: number;
+  lastMessageAt: number | null;
+  lastMessagePreview: string | null;
+}
+
+/**
+ * Wyszukuje rozmowy Chatwoot przypisane do klienta (po telefonie / emailu).
+ * Wewnętrznie:
+ *   1. Search po identifier (phone, potem email).
+ *   2. Dla pierwszego pasującego kontaktu pobiera listę conversations.
+ *
+ * Zwraca pustą tablicę gdy:
+ *   - Chatwoot nieconfigurowany,
+ *   - brak phone/email,
+ *   - kontakt nie istnieje w Chatwoocie,
+ *   - błąd API (best-effort, błąd loggowany).
+ */
+export async function findCustomerConversations(args: {
+  customerEmail?: string | null;
+  customerPhone?: string | null;
+  limit?: number;
+}): Promise<CustomerConversationSummary[]> {
+  const cfg = getConfig();
+  if (!cfg) return [];
+  const candidates = [args.customerPhone, args.customerEmail]
+    .map((v) => (v ?? "").trim())
+    .filter((v) => v.length > 0);
+  if (candidates.length === 0) return [];
+
+  let contactId: number | null = null;
+  for (const ident of candidates) {
+    try {
+      const r = await chatwootFetch(
+        cfg,
+        `/api/v1/accounts/${cfg.accountId}/contacts/search?q=${encodeURIComponent(ident)}`,
+      );
+      if (!r.ok) continue;
+      const data = (await r.json()) as { payload?: ChatwootContact[] };
+      const found = data.payload?.[0];
+      if (found?.id) {
+        contactId = found.id;
+        break;
+      }
+    } catch (err) {
+      logger.warn("findCustomerConversations search failed", {
+        ident,
+        err: String(err),
+      });
+    }
+  }
+  if (!contactId) return [];
+
+  try {
+    const r = await chatwootFetch(
+      cfg,
+      `/api/v1/accounts/${cfg.accountId}/contacts/${contactId}/conversations`,
+    );
+    if (!r.ok) return [];
+    interface ConvRow {
+      id: number;
+      status: string;
+      unread_count?: number;
+      last_activity_at?: number | string | null;
+      messages?: Array<{
+        content?: string | null;
+        created_at?: number | string | null;
+      }>;
+    }
+    const data = (await r.json()) as { payload?: ConvRow[] } | ConvRow[];
+    const rows = Array.isArray(data) ? data : (data.payload ?? []);
+    const max = Math.min(args.limit ?? 20, 50);
+    return rows.slice(0, max).map((c) => {
+      const lastMsg = (c.messages ?? [])[0];
+      const lastTimestamp =
+        typeof c.last_activity_at === "number"
+          ? c.last_activity_at * 1000
+          : c.last_activity_at
+            ? new Date(c.last_activity_at).getTime()
+            : null;
+      return {
+        id: c.id,
+        status: c.status,
+        unreadCount: c.unread_count ?? 0,
+        lastMessageAt: Number.isFinite(lastTimestamp ?? NaN)
+          ? lastTimestamp
+          : null,
+        lastMessagePreview:
+          typeof lastMsg?.content === "string"
+            ? lastMsg.content.slice(0, 200)
+            : null,
+      };
+    });
+  } catch (err) {
+    logger.warn("findCustomerConversations list failed", {
+      err: String(err),
+      contactId,
+    });
+    return [];
+  }
+}
 
 /**
  * Powiadomienie klienta o zmianie statusu — zwraca true gdy wysłano.
