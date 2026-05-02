@@ -2,8 +2,10 @@ export const dynamic = "force-dynamic";
 
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/auth";
-import { getMessageDetail } from "@/lib/postal-history";
-import { listMessagesForConversation, listConversationsForContact } from "@/lib/chatwoot/messages";
+import {
+  listConversationsForContact,
+  listMessagesForConversation,
+} from "@/lib/chatwoot/messages";
 import {
   ApiError,
   createSuccessResponse,
@@ -12,10 +14,8 @@ import {
 } from "@/lib/api-utils";
 
 /**
- * User-side detail wątku — sprawdza czy email zalogowanego usera występuje
- * w sender/recipient (mail) lub czy conversation należy do tego usera
- * (chatwoot contact email match). Zapobiega podglądowi cudzej korespondencji
- * przez zgadywanie ID.
+ * User-side: detail konwersacji Chatwoot. Sprawdza ownership — user musi
+ * być contact (po email) konkretnej konwersacji. Eliminuje IDOR.
  */
 export async function GET(
   _req: Request,
@@ -29,43 +29,23 @@ export async function GET(
 
     const { id } = await params;
     const decoded = decodeURIComponent(id);
+    const convId = Number(decoded.startsWith("chat:") ? decoded.slice(5) : decoded);
+    if (!Number.isFinite(convId)) throw ApiError.badRequest("invalid id");
 
-    if (decoded.startsWith("mail:")) {
-      const numericId = Number(decoded.slice(5));
-      if (!Number.isFinite(numericId)) {
-        throw ApiError.badRequest("invalid mail id");
-      }
-      const detail = await getMessageDetail(numericId);
-      if (!detail) throw ApiError.notFound("message not found");
-      // Ownership: user musi być w from/to (case-insensitive). Pole `to`
-      // w Postal jest single-recipient string (multi-recipient = osobne msg).
-      const owns =
-        detail.from?.toLowerCase() === userEmail ||
-        detail.to?.toLowerCase() === userEmail;
-      if (!owns) throw ApiError.forbidden("not your message");
-      return createSuccessResponse({ kind: "mail", detail });
-    }
+    const userConvs = await listConversationsForContact(userEmail);
+    const owned = userConvs.find((c) => c.id === convId);
+    if (!owned) throw ApiError.forbidden("not your conversation");
 
-    if (decoded.startsWith("chat:")) {
-      const convId = Number(decoded.slice(5));
-      if (!Number.isFinite(convId)) {
-        throw ApiError.badRequest("invalid conv id");
-      }
-      // Ownership: czat należy do user-a tylko gdy jego email pojawia się
-      // w listConversationsForContact dla user-a. Dla pewności fetch listy
-      // i sprawdź ID — niewielki overhead, ale eliminuje IDOR.
-      const userConvs = await listConversationsForContact(userEmail);
-      const owns = userConvs.some((c) => c.id === convId);
-      if (!owns) throw ApiError.forbidden("not your conversation");
-      const messages = await listMessagesForConversation(convId);
-      return createSuccessResponse({
-        kind: "chat",
-        conversationId: convId,
-        messages,
-      });
-    }
-
-    throw ApiError.badRequest("unsupported id prefix");
+    const messages = await listMessagesForConversation(convId);
+    return createSuccessResponse({
+      conversationId: convId,
+      inboxName: owned.inboxName,
+      status: owned.status,
+      contactEmail: owned.contactEmail,
+      createdAt: owned.createdAt,
+      updatedAt: owned.updatedAt,
+      messages,
+    });
   } catch (error) {
     return handleApiError(error);
   }
