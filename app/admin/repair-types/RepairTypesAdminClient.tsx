@@ -1,9 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import * as LucideIcons from "lucide-react";
 import {
   AlertCircle,
+  ArrowLeft,
   CheckCircle2,
   Edit3,
   Plus,
@@ -199,17 +201,34 @@ export function RepairTypesAdminClient({
       style={{ background: "var(--bg-main)" }}
     >
       <div className="max-w-6xl mx-auto space-y-4">
+        <div className="flex items-center gap-1 text-xs" style={{ color: "var(--text-muted)" }}>
+          <Link href="/admin" className="hover:underline">Admin</Link>
+          <span>/</span>
+          <Link href="/admin/config" className="hover:underline">Konfiguracja</Link>
+          <span>/</span>
+          <span style={{ color: "var(--text-main)" }}>Typy napraw</span>
+        </div>
         <header className="flex items-center justify-between gap-3">
-          <div>
-            <h1
-              className="text-2xl font-bold flex items-center gap-2"
-              style={{ color: "var(--text-main)" }}
+          <div className="flex items-center gap-3">
+            <Link
+              href="/admin/config"
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border text-xs hover:bg-[var(--bg-surface)] transition-colors"
+              style={{ borderColor: "var(--border-subtle)", color: "var(--text-muted)" }}
             >
-              <Wrench className="w-6 h-6" /> Typy napraw
-            </h1>
-            <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-              Katalog rodzajów napraw — gwarancja, czas, reguły łączenia.
-            </p>
+              <ArrowLeft className="w-3.5 h-3.5" />
+              Powrót
+            </Link>
+            <div>
+              <h1
+                className="text-2xl font-bold flex items-center gap-2"
+                style={{ color: "var(--text-main)" }}
+              >
+                <Wrench className="w-6 h-6" /> Typy napraw
+              </h1>
+              <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+                Katalog rodzajów napraw — gwarancja, czas, reguły łączenia.
+              </p>
+            </div>
           </div>
           <button
             type="button"

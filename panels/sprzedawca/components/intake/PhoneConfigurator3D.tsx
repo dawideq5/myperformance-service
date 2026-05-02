@@ -243,6 +243,8 @@ export function PhoneConfigurator3D({
   brand,
   brandColorHex,
   priceLines = [],
+  cleaningSelected = false,
+  onToggleCleaning,
   initial,
   onCancel,
   onComplete,
@@ -251,6 +253,11 @@ export function PhoneConfigurator3D({
   brandColorHex: string;
   /** Pozycje wyceny z pricelist po wybranych repair_types (z AddServiceTab). */
   priceLines?: PriceLine[];
+  /** Czy chip CLEANING jest aktualnie zaznaczony w wizardzie głównym
+   * (selectedRepairTypes z AddServiceTab). Step "cleaning" w 3D pokazuje
+   * stan + CTA do toggle. */
+  cleaningSelected?: boolean;
+  onToggleCleaning?: () => void;
   initial?: VisualConditionState;
   onCancel: () => void;
   onComplete: (state: VisualConditionState) => void;
@@ -632,6 +639,8 @@ export function PhoneConfigurator3D({
               state={state}
               brand={brand}
               priceLines={priceLines}
+              cleaningSelected={cleaningSelected}
+              onToggleCleaning={onToggleCleaning}
               editingMarkerId={editingMarkerId}
               onChange={update}
               onUpdateMarkerDescription={updateMarkerDescription}
@@ -720,6 +729,8 @@ function StepInputs({
   state,
   brand,
   priceLines,
+  cleaningSelected,
+  onToggleCleaning,
   editingMarkerId,
   onChange,
   onUpdateMarkerDescription,
@@ -730,12 +741,60 @@ function StepInputs({
   state: VisualConditionState;
   brand: string;
   priceLines: PriceLine[];
+  cleaningSelected?: boolean;
+  onToggleCleaning?: () => void;
   editingMarkerId: string | null;
   onChange: (patch: Partial<VisualConditionState>) => void;
   onUpdateMarkerDescription: (id: string, description: string) => void;
   onSelectMarker: (id: string | null) => void;
   onRemoveMarker: (id: string) => void;
 }) {
+  if (step.id === "cleaning") {
+    const cleaningLine = priceLines.find((l) =>
+      l.label.toLowerCase().includes("czyszczenie"),
+    );
+    return (
+      <div className="space-y-4">
+        <SectionHeader>Czyszczenie urządzenia</SectionHeader>
+        <p className="text-sm text-white/80 leading-relaxed">
+          Kurz w głośnikach, mikrofonie i porcie ładowania jest jedną z
+          najczęstszych przyczyn problemów funkcjonalnych. Czyszczenie
+          ultradźwiękowe usuwa zanieczyszczenia bez ryzyka uszkodzenia
+          komponentów.
+        </p>
+        <ul className="text-xs text-white/70 space-y-1.5 list-disc list-inside">
+          <li>Głośnik rozmów — przywraca słyszalność</li>
+          <li>Głośniczki dolne — czystszy dźwięk multimedia</li>
+          <li>Port ładowania — pewny kontakt z kablem</li>
+          <li>Mikrofon — eliminacja szumów podczas rozmów</li>
+        </ul>
+        <button
+          type="button"
+          onClick={onToggleCleaning}
+          disabled={!onToggleCleaning}
+          className={`w-full py-3 rounded-xl text-sm font-semibold transition-all ${
+            cleaningSelected
+              ? "bg-emerald-500/20 border-2 border-emerald-500/60 text-emerald-200"
+              : "bg-amber-500/20 border-2 border-amber-500/40 text-amber-200 hover:bg-amber-500/30"
+          }`}
+        >
+          {cleaningSelected ? (
+            <span className="inline-flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4" />
+              Czyszczenie dodane{cleaningLine ? ` — ${cleaningLine.price.toFixed(2)} zł` : ""}
+              <span className="text-[10px] opacity-70 ml-1">(kliknij aby usunąć)</span>
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-2">
+              <Sparkles className="w-4 h-4" />
+              Dodaj czyszczenie do zlecenia
+              {cleaningLine ? ` (${cleaningLine.price.toFixed(2)} zł)` : ""}
+            </span>
+          )}
+        </button>
+      </div>
+    );
+  }
   if (step.id === "display") {
     return (
       <div className="space-y-4">

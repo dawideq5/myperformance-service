@@ -40,9 +40,14 @@ const chatwootOrigin = originOf(
 const externalOrigins = [keycloakOrigin, documensoOrigin, wazuhOrigin, chatwootOrigin].filter(Boolean);
 const externalSrc = externalOrigins.length ? ` ${externalOrigins.join(" ")}` : "";
 
+// Chatwoot SDK ładuje skrypt z chat.myperformance.pl/packs/js/sdk.js +
+// inject style + websocket. Bez chatwootOrigin w script-src/style-src
+// browser blokuje SDK — widget się nie pojawia.
+const chatwootScriptSrc = chatwootOrigin ? ` ${chatwootOrigin}` : "";
+
 const scriptSrc = isDev
-  ? "'self' 'unsafe-inline' 'unsafe-eval'"
-  : "'self' 'unsafe-inline'"; // TODO: migrate to per-request nonces
+  ? `'self' 'unsafe-inline' 'unsafe-eval'${chatwootScriptSrc}`
+  : `'self' 'unsafe-inline'${chatwootScriptSrc}`; // TODO: nonces
 
 // Map tiles + unpkg (Leaflet marker icons) + Directus (uploaded photos).
 // Bez tych mapy się NIE WCZYTUJĄ — browser blokuje tile fetch przez CSP.
@@ -60,7 +65,7 @@ const photosSrc = directusOrigin ? ` ${directusOrigin}` : "";
 const cspDirectives = [
   "default-src 'self'",
   `script-src ${scriptSrc}`,
-  "style-src 'self' 'unsafe-inline'",
+  `style-src 'self' 'unsafe-inline'${chatwootScriptSrc}`,
   `img-src 'self' data: blob: ${osmTilesSrc} ${leafletAssetsSrc}${photosSrc}${chatwootOrigin ? ` ${chatwootOrigin}` : ""}`,
   "font-src 'self' data:",
   `connect-src 'self'${externalSrc} ${osmTilesSrc} ${nominatimSrc}${photosSrc}${chatwootOrigin ? ` wss://${new URL(chatwootOrigin).host}` : ""}`,

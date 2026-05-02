@@ -27,7 +27,6 @@ import { AppHeader } from "@/components/AppHeader";
 import Link from "next/link";
 import type { PricelistItem, PricelistInput } from "@/lib/pricelist";
 import type { RepairType } from "@/lib/repair-types";
-import { PhoneModelPicker } from "@/components/PhoneModelPicker";
 
 function describeCombinable(rt: RepairType): string {
   if (rt.combinableMode === "no") return "Nie łączy";
@@ -483,10 +482,9 @@ function PricelistDialog({
     item?.category ?? repairTypeByCode.get(item?.code ?? "")?.category ?? "Inne";
   const [category, setCategory] = useState(initialCategory);
   const [price, setPrice] = useState(item?.price?.toString() ?? "0");
-  const [brand, setBrand] = useState(item?.brand ?? "");
-  const [modelPattern, setModelPattern] = useState(item?.modelPattern ?? "");
-  const [phoneModelSlug, setPhoneModelSlug] = useState<string | null>(
-    item?.phoneModelSlug ?? null,
+  const [brand, setBrand] = useState((item?.brand ?? "").toUpperCase());
+  const [modelPattern, setModelPattern] = useState(
+    (item?.modelPattern ?? "").toUpperCase(),
   );
   const [description, setDescription] = useState(item?.description ?? "");
   const [warrantyMonths, setWarrantyMonths] = useState(
@@ -509,9 +507,8 @@ function PricelistDialog({
       // przez datalist `repair-type-codes` — wtedy code jest aliasowane.
       repairTypeCode: normalizedCode,
       price: Number(price),
-      brand: brand.trim() || null,
-      modelPattern: modelPattern.trim() || null,
-      phoneModelSlug,
+      brand: brand.trim().toUpperCase() || null,
+      modelPattern: modelPattern.trim().toUpperCase() || null,
       description: description.trim() || null,
       warrantyMonths: warrantyMonths ? Number(warrantyMonths) : null,
       durationMinutes: durationMinutes ? Number(durationMinutes) : null,
@@ -613,46 +610,24 @@ function PricelistDialog({
             Targetowanie urządzenia (opcjonalne)
           </p>
           <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-            Puste = cena bazowa (wszystkie modele). Wybór konkretnego modelu
-            tworzy pozycję per-model (priorytet nad bazową).
+            Puste = cena bazowa (wszystkie modele). Marka+model zawężają do
+            konkretnych urządzeń (np. APPLE + IPHONE 13 PRO MAX). Wpisuj
+            DUŻYMI LITERAMI — pełną oficjalną nazwę modelu.
           </p>
-          <label className="block">
-            <span className="block text-xs font-medium mb-1.5" style={{ color: "var(--text-muted)" }}>
-              Konkretny model telefonu (z bazy mp_phone_models)
-            </span>
-            <PhoneModelPicker
-              value={phoneModelSlug}
-              onChange={(slug, label) => {
-                setPhoneModelSlug(slug);
-                // Auto-fill brand+model fields gdy wybrano konkretny model
-                if (label) {
-                  const parts = label.split(" ");
-                  setBrand(parts[0] ?? "");
-                  setModelPattern(parts.slice(1).join(" "));
-                }
-              }}
-              placeholder="Wpisz markę i model — np. Apple iPhone 13 Pro Max"
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Input
+              label="Marka"
+              value={brand}
+              onChange={(e) => setBrand(e.target.value.toUpperCase())}
+              placeholder="APPLE, SAMSUNG, XIAOMI…"
             />
-          </label>
-          <details className="text-xs">
-            <summary className="cursor-pointer" style={{ color: "var(--text-muted)" }}>
-              Albo: szeroki wzorzec (legacy — np. „iPhone 12” pasuje do całej rodziny)
-            </summary>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
-              <Input
-                label="Marka"
-                value={brand}
-                onChange={(e) => setBrand(e.target.value)}
-                placeholder="Apple, Samsung, Xiaomi…"
-              />
-              <Input
-                label="Model (substring)"
-                value={modelPattern}
-                onChange={(e) => setModelPattern(e.target.value)}
-                placeholder="iPhone 12, Galaxy S, Redmi…"
-              />
-            </div>
-          </details>
+            <Input
+              label="Model (pełna nazwa)"
+              value={modelPattern}
+              onChange={(e) => setModelPattern(e.target.value.toUpperCase())}
+              placeholder="IPHONE 13 PRO MAX, GALAXY S24 ULTRA…"
+            />
+          </div>
         </div>
         <Textarea
           label="Opis"

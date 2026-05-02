@@ -14,7 +14,6 @@ import {
   Wrench,
 } from "lucide-react";
 import { BrandPicker, BRANDS } from "../intake/BrandPicker";
-import { PhoneModelPicker } from "../intake/PhoneModelPicker";
 import { ImeiField } from "../intake/ImeiField";
 import { ColorPicker, NAMED_COLORS } from "../intake/ColorPicker";
 import { LockSection } from "../intake/LockSection";
@@ -477,25 +476,25 @@ export function AddServiceTab({
         locationId,
         serviceLocationId: chosenServiceLocationId,
         type: "phone",
-        brand: brand.trim() || null,
-        model: model.trim() || null,
+        // Backend uppercase normalization — niezależnie od UI input,
+        // wszystkie tekstowe pola identyfikujące (marka/model/kolor/imię)
+        // zapisujemy DUŻYMI LITERAMI dla spójności wyszukiwania i braku
+        // chaosu typu "iPhone 13 PM" vs "IPHONE 13 PRO MAX".
+        brand: brand.trim().toUpperCase() || null,
+        model: model.trim().toUpperCase() || null,
         imei: imei.trim() || null,
-        color: color.trim() || null,
+        color: color.trim().toUpperCase() || null,
         lockType,
         lockCode: lockCode.trim() || null,
         intakeChecklist,
         chargingCurrent: v.charging_current ?? null,
         visualCondition: visualOnly,
-        // Description = TYLKO wybrane typy napraw + custom text. Markery
-        // mają osobne pole w DB (visual_condition.damage_markers) i są
-        // renderowane w sekcji LOKALIZACJA USZKODZEŃ na PDF — nie miksuj
-        // ich z opisem usterki.
         description: descriptionPayload,
         amountEstimate: amountEstimate ? Number(amountEstimate) : null,
-        customerFirstName: customerFirstName.trim() || null,
-        customerLastName: customerLastName.trim() || null,
+        customerFirstName: customerFirstName.trim().toUpperCase() || null,
+        customerLastName: customerLastName.trim().toUpperCase() || null,
         contactPhone: contactPhone.trim() || null,
-        contactEmail: contactEmail.trim() || null,
+        contactEmail: contactEmail.trim().toLowerCase() || null,
       };
       // POST = utworzenie nowego zlecenia. PATCH = edycja istniejącego.
       const isEdit = !!editingServiceId;
@@ -651,46 +650,21 @@ export function AddServiceTab({
           onContinue={editingServiceId ? undefined : () => continueToNext("device")}
         >
           <div className="space-y-4">
-            <PhoneModelPicker
-              value={null}
-              onChange={(_slug, label) => {
-                if (!label) {
-                  setBrand("");
-                  setModel("");
-                  return;
-                }
-                const parts = label.split(" ");
-                setBrand(parts[0] ?? "");
-                setModel(parts.slice(1).join(" "));
-              }}
-              placeholder={
-                brand && model
-                  ? `${brand} ${model} — kliknij aby zmienić`
-                  : "Wpisz markę i model — np. iPhone 13 Pro Max"
-              }
+            <BrandPicker value={brand} onChange={(v) => setBrand(v.toUpperCase())} />
+            <Input
+              icon={<Smartphone className="w-4 h-4" />}
+              label="Model (pełna nazwa)"
+              value={model}
+              onChange={(v) => setModel(v.toUpperCase())}
+              placeholder="IPHONE 13 PRO MAX, GALAXY S24 ULTRA, REDMI NOTE 13 PRO"
             />
-            {brand && model && (
-              <p className="text-xs text-[var(--text-muted)]">
-                Wybrane: <span className="font-medium text-[var(--text-main)]">{brand} {model}</span>
-              </p>
-            )}
-            <details className="text-xs">
-              <summary className="cursor-pointer text-[var(--text-muted)]">
-                Modelu nie ma na liście — wpisz ręcznie (legacy)
-              </summary>
-              <div className="space-y-2 mt-2">
-                <BrandPicker value={brand} onChange={setBrand} />
-                <Input
-                  icon={<Smartphone className="w-4 h-4" />}
-                  label="Model"
-                  value={model}
-                  onChange={setModel}
-                  placeholder="iPhone 15 Pro, Galaxy S24…"
-                />
-              </div>
-            </details>
+            <p className="text-xs text-[var(--text-muted)] -mt-2">
+              Wpisz pełną nazwę modelu DUŻYMI LITERAMI — używaj oficjalnych
+              oznaczeń (Pro, Pro Max, Ultra, +). Przykłady:
+              IPHONE 13 PRO MAX (nie 13 PM), GALAXY S24 ULTRA (nie S24U).
+            </p>
             <ImeiField value={imei} onChange={setImei} />
-            <ColorPicker value={color} onChange={setColor} />
+            <ColorPicker value={color} onChange={(v) => setColor(v.toUpperCase())} />
           </div>
         </Section>
         </div>
@@ -795,18 +769,24 @@ export function AddServiceTab({
           onContinue={editingServiceId ? undefined : () => continueToNext("customer")}
         >
           <div className="space-y-3">
+            <p className="text-xs text-[var(--text-muted)] -mt-1">
+              Wszystkie pola DUŻYMI LITERAMI — automatycznie konwertujemy.
+              Polskie znaki zachowane.
+            </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Input
                 icon={<UserIcon className="w-4 h-4" />}
                 label="Imię klienta"
                 value={customerFirstName}
-                onChange={setCustomerFirstName}
+                onChange={(v) => setCustomerFirstName(v.toUpperCase())}
+                placeholder="JAN"
               />
               <Input
                 icon={<UserIcon className="w-4 h-4" />}
                 label="Nazwisko"
                 value={customerLastName}
-                onChange={setCustomerLastName}
+                onChange={(v) => setCustomerLastName(v.toUpperCase())}
+                placeholder="KOWALSKI"
               />
             </div>
             <PhoneInputWithFlags
@@ -1062,6 +1042,14 @@ export function AddServiceTab({
           brand={brand || "Telefon"}
           brandColorHex={brandColorHex}
           priceLines={priceLines}
+          cleaningSelected={repairTypes.includes("CLEANING")}
+          onToggleCleaning={() =>
+            setRepairTypes((prev) =>
+              prev.includes("CLEANING")
+                ? prev.filter((c) => c !== "CLEANING")
+                : [...prev, "CLEANING"],
+            )
+          }
           initial={visualCondition}
           onCancel={() => setShowConfigurator(false)}
           onComplete={(state) => {
