@@ -369,7 +369,7 @@ export function ServiceDetailDialog({
 
           {/* Blokada + konto */}
           {(service.lockType !== "none" || service.signedInAccount) && (
-            <Section title="🔒 Blokada / konto">
+            <Section title="Blokada / konto">
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
                   <LockTypeIcon lockType={service.lockType} />
@@ -418,7 +418,7 @@ export function ServiceDetailDialog({
 
           {/* Akcesoria */}
           {service.accessories && service.accessories.length > 0 && (
-            <Section title="📦 Akcesoria do zwrotu">
+            <Section title="Akcesoria do zwrotu">
               <div className="flex flex-wrap gap-1.5">
                 {service.accessories.map((a) => (
                   <span
@@ -444,7 +444,7 @@ export function ServiceDetailDialog({
           {/* Checklista przyjęcia */}
           {service.intakeChecklist &&
             Object.keys(service.intakeChecklist).length > 0 && (
-              <Section title="✅ Checklista przyjęcia">
+              <Section title="Checklista przyjęcia">
                 <ChecklistDisplay checklist={service.intakeChecklist} />
               </Section>
             )}

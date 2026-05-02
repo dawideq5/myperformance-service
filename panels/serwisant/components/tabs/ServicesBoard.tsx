@@ -45,8 +45,17 @@ export interface ServiceTicket {
   transportStatus: string;
   promisedAt: string | null;
   createdAt: string | null;
+  updatedAt?: string | null;
   locationId: string | null;
   serviceLocationId: string | null;
+  /** Wizualny stan z 3D walkthrough — backend zwraca jako JSON; w panelu
+   *  używany do read-only display w DiagnozaTab i jako placeholder dla
+   *  3D viewera (Builder C). */
+  visualCondition?: Record<string, unknown> | null;
+  /** Tranzycja `on_hold` zapamiętuje poprzedni status; resume wraca do niego. */
+  previousStatus?: string | null;
+  holdReason?: string | null;
+  cancellationReason?: string | null;
 }
 
 const COLUMNS = [
@@ -225,7 +234,7 @@ export function ServicesBoard({ userEmail }: { userEmail: string }) {
                         className="text-[10px] mt-1 truncate"
                         style={{ color: "var(--text-muted)" }}
                       >
-                        👤 {s.assignedTechnician.split("@")[0]}
+                        Technik: {s.assignedTechnician.split("@")[0]}
                       </div>
                     )}
                     {s.amountEstimate != null && (

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { signOut } from "next-auth/react";
 import { DASHBOARD_HOME_URL } from "@/lib/dashboard-url";
 import {
@@ -15,9 +15,18 @@ import {
   User as UserIcon,
 } from "lucide-react";
 import { PanelLocationMap, type PanelLocation } from "./PanelLocationMap";
-import { ServicesBoard } from "./tabs/ServicesBoard";
+import { ServicesBoard, type ServiceTicket } from "./tabs/ServicesBoard";
+import { ServiceDetailView } from "./ServiceDetailView";
+import { PanelLayout, type ViewMode } from "./PanelLayout";
+import { ServiceDetailEmpty } from "./ServiceDetailEmpty";
+import {
+  DEFAULT_FILTERS,
+  type FilterState,
+} from "@/lib/serwisant/filters";
+import { STATUS_GROUPS } from "@/lib/serwisant/status-meta";
 
 const STORAGE_KEY = "panel-serwisant:selected-location";
+const VIEW_MODE_KEY = "panel-serwisant:view-mode";
 
 export function PanelHome({
   locations,
@@ -342,80 +351,294 @@ export function PanelHome({
         </div>
       </header>
 
-      <main
-        className="flex-1 mx-auto max-w-7xl w-full px-4 sm:px-6 py-6 sm:py-8 space-y-4 animate-fade-in"
-      >
+      <main className="flex-1 flex flex-col animate-fade-in">
         {/* Compact hero — bez mapy */}
-        <div
-          className="p-4 sm:p-5 rounded-2xl border flex items-center gap-4"
-          style={{
-            background: "var(--bg-card)",
-            borderColor: "var(--border-subtle)",
-            color: "var(--text-main)",
-          }}
-        >
+        <div className="mx-auto max-w-7xl w-full px-4 sm:px-6 pt-4">
           <div
-            className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+            className="p-4 sm:p-5 rounded-2xl border flex items-center gap-4"
             style={{
-              background:
-                selected.type === "service"
-                  ? "rgba(244, 63, 94, 0.1)"
-                  : "rgba(14, 165, 233, 0.1)",
-              color: selected.type === "service" ? "#f43f5e" : "#0ea5e9",
+              background: "var(--bg-card)",
+              borderColor: "var(--border-subtle)",
+              color: "var(--text-main)",
             }}
           >
-            {selected.type === "service" ? (
-              <Building2 className="w-5 h-5" />
-            ) : (
-              <Briefcase className="w-5 h-5" />
-            )}
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex flex-wrap items-center gap-2 mb-0.5">
-              <h1 className="text-base sm:text-lg font-semibold truncate">
-                {selected.name}
-              </h1>
-              {selected.warehouseCode && (
-                <span
-                  className="text-[10px] uppercase font-mono px-2 py-0.5 rounded"
-                  style={{
-                    background: "var(--bg-surface)",
-                    color: "var(--text-muted)",
-                  }}
-                >
-                  {selected.warehouseCode}
-                </span>
+            <div
+              className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+              style={{
+                background:
+                  selected.type === "service"
+                    ? "rgba(244, 63, 94, 0.1)"
+                    : "rgba(14, 165, 233, 0.1)",
+                color: selected.type === "service" ? "#f43f5e" : "#0ea5e9",
+              }}
+            >
+              {selected.type === "service" ? (
+                <Building2 className="w-5 h-5" />
+              ) : (
+                <Briefcase className="w-5 h-5" />
               )}
             </div>
-            <div
-              className="flex flex-wrap gap-x-3 gap-y-1 text-xs"
-              style={{ color: "var(--text-muted)" }}
-            >
-              {selected.address && (
-                <span className="flex items-center gap-1">
-                  <MapPin className="w-3 h-3" />
-                  {selected.address}
-                </span>
-              )}
-              {selected.phone && (
-                <span className="flex items-center gap-1">
-                  <Phone className="w-3 h-3" />
-                  {selected.phone}
-                </span>
-              )}
-              {selected.email && (
-                <span className="flex items-center gap-1">
-                  <Mail className="w-3 h-3" />
-                  {selected.email}
-                </span>
-              )}
+            <div className="flex-1 min-w-0">
+              <div className="flex flex-wrap items-center gap-2 mb-0.5">
+                <h1 className="text-base sm:text-lg font-semibold truncate">
+                  {selected.name}
+                </h1>
+                {selected.warehouseCode && (
+                  <span
+                    className="text-[10px] uppercase font-mono px-2 py-0.5 rounded"
+                    style={{
+                      background: "var(--bg-surface)",
+                      color: "var(--text-muted)",
+                    }}
+                  >
+                    {selected.warehouseCode}
+                  </span>
+                )}
+              </div>
+              <div
+                className="flex flex-wrap gap-x-3 gap-y-1 text-xs"
+                style={{ color: "var(--text-muted)" }}
+              >
+                {selected.address && (
+                  <span className="flex items-center gap-1">
+                    <MapPin className="w-3 h-3" />
+                    {selected.address}
+                  </span>
+                )}
+                {selected.phone && (
+                  <span className="flex items-center gap-1">
+                    <Phone className="w-3 h-3" />
+                    {selected.phone}
+                  </span>
+                )}
+                {selected.email && (
+                  <span className="flex items-center gap-1">
+                    <Mail className="w-3 h-3" />
+                    {selected.email}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Główna treść panelu serwisanta — kanban zleceń */}
-        <ServicesBoard userEmail={userEmail} />
+        {/* Główna treść — przełącznik widoku lista (3-col) | tablica (kanban) */}
+        <div className="flex-1 mt-4">
+          <ServicesView
+            userEmail={userEmail}
+            locationId={selected.id}
+            availableLocations={locations}
+          />
+        </div>
       </main>
+    </div>
+  );
+}
+
+/**
+ * Wewnętrzny komponent — fetch listy zleceń + przełącznik widoku
+ * lista (3-col PanelLayout) / tablica (kanban ServicesBoard).
+ *
+ * Lista filtruje lokalnie po `filters` z sidebara; tablica zachowuje
+ * własne filtrowanie wewnętrzne (search + onlyMine).
+ */
+function ServicesView({
+  userEmail,
+  locationId,
+  availableLocations,
+}: {
+  userEmail: string;
+  locationId: string;
+  availableLocations: PanelLocation[];
+}) {
+  const [viewMode, setViewMode] = useState<ViewMode>("list");
+  const [services, setServices] = useState<ServiceTicket[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
+
+  // Restore view-mode preference from localStorage (best-effort).
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(VIEW_MODE_KEY);
+      if (saved === "list" || saved === "board") setViewMode(saved);
+    } catch {
+      /* noop */
+    }
+  }, []);
+
+  const onViewModeChange = useCallback((mode: ViewMode) => {
+    setViewMode(mode);
+    try {
+      localStorage.setItem(VIEW_MODE_KEY, mode);
+    } catch {
+      /* noop */
+    }
+  }, []);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      params.set("limit", "200");
+      if (filters.search.trim()) params.set("search", filters.search.trim());
+      const res = await fetch(`/api/relay/services?${params.toString()}`);
+      const json = await res.json();
+      setServices(json.services ?? []);
+    } catch {
+      /* ignore */
+    } finally {
+      setLoading(false);
+    }
+  }, [filters.search]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  // Lokalne filtrowanie po sidebar filters.
+  const filteredServices = useMemo(() => {
+    return services.filter((s) => {
+      if (filters.statuses.length > 0 && !filters.statuses.includes(s.status as never)) {
+        return false;
+      }
+      if (filters.locations.length > 0) {
+        const sLoc = s.locationId ?? s.serviceLocationId ?? null;
+        if (!sLoc || !filters.locations.includes(sLoc)) return false;
+      }
+      if (filters.priority === "sla_breached") {
+        const due = s.promisedAt ? new Date(s.promisedAt).getTime() : null;
+        if (!due || due > Date.now()) return false;
+      }
+      // priority === "urgent" — wymaga pola priority na backendzie; gdy
+      // nie ma, traktujemy jako brak filtra (no-op) zamiast zwracać 0.
+      if (filters.period === "7d" || filters.period === "30d") {
+        if (!s.createdAt) return false;
+        const days = filters.period === "7d" ? 7 : 30;
+        const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+        if (new Date(s.createdAt).getTime() < cutoff) return false;
+      }
+      if (filters.period === "custom") {
+        if (!s.createdAt) return false;
+        const ts = new Date(s.createdAt).getTime();
+        if (filters.customFrom) {
+          if (ts < new Date(filters.customFrom).getTime()) return false;
+        }
+        if (filters.customTo) {
+          // Inkluzywnie do końca dnia.
+          const end = new Date(filters.customTo).getTime() + 24 * 60 * 60 * 1000;
+          if (ts >= end) return false;
+        }
+      }
+      return true;
+    });
+  }, [services, filters]);
+
+  // Liczniki per status (po filtrach lokacji + period — bez status filter,
+  // żeby sidebar pokazywał ile pasuje w pozostałych statusach).
+  const counts = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const s of services) {
+      m[s.status] = (m[s.status] ?? 0) + 1;
+    }
+    return m;
+  }, [services]);
+
+  const selected = selectedId
+    ? filteredServices.find((s) => s.id === selectedId) ??
+      services.find((s) => s.id === selectedId) ??
+      null
+    : null;
+
+  const sidebarLocations = useMemo(
+    () =>
+      availableLocations.map((l) => ({
+        id: l.id,
+        name: l.name,
+      })),
+    [availableLocations],
+  );
+
+  // Suppress unused warnings for STATUS_GROUPS/locationId — referenced for
+  // potential future use (counts already cover statuses, locationId may
+  // drive backend filter param later).
+  void STATUS_GROUPS;
+  void locationId;
+
+  if (viewMode === "board") {
+    // Zachowany kanban — własny fetch + własna selekcja + modal.
+    return (
+      <div className="mx-auto max-w-7xl w-full px-4 sm:px-6 pb-8">
+        <div className="flex justify-end mb-3">
+          <ViewModeToggle viewMode={viewMode} onChange={onViewModeChange} />
+        </div>
+        <ServicesBoard userEmail={userEmail} />
+      </div>
+    );
+  }
+
+  return (
+    <PanelLayout
+      services={filteredServices}
+      selectedServiceId={selectedId}
+      onSelectService={(id) => setSelectedId(id)}
+      filters={filters}
+      onFiltersChange={setFilters}
+      locations={sidebarLocations}
+      counts={counts}
+      viewMode={viewMode}
+      onViewModeChange={onViewModeChange}
+      loading={loading}
+      onRefresh={() => void refresh()}
+      detailSlot={
+        selected ? (
+          <ServiceDetailView
+            serviceId={selected.id}
+            service={selected}
+            onUpdate={(updated) => {
+              setServices((prev) =>
+                prev.map((s) => (s.id === updated.id ? updated : s)),
+              );
+            }}
+          />
+        ) : (
+          <ServiceDetailEmpty counts={counts} />
+        )
+      }
+    />
+  );
+}
+
+function ViewModeToggle({
+  viewMode,
+  onChange,
+}: {
+  viewMode: ViewMode;
+  onChange: (m: ViewMode) => void;
+}) {
+  return (
+    <div
+      className="inline-flex rounded-lg border overflow-hidden"
+      style={{ borderColor: "var(--border-subtle)" }}
+      role="tablist"
+      aria-label="Tryb widoku"
+    >
+      {(["list", "board"] as const).map((mode) => (
+        <button
+          key={mode}
+          type="button"
+          role="tab"
+          aria-selected={viewMode === mode}
+          onClick={() => onChange(mode)}
+          className="px-3 py-1.5 text-xs font-medium"
+          style={{
+            background: viewMode === mode ? "var(--accent)" : "var(--bg-card)",
+            color: viewMode === mode ? "#fff" : "var(--text-muted)",
+          }}
+        >
+          {mode === "list" ? "Lista" : "Tablica"}
+        </button>
+      ))}
     </div>
   );
 }

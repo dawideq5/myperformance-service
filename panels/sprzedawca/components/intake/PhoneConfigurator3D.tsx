@@ -248,6 +248,7 @@ export function PhoneConfigurator3D({
   initial,
   onCancel,
   onComplete,
+  readOnly = false,
 }: {
   brand: string;
   brandColorHex: string;
@@ -261,8 +262,22 @@ export function PhoneConfigurator3D({
   initial?: VisualConditionState;
   onCancel: () => void;
   onComplete: (state: VisualConditionState) => void;
+  /** Viewer mode (panel serwisanta) — wyłącza dodawanie/edycję markerów,
+   * ukrywa edytor (sliders/checklisty/CTA) i nawigację bottom bar.
+   * Pozostawia: rotation/zoom kamery, wyświetlanie istniejących markerów,
+   * top bar z tytułem i przyciskiem Zamknij. Step jest force'owany do
+   * "damage" (best showcase markerów uszkodzeń). */
+  readOnly?: boolean;
 }) {
-  const [stepIdx, setStepIdx] = useState(0);
+  // ReadOnly viewer mode (panel serwisanta) — force step "damage" tak żeby
+  // pokazane były wszystkie markery + interactive rotation kamery.
+  const initialStepIdx = readOnly
+    ? Math.max(
+        STEPS.findIndex((s) => s.id === "damage"),
+        0,
+      )
+    : 0;
+  const [stepIdx, setStepIdx] = useState(initialStepIdx);
   const step = STEPS[stepIdx];
   const [state, setState] = useState<VisualConditionState>(
     initial ?? { damage_markers: [] },
@@ -320,6 +335,7 @@ export function PhoneConfigurator3D({
     candidates: string[],
     normal?: THREE.Vector3,
   ) => {
+    if (readOnly) return;
     if (step.id !== "damage") return;
     if (candidates.length === 0) return;
     if (candidates.length === 1) {
@@ -380,6 +396,7 @@ export function PhoneConfigurator3D({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onCancel();
+      if (readOnly) return;
       if (e.key === "ArrowRight") next();
       if (e.key === "ArrowLeft") prev();
     };
@@ -388,7 +405,7 @@ export function PhoneConfigurator3D({
     // canGoNext + state zawarte w deps — bez tego next() captured był ze
     // stale canGoNext (po pierwszym renderze), co pozwalało skipować kroki.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stepIdx, state, brand]);
+  }, [stepIdx, state, brand, readOnly]);
 
   const isStepComplete = (s: Step): boolean => {
     switch (s.id) {
@@ -502,29 +519,31 @@ export function PhoneConfigurator3D({
         {/* Top bar — minimalist: tylko tytuł + close button */}
         <div className="flex items-center justify-between px-4 sm:px-6 py-3 bg-black/30 backdrop-blur-md border-b border-white/10">
           <p className="text-white text-base font-semibold truncate">
-            {step.title}
+            {readOnly ? "Podgląd urządzenia" : step.title}
           </p>
           <button
             type="button"
             onClick={onCancel}
             className="p-2 rounded-lg hover:bg-white/10 transition-colors"
-            aria-label="Zamknij konfigurator"
+            aria-label="Zamknij"
           >
             <X className="w-5 h-5 text-white/80" />
           </button>
         </div>
 
-        {/* Progress bar */}
-        <div className="h-1 bg-white/10">
-          <div
-            className="h-full transition-all duration-500"
-            style={{
-              width: `${((stepIdx + 1) / STEPS.length) * 100}%`,
-              background:
-                "linear-gradient(90deg, #3B82F6, #A855F7, #EC4899)",
-            }}
-          />
-        </div>
+        {/* Progress bar — ukryty w viewer mode */}
+        {!readOnly && (
+          <div className="h-1 bg-white/10">
+            <div
+              className="h-full transition-all duration-500"
+              style={{
+                width: `${((stepIdx + 1) / STEPS.length) * 100}%`,
+                background:
+                  "linear-gradient(90deg, #3B82F6, #A855F7, #EC4899)",
+              }}
+            />
+          </div>
+        )}
 
         {/* Main canvas — absolute positioning dla maksymalnej kontroli.
             Canvas zajmuje pełen obszar (lg: minus right 420px na panel).
@@ -532,7 +551,13 @@ export function PhoneConfigurator3D({
             overflow-y-auto z eksplicytnym wymiarem → scroll niezawodnie
             działa. */}
         <div className="flex-1 relative min-h-0 overflow-hidden">
-          <div className="absolute left-0 right-0 top-0 bottom-[45vh] lg:bottom-0 lg:right-[420px]">
+          <div
+            className={
+              readOnly
+                ? "absolute inset-0"
+                : "absolute left-0 right-0 top-0 bottom-[45vh] lg:bottom-0 lg:right-[420px]"
+            }
+          >
             <PhoneSceneErrorBoundary>
               <Canvas
                 camera={{ position: [4.5, 0, 0], fov: 45 }}
@@ -578,8 +603,9 @@ export function PhoneConfigurator3D({
               </div>
             )}
 
-            {/* Damage mode hint — instrukcje zależne od platformy. */}
-            {step.id === "damage" && !pendingChoice && (
+            {/* Damage mode hint — instrukcje zależne od platformy. Ukryty w
+             * viewer mode (panel serwisanta nie dodaje markerów). */}
+            {!readOnly && step.id === "damage" && !pendingChoice && (
               <div className="absolute bottom-6 left-1/2 -translate-x-1/2 px-4 py-2.5 rounded-2xl bg-black/70 backdrop-blur-md border border-amber-500/40 text-xs text-amber-200 animate-fade-in max-w-[90%] text-center space-y-1">
                 <div className="flex items-center justify-center gap-1.5">
                   <CircleDot className="w-3 h-3 text-amber-400" />
@@ -590,6 +616,13 @@ export function PhoneConfigurator3D({
                 <div className="text-[11px] text-white/70">
                   {getRotationInstruction()}
                 </div>
+              </div>
+            )}
+
+            {/* Viewer mode hint — instrukcja rotacji, brak CTA do edycji. */}
+            {readOnly && (
+              <div className="absolute bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-full bg-black/60 backdrop-blur-md border border-white/10 text-xs text-white/80 max-w-[80%] text-center">
+                {getRotationInstruction()}
               </div>
             )}
 
@@ -629,28 +662,32 @@ export function PhoneConfigurator3D({
 
           {/* Step controls panel — absolute. Mobile: bottom 45vh. Desktop:
               right 420px, full height. overflow-y-auto + eksplicytny rozmiar
-              = niezawodny scroll w obu trybach. */}
-          <aside
-            className="absolute left-0 right-0 bottom-0 h-[45vh] lg:left-auto lg:top-0 lg:right-0 lg:bottom-0 lg:h-auto lg:w-[420px] overflow-y-auto bg-white/5 backdrop-blur-md border-t lg:border-t-0 lg:border-l border-white/10 p-4"
-            style={{ overscrollBehavior: "contain" }}
-          >
-            <StepInputs
-              step={step}
-              state={state}
-              brand={brand}
-              priceLines={priceLines}
-              cleaningSelected={cleaningSelected}
-              onToggleCleaning={onToggleCleaning}
-              editingMarkerId={editingMarkerId}
-              onChange={update}
-              onUpdateMarkerDescription={updateMarkerDescription}
-              onSelectMarker={setEditingMarkerId}
-              onRemoveMarker={removeMarker}
-            />
-          </aside>
+              = niezawodny scroll w obu trybach. Ukryty w viewer mode. */}
+          {!readOnly && (
+            <aside
+              className="absolute left-0 right-0 bottom-0 h-[45vh] lg:left-auto lg:top-0 lg:right-0 lg:bottom-0 lg:h-auto lg:w-[420px] overflow-y-auto bg-white/5 backdrop-blur-md border-t lg:border-t-0 lg:border-l border-white/10 p-4"
+              style={{ overscrollBehavior: "contain" }}
+            >
+              <StepInputs
+                step={step}
+                state={state}
+                brand={brand}
+                priceLines={priceLines}
+                cleaningSelected={cleaningSelected}
+                onToggleCleaning={onToggleCleaning}
+                editingMarkerId={editingMarkerId}
+                onChange={update}
+                onUpdateMarkerDescription={updateMarkerDescription}
+                onSelectMarker={setEditingMarkerId}
+                onRemoveMarker={removeMarker}
+              />
+            </aside>
+          )}
         </div>
 
-        {/* Bottom bar */}
+        {/* Bottom bar — ukryty w viewer mode (panel serwisanta nie ma akcji
+         * "Dalej"/"Wstecz" — tylko zamyka modal). */}
+        {!readOnly && (
         <div className="flex items-center justify-between px-4 sm:px-6 py-3 bg-black/40 backdrop-blur-md border-t border-white/10 gap-2">
           <button
             type="button"
@@ -718,6 +755,7 @@ export function PhoneConfigurator3D({
             </button>
           )}
         </div>
+        )}
       </div>
 
     </div>
