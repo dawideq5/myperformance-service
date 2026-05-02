@@ -1,86 +1,72 @@
 "use client";
 
-import { useState } from "react";
 import {
-  FileSignature,
-  Layers,
-  LinkIcon,
+  Bell,
   MapPin,
   Settings,
   Tags,
+  Wrench,
 } from "lucide-react";
-import {
-  Card,
-  PageShell,
-  TabPanel,
-  Tabs,
-  type TabDefinition,
-} from "@/components/ui";
+import { Card, PageShell } from "@/components/ui";
 import { AppHeader } from "@/components/AppHeader";
-import type { Location } from "@/lib/locations";
-import type { CertLinkRow, ConfigOverviewStats } from "@/lib/config-overview";
-import type { ConfigTabId } from "@/lib/services/config-service";
-import { OverviewPanel } from "@/components/admin/config/OverviewPanel";
-import { CertBindingPanel } from "@/components/admin/config/CertBindingPanel";
-import { LocationsPanel } from "@/components/admin/config/LocationsPanel";
-import { TargetGroupsPanel } from "@/components/admin/config/TargetGroupsPanel";
-import {
-  CertsSummary,
-  PricingPanel,
-} from "@/components/admin/config/PricingPanel";
+import { ConfigTile, type ConfigTileAccent } from "./ConfigTile";
 
 interface ConfigClientProps {
-  stats: ConfigOverviewStats;
-  links: CertLinkRow[];
-  locations: Location[];
   userLabel?: string;
   userEmail?: string;
 }
 
-const TABS: TabDefinition<ConfigTabId>[] = [
-  { id: "overview", label: "Przegląd", icon: <Layers className="w-4 h-4" /> },
+interface TileDef {
+  title: string;
+  description: string;
+  href: string;
+  icon: React.ReactNode;
+  accent: ConfigTileAccent;
+}
+
+// Wszystkie kafelki idą przez wspólny komponent ConfigTile (jeden schemat
+// layoutu). Bez hardcoded wariantów — różni się tylko ikona, tytuł, opis,
+// docelowy href, kolor akcentu.
+const TILES: TileDef[] = [
   {
-    id: "links",
-    label: "Powiązania cert ↔ punkty",
-    icon: <LinkIcon className="w-4 h-4" />,
+    title: "Punkty",
+    description: "Punkty sprzedażowe i serwisowe — adresy, GPS, godziny pracy",
+    href: "/admin/locations",
+    icon: <MapPin className="w-6 h-6" />,
+    accent: "sky",
   },
   {
-    id: "locations",
-    label: "Punkty",
-    icon: <MapPin className="w-4 h-4" />,
+    title: "Cennik",
+    description: "Pozycje cennika — ceny, marki, modele, gwarancje",
+    href: "/admin/pricelist",
+    icon: <Tags className="w-6 h-6" />,
+    accent: "emerald",
   },
   {
-    id: "targets",
-    label: "Grupy targetowe",
-    icon: <Tags className="w-4 h-4" />,
+    title: "Typy napraw",
+    description: "Katalog rodzajów napraw — gwarancja, czas, reguły łączenia",
+    href: "/admin/repair-types",
+    icon: <Wrench className="w-6 h-6" />,
+    accent: "amber",
   },
   {
-    id: "certs",
-    label: "Certyfikaty",
-    icon: <FileSignature className="w-4 h-4" />,
-  },
-  {
-    id: "pricelist",
-    label: "Cennik",
-    icon: <Tags className="w-4 h-4" />,
+    title: "Komunikaty",
+    description: "Wydarzenia widoczne dla użytkowników na dashboardzie",
+    href: "/admin/announcements",
+    icon: <Bell className="w-6 h-6" />,
+    accent: "rose",
   },
 ];
 
 /**
- * Shell dla `/admin/config`. Trzyma state aktywnej zakładki + stronę-ramkę,
- * delegując treść kafli do odpowiednich paneli (`components/admin/config/*`).
+ * Hub `/admin/config`. Tile-based — każdy kafelek prowadzi do dedykowanej
+ * pod-strony admina (np. /admin/locations, /admin/pricelist).
  *
- * Pure helpery (validators, format) żyją w `lib/services/config-service.ts`.
+ * Usunięte: kafelki "Przegląd", "Powiązania cert ↔ punkty", "Certyfikaty"
+ * (legacy w nowym modelu mTLS hard-locked, certy edytuje się w
+ * /admin/certificates poza configem).
  */
-export function ConfigClient({
-  stats,
-  links,
-  locations,
-  userLabel,
-  userEmail,
-}: ConfigClientProps) {
-  const [tab, setTab] = useState<ConfigTabId>("overview");
-
+export function ConfigClient({ userLabel, userEmail }: ConfigClientProps) {
   return (
     <PageShell
       maxWidth="2xl"
@@ -107,44 +93,26 @@ export function ConfigClient({
                 Centralne zarządzanie konfiguracją
               </h1>
               <p className="text-sm text-[var(--text-muted)] max-w-2xl">
-                Punkty sprzedażowe i serwisowe, certyfikaty klienckie mTLS i
-                powiązania między nimi w jednym miejscu. Zmiany odzwierciedlają
-                się natychmiast w panelu sprzedawcy / serwisanta.
+                Punkty, cennik, typy napraw i komunikaty systemowe w jednym
+                miejscu. Zmiany odzwierciedlają się natychmiast w panelu
+                sprzedawcy / serwisanta i na dashboardzie użytkowników.
               </p>
             </div>
           </div>
         </Card>
 
-        <Tabs<ConfigTabId>
-          tabs={TABS}
-          activeTab={tab}
-          onChange={setTab}
-          orientation="horizontal"
-        />
-
-        <TabPanel tabId="overview" active={tab === "overview"}>
-          <OverviewPanel stats={stats} />
-        </TabPanel>
-
-        <TabPanel tabId="links" active={tab === "links"}>
-          <CertBindingPanel links={links} />
-        </TabPanel>
-
-        <TabPanel tabId="locations" active={tab === "locations"}>
-          <LocationsPanel locations={locations} />
-        </TabPanel>
-
-        <TabPanel tabId="targets" active={tab === "targets"}>
-          <TargetGroupsPanel />
-        </TabPanel>
-
-        <TabPanel tabId="certs" active={tab === "certs"}>
-          <CertsSummary />
-        </TabPanel>
-
-        <TabPanel tabId="pricelist" active={tab === "pricelist"}>
-          <PricingPanel />
-        </TabPanel>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {TILES.map((t) => (
+            <ConfigTile
+              key={t.href}
+              icon={t.icon}
+              title={t.title}
+              description={t.description}
+              href={t.href}
+              accent={t.accent}
+            />
+          ))}
+        </div>
       </div>
     </PageShell>
   );

@@ -1,14 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertCircle, AlertTriangle, Info, X } from "lucide-react";
+import { AlertCircle, AlertTriangle, CheckCircle2, Info, X } from "lucide-react";
 import { api } from "@/lib/api-client";
 
 interface Announcement {
   id: string;
   title: string;
   body: string | null;
-  severity: "info" | "warning" | "error";
+  severity: "info" | "success" | "warning" | "critical";
 }
 
 const TONE: Record<
@@ -21,13 +21,19 @@ const TONE: Record<
       "bg-blue-500/10 border-blue-500/30 text-blue-100",
     iconClass: "text-blue-400",
   },
+  success: {
+    icon: CheckCircle2,
+    classes:
+      "bg-emerald-500/10 border-emerald-500/30 text-emerald-100",
+    iconClass: "text-emerald-400",
+  },
   warning: {
     icon: AlertTriangle,
     classes:
       "bg-amber-500/10 border-amber-500/30 text-amber-100",
     iconClass: "text-amber-400",
   },
-  error: {
+  critical: {
     icon: AlertCircle,
     classes:
       "bg-red-500/10 border-red-500/30 text-red-100",
@@ -93,7 +99,7 @@ export function AnnouncementBanner() {
       {visible.map((a) => {
         const tone = TONE[a.severity];
         const Icon = tone.icon;
-        const dismissable = a.severity !== "error";
+        const dismissable = a.severity !== "critical";
         return (
           <div
             key={a.id}

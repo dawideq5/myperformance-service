@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect } from "react";
+import { Suspense, useEffect, type ReactNode } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import {
@@ -27,7 +27,6 @@ import {
   Wrench,
 } from "lucide-react";
 
-import { AnnouncementBanner } from "@/components/AnnouncementBanner";
 import { AppFooter } from "@/components/AppFooter";
 import { AppHeader } from "@/components/AppHeader";
 import { Card, OnboardingCard, PageShell } from "@/components/ui";
@@ -60,6 +59,10 @@ import { cn } from "@/lib/utils";
 interface DashboardClientProps {
   userLabel?: string;
   email?: string;
+  /** Server-rendered banner komunikatów (z Directus). Rysowany na top
+   * dashboardu, full-width, z efektem glow per severity. Server slot żeby
+   * nie polować po API z klienta. */
+  announcementsSlot?: ReactNode;
 }
 
 export function DashboardClient(props: DashboardClientProps) {
@@ -72,7 +75,11 @@ export function DashboardClient(props: DashboardClientProps) {
   );
 }
 
-function DashboardBody({ userLabel, email }: DashboardClientProps) {
+function DashboardBody({
+  userLabel,
+  email,
+  announcementsSlot,
+}: DashboardClientProps) {
   const { data: session } = useSession();
   const { softLogout } = useAuthRedirect();
 
@@ -86,21 +93,29 @@ function DashboardBody({ userLabel, email }: DashboardClientProps) {
       maxWidth="xl"
       header={<AppHeader userLabel={userLabel} userSubLabel={email} />}
     >
-      <TileGridWithFooter />
+      <TileGridWithFooter announcementsSlot={announcementsSlot} />
     </PageShell>
   );
 }
 
-function TileGridWithFooter() {
+function TileGridWithFooter({
+  announcementsSlot,
+}: {
+  announcementsSlot?: ReactNode;
+}) {
   return (
     <>
-      <TileGrid />
+      <TileGrid announcementsSlot={announcementsSlot} />
       <AppFooter />
     </>
   );
 }
 
-function TileGrid() {
+function TileGrid({
+  announcementsSlot,
+}: {
+  announcementsSlot?: ReactNode;
+}) {
   const { googleStatus, kadromierzStatus, status } = useAccount();
   const { data: session } = useSession();
   const accountLoading = status === "loading" || status === "idle";
@@ -146,7 +161,7 @@ function TileGrid() {
 
   return (
     <div className="space-y-4">
-      <AnnouncementBanner />
+      {announcementsSlot}
       <OnboardingCard
         storageKey="dashboard-welcome"
         title="Witaj w MyPerformance"

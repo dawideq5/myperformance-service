@@ -2,23 +2,22 @@ import { getServerSession } from "next-auth/next";
 import { redirect } from "next/navigation";
 import { authOptions } from "@/app/auth";
 import { canAccessConfigHub } from "@/lib/admin-auth";
-import { ConfigClient } from "./ConfigClient";
+import { listAnnouncements } from "@/lib/announcements";
+import { AnnouncementsAdminClient } from "./AnnouncementsAdminClient";
 
-export const metadata = { title: "Zarządzanie konfiguracją — Admin" };
+export const metadata = { title: "Komunikaty — Admin" };
 export const dynamic = "force-dynamic";
 
-// Hub konfiguracji — czysto tile-based, bez fetch'owania danych po stronie
-// serwera. Każdy kafelek prowadzi do dedykowanej pod-strony, która sama
-// pobiera dane (np. /admin/locations, /admin/pricelist).
-export default async function ConfigHubPage() {
+export default async function AnnouncementsAdminPage() {
   const session = await getServerSession(authOptions);
   if (!session) redirect("/login");
-  if (!canAccessConfigHub(session)) {
-    redirect("/forbidden");
-  }
+  if (!canAccessConfigHub(session)) redirect("/forbidden");
+
+  const items = await listAnnouncements();
 
   return (
-    <ConfigClient
+    <AnnouncementsAdminClient
+      initialItems={items}
       userLabel={session.user?.name ?? session.user?.email ?? undefined}
       userEmail={session.user?.email ?? undefined}
     />

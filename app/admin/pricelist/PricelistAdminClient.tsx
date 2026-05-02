@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   CheckCircle2,
-  Clock,
   Edit2,
   Filter,
   Plus,
@@ -24,7 +23,6 @@ import {
   useToast,
 } from "@/components/ui";
 import { AppHeader } from "@/components/AppHeader";
-import Link from "next/link";
 import type { PricelistItem, PricelistInput } from "@/lib/pricelist";
 import type { RepairType } from "@/lib/repair-types";
 
@@ -58,15 +56,6 @@ function describeSums(rt: RepairType): string {
   return "Sumuj cenę";
 }
 
-function describeTime(rt: RepairType): string {
-  if (rt.timeMin == null && rt.timeMax == null) return "—";
-  const unit = rt.timeUnit ?? "minutes";
-  if (rt.timeMin != null && rt.timeMax != null && rt.timeMin !== rt.timeMax) {
-    return `${rt.timeMin}-${rt.timeMax} ${unit}`;
-  }
-  return `${rt.timeMin ?? rt.timeMax} ${unit}`;
-}
-
 export function PricelistAdminClient({
   initialItems,
   initialRepairTypes,
@@ -79,13 +68,6 @@ export function PricelistAdminClient({
   userEmail: string | undefined;
 }) {
   const [repairTypes, setRepairTypes] = useState<RepairType[]>(initialRepairTypes);
-
-  // Mapowanie code -> repair_type (dla auto-uzupełniania kategorii nowej
-  // pozycji cennika gdy kod pasuje do istniejącego repair_type).
-  const repairTypeByCode = useMemo(
-    () => new Map(repairTypes.map((t) => [t.code, t])),
-    [repairTypes],
-  );
 
   // Lista kategorii = lista typów napraw (1:1) — admin wymaga DOKŁADNIE tej
   // listy z mp_repair_types (Ekspertyza, Wymiana wyświetlacza, Wymiana
@@ -109,16 +91,6 @@ export function PricelistAdminClient({
     }
     return ordered;
   }, [repairTypes, initialItems]);
-
-  /** Etykieta kategorii dla item — label repair_type po code (1:1 mapping).
-   * Fallback: surowa wartość pricelist.category dla pozycji bez powiązanego
-   * repair_type. */
-  const categoryFor = useCallback(
-    (it: { code: string; category: string }): string => {
-      return repairTypeByCode.get(it.code)?.label ?? it.category ?? "Inne";
-    },
-    [repairTypeByCode],
-  );
 
   // Refresh repair types przy mount (gdyby admin edytował w innej karcie).
   useEffect(() => {
@@ -240,14 +212,6 @@ export function PricelistAdminClient({
         userLabel={userLabel}
         userSubLabel={userEmail}
       />
-      <div className="mb-3 text-xs flex items-center gap-1" style={{ color: "var(--text-muted)" }}>
-        <Link href="/admin" className="hover:underline">Admin</Link>
-        <span>/</span>
-        <Link href="/admin/config" className="hover:underline">Konfiguracja</Link>
-        <span>/</span>
-        <span style={{ color: "var(--text-main)" }}>Cennik</span>
-      </div>
-
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
         <StatCard icon={<Tags className="w-4 h-4" />} label="Pozycji" value={stats.total} />
         <StatCard icon={<CheckCircle2 className="w-4 h-4" />} label="Aktywne" value={stats.enabled} />
@@ -301,8 +265,6 @@ export function PricelistAdminClient({
                 style={{ background: "var(--bg-surface)", color: "var(--text-muted)" }}
               >
                 <th className="px-3 py-2">Typ naprawy</th>
-                <th className="px-3 py-2">Gwarancja</th>
-                <th className="px-3 py-2">Czas</th>
                 <th className="px-3 py-2">Łączenie</th>
                 <th className="px-3 py-2">Suma</th>
                 <th className="px-3 py-2 text-right">Cena bazowa</th>
@@ -314,7 +276,7 @@ export function PricelistAdminClient({
               {visibleRepairTypes.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={8}
+                    colSpan={6}
                     className="px-3 py-8 text-center text-sm"
                     style={{ color: "var(--text-muted)" }}
                   >
@@ -330,11 +292,6 @@ export function PricelistAdminClient({
                   const perModelCount = itemsForType.length - (baseItem ? 1 : 0);
                   const combinable = describeCombinable(rt);
                   const sums = describeSums(rt);
-                  const time = describeTime(rt);
-                  const warranty =
-                    rt.defaultWarrantyMonths != null
-                      ? `${rt.defaultWarrantyMonths} mc`
-                      : "brak";
                   return (
                     <tr
                       key={rt.code}
@@ -350,8 +307,6 @@ export function PricelistAdminClient({
                           {rt.code}
                         </div>
                       </td>
-                      <td className="px-3 py-2 text-xs">{warranty}</td>
-                      <td className="px-3 py-2 text-xs">{time}</td>
                       <td className="px-3 py-2 text-xs">{combinable}</td>
                       <td className="px-3 py-2 text-xs">{sums}</td>
                       <td className="px-3 py-2 text-right font-mono">
@@ -420,10 +375,11 @@ export function PricelistAdminClient({
         <PricelistDialog
           item={editing}
           repairTypes={repairTypes}
-          allCategories={allCategories}
+          prefillCode={prefillCode}
           onClose={() => {
             setEditing(null);
             setCreating(false);
+            setPrefillCode(null);
           }}
           onSave={(input) => onSave(input, editing?.id)}
           busy={busy}
@@ -458,14 +414,14 @@ function StatCard({
 function PricelistDialog({
   item,
   repairTypes,
-  allCategories,
+  prefillCode,
   onClose,
   onSave,
   busy,
 }: {
   item: PricelistItem | null;
   repairTypes: RepairType[];
-  allCategories: string[];
+  prefillCode: string | null;
   onClose: () => void;
   onSave: (input: PricelistInput) => void;
   busy: boolean;
@@ -474,44 +430,38 @@ function PricelistDialog({
     () => new Map(repairTypes.map((t) => [t.code, t])),
     [repairTypes],
   );
-  const [code, setCode] = useState(item?.code ?? "");
-  const [name, setName] = useState(item?.name ?? "");
-  // Initial category: z item, jeśli edycja; inaczej z mp_repair_types po
-  // matching code; inaczej "Inne".
-  const initialCategory =
-    item?.category ?? repairTypeByCode.get(item?.code ?? "")?.category ?? "Inne";
-  const [category, setCategory] = useState(initialCategory);
+  // Wybór typu naprawy steruje code + name + category; nie ma osobnego pola
+  // code / name / category w UI — wszystko dziedziczone z repair_type.
+  const [repairTypeCode, setRepairTypeCode] = useState(
+    item?.repairTypeCode ?? item?.code ?? prefillCode ?? "",
+  );
   const [price, setPrice] = useState(item?.price?.toString() ?? "0");
   const [brand, setBrand] = useState((item?.brand ?? "").toUpperCase());
   const [modelPattern, setModelPattern] = useState(
     (item?.modelPattern ?? "").toUpperCase(),
   );
   const [description, setDescription] = useState(item?.description ?? "");
-  const [warrantyMonths, setWarrantyMonths] = useState(
-    item?.warrantyMonths?.toString() ?? "3",
-  );
-  const [durationMinutes, setDurationMinutes] = useState(
-    item?.durationMinutes?.toString() ?? "",
-  );
   const [enabled, setEnabled] = useState(item?.enabled ?? true);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    const normalizedCode = code.trim().toUpperCase();
+    const normalizedCode = repairTypeCode.trim().toUpperCase();
+    const rt = repairTypeByCode.get(normalizedCode);
     const input: PricelistInput = {
       code: normalizedCode,
-      name: name.trim(),
-      category,
-      // Każda pozycja cennika należy do JEDNEGO repair_type. Domyślnie code
-      // pricelist === code repair_type (legacy seed). Admin może wybrać inny
-      // przez datalist `repair-type-codes` — wtedy code jest aliasowane.
+      // Nazwa = label repair_type (fallback: code), category = category z
+      // repair_type (fallback "Inne"). Backend zachowuje te kolumny w DB
+      // dla back-compat; UI ich nie wystawia.
+      name: rt?.label ?? normalizedCode,
+      category: rt?.category ?? "Inne",
       repairTypeCode: normalizedCode,
       price: Number(price),
       brand: brand.trim().toUpperCase() || null,
       modelPattern: modelPattern.trim().toUpperCase() || null,
       description: description.trim() || null,
-      warrantyMonths: warrantyMonths ? Number(warrantyMonths) : null,
-      durationMinutes: durationMinutes ? Number(durationMinutes) : null,
+      // Gwarancja i czas dziedziczone z repair_type — UI ich nie wystawia.
+      // Pola opcjonalne w PricelistInput, więc pomijamy (DB nie zostanie
+      // nadpisana jeśli edycja).
       enabled,
     };
     onSave(input);
@@ -525,83 +475,35 @@ function PricelistDialog({
       size="lg"
     >
       <form onSubmit={submit} className="space-y-3">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <label className="block">
-            <span
-              className="block text-xs font-medium mb-1.5"
-              style={{ color: "var(--text-muted)" }}
-            >
-              Kod / Typ naprawy
-            </span>
-            {/* Wybór z listy istniejących repair_types (auto-fill kategorii)
-                LUB wpis ręczny dla pozycji standalone (np. wariant brand-only). */}
-            <input
-              list="repair-type-codes"
-              value={code}
-              onChange={(e) => {
-                const v = e.target.value.toUpperCase();
-                setCode(v);
-                const rt = repairTypeByCode.get(v);
-                if (rt) {
-                  setCategory(rt.category);
-                  if (!name.trim()) setName(rt.label);
-                }
-              }}
-              disabled={!!item}
-              required
-              placeholder="SCREEN_REPLACEMENT lub SCREEN_REPLACE_IPHONE12"
-              className="w-full px-3 py-2 rounded-xl border text-sm bg-[var(--bg-surface)] border-[var(--border-subtle)] uppercase font-mono"
-            />
-            <datalist id="repair-type-codes">
-              {repairTypes.map((t) => (
-                <option key={t.code} value={t.code}>
-                  {t.label} · {t.category}
-                </option>
-              ))}
-            </datalist>
-            <p className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>
-              Wybierz z listy → kategoria uzupełni się automatycznie z mp_repair_types.
-            </p>
-          </label>
-          <Input
-            label="Nazwa"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
+        <label className="block">
+          <span
+            className="block text-xs font-medium mb-1.5"
+            style={{ color: "var(--text-muted)" }}
+          >
+            Typ naprawy
+          </span>
+          {/* Wybór z listy mp_repair_types — code + nazwa + kategoria
+              dziedziczone automatycznie. */}
+          <input
+            list="repair-type-codes"
+            value={repairTypeCode}
+            onChange={(e) => setRepairTypeCode(e.target.value.toUpperCase())}
+            disabled={!!item}
             required
+            placeholder="Wybierz typ naprawy z listy"
+            className="w-full px-3 py-2 rounded-xl border text-sm bg-[var(--bg-surface)] border-[var(--border-subtle)] uppercase font-mono"
           />
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <label className="block">
-            <span
-              className="block text-xs font-medium mb-1.5"
-              style={{ color: "var(--text-muted)" }}
-            >
-              Kategoria
-            </span>
-            {/* Lista pochodzi z unikalnych mp_repair_types.category — bez
-                hardcoded enum. allowOther: input + datalist. */}
-            <input
-              list="pricelist-categories"
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              required
-              className="w-full px-3 py-2 rounded-xl border text-sm bg-[var(--bg-surface)] border-[var(--border-subtle)]"
-            />
-            <datalist id="pricelist-categories">
-              {allCategories.map((c) => (
-                <option key={c} value={c} />
-              ))}
-            </datalist>
-          </label>
-          <Input
-            label="Cena (PLN)"
-            type="number"
-            step="0.01"
-            value={price}
-            onChange={(e) => setPrice(e.target.value)}
-            required
-          />
-        </div>
+          <datalist id="repair-type-codes">
+            {repairTypes.map((t) => (
+              <option key={t.code} value={t.code}>
+                {t.label}
+              </option>
+            ))}
+          </datalist>
+          <p className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>
+            Wybierz z listy mp_repair_types — gwarancja, czas i kategoria dziedziczone automatycznie.
+          </p>
+        </label>
         <div className="rounded-xl border p-3 bg-[var(--bg-surface)] border-[var(--border-subtle)] space-y-2">
           <p
             className="text-xs uppercase tracking-wide font-semibold"
@@ -629,30 +531,20 @@ function PricelistDialog({
             />
           </div>
         </div>
+        <Input
+          label="Cena (PLN)"
+          type="number"
+          step="0.01"
+          value={price}
+          onChange={(e) => setPrice(e.target.value)}
+          required
+        />
         <Textarea
-          label="Opis"
+          label="Opis (np. tylko zamiennik)"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           rows={2}
         />
-        <div className="grid grid-cols-2 gap-3">
-          <Input
-            label="Gwarancja (mc) — override dla tej pozycji"
-            type="number"
-            min="0"
-            value={warrantyMonths}
-            onChange={(e) => setWarrantyMonths(e.target.value)}
-            placeholder="dziedziczy z typu naprawy"
-          />
-          <Input
-            label="Czas (min) — override"
-            type="number"
-            min="0"
-            value={durationMinutes}
-            onChange={(e) => setDurationMinutes(e.target.value)}
-            placeholder="dziedziczy z typu naprawy"
-          />
-        </div>
         <p className="text-xs" style={{ color: "var(--text-muted)" }}>
           Gwarancja, czas i reguły łączenia są zarządzane w
           <a
@@ -662,8 +554,7 @@ function PricelistDialog({
           >
             Typach napraw
           </a>
-          . Pola powyżej (jeśli wypełnione) nadpisują domyślne wartości
-          dla konkretnej pozycji cennika.
+          .
         </p>
         <label className="flex items-center gap-2 cursor-pointer">
           <input
@@ -671,7 +562,7 @@ function PricelistDialog({
             checked={enabled}
             onChange={(e) => setEnabled(e.target.checked)}
           />
-          <span className="text-sm">Pozycja aktywna (widoczna dla sprzedawców)</span>
+          <span className="text-sm">Pozycja aktywna</span>
         </label>
         <div className="flex justify-end gap-2 pt-2 border-t border-[var(--border-subtle)]">
           <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>

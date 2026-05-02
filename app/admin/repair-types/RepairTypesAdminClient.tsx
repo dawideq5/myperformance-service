@@ -108,6 +108,15 @@ export function RepairTypesAdminClient({
     });
   }
 
+  // Generuje kod A-Z/0-9/_ z nazwy ("Wymiana ekranu" → "WYMIANA_EKRANU").
+  function slugifyCode(name: string): string {
+    return name
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+  }
+
   function startEdit(t: RepairType) {
     setEditing({ ...t });
   }
@@ -118,15 +127,22 @@ export function RepairTypesAdminClient({
 
   async function saveDraft() {
     if (!editing) return;
-    if (!editing.code.trim() || !editing.label.trim()) {
-      pushToast("err", "Kod i etykieta wymagane");
+    // Tylko `name` jest wymagana; code/label/category generowane automatycznie.
+    const nameSource = editing.label.trim();
+    if (!nameSource) {
+      pushToast("err", "Nazwa naprawy wymagana");
+      return;
+    }
+    const finalCode = editing.code.trim() || slugifyCode(nameSource);
+    if (!finalCode) {
+      pushToast("err", "Nie udało się wygenerować kodu z nazwy");
       return;
     }
     setBusy(true);
     try {
       const payload: Partial<RepairTypeInput> = {
-        code: editing.code,
-        label: editing.label,
+        code: finalCode,
+        label: nameSource,
         icon: editing.icon,
         color: editing.color,
         description: editing.description ?? null,
@@ -201,13 +217,6 @@ export function RepairTypesAdminClient({
       style={{ background: "var(--bg-main)" }}
     >
       <div className="max-w-6xl mx-auto space-y-4">
-        <div className="flex items-center gap-1 text-xs" style={{ color: "var(--text-muted)" }}>
-          <Link href="/admin" className="hover:underline">Admin</Link>
-          <span>/</span>
-          <Link href="/admin/config" className="hover:underline">Konfiguracja</Link>
-          <span>/</span>
-          <span style={{ color: "var(--text-main)" }}>Typy napraw</span>
-        </div>
         <header className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <Link
@@ -371,15 +380,6 @@ function RepairTypeRow({
           >
             {type.label}
           </span>
-          <span
-            className="font-mono text-[10px] px-1.5 py-0.5 rounded"
-            style={{
-              background: "var(--bg-surface)",
-              color: "var(--text-muted)",
-            }}
-          >
-            {type.code}
-          </span>
           {!type.isActive && (
             <span
               className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded"
@@ -527,52 +527,24 @@ function RepairTypeEditor({
       </div>
 
       <div className="grid grid-cols-2 gap-3 text-sm">
-        <Field label="Kod (A-Z, 0-9, _)">
-          <input
-            type="text"
-            value={draft.code}
-            onChange={(e) =>
-              onChange({ ...draft, code: e.target.value.toUpperCase() })
-            }
-            disabled={!!draft.id}
-            placeholder="SCREEN_REPLACEMENT"
-            className="w-full px-3 py-2 rounded-lg border font-mono text-xs outline-none focus:border-[var(--accent)]"
-            style={{
-              background: "var(--bg-surface)",
-              borderColor: "var(--border-subtle)",
-              color: "var(--text-main)",
-            }}
-          />
-        </Field>
-        <Field label="Etykieta (PL)">
-          <input
-            type="text"
-            value={draft.label}
-            onChange={(e) => onChange({ ...draft, label: e.target.value })}
-            placeholder="Wymiana wyświetlacza"
-            className="w-full px-3 py-2 rounded-lg border outline-none focus:border-[var(--accent)]"
-            style={{
-              background: "var(--bg-surface)",
-              borderColor: "var(--border-subtle)",
-              color: "var(--text-main)",
-            }}
-          />
-        </Field>
-
-        <Field label="Kategoria UI (np. Wyświetlacze, Czyszczenie)">
-          <input
-            type="text"
-            value={draft.category}
-            onChange={(e) => onChange({ ...draft, category: e.target.value })}
-            placeholder="Wyświetlacze"
-            className="w-full px-3 py-2 rounded-lg border outline-none focus:border-[var(--accent)]"
-            style={{
-              background: "var(--bg-surface)",
-              borderColor: "var(--border-subtle)",
-              color: "var(--text-main)",
-            }}
-          />
-        </Field>
+        {/* Tylko "Nazwa naprawy" — kod generowany automatycznie z nazwy
+            (slug uppercase), label = name, category = "Inne" jako domyślne. */}
+        <div className="col-span-2">
+          <Field label="Nazwa naprawy">
+            <input
+              type="text"
+              value={draft.label}
+              onChange={(e) => onChange({ ...draft, label: e.target.value })}
+              placeholder="Wymiana wyświetlacza"
+              className="w-full px-3 py-2 rounded-lg border outline-none focus:border-[var(--accent)]"
+              style={{
+                background: "var(--bg-surface)",
+                borderColor: "var(--border-subtle)",
+                color: "var(--text-main)",
+              }}
+            />
+          </Field>
+        </div>
 
         <Field label="Ikona (lucide)">
           <div className="flex gap-2 items-center">

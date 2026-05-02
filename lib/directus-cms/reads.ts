@@ -13,9 +13,10 @@ interface AnnouncementRow {
   title: string;
   body: string | null;
   severity: string | null;
-  enabled: boolean;
-  starts_at: string | null;
-  ends_at: string | null;
+  is_active: boolean | null;
+  active_from: string | null;
+  active_until: string | null;
+  sort_order: number | null;
   requires_area: string | null;
 }
 
@@ -32,34 +33,44 @@ interface LinkRow {
 
 const SEVERITY_VALUES: ReadonlySet<CmsAnnouncement["severity"]> = new Set([
   "info",
+  "success",
   "warning",
-  "error",
+  "critical",
 ]);
+
+function normalizeSeverity(s: string | null): CmsAnnouncement["severity"] {
+  if (s && SEVERITY_VALUES.has(s as CmsAnnouncement["severity"])) {
+    return s as CmsAnnouncement["severity"];
+  }
+  // Backward-compat: legacy "error" → "critical".
+  if (s === "error") return "critical";
+  return "info";
+}
 
 export async function getActiveAnnouncements(): Promise<CmsAnnouncement[]> {
   if (!getConfig()) return [];
   try {
     const rows = await listItems<AnnouncementRow>("mp_announcements", {
-      "filter[enabled][_eq]": "true",
-      sort: "-starts_at",
-      limit: 50,
+      "filter[is_active][_eq]": "true",
+      sort: "sort_order,-active_from",
+      limit: 100,
     });
     const now = Date.now();
     return rows
       .filter((r) => {
-        if (r.starts_at && Date.parse(r.starts_at) > now) return false;
-        if (r.ends_at && Date.parse(r.ends_at) < now) return false;
+        if (r.active_from && Date.parse(r.active_from) > now) return false;
+        if (r.active_until && Date.parse(r.active_until) < now) return false;
         return true;
       })
       .map((r) => ({
         id: r.id,
         title: r.title,
         body: r.body,
-        severity: SEVERITY_VALUES.has(r.severity as CmsAnnouncement["severity"])
-          ? (r.severity as CmsAnnouncement["severity"])
-          : "info",
-        startsAt: r.starts_at,
-        endsAt: r.ends_at,
+        severity: normalizeSeverity(r.severity),
+        activeFrom: r.active_from,
+        activeUntil: r.active_until,
+        isActive: r.is_active !== false,
+        sortOrder: r.sort_order ?? 0,
         requiresArea: r.requires_area || null,
       }));
   } catch (err) {

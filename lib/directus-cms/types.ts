@@ -33,9 +33,13 @@ export interface CmsAnnouncement {
   id: string;
   title: string;
   body: string | null;
-  severity: "info" | "warning" | "error";
-  startsAt: string | null;
-  endsAt: string | null;
+  severity: "info" | "success" | "warning" | "critical";
+  /** ISO timestamp; null = obowiązuje od razu. */
+  activeFrom: string | null;
+  /** ISO timestamp; null = bez końca. */
+  activeUntil: string | null;
+  isActive: boolean;
+  sortOrder: number;
   requiresArea: string | null;
 }
 

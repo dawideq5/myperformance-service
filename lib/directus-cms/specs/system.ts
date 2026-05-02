@@ -132,14 +132,19 @@ export const SYSTEM_SPECS: CollectionSpec[] = [
   },
 
   // === System announcements — widoczne na dashboardzie wszystkim userom ===
+  // Schema kanoniczna: lib/announcements.ts (CRUD + walidacja).
+  // Pola: title, body, severity (info|success|warning|critical),
+  // active_from, active_until, is_active, sort_order, requires_area.
+  // Pierwsze wywołanie ensureCollection przy starcie dashboardu utworzy
+  // collection w Directus (CREATE TABLE IF NOT EXISTS pod spodem).
   {
     collection: "mp_announcements",
     meta: {
       icon: "campaign",
-      note: "Banery / komunikaty systemowe wyświetlane na dashboardzie. enabled=true → widoczne (w oknie starts_at..ends_at).",
+      note: "Banery / komunikaty systemowe wyświetlane na dashboardzie. is_active=true → widoczne (w oknie active_from..active_until).",
       display_template: "{{severity}} • {{title}}",
-      sort_field: "starts_at",
-      archive_field: "enabled",
+      sort_field: "sort_order",
+      archive_field: "is_active",
       archive_value: "false",
       unarchive_value: "true",
       archive_app_filter: false,
@@ -179,23 +184,25 @@ export const SYSTEM_SPECS: CollectionSpec[] = [
             showAsDot: true,
             choices: [
               { text: "Informacja", value: "info", foreground: "#fff", background: "#0A84FF" },
+              { text: "Sukces", value: "success", foreground: "#fff", background: "#34C759" },
               { text: "Ostrzeżenie", value: "warning", foreground: "#000", background: "#FFD60A" },
-              { text: "Krytyczne", value: "error", foreground: "#fff", background: "#FF453A" },
+              { text: "Krytyczne", value: "critical", foreground: "#fff", background: "#FF453A" },
             ],
           },
           options: {
             choices: [
               { text: "Informacja (niebieski)", value: "info" },
+              { text: "Sukces (zielony)", value: "success" },
               { text: "Ostrzeżenie (żółty)", value: "warning" },
-              { text: "Krytyczne (czerwony)", value: "error" },
+              { text: "Krytyczne (czerwony)", value: "critical" },
             ],
           },
         },
       },
       {
-        field: "enabled",
+        field: "is_active",
         type: "boolean",
-        schema: { default_value: false },
+        schema: { default_value: true },
         meta: {
           interface: "boolean",
           width: "half",
@@ -215,7 +222,7 @@ export const SYSTEM_SPECS: CollectionSpec[] = [
         },
       },
       {
-        field: "starts_at",
+        field: "active_from",
         type: "timestamp",
         meta: {
           interface: "datetime",
@@ -226,7 +233,7 @@ export const SYSTEM_SPECS: CollectionSpec[] = [
         },
       },
       {
-        field: "ends_at",
+        field: "active_until",
         type: "timestamp",
         meta: {
           interface: "datetime",
@@ -234,6 +241,18 @@ export const SYSTEM_SPECS: CollectionSpec[] = [
           display: "datetime",
           display_options: { relative: true },
           note: "Pusty = bez końca.",
+        },
+      },
+      {
+        field: "sort_order",
+        type: "integer",
+        schema: { default_value: 0 },
+        meta: {
+          interface: "input",
+          width: "half",
+          display: "formatted-value",
+          options: { min: 0, max: 999, step: 1, iconLeft: "sort" },
+          note: "Niższe = wyżej. Sortowanie banerów na dashboardzie.",
         },
       },
       {
