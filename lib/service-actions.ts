@@ -27,7 +27,29 @@ export type ServiceActionKind =
   | "note_added"
   | "note_deleted"
   | "transport_requested"
+  | "transport_updated"
+  | "transport_cancelled"
+  | "part_ordered"
+  | "part_updated"
+  | "part_received"
+  | "part_deleted"
   | "upload_bridge_token_issued"
+  // Wave 20 / Faza 1D — edycja zlecenia z poziomu serwisanta.
+  | "damage_marker_added"
+  | "damage_marker_removed"
+  | "damage_marker_updated"
+  | "visual_notes_updated"
+  | "customer_data_updated"
+  | "device_condition_updated"
+  | "repair_type_changed"
+  | "service_created_quick"
+  // Wave 20 / Faza 1E — komponenty użyte (części, koszty, marża).
+  | "component_added"
+  | "component_updated"
+  | "component_deleted"
+  // Wave 20 / Faza 1F — wysyłka wiadomości do klienta z poziomu panelu
+  // (SMS / email / Chatwoot).
+  | "customer_message_sent"
   | "other";
 
 export interface ServiceAction {

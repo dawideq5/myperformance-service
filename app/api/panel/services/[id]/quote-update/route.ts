@@ -40,9 +40,11 @@ interface QuoteUpdateBody {
   newAmount: number;
   reason?: string;
   items?: QuoteHistoryItem[];
-  /** Gdy true, automatycznie tworzy aneks (acceptance pending). */
+  /** @deprecated Wave 20 — frontend nie wysyła już tej flagi. Aneks tworzy
+   * się osobnym wywołaniem `/annex` po quote-update gdy delta != 0. Pole
+   * zachowane dla wstecznej kompatybilności (stare instancje panela). */
   requiresAnnex?: boolean;
-  /** Metoda akceptacji aneksu — wymagane gdy requiresAnnex=true. */
+  /** @deprecated patrz wyżej. */
   acceptanceMethod?: AnnexAcceptanceMethod;
 }
 
@@ -101,15 +103,6 @@ export async function POST(
       { status: 400, headers: PANEL_CORS_HEADERS },
     );
   }
-  if (body.requiresAnnex && !body.acceptanceMethod) {
-    return NextResponse.json(
-      {
-        error:
-          "Gdy `requiresAnnex` = true, wymagane jest pole `acceptanceMethod` (documenso/phone/email)",
-      },
-      { status: 400, headers: PANEL_CORS_HEADERS },
-    );
-  }
 
   const oldAmount =
     typeof service.amountEstimate === "number" ? service.amountEstimate : null;
@@ -118,17 +111,43 @@ export async function POST(
     user.name?.trim() || user.preferred_username || user.email;
 
   try {
-    if (!body.requiresAnnex) {
-      // Bezpośrednia zmiana wyceny + history entry. Klient nie podpisuje.
-      await updateService(id, { amountEstimate: newAmount });
+    // Wave 20 / Faza 1A — quote-update zawsze stosuje zmianę kwoty
+    // bezpośrednio i loguje historię. NIE tworzy już aneksu — aneks
+    // generuje się osobnym callem `/annex` z poziomu UI gdy serwisant
+    // potwierdzi, że klient powinien dostać aneks (delta != 0).
+    //
+    // Backward-compat: stare instancje panela mogą nadal wysłać
+    // `requiresAnnex=true` → wtedy zachowujemy stary 2-step (history
+    // pending + annex) bez wywoływania update_amount. Frontend Wave 20
+    // już tej flagi nie ustawia.
+    if (body.requiresAnnex) {
+      if (!body.acceptanceMethod) {
+        return NextResponse.json(
+          {
+            error:
+              "Gdy `requiresAnnex` = true, wymagane jest pole `acceptanceMethod` (documenso/phone/email)",
+          },
+          { status: 400, headers: PANEL_CORS_HEADERS },
+        );
+      }
+      const annexDelta = Number((newAmount - (oldAmount ?? 0)).toFixed(2));
+      const annex = await createServiceAnnex({
+        serviceId: id,
+        ticketNumber: service.ticketNumber,
+        deltaAmount: annexDelta,
+        reason: body.reason ?? "Aktualizacja wyceny",
+        acceptanceMethod: body.acceptanceMethod,
+        createdByEmail: user.email,
+        createdByName: editorName,
+      });
       const entry = await createQuoteHistoryEntry({
         serviceId: id,
         ticketNumber: service.ticketNumber,
         oldAmount,
         newAmount,
-        reason: body.reason ?? null,
+        reason: body.reason ?? "Aktualizacja wyceny — aneks pending",
         items: body.items ?? null,
-        annexId: null,
+        annexId: annex?.id ?? null,
         changedByEmail: user.email,
         changedByName: editorName,
       });
@@ -137,67 +156,70 @@ export async function POST(
         ticketNumber: service.ticketNumber,
         action: "quote_changed",
         actor: { email: user.email, name: editorName },
-        summary: `Zmiana wyceny: ${oldAmount ?? 0} → ${newAmount} PLN`,
+        summary: `Aneks utworzony (legacy path): Δ ${annexDelta} PLN`,
         payload: {
+          annexId: annex?.id ?? null,
           oldAmount,
           newAmount,
-          delta: newAmount - (oldAmount ?? 0),
-          reason: body.reason ?? null,
+          delta: annexDelta,
+          acceptanceMethod: body.acceptanceMethod,
           quoteHistoryId: entry?.id ?? null,
         },
       });
       return NextResponse.json(
-        { ok: true, quoteHistory: entry, annex: null },
+        { ok: true, quoteHistory: entry, annex, requiresAcceptance: true },
         { headers: PANEL_CORS_HEADERS },
       );
     }
 
-    // Tworzymy aneks pending — delta zostanie zaaplikowane do amount_estimate
-    // dopiero po acceptance. Brief: requiresAnnex inicjuje proces, finalizacja
-    // odbywa się przez /annexes/[id]/accept lub Documenso webhook.
-    const annexDelta = Number((newAmount - (oldAmount ?? 0)).toFixed(2));
-    const annex = await createServiceAnnex({
-      serviceId: id,
-      ticketNumber: service.ticketNumber,
-      deltaAmount: annexDelta,
-      reason: body.reason ?? "Aktualizacja wyceny",
-      acceptanceMethod: body.acceptanceMethod!,
-      createdByEmail: user.email,
-      createdByName: editorName,
-    });
-
-    // Zapis tylko historii zmiany — nie ruszamy mp_services.amount_estimate
-    // dopóki klient nie potwierdzi.
+    await updateService(id, { amountEstimate: newAmount });
     const entry = await createQuoteHistoryEntry({
       serviceId: id,
       ticketNumber: service.ticketNumber,
       oldAmount,
       newAmount,
-      reason: body.reason ?? "Aktualizacja wyceny — aneks pending",
+      reason: body.reason ?? null,
       items: body.items ?? null,
-      annexId: annex?.id ?? null,
+      annexId: null,
       changedByEmail: user.email,
       changedByName: editorName,
     });
-
+    const delta = Number((newAmount - (oldAmount ?? 0)).toFixed(2));
     void logServiceAction({
       serviceId: id,
       ticketNumber: service.ticketNumber,
       action: "quote_changed",
       actor: { email: user.email, name: editorName },
-      summary: `Aneks utworzony: Δ ${annexDelta} PLN (oczekuje na akceptację)`,
+      summary: `Zmiana wyceny: ${oldAmount ?? 0} → ${newAmount} PLN`,
       payload: {
-        annexId: annex?.id ?? null,
         oldAmount,
         newAmount,
-        delta: annexDelta,
-        acceptanceMethod: body.acceptanceMethod,
+        delta,
+        reason: body.reason ?? null,
         quoteHistoryId: entry?.id ?? null,
       },
     });
 
+    // Sygnał dla UI: gdy delta != 0, zachęcamy do wystawienia aneksu.
+    // Nie blokujemy zmiany — UI pokazuje banner z opcjami "Wyślij aneks"
+    // / "Pomiń". Polityka biznesowa: każda zmiana wyceny w trakcie naprawy
+    // (czyli po podpisanym protokole) wymaga zgody klienta na piśmie.
+    const requiresAnnexConfirmation = delta !== 0;
     return NextResponse.json(
-      { ok: true, quoteHistory: entry, annex, requiresAcceptance: true },
+      {
+        ok: true,
+        quoteHistory: entry,
+        annex: null,
+        requiresAnnexConfirmation,
+        suggestedAnnex: requiresAnnexConfirmation
+          ? {
+              previousAmount: oldAmount ?? 0,
+              newAmount,
+              delta,
+              reason: body.reason ?? "",
+            }
+          : null,
+      },
       { headers: PANEL_CORS_HEADERS },
     );
   } catch (err) {

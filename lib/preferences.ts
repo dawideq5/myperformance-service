@@ -321,12 +321,46 @@ export const NOTIF_EVENTS = {
 
 export type NotifEventKey = keyof typeof NOTIF_EVENTS;
 
+/**
+ * Wave 20 / Faza 1G — UI customization prefs dla Service detail view
+ * w panelu serwisanta. Per-panel (serwisant/sprzedawca/kierowca) — w tym
+ * cyklu wystawiamy tylko panel "serwisant" (detail view 7 zakładek).
+ *
+ * Klucze trzymane jako jeden klucz `serwisantDetail` w głównym JSON-ie
+ * `mp_user_preferences.prefs`, żeby nie multiplikować kolumn na każdy
+ * panel. Wartości userVisible (`tabVisibility`) zawierają tylko zakładki
+ * które user wyłączył — tabs nie wymienione = visible (default true).
+ */
+export type ServiceDetailDensity = "compact" | "comfortable";
+export type ServiceDetailFontSize = "small" | "normal" | "large";
+
+export interface ServiceDetailViewPrefs {
+  /** Kolejność zakładek (id z TABS w ServiceDetailView) — null=default. */
+  tabOrder: string[] | null;
+  /** Map: tabId → false gdy user ukrył. Brak klucza = visible (default true). */
+  tabVisibility: Record<string, boolean>;
+  density: ServiceDetailDensity;
+  fontSize: ServiceDetailFontSize;
+  /** Default landing tab — musi być w visible tabs, fallback `diagnoza`. */
+  defaultLandingTab: string;
+}
+
+export const DEFAULT_SERWISANT_DETAIL_PREFS: ServiceDetailViewPrefs = {
+  tabOrder: null,
+  tabVisibility: {},
+  density: "comfortable",
+  fontSize: "normal",
+  defaultLandingTab: "diagnoza",
+};
+
 export interface UserPreferences {
   hintsEnabled: boolean;
   notifInApp: Partial<Record<NotifEventKey, boolean>>;
   notifEmail: Partial<Record<NotifEventKey, boolean>>;
   introCompletedSteps: string[];
   moodleCourseId?: number;
+  /** Wave 20 — UI customization Service detail view (panel serwisant). */
+  serwisantDetail?: ServiceDetailViewPrefs;
 }
 
 export const DEFAULT_PREFERENCES: UserPreferences = {
@@ -370,13 +404,14 @@ export async function getUserPreferences(
     notifEmail: stored.notifEmail ?? {},
     introCompletedSteps: stored.introCompletedSteps ?? [],
     moodleCourseId: stored.moodleCourseId,
+    serwisantDetail: stored.serwisantDetail,
   };
 }
 
 export async function setUserPreferences(
   userId: string,
   patch: Partial<UserPreferences>,
-): Promise<void> {
+): Promise<UserPreferences> {
   await ensureSchema();
   const current = await getUserPreferences(userId);
   const merged: UserPreferences = {
@@ -386,6 +421,7 @@ export async function setUserPreferences(
     introCompletedSteps:
       patch.introCompletedSteps ?? current.introCompletedSteps,
     moodleCourseId: patch.moodleCourseId ?? current.moodleCourseId,
+    serwisantDetail: patch.serwisantDetail ?? current.serwisantDetail,
   };
   await withClient((c) =>
     c.query(
@@ -395,6 +431,42 @@ export async function setUserPreferences(
       [userId, JSON.stringify(merged)],
     ),
   );
+  return merged;
+}
+
+/**
+ * Resolver: zwraca prefs serwisant detail view (z fallback na default).
+ * Używane przez `/api/account/preferences/serwisant-detail` GET.
+ */
+export async function getServiceDetailViewPrefs(
+  userId: string,
+): Promise<ServiceDetailViewPrefs> {
+  const all = await getUserPreferences(userId);
+  return all.serwisantDetail ?? DEFAULT_SERWISANT_DETAIL_PREFS;
+}
+
+/**
+ * Setter: merge patch into existing serwisantDetail prefs. Nie waliduje
+ * tab id-ów (UI dostarcza znane wartości); waliduje tylko enum-y density
+ * i fontSize, oraz typy podstawowe.
+ */
+export async function setServiceDetailViewPrefs(
+  userId: string,
+  patch: Partial<ServiceDetailViewPrefs>,
+): Promise<ServiceDetailViewPrefs> {
+  const current = await getServiceDetailViewPrefs(userId);
+  const next: ServiceDetailViewPrefs = {
+    tabOrder: patch.tabOrder !== undefined ? patch.tabOrder : current.tabOrder,
+    tabVisibility:
+      patch.tabVisibility !== undefined
+        ? { ...current.tabVisibility, ...patch.tabVisibility }
+        : current.tabVisibility,
+    density: patch.density ?? current.density,
+    fontSize: patch.fontSize ?? current.fontSize,
+    defaultLandingTab: patch.defaultLandingTab ?? current.defaultLandingTab,
+  };
+  await setUserPreferences(userId, { serwisantDetail: next });
+  return next;
 }
 
 export function shouldNotify(

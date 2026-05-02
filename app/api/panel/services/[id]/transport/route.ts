@@ -174,7 +174,9 @@ export async function POST(
       destinationAddress: target.address ?? null,
       destinationLat: target.lat ?? null,
       destinationLng: target.lng ?? null,
-      notes: [reason, note].filter(Boolean).join("\n\n") || null,
+      notes: note,
+      reason,
+      createdByEmail: user.email,
     });
     transportJobId = job.id;
   } catch (err) {

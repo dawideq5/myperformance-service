@@ -2,16 +2,20 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  AlertTriangle,
   CheckCircle2,
   Clock,
   Download,
   FileSignature,
   Loader2,
+  Printer,
   RefreshCw,
   XCircle,
 } from "lucide-react";
 import type { ServiceTicket } from "../tabs/ServicesBoard";
 import { AnnexBuilder } from "../features/AnnexBuilder";
+import { ComponentsSection } from "../features/ComponentsSection";
+import { subscribeToService } from "@/lib/sse-client";
 
 interface QuoteHistoryEntry {
   id: string;
@@ -40,6 +44,19 @@ interface ServiceAnnex {
 interface WycenaTabProps {
   service: ServiceTicket;
   onUpdate: (updated: ServiceTicket) => void;
+  /** Generic realtime version counter z parent ServiceDetailView. Wave
+   * 20: nieużywany — WycenaTab subskrybuje SSE samodzielnie przez
+   * `subscribeToService(service.id)`. Pole zachowane wyłącznie dla
+   * zgodności typu z istniejącym callerem (parent forwarduje counter
+   * do wszystkich tabów). */
+  realtimeVersion?: number;
+}
+
+interface SuggestedAnnex {
+  previousAmount: number;
+  newAmount: number;
+  delta: number;
+  reason: string;
 }
 
 function formatPLN(value: number | null | undefined): string {
@@ -71,14 +88,12 @@ export function WycenaTab({ service, onUpdate }: WycenaTabProps) {
     service.amountEstimate != null ? String(service.amountEstimate) : "",
   );
   const [reason, setReason] = useState("");
-  const [requiresAnnex, setRequiresAnnex] = useState(false);
-  const [acceptanceMethod, setAcceptanceMethod] = useState<
-    "phone" | "email" | "documenso"
-  >("phone");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [annexBuilderOpen, setAnnexBuilderOpen] = useState(false);
+  const [annexPrefill, setAnnexPrefill] = useState<SuggestedAnnex | null>(null);
+  const [pendingAnnex, setPendingAnnex] = useState<SuggestedAnnex | null>(null);
   const [resendingId, setResendingId] = useState<string | null>(null);
   const [resendError, setResendError] = useState<string | null>(null);
   const [resendOk, setResendOk] = useState<string | null>(null);
@@ -115,11 +130,31 @@ export function WycenaTab({ service, onUpdate }: WycenaTabProps) {
 
   useEffect(() => {
     refresh();
-    // Wave 19/Phase 1D — TODO subscribe `/api/events?serviceId=...` (SSE)
-    // i refreshować na eventy `action_logged` z payload.action
-    // `annex_created`/`annex_accepted`/`annex_rejected`. Backend bus
-    // (`lib/sse-bus.ts`) już publishuje, ale `/api/events` endpoint i
-    // hook `useSseEvents` jeszcze nie istnieją w repo.
+    // Wave 20 / Faza 1A — real-time SSE: refresh listy aneksów + historii
+    // gdy backend opublikuje annex_created/accepted/rejected. Documenso
+    // webhook wewnątrz dashboardu wywołuje `publish({ type: "annex_accepted" })`
+    // i ten subscriber reaktywnie odświeża widok bez polling-u.
+    const unsub = subscribeToService(service.id, (e) => {
+      if (
+        e.type === "annex_created" ||
+        e.type === "annex_accepted" ||
+        e.type === "annex_rejected" ||
+        e.type === "annex_completed" ||
+        e.type === "service_updated"
+      ) {
+        refresh();
+        // Service update może zmienić amountEstimate — pull fresh service.
+        if (e.type === "annex_accepted" || e.type === "service_updated") {
+          void fetch(`/api/relay/services/${service.id}`)
+            .then((r) => r.json())
+            .then((j: { service?: ServiceTicket }) => {
+              if (j?.service) onUpdate(j.service);
+            })
+            .catch(() => undefined);
+        }
+      }
+    });
+    return unsub;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [service.id]);
 
@@ -132,13 +167,17 @@ export function WycenaTab({ service, onUpdate }: WycenaTabProps) {
     setSubmitting(true);
     setError(null);
     setSuccess(null);
+    setPendingAnnex(null);
     try {
+      const oldAmount =
+        typeof service.amountEstimate === "number"
+          ? service.amountEstimate
+          : 0;
+      const targetAmount = Number(amt.toFixed(2));
       const body: Record<string, unknown> = {
-        newAmount: Number(amt.toFixed(2)),
+        newAmount: targetAmount,
         reason: reason.trim() || undefined,
-        requiresAnnex,
       };
-      if (requiresAnnex) body.acceptanceMethod = acceptanceMethod;
       const res = await fetch(
         `/api/relay/services/${service.id}/quote-update`,
         {
@@ -148,18 +187,18 @@ export function WycenaTab({ service, onUpdate }: WycenaTabProps) {
         },
       );
       const json = (await res.json().catch(() => null)) as
-        | { error?: string; ok?: boolean }
+        | {
+            error?: string;
+            ok?: boolean;
+            requiresAnnexConfirmation?: boolean;
+            suggestedAnnex?: SuggestedAnnex | null;
+          }
         | null;
       if (!res.ok) {
         setError(json?.error ?? `Błąd zapisu (HTTP ${res.status})`);
         return;
       }
-      setSuccess(
-        requiresAnnex
-          ? "Aneks utworzony — czeka na akceptację klienta."
-          : "Wycena zaktualizowana.",
-      );
-      setReason("");
+      setSuccess("Wycena zaktualizowana.");
       // Refresh service + history.
       void fetch(`/api/relay/services/${service.id}`)
         .then((r) => r.json())
@@ -168,6 +207,21 @@ export function WycenaTab({ service, onUpdate }: WycenaTabProps) {
         })
         .catch(() => undefined);
       refresh();
+
+      const suggestion =
+        json?.suggestedAnnex ??
+        (json?.requiresAnnexConfirmation
+          ? {
+              previousAmount: oldAmount,
+              newAmount: targetAmount,
+              delta: Number((targetAmount - oldAmount).toFixed(2)),
+              reason: reason.trim(),
+            }
+          : null);
+      if (suggestion) {
+        setPendingAnnex(suggestion);
+      }
+      setReason("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Błąd sieci");
     } finally {
@@ -179,6 +233,13 @@ export function WycenaTab({ service, onUpdate }: WycenaTabProps) {
     const url = `/api/relay/services/${encodeURIComponent(
       service.id,
     )}/annexes/${encodeURIComponent(annexId)}/pdf`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
+
+  const printAnnex = (annexId: string) => {
+    const url = `/api/relay/services/${encodeURIComponent(
+      service.id,
+    )}/annexes/${encodeURIComponent(annexId)}/print`;
     window.open(url, "_blank", "noopener,noreferrer");
   };
 
@@ -211,6 +272,12 @@ export function WycenaTab({ service, onUpdate }: WycenaTabProps) {
     } finally {
       setResendingId(null);
     }
+  };
+
+  const openAnnexBuilder = (suggestion: SuggestedAnnex) => {
+    setAnnexPrefill(suggestion);
+    setAnnexBuilderOpen(true);
+    setPendingAnnex(null);
   };
 
   return (
@@ -273,42 +340,6 @@ export function WycenaTab({ service, onUpdate }: WycenaTabProps) {
               />
             </label>
           </div>
-          <label className="flex items-center gap-2 text-xs">
-            <input
-              type="checkbox"
-              checked={requiresAnnex}
-              onChange={(e) => setRequiresAnnex(e.target.checked)}
-            />
-            <span>Wymaga aneksu (zmiana po akceptacji klienta)</span>
-          </label>
-          {requiresAnnex && (
-            <label className="block">
-              <span
-                className="block text-[11px] uppercase tracking-wider font-semibold mb-1"
-                style={{ color: "var(--text-muted)" }}
-              >
-                Metoda akceptacji aneksu
-              </span>
-              <select
-                value={acceptanceMethod}
-                onChange={(e) =>
-                  setAcceptanceMethod(
-                    e.target.value as "phone" | "email" | "documenso",
-                  )
-                }
-                className="w-full px-3 py-2 rounded-lg border text-sm outline-none"
-                style={{
-                  background: "var(--bg-surface)",
-                  borderColor: "var(--border-subtle)",
-                  color: "var(--text-main)",
-                }}
-              >
-                <option value="phone">Telefonicznie</option>
-                <option value="email">E-mailowo</option>
-                <option value="documenso">Documenso (e-podpis)</option>
-              </select>
-            </label>
-          )}
 
           <div className="flex items-center gap-2">
             <button
@@ -332,6 +363,62 @@ export function WycenaTab({ service, onUpdate }: WycenaTabProps) {
               </span>
             )}
           </div>
+
+          {pendingAnnex && (
+            <div
+              className="mt-3 p-3 rounded-xl border flex items-start gap-3"
+              style={{
+                background: "rgba(245,158,11,0.08)",
+                borderColor: "rgba(245,158,11,0.45)",
+              }}
+              role="status"
+            >
+              <AlertTriangle
+                className="w-5 h-5 flex-shrink-0 mt-0.5"
+                style={{ color: "#f59e0b" }}
+              />
+              <div className="min-w-0 flex-1">
+                <p
+                  className="text-sm font-semibold"
+                  style={{ color: "var(--text-main)" }}
+                >
+                  Zmiana wyceny — prześlij klientowi aneks
+                </p>
+                <p
+                  className="text-[11px] mt-0.5"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  {pendingAnnex.previousAmount.toFixed(2)} PLN →{" "}
+                  {pendingAnnex.newAmount.toFixed(2)} PLN (
+                  {pendingAnnex.delta > 0 ? "+" : ""}
+                  {pendingAnnex.delta.toFixed(2)} PLN)
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => openAnnexBuilder(pendingAnnex)}
+                    className="px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5"
+                    style={{ background: "var(--accent)", color: "#fff" }}
+                  >
+                    <FileSignature className="w-3.5 h-3.5" />
+                    Wyślij aneks teraz
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPendingAnnex(null)}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium border"
+                    style={{
+                      background: "var(--bg-surface)",
+                      borderColor: "var(--border-subtle)",
+                      color: "var(--text-main)",
+                    }}
+                  >
+                    Pomiń
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </Section>
 
@@ -406,7 +493,19 @@ export function WycenaTab({ service, onUpdate }: WycenaTabProps) {
         <div className="flex justify-end mb-2">
           <button
             type="button"
-            onClick={() => setAnnexBuilderOpen(true)}
+            onClick={() => {
+              const previousAmount =
+                typeof service.amountEstimate === "number"
+                  ? service.amountEstimate
+                  : 0;
+              setAnnexPrefill({
+                previousAmount,
+                newAmount: previousAmount,
+                delta: 0,
+                reason: "",
+              });
+              setAnnexBuilderOpen(true);
+            }}
             className="px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5"
             style={{ background: "var(--accent)", color: "#fff" }}
           >
@@ -437,6 +536,7 @@ export function WycenaTab({ service, onUpdate }: WycenaTabProps) {
                 key={a.id}
                 annex={a}
                 onDownload={() => downloadAnnexPdf(a.id)}
+                onPrint={() => printAnnex(a.id)}
                 onResend={
                   a.acceptanceMethod === "documenso" &&
                   a.acceptanceStatus === "pending" &&
@@ -452,15 +552,26 @@ export function WycenaTab({ service, onUpdate }: WycenaTabProps) {
         )}
       </Section>
 
-      {annexBuilderOpen && (
+      <ComponentsSection
+        serviceId={service.id}
+        amountEstimate={service.amountEstimate}
+      />
+
+      {annexBuilderOpen && annexPrefill && (
         <AnnexBuilder
           serviceId={service.id}
-          currentAmount={service.amountEstimate ?? 0}
+          previousAmount={annexPrefill.previousAmount}
+          newAmount={annexPrefill.newAmount}
+          prefilledReason={annexPrefill.reason}
           customerEmail={service.contactEmail ?? undefined}
           customerPhone={service.contactPhone ?? undefined}
-          onClose={() => setAnnexBuilderOpen(false)}
+          onClose={() => {
+            setAnnexBuilderOpen(false);
+            setAnnexPrefill(null);
+          }}
           onCreated={() => {
             setAnnexBuilderOpen(false);
+            setAnnexPrefill(null);
             refresh();
           }}
         />
@@ -472,12 +583,14 @@ export function WycenaTab({ service, onUpdate }: WycenaTabProps) {
 function AnnexCard({
   annex,
   onDownload,
+  onPrint,
   onResend,
   resending,
   resendOk,
 }: {
   annex: ServiceAnnex;
   onDownload: () => void;
+  onPrint: () => void;
   onResend?: () => void;
   resending: boolean;
   resendOk: boolean;
@@ -577,6 +690,20 @@ function AnnexCard({
           >
             <Download className="w-3 h-3" />
             PDF
+          </button>
+          <button
+            type="button"
+            onClick={onPrint}
+            className="px-2 py-1 rounded text-[10px] font-medium border flex items-center gap-1 transition-colors hover:bg-black/10"
+            style={{
+              background: "transparent",
+              borderColor: "var(--border-subtle)",
+              color: "var(--text-main)",
+            }}
+            title="Otwórz w trybie drukowania"
+          >
+            <Printer className="w-3 h-3" />
+            Drukuj
           </button>
           {onResend && (
             <button

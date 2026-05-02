@@ -39,6 +39,10 @@ export interface TransportJob {
   deliveredAt: string | null;
   recipientSignature: string | null;
   notes: string | null;
+  reason: string | null;
+  trackingLink: string | null;
+  createdByEmail: string | null;
+  cancelledAt: string | null;
   createdAt: string | null;
   updatedAt: string | null;
 }
@@ -60,6 +64,10 @@ interface JobRow {
   delivered_at: string | null;
   recipient_signature: string | null;
   notes: string | null;
+  reason: string | null;
+  tracking_link: string | null;
+  created_by_email: string | null;
+  cancelled_at: string | null;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -88,6 +96,10 @@ function mapRow(r: JobRow): TransportJob {
     deliveredAt: r.delivered_at ?? null,
     recipientSignature: r.recipient_signature ?? null,
     notes: r.notes ?? null,
+    reason: r.reason ?? null,
+    trackingLink: r.tracking_link ?? null,
+    createdByEmail: r.created_by_email ?? null,
+    cancelledAt: r.cancelled_at ?? null,
     createdAt: r.created_at ?? null,
     updatedAt: r.updated_at ?? null,
   };
@@ -181,6 +193,9 @@ export interface CreateTransportJobInput {
   assignedDriver?: string | null;
   scheduledAt?: string | null;
   notes?: string | null;
+  reason?: string | null;
+  trackingLink?: string | null;
+  createdByEmail?: string | null;
 }
 
 export async function createTransportJob(
@@ -201,6 +216,9 @@ export async function createTransportJob(
     assigned_driver: input.assignedDriver ?? null,
     scheduled_at: input.scheduledAt ?? null,
     notes: input.notes ?? null,
+    reason: input.reason ?? null,
+    tracking_link: input.trackingLink ?? null,
+    created_by_email: input.createdByEmail ?? null,
     created_at: now,
     updated_at: now,
   });
@@ -240,6 +258,13 @@ export interface UpdateTransportJobInput {
   deliveredAt?: string | null;
   recipientSignature?: string | null;
   notes?: string | null;
+  reason?: string | null;
+  trackingLink?: string | null;
+  destinationLocationId?: string | null;
+  destinationAddress?: string | null;
+  destinationLat?: number | null;
+  destinationLng?: number | null;
+  cancelledAt?: string | null;
 }
 
 export async function updateTransportJob(
@@ -258,6 +283,17 @@ export async function updateTransportJob(
   if (input.recipientSignature !== undefined)
     patch.recipient_signature = input.recipientSignature;
   if (input.notes !== undefined) patch.notes = input.notes;
+  if (input.reason !== undefined) patch.reason = input.reason;
+  if (input.trackingLink !== undefined) patch.tracking_link = input.trackingLink;
+  if (input.destinationLocationId !== undefined)
+    patch.destination_location = input.destinationLocationId;
+  if (input.destinationAddress !== undefined)
+    patch.destination_address = input.destinationAddress;
+  if (input.destinationLat !== undefined)
+    patch.destination_lat = input.destinationLat;
+  if (input.destinationLng !== undefined)
+    patch.destination_lng = input.destinationLng;
+  if (input.cancelledAt !== undefined) patch.cancelled_at = input.cancelledAt;
   const updated = await updateItem<JobRow>("mp_transport_jobs", id, patch);
   const mapped = mapRow(updated);
   publish({
@@ -270,6 +306,38 @@ export async function updateTransportJob(
       assignedDriver: mapped.assignedDriver,
       pickedUpAt: mapped.pickedUpAt,
       deliveredAt: mapped.deliveredAt,
+      destinationLocationId: mapped.destinationLocationId,
+      reason: mapped.reason,
+      cancelledAt: mapped.cancelledAt,
+    },
+  });
+  return mapped;
+}
+
+/**
+ * Anuluje zlecenie transportu — ustawia status=cancelled + cancelled_at=now.
+ * Walidacja statusu (queued/assigned only) leży po stronie callera (route).
+ */
+export async function cancelTransportJob(
+  id: string,
+  by?: string | null,
+): Promise<TransportJob> {
+  const now = new Date().toISOString();
+  const updated = await updateItem<JobRow>("mp_transport_jobs", id, {
+    status: "cancelled",
+    cancelled_at: now,
+    updated_at: now,
+  });
+  const mapped = mapRow(updated);
+  publish({
+    type: "transport_job_updated",
+    serviceId: mapped.serviceId,
+    payload: {
+      jobId: mapped.id,
+      jobNumber: mapped.jobNumber,
+      status: mapped.status,
+      cancelledAt: mapped.cancelledAt,
+      cancelledBy: by ?? null,
     },
   });
   return mapped;

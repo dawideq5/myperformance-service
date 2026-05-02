@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Loader2, Truck, X } from "lucide-react";
 import type { ServiceTicket } from "./tabs/ServicesBoard";
 
@@ -9,27 +9,46 @@ export interface TransportLocationOption {
   name: string;
 }
 
+export interface TransportJobForEdit {
+  id: string;
+  destinationLocationId: string | null;
+  reason: string | null;
+  notes: string | null;
+}
+
+export type TransportModalMode = "create" | "edit";
+
 interface TransportModalProps {
   service: ServiceTicket;
   /** Lista lokalizacji dostępnych jako cel transportu — komponent sam
    *  filtruje aktualną lokalizację serwisu. */
   availableLocations: TransportLocationOption[];
   onClose: () => void;
-  onSuccess: (updatedService: ServiceTicket) => void;
+  onSuccess: (updatedService?: ServiceTicket) => void;
+  /** Tryb modalu — `create` (Wave 19) lub `edit` (Wave 20 1C). */
+  mode?: TransportModalMode;
+  /** Wymagane gdy mode === "edit" — istniejące dane do prefill. */
+  existingJob?: TransportJobForEdit | null;
 }
 
 /**
- * Modal "Wyślij do innego serwisu" — tworzy zlecenie transportu między
- * punktami serwisowymi i jednocześnie wstrzymuje zlecenie. Backend
- * (`POST /api/relay/services/[id]/transport`) waliduje lokalizację i
- * przełącza status na on_hold.
+ * Modal "Wyślij/Edytuj transport" — w trybie create tworzy zlecenie + wstrzymuje
+ * serwis (POST), w edit aktualizuje istniejące (PATCH). UI rozróżniony przez
+ * `mode` prop — tytuł, button label, target endpoint.
+ *
+ * Edit jest dozwolony tylko dla jobs ze statusem `queued` (sprawdzane
+ * dodatkowo backendowo). Po pickupie kierowca już ma trasę u siebie i edycja
+ * z poziomu serwisanta nie ma sensu.
  */
 export function TransportModal({
   service,
   availableLocations,
   onClose,
   onSuccess,
+  mode = "create",
+  existingJob = null,
 }: TransportModalProps) {
+  const isEdit = mode === "edit" && !!existingJob;
   const currentLocationId =
     service.serviceLocationId ?? service.locationId ?? null;
   const targetOptions = useMemo(
@@ -40,13 +59,25 @@ export function TransportModal({
     [availableLocations, currentLocationId],
   );
 
+  // Prefill: edit → existingJob; create → pierwsza dostępna opcja.
   const [targetLocationId, setTargetLocationId] = useState<string>(
-    targetOptions[0]?.id ?? "",
+    isEdit
+      ? existingJob?.destinationLocationId ?? targetOptions[0]?.id ?? ""
+      : targetOptions[0]?.id ?? "",
   );
-  const [reason, setReason] = useState("");
-  const [note, setNote] = useState("");
+  const [reason, setReason] = useState(
+    isEdit ? existingJob?.reason ?? "" : "",
+  );
+  const [note, setNote] = useState(isEdit ? existingJob?.notes ?? "" : "");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Resetuj target gdy lista lokacji się załaduje (race przy pierwszym mount).
+  useEffect(() => {
+    if (!targetLocationId && targetOptions[0]?.id) {
+      setTargetLocationId(targetOptions[0].id);
+    }
+  }, [targetOptions, targetLocationId]);
 
   const canSubmit =
     targetLocationId.length > 0 && reason.trim().length > 0 && !submitting;
@@ -56,25 +87,25 @@ export function TransportModal({
     setSubmitting(true);
     setError(null);
     try {
-      const res = await fetch(
-        `/api/relay/services/${service.id}/transport`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            targetLocationId,
-            reason: reason.trim(),
-            note: note.trim() || undefined,
-          }),
-        },
-      );
+      const url = isEdit
+        ? `/api/relay/services/${service.id}/transport/${existingJob?.id}`
+        : `/api/relay/services/${service.id}/transport`;
+      const res = await fetch(url, {
+        method: isEdit ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          targetLocationId,
+          reason: reason.trim(),
+          note: note.trim() || (isEdit ? "" : undefined),
+        }),
+      });
       const json = (await res.json().catch(() => null)) as
         | { ok?: boolean; service?: ServiceTicket; error?: string }
         | null;
       if (res.status === 423 || res.status === 409) {
         setError(
           json?.error ??
-            "Zlecenie zablokowane — istnieje już aktywny transport tego urządzenia.",
+            "Zlecenie zablokowane — nie można edytować po odbiorze przez kierowcę.",
         );
         return;
       }
@@ -82,9 +113,7 @@ export function TransportModal({
         setError(json?.error ?? `Błąd serwera (HTTP ${res.status})`);
         return;
       }
-      if (json?.service) {
-        onSuccess(json.service);
-      }
+      onSuccess(json?.service);
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Błąd sieci");
@@ -92,6 +121,11 @@ export function TransportModal({
       setSubmitting(false);
     }
   };
+
+  const title = isEdit
+    ? "Edytuj zlecenie transportu"
+    : "Wyślij do innego serwisu";
+  const submitLabel = isEdit ? "Zapisz zmiany" : "Wyślij do serwisu";
 
   return (
     <div
@@ -120,9 +154,10 @@ export function TransportModal({
             <Truck
               className="w-4 h-4"
               style={{ color: "var(--text-muted)" }}
+              aria-hidden="true"
             />
             <h2 id="transport-modal-title" className="text-base font-semibold">
-              Wyślij do innego serwisu
+              {title}
             </h2>
           </div>
           <button
@@ -195,6 +230,7 @@ export function TransportModal({
                   onChange={(e) => setReason(e.target.value)}
                   rows={3}
                   required
+                  aria-required="true"
                   disabled={submitting}
                   placeholder="np. Brak narzędzi do wymiany płyty głównej"
                   className="w-full px-3 py-2 rounded-lg border text-sm outline-none resize-y"
@@ -230,25 +266,41 @@ export function TransportModal({
                 />
               </div>
 
-              <div
-                className="text-xs rounded-lg border p-2"
-                style={{
-                  background: "var(--bg-surface)",
-                  borderColor: "var(--border-subtle)",
-                  color: "var(--text-muted)",
-                }}
-              >
-                Zlecenie zostanie wstrzymane z powodem &bdquo;Transport do
-                innego serwisu&rdquo; do czasu odbioru przez kierowcę.
-                Aktualny status (
-                <span style={{ color: "var(--text-main)" }}>
-                  {service.status}
-                </span>
-                ) zostanie zapamiętany do wznowienia.
-              </div>
+              {!isEdit && (
+                <div
+                  className="text-xs rounded-lg border p-2"
+                  style={{
+                    background: "var(--bg-surface)",
+                    borderColor: "var(--border-subtle)",
+                    color: "var(--text-muted)",
+                  }}
+                >
+                  Zlecenie zostanie wstrzymane z powodem &bdquo;Transport do
+                  innego serwisu&rdquo; do czasu odbioru przez kierowcę.
+                  Aktualny status (
+                  <span style={{ color: "var(--text-main)" }}>
+                    {service.status}
+                  </span>
+                  ) zostanie zapamiętany do wznowienia.
+                </div>
+              )}
+              {isEdit && (
+                <div
+                  className="text-xs rounded-lg border p-2"
+                  style={{
+                    background: "var(--bg-surface)",
+                    borderColor: "var(--border-subtle)",
+                    color: "var(--text-muted)",
+                  }}
+                >
+                  Edycja możliwa tylko dopóki kierowca nie odebrał urządzenia
+                  (status zlecenia: <span style={{ color: "var(--text-main)" }}>queued</span>).
+                </div>
+              )}
 
               {error && (
                 <div
+                  role="alert"
                   className="text-sm rounded-lg border p-2"
                   style={{
                     background: "rgba(239, 68, 68, 0.08)",
@@ -287,8 +339,8 @@ export function TransportModal({
             className="px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 disabled:opacity-50"
             style={{ background: "var(--accent)", color: "#fff" }}
           >
-            {submitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-            Wyślij do serwisu
+            {submitting && <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />}
+            {submitLabel}
           </button>
         </div>
       </div>

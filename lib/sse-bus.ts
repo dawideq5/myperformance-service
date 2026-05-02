@@ -48,8 +48,12 @@ export type SseEventType =
   | "internal_note_pinned"
   | "internal_note_unpinned"
   | "chat_message_received"
+  | "customer_message_sent"
   | "transport_job_created"
-  | "transport_job_updated";
+  | "transport_job_updated"
+  | "component_added"
+  | "component_updated"
+  | "component_deleted";
 
 export interface SseEvent {
   /** Random UUID — używane przez klientów do dedup. */

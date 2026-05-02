@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -249,6 +249,9 @@ export function PhoneConfigurator3D({
   onCancel,
   onComplete,
   readOnly = false,
+  singleStep,
+  onStateChange,
+  saveStatus,
 }: {
   brand: string;
   brandColorHex: string;
@@ -268,10 +271,27 @@ export function PhoneConfigurator3D({
    * top bar z tytułem i przyciskiem Zamknij. Step jest force'owany do
    * "damage" (best showcase markerów uszkodzeń). */
   readOnly?: boolean;
+  /** Pojedynczy step (Wave 20 / Faza 1D — edycja markerów w panelu
+   * serwisanta). Gdy ustawione, force'uje stepIdx + ukrywa nawigację
+   * (bottom bar, progress bar). Dalej zachowuje sidebar StepInputs dla
+   * tego stepu (np. "damage" → lista markerów + edycja). */
+  singleStep?: StepId;
+  /** Notify parent o każdej zmianie state (Wave 20) — używane do
+   * debounced auto-save w PhoneViewer3D editor mode. */
+  onStateChange?: (state: VisualConditionState) => void;
+  /** Status zapisu pokazywany w top bar (Wave 20) — kontrolowany przez
+   * parent. */
+  saveStatus?: "idle" | "saving" | "saved" | "error";
 }) {
   // ReadOnly viewer mode (panel serwisanta) — force step "damage" tak żeby
   // pokazane były wszystkie markery + interactive rotation kamery.
-  const initialStepIdx = readOnly
+  // singleStep ma wyższy priorytet (Wave 20 — edytor markerów).
+  const initialStepIdx = singleStep
+    ? Math.max(
+        STEPS.findIndex((s) => s.id === singleStep),
+        0,
+      )
+    : readOnly
     ? Math.max(
         STEPS.findIndex((s) => s.id === "damage"),
         0,
@@ -397,6 +417,8 @@ export function PhoneConfigurator3D({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onCancel();
       if (readOnly) return;
+      // Single-step mode (Wave 20) — bez nawigacji ArrowLeft/Right.
+      if (singleStep) return;
       if (e.key === "ArrowRight") next();
       if (e.key === "ArrowLeft") prev();
     };
@@ -405,7 +427,19 @@ export function PhoneConfigurator3D({
     // canGoNext + state zawarte w deps — bez tego next() captured był ze
     // stale canGoNext (po pierwszym renderze), co pozwalało skipować kroki.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stepIdx, state, brand, readOnly]);
+  }, [stepIdx, state, brand, readOnly, singleStep]);
+
+  // Notify parent o zmianie state (Wave 20) — używane do debounced
+  // auto-save w PhoneViewer3D editor mode. Skip pierwszy render (initial
+  // state pochodzi z propsa, nie warto nim "saveować").
+  const isFirstStateRender = useRef(true);
+  useEffect(() => {
+    if (isFirstStateRender.current) {
+      isFirstStateRender.current = false;
+      return;
+    }
+    onStateChange?.(state);
+  }, [state, onStateChange]);
 
   const isStepComplete = (s: Step): boolean => {
     switch (s.id) {
@@ -516,23 +550,38 @@ export function PhoneConfigurator3D({
           closing ? "scale-95 opacity-0 blur-sm" : "scale-100 opacity-100"
         }`}
       >
-        {/* Top bar — minimalist: tylko tytuł + close button */}
+        {/* Top bar — minimalist: tytuł + close button + opcjonalny save status */}
         <div className="flex items-center justify-between px-4 sm:px-6 py-3 bg-black/30 backdrop-blur-md border-b border-white/10">
           <p className="text-white text-base font-semibold truncate">
-            {readOnly ? "Podgląd urządzenia" : step.title}
+            {singleStep === "damage"
+              ? "Edycja markerów uszkodzeń"
+              : readOnly
+              ? "Podgląd urządzenia"
+              : step.title}
           </p>
-          <button
-            type="button"
-            onClick={onCancel}
-            className="p-2 rounded-lg hover:bg-white/10 transition-colors"
-            aria-label="Zamknij"
-          >
-            <X className="w-5 h-5 text-white/80" />
-          </button>
+          <div className="flex items-center gap-2">
+            {saveStatus === "saving" && (
+              <span className="text-[11px] text-white/70">Zapisuję…</span>
+            )}
+            {saveStatus === "saved" && (
+              <span className="text-[11px] text-emerald-300">Zapisano</span>
+            )}
+            {saveStatus === "error" && (
+              <span className="text-[11px] text-red-300">Błąd zapisu</span>
+            )}
+            <button
+              type="button"
+              onClick={onCancel}
+              className="p-2 rounded-lg hover:bg-white/10 transition-colors"
+              aria-label="Zamknij"
+            >
+              <X className="w-5 h-5 text-white/80" />
+            </button>
+          </div>
         </div>
 
-        {/* Progress bar — ukryty w viewer mode */}
-        {!readOnly && (
+        {/* Progress bar — ukryty w viewer mode i single-step mode */}
+        {!readOnly && !singleStep && (
           <div className="h-1 bg-white/10">
             <div
               className="h-full transition-all duration-500"
@@ -662,7 +711,9 @@ export function PhoneConfigurator3D({
 
           {/* Step controls panel — absolute. Mobile: bottom 45vh. Desktop:
               right 420px, full height. overflow-y-auto + eksplicytny rozmiar
-              = niezawodny scroll w obu trybach. Ukryty w viewer mode. */}
+              = niezawodny scroll w obu trybach. Ukryty w pure viewer mode
+              (readOnly bez singleStep). W singleStep mode (Wave 20 — edytor
+              markerów) panel jest WIDOCZNY żeby pokazać listę markerów. */}
           {!readOnly && (
             <aside
               className="absolute left-0 right-0 bottom-0 h-[45vh] lg:left-auto lg:top-0 lg:right-0 lg:bottom-0 lg:h-auto lg:w-[420px] overflow-y-auto bg-white/5 backdrop-blur-md border-t lg:border-t-0 lg:border-l border-white/10 p-4"
@@ -685,9 +736,9 @@ export function PhoneConfigurator3D({
           )}
         </div>
 
-        {/* Bottom bar — ukryty w viewer mode (panel serwisanta nie ma akcji
-         * "Dalej"/"Wstecz" — tylko zamyka modal). */}
-        {!readOnly && (
+        {/* Bottom bar — ukryty w viewer mode i single-step mode (panel
+         * serwisanta nie ma akcji "Dalej"/"Wstecz" — tylko zamyka modal). */}
+        {!readOnly && !singleStep && (
         <div className="flex items-center justify-between px-4 sm:px-6 py-3 bg-black/40 backdrop-blur-md border-t border-white/10 gap-2">
           <button
             type="button"

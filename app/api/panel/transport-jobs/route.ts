@@ -23,12 +23,24 @@ export async function GET(req: Request) {
     );
   }
   const url = new URL(req.url);
-  const status = url.searchParams.get("status") as TransportJobStatus | null;
+  const statusRaw = url.searchParams.get("status");
+  // Allow comma-separated status list (np. "queued,assigned,in_transit").
+  const status: TransportJobStatus[] | TransportJobStatus | undefined = statusRaw
+    ? statusRaw.includes(",")
+      ? (statusRaw.split(",") as TransportJobStatus[])
+      : (statusRaw as TransportJobStatus)
+    : undefined;
   const scope = url.searchParams.get("scope"); // "driver" lub "location"
+  const serviceId = url.searchParams.get("serviceId") ?? undefined;
   const jobs = await listTransportJobs({
     driverEmail: scope === "driver" ? user.email : undefined,
-    locationIds: scope === "driver" ? undefined : user.locationIds,
-    status: status ?? undefined,
+    // Gdy filtrujemy po konkretnym serviceId, nie ograniczamy locationIds —
+    // serwisant musi widzieć job swojego zlecenia nawet jeśli source/dest
+    // jest poza jego scope (np. job utworzony przez admina).
+    locationIds:
+      scope === "driver" || serviceId ? undefined : user.locationIds,
+    status,
+    serviceId,
     limit: Number(url.searchParams.get("limit")) || 100,
   });
   return NextResponse.json({ jobs }, { headers: PANEL_CORS_HEADERS });

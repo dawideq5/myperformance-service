@@ -19,6 +19,12 @@ interface ChatwootDeepLinkProps {
   customerEmail?: string;
   customerPhone?: string;
   defaultExpanded?: boolean;
+  /**
+   * Token zmienny — kiedy parent go inkrementuje, sekcja re-fetchuje
+   * komunikację. Używane np. po wysłaniu wiadomości z CustomerMessageSender
+   * albo po SSE evencie `customer_message_sent`.
+   */
+  refreshKey?: number;
 }
 
 /**
@@ -34,6 +40,7 @@ export function ChatwootDeepLink({
   customerEmail,
   customerPhone,
   defaultExpanded = true,
+  refreshKey = 0,
 }: ChatwootDeepLinkProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [data, setData] = useState<CommunicationResponse | null>(null);
@@ -70,7 +77,10 @@ export function ChatwootDeepLink({
 
   useEffect(() => {
     void fetchData();
-  }, [fetchData]);
+    // Refresh kiedy parent zwiększy refreshKey (np. po wysyłce wiadomości
+    // albo SSE evencie). fetchData stabilne via useCallback([serviceId]).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetchData, refreshKey]);
 
   const copyMessageId = async (id: number) => {
     try {

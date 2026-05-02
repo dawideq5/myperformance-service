@@ -23,3 +23,50 @@ html, body {
 body {
   min-height: 100vh;
 }
+
+/* Wave 20 / Faza 1G — UI customization Service detail view.
+   Density i font-size są kontrolowane przez data-attrs na .mp-detail-root
+   (per-user prefs z mp_user_preferences). Klasy `mp-detail-root` zostają
+   zdroworozsądkowo ograniczone do detail view — nie zatruwają reszty. */
+.mp-detail-root {
+  font-size: 14px;
+}
+.mp-detail-root[data-font-size="small"] {
+  font-size: 13px;
+}
+.mp-detail-root[data-font-size="normal"] {
+  font-size: 14px;
+}
+.mp-detail-root[data-font-size="large"] {
+  font-size: 16px;
+}
+
+.mp-detail-root[data-density="compact"] {
+  --mp-density-pad-y: 0.5rem;
+  --mp-density-pad-x: 0.75rem;
+}
+.mp-detail-root[data-density="comfortable"] {
+  --mp-density-pad-y: 0.75rem;
+  --mp-density-pad-x: 1rem;
+}
+
+/* Compact: zaciśnięcie paddingów wewnątrz detail view sekcji.
+   Selektor jest celowo szeroki — wszystko z `p-3`/`p-4`/`px-4`/`py-3`
+   wewnątrz mp-detail-root dostaje mniej spacing'u w trybie compact. */
+.mp-detail-root[data-density="compact"] .p-3 {
+  padding: 0.5rem;
+}
+.mp-detail-root[data-density="compact"] .p-4 {
+  padding: 0.625rem;
+}
+.mp-detail-root[data-density="compact"] .py-2 {
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+}
+.mp-detail-root[data-density="compact"] .py-3 {
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+}
+.mp-detail-root[data-density="compact"] .gap-3 {
+  gap: 0.5rem;
+}

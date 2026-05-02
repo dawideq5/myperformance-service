@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, RefreshCw, X } from "lucide-react";
+import { Bell, Loader2, RefreshCw, Settings2, X } from "lucide-react";
 import type { ServiceTicket } from "./tabs/ServicesBoard";
 import { StatusBadge } from "./StatusBadge";
 import { StatusTransitionModal } from "./StatusTransitionModal";
@@ -13,7 +13,10 @@ import { KlientTab } from "./detail/KlientTab";
 import { HistoriaTab } from "./detail/HistoriaTab";
 import { CzatZespoluTab } from "./detail/CzatZespoluTab";
 import { InternalNotesPanel } from "./detail/InternalNotesPanel";
-import { subscribeToService } from "@/lib/sse-client";
+import { subscribeToService, subscribeToUser } from "@/lib/sse-client";
+import { ViewSettingsModal, type TabSpec } from "./ViewSettingsModal";
+import { useServiceDetailPrefs } from "./useServiceDetailPrefs";
+import { PanelUserProvider, usePanelUser } from "./PanelUserContext";
 
 type TabId =
   | "diagnoza"
@@ -34,6 +37,11 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "historia", label: "Historia" },
 ];
 
+const TABS_FOR_MODAL: TabSpec[] = TABS.map((t) => ({
+  id: t.id,
+  label: t.label,
+}));
+
 interface ServiceDetailViewProps {
   serviceId: string;
   /** Jeśli przekazane, oszczędzamy dodatkowy fetch. */
@@ -44,6 +52,12 @@ interface ServiceDetailViewProps {
   inModal?: boolean;
   /** Email zalogowanego usera — do filtrowania uprawnień (delete/pin notatek). */
   currentUserEmail?: string;
+  /**
+   * Wave 20 — realm roles z KC tokenu (`session.user.roles`). Propagowane
+   * do `PanelUserProvider` i wykorzystywane przez RBAC w detail view
+   * (edycja, usuwanie, override cen, terminalne statusy).
+   */
+  currentUserRoles?: readonly string[];
 }
 
 function formatRelative(iso: string | null): string {
@@ -61,24 +75,97 @@ function formatRelative(iso: string | null): string {
   return `${day} d. temu`;
 }
 
-export function ServiceDetailView({
+export function ServiceDetailView(props: ServiceDetailViewProps) {
+  const { currentUserEmail = "", currentUserRoles = [], ...rest } = props;
+  return (
+    <PanelUserProvider email={currentUserEmail} roles={currentUserRoles}>
+      <ServiceDetailViewInner {...rest} currentUserEmail={currentUserEmail} />
+    </PanelUserProvider>
+  );
+}
+
+interface InnerProps {
+  serviceId: string;
+  service?: ServiceTicket;
+  onClose?: () => void;
+  onUpdate: (updated: ServiceTicket) => void;
+  inModal?: boolean;
+  currentUserEmail: string;
+}
+
+function ServiceDetailViewInner({
   serviceId,
   service: initialService,
   onClose,
   onUpdate,
   inModal = false,
-  currentUserEmail = "",
-}: ServiceDetailViewProps) {
+  currentUserEmail,
+}: InnerProps) {
+  const panelUser = usePanelUser();
+  const {
+    value: viewPrefs,
+    ready: prefsReady,
+    setValue: setViewPrefs,
+    reset: resetPrefs,
+  } = useServiceDetailPrefs();
   const [service, setService] = useState<ServiceTicket | null>(
     initialService ?? null,
   );
   const [loading, setLoading] = useState(!initialService);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>("diagnoza");
+  const [tabTouched, setTabTouched] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [statusModalOpen, setStatusModalOpen] = useState(false);
   const [statusModalTarget, setStatusModalTarget] = useState<
     ServiceStatus | undefined
   >(undefined);
+  // Wave 20 / Faza 1F — generic version counter inkrementowany na każdy
+  // service-scoped SSE event. Child taby (KlientTab → ChatwootDeepLink)
+  // dostają jako prop i włączają w useEffect deps żeby re-fetch.
+  const [realtimeVersion, setRealtimeVersion] = useState(0);
+  // Banner powiadamiający o nowej wiadomości od klienta (chat_message_received).
+  // Auto-dismiss po 8s. Klikable dismiss.
+  const [chatBanner, setChatBanner] = useState<string | null>(null);
+
+  // Apply default landing tab gdy preferences załadują się (raz, jeśli user
+  // jeszcze nie kliknął żadnej zakładki).
+  useEffect(() => {
+    if (!prefsReady || tabTouched) return;
+    const wanted = viewPrefs.defaultLandingTab as TabId;
+    if (TABS.some((t) => t.id === wanted) && wanted !== activeTab) {
+      setActiveTab(wanted);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefsReady]);
+
+  // Resolve final ordered + visible tabs.
+  const visibleTabs = useMemo<{ id: TabId; label: string }[]>(() => {
+    const byId = new Map(TABS.map((t) => [t.id, t]));
+    const result: { id: TabId; label: string }[] = [];
+    const seen = new Set<TabId>();
+    for (const id of viewPrefs.tabOrder) {
+      const t = byId.get(id as TabId);
+      if (t && viewPrefs.tabVisibility[id] !== false) {
+        result.push(t);
+        seen.add(t.id);
+      }
+    }
+    for (const t of TABS) {
+      if (seen.has(t.id)) continue;
+      if (viewPrefs.tabVisibility[t.id] === false) continue;
+      result.push(t);
+    }
+    return result;
+  }, [viewPrefs.tabOrder, viewPrefs.tabVisibility]);
+
+  // Fallback gdy aktualna activeTab nie jest widoczna — wybierz pierwszą.
+  useEffect(() => {
+    if (visibleTabs.length === 0) return;
+    if (!visibleTabs.some((t) => t.id === activeTab)) {
+      setActiveTab(visibleTabs[0].id);
+    }
+  }, [visibleTabs, activeTab]);
 
   // Sync gdy parent zmieni serviceId / service.
   useEffect(() => {
@@ -130,9 +217,16 @@ export function ServiceDetailView({
       .finally(() => setLoading(false));
   };
 
-  // Real-time SSE bus (Wave 19/Phase 1D) — service-scoped events. Backend
-  // już emituje status_changed/service_updated z mapped service inline w
-  // payload, więc unikamy refetchu gdy event zawiera updated service.
+  // Real-time SSE bus (Wave 19/Phase 1D + Faza 1F).
+  //
+  // Pattern: ServiceDetailView centralnie subskrybuje wszystkie service-
+  // scoped eventy. Dla `status_changed` / `service_updated` ustawiamy
+  // service inline (backend dorzuca mapped service w payload). Dla reszty
+  // bumpujemy `realtimeVersion` — child taby (KlientTab → ChatwootDeepLink,
+  // CustomerMessageSender) z propsem realtimeVersion samodzielnie re-fetchują.
+  // `chat_message_received` dodatkowo pokazuje banner powiadomienia.
+  // Komponenty z własną subskrypcją (InternalNotesPanel) zostają — duplikacja
+  // jest tania (dedup po event.id w sse-client.ts).
   useEffect(() => {
     const unsub = subscribeToService(serviceId, (evt) => {
       if (evt.type === "status_changed" || evt.type === "service_updated") {
@@ -143,15 +237,46 @@ export function ServiceDetailView({
         } else {
           refresh();
         }
+      } else if (evt.type === "chat_message_received") {
+        const preview =
+          typeof (evt.payload as { messagePreview?: unknown }).messagePreview ===
+          "string"
+            ? ((evt.payload as { messagePreview?: string }).messagePreview ?? "")
+            : "";
+        setChatBanner(
+          preview
+            ? `Nowa wiadomość od klienta: ${preview.slice(0, 100)}${preview.length > 100 ? "…" : ""}`
+            : "Klient wysłał nową wiadomość",
+        );
       }
-      // Inne typy (photo_uploaded, internal_note_added, annex_*) są
-      // konsumowane przez ich własne komponenty (NaprawaTab, InternalNotes
-      // Panel itd.) — kazdy subscribuje samodzielnie. Tutaj pozostawiamy
-      // bez action żeby uniknąć podwójnego refetchu.
+      // Bump version dla wszystkich service-scoped eventów — child taby
+      // re-fetch przez useEffect deps.
+      setRealtimeVersion((v) => v + 1);
     });
     return unsub;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serviceId]);
+
+  // User-scoped subscription — cross-service notyfikacje (np. assigned
+  // transport job dla tego service'a). Bumpujemy version tylko dla eventów
+  // dotyczących bieżącego service'a — global powiadomienia obsługuje
+  // panel-home toast/bell.
+  useEffect(() => {
+    if (!currentUserEmail) return;
+    const unsub = subscribeToUser(currentUserEmail, (evt) => {
+      if (evt.serviceId && evt.serviceId === serviceId) {
+        setRealtimeVersion((v) => v + 1);
+      }
+    });
+    return unsub;
+  }, [currentUserEmail, serviceId]);
+
+  // Auto-dismiss banneru po 8s.
+  useEffect(() => {
+    if (!chatBanner) return;
+    const id = window.setTimeout(() => setChatBanner(null), 8_000);
+    return () => window.clearTimeout(id);
+  }, [chatBanner]);
 
   const handleSubUpdate = (updated: ServiceTicket) => {
     setService(updated);
@@ -198,7 +323,13 @@ export function ServiceDetailView({
   if (!service) return null;
 
   return (
-    <div className="flex flex-col h-full" role="region" aria-label="Szczegóły zlecenia">
+    <div
+      className="flex flex-col h-full mp-detail-root"
+      role="region"
+      aria-label="Szczegóły zlecenia"
+      data-density={viewPrefs.density}
+      data-font-size={viewPrefs.fontSize}
+    >
       {/* Header */}
       <div
         className="flex items-start justify-between gap-3 px-4 sm:px-5 py-3 border-b"
@@ -216,6 +347,18 @@ export function ServiceDetailView({
               #{service.ticketNumber}
             </span>
             <StatusBadge status={service.status} size="sm" />
+            {panelUser.permissions.canEditServiceData && (
+              <span
+                className="text-[10px] px-1.5 py-0.5 rounded uppercase font-semibold tracking-wider"
+                style={{
+                  background: "rgba(59, 130, 246, 0.15)",
+                  color: "#3b82f6",
+                }}
+                title="Masz pełne uprawnienia administracyjne (RBAC Wave 20)"
+              >
+                admin
+              </span>
+            )}
           </div>
           {headerSubtitle && (
             <p
@@ -253,6 +396,19 @@ export function ServiceDetailView({
               className={`w-4 h-4 ${loading ? "animate-spin" : ""}`}
             />
           </button>
+          <button
+            type="button"
+            onClick={() => setSettingsOpen(true)}
+            className="p-2 rounded-lg border"
+            style={{
+              borderColor: "var(--border-subtle)",
+              color: "var(--text-muted)",
+            }}
+            aria-label="Ustawienia widoku"
+            title="Ustawienia widoku"
+          >
+            <Settings2 className="w-4 h-4" />
+          </button>
           {inModal && onClose && (
             <button
               type="button"
@@ -267,6 +423,35 @@ export function ServiceDetailView({
         </div>
       </div>
 
+      {/* Real-time banner — nowa wiadomość od klienta (chat_message_received).
+          Wyświetla się przez 8s, klikalny dismiss. */}
+      {chatBanner && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex items-center justify-between gap-2 px-4 py-2 border-b animate-fade-in"
+          style={{
+            background: "rgba(99, 102, 241, 0.12)",
+            borderColor: "var(--border-subtle)",
+            color: "var(--text-main)",
+          }}
+        >
+          <span className="flex items-center gap-2 text-xs">
+            <Bell className="w-3.5 h-3.5" style={{ color: "var(--accent)" }} aria-hidden="true" />
+            {chatBanner}
+          </span>
+          <button
+            type="button"
+            onClick={() => setChatBanner(null)}
+            className="p-1 rounded"
+            style={{ color: "var(--text-muted)" }}
+            aria-label="Zamknij powiadomienie"
+          >
+            <X className="w-3.5 h-3.5" aria-hidden="true" />
+          </button>
+        </div>
+      )}
+
       {/* Tabs */}
       <div
         className="flex items-center gap-1 px-2 sm:px-4 border-b overflow-x-auto"
@@ -277,7 +462,7 @@ export function ServiceDetailView({
         role="tablist"
         aria-label="Sekcje szczegółów zlecenia"
       >
-        {TABS.map((t) => {
+        {visibleTabs.map((t) => {
           const active = activeTab === t.id;
           return (
             <button
@@ -287,7 +472,10 @@ export function ServiceDetailView({
               aria-selected={active}
               aria-controls={`tab-panel-${t.id}`}
               id={`tab-${t.id}`}
-              onClick={() => setActiveTab(t.id)}
+              onClick={() => {
+                setActiveTab(t.id);
+                setTabTouched(true);
+              }}
               className="px-3 py-2 text-xs font-medium border-b-2 -mb-px whitespace-nowrap"
               style={{
                 borderBottomColor: active ? "var(--accent)" : "transparent",
@@ -319,12 +507,23 @@ export function ServiceDetailView({
             service={service}
             onRequestStatusChange={requestStatusChange}
             onServiceUpdated={handleSubUpdate}
+            realtimeVersion={realtimeVersion}
           />
         )}
         {activeTab === "wycena" && (
-          <WycenaTab service={service} onUpdate={handleSubUpdate} />
+          <WycenaTab
+            service={service}
+            onUpdate={handleSubUpdate}
+            realtimeVersion={realtimeVersion}
+          />
         )}
-        {activeTab === "klient" && <KlientTab service={service} />}
+        {activeTab === "klient" && (
+          <KlientTab
+            service={service}
+            onUpdate={handleSubUpdate}
+            realtimeVersion={realtimeVersion}
+          />
+        )}
         {activeTab === "czat" && (
           <CzatZespoluTab service={service} defaultRole="service" />
         )}
@@ -348,6 +547,15 @@ export function ServiceDetailView({
           }}
         />
       )}
+
+      <ViewSettingsModal
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        allTabs={TABS_FOR_MODAL}
+        value={viewPrefs}
+        onChange={setViewPrefs}
+        onReset={resetPrefs}
+      />
     </div>
   );
 }

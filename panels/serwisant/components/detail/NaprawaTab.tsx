@@ -1,14 +1,23 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, Truck, Wrench } from "lucide-react";
+import {
+  ExternalLink,
+  Loader2,
+  Pencil,
+  Truck,
+  Wrench,
+  XCircle,
+} from "lucide-react";
 import type { ServiceTicket } from "../tabs/ServicesBoard";
 import type { ServiceStatus } from "@/lib/serwisant/status-meta";
 import { StatusBadge } from "../StatusBadge";
 import { PhotoGallery } from "../features/PhotoGallery";
+import { PartOrdersSection } from "../features/PartOrdersSection";
 import {
   TransportModal,
   type TransportLocationOption,
+  type TransportJobForEdit,
 } from "../TransportModal";
 
 interface ServiceAction {
@@ -28,6 +37,11 @@ interface NaprawaTabProps {
    *  zlecenia transportu). Pozwala parentowi (ServiceDetailView) odświeżyć
    *  cache bez ponownego fetcha. */
   onServiceUpdated?: (updated: ServiceTicket) => void;
+  /** Wave 20 / Faza 1F — bumpowane przez ServiceDetailView na każdy
+   *  service-scoped SSE event. Dorzucamy do useEffect deps żeby UI
+   *  re-fetch (actions, transport jobs) na real-time updates bez
+   *  jeden-tab-jeden-subscriber duplikacji. */
+  realtimeVersion?: number;
 }
 
 interface TransportJobSummary {
@@ -37,6 +51,9 @@ interface TransportJobSummary {
   destinationName: string | null;
   jobNumber: string;
   createdAt: string | null;
+  reason: string | null;
+  notes: string | null;
+  trackingLink: string | null;
 }
 
 const TRANSPORT_STATUS_LABELS: Record<string, string> = {
@@ -51,6 +68,7 @@ export function NaprawaTab({
   service,
   onRequestStatusChange,
   onServiceUpdated,
+  realtimeVersion = 0,
 }: NaprawaTabProps) {
   const [actions, setActions] = useState<ServiceAction[]>([]);
   const [loading, setLoading] = useState(true);
@@ -62,10 +80,15 @@ export function NaprawaTab({
     TransportLocationOption[]
   >([]);
   const [locationsLoading, setLocationsLoading] = useState(false);
-  const [transportModalOpen, setTransportModalOpen] = useState(false);
+  const [transportModalMode, setTransportModalMode] = useState<
+    "create" | "edit" | null
+  >(null);
   const [activeTransport, setActiveTransport] = useState<TransportJobSummary | null>(
     null,
   );
+  const [cancellingTransport, setCancellingTransport] = useState(false);
+  const [transportError, setTransportError] = useState<string | null>(null);
+  const [transportRefreshTick, setTransportRefreshTick] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -84,7 +107,8 @@ export function NaprawaTab({
     return () => {
       cancelled = true;
     };
-  }, [service.id]);
+    // realtimeVersion w deps — re-fetch actions na każdy SSE event z parenta.
+  }, [service.id, realtimeVersion]);
 
   // Lista wszystkich punktów serwisowych do TransportModal — pobieramy raz
   // przy mount, lokalnie filtrujemy bieżącą lokalizację w samym modalu.
@@ -122,6 +146,9 @@ export function NaprawaTab({
       destinationLocationId: string | null;
       jobNumber: string;
       createdAt: string | null;
+      reason: string | null;
+      notes: string | null;
+      trackingLink: string | null;
     }
     fetch(
       `/api/relay/transport-jobs?serviceId=${encodeURIComponent(service.id)}&status=queued,assigned,in_transit&limit=5`,
@@ -147,6 +174,9 @@ export function NaprawaTab({
           destinationName: dest?.name ?? null,
           jobNumber: job.jobNumber,
           createdAt: job.createdAt,
+          reason: job.reason ?? null,
+          notes: job.notes ?? null,
+          trackingLink: job.trackingLink ?? null,
         });
       })
       .catch(() => {
@@ -155,7 +185,54 @@ export function NaprawaTab({
     return () => {
       cancelled = true;
     };
-  }, [service.id, serviceLocations]);
+    // realtimeVersion bumpowane przez parenta na transport_job_* eventy.
+  }, [service.id, serviceLocations, transportRefreshTick, realtimeVersion]);
+
+  const cancelTransport = async () => {
+    if (!activeTransport) return;
+    if (
+      !window.confirm(
+        `Anulować zlecenie transportu #${activeTransport.jobNumber}? Status zlecenia zostanie przywrócony do poprzedniego.`,
+      )
+    )
+      return;
+    setCancellingTransport(true);
+    setTransportError(null);
+    try {
+      const res = await fetch(
+        `/api/relay/services/${service.id}/transport/${activeTransport.id}`,
+        { method: "DELETE" },
+      );
+      const json = (await res.json().catch(() => null)) as
+        | {
+            ok?: boolean;
+            error?: string;
+            restoredStatus?: string | null;
+          }
+        | null;
+      if (!res.ok) {
+        setTransportError(
+          json?.error ?? `Błąd serwera (HTTP ${res.status})`,
+        );
+        return;
+      }
+      // Odśwież lokalnie + sygnał do parent (status mógł się zmienić).
+      setActiveTransport(null);
+      setTransportRefreshTick((t) => t + 1);
+      onServiceUpdated?.({
+        ...service,
+        status: (json?.restoredStatus as string | null) ?? service.status,
+        previousStatus: null,
+        holdReason: null,
+      });
+    } catch (err) {
+      setTransportError(
+        err instanceof Error ? err.message : "Błąd sieci",
+      );
+    } finally {
+      setCancellingTransport(false);
+    }
+  };
 
   const repairActions = actions.filter((a) => a.action.startsWith("repair_"));
 
@@ -241,40 +318,119 @@ export function NaprawaTab({
 
       <Section title="Transport między serwisami">
         {activeTransport ? (
-          <div
-            className="flex flex-wrap items-center gap-2 p-2 rounded-lg border"
-            style={{
-              background: "rgba(14, 165, 233, 0.08)",
-              borderColor: "rgba(14, 165, 233, 0.4)",
-              color: "var(--text-main)",
-            }}
-          >
-            <Truck
-              className="w-4 h-4"
-              style={{ color: "rgba(14, 165, 233, 0.9)" }}
-            />
-            <span className="text-xs font-semibold">
-              {TRANSPORT_STATUS_LABELS[activeTransport.status] ??
-                activeTransport.status}
-              {activeTransport.destinationName
-                ? ` do ${activeTransport.destinationName}`
-                : ""}
-            </span>
-            <span
-              className="text-[11px] font-mono"
-              style={{ color: "var(--text-muted)" }}
+          <div className="space-y-2">
+            <div
+              className="flex flex-wrap items-center gap-2 p-2 rounded-lg border"
+              style={{
+                background: "rgba(14, 165, 233, 0.08)",
+                borderColor: "rgba(14, 165, 233, 0.4)",
+                color: "var(--text-main)",
+              }}
             >
-              #{activeTransport.jobNumber}
-            </span>
-            <a
-              href={`/api/relay/transport-jobs/${activeTransport.id}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="ml-auto text-[11px] underline"
-              style={{ color: "var(--text-muted)" }}
-            >
-              Śledź zlecenie
-            </a>
+              <Truck
+                className="w-4 h-4"
+                style={{ color: "rgba(14, 165, 233, 0.9)" }}
+                aria-hidden="true"
+              />
+              <span className="text-xs font-semibold">
+                {TRANSPORT_STATUS_LABELS[activeTransport.status] ??
+                  activeTransport.status}
+                {activeTransport.destinationName
+                  ? ` do ${activeTransport.destinationName}`
+                  : ""}
+              </span>
+              <span
+                className="text-[11px] font-mono"
+                style={{ color: "var(--text-muted)" }}
+              >
+                #{activeTransport.jobNumber}
+              </span>
+              {activeTransport.trackingLink &&
+              ["in_transit", "delivered"].includes(activeTransport.status) ? (
+                <a
+                  href={activeTransport.trackingLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="ml-auto text-[11px] underline inline-flex items-center gap-0.5"
+                  style={{ color: "rgba(14, 165, 233, 0.9)" }}
+                >
+                  Śledź transport
+                  <ExternalLink className="w-3 h-3" aria-hidden="true" />
+                </a>
+              ) : (
+                <a
+                  href={`/api/relay/transport-jobs/${activeTransport.id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="ml-auto text-[11px] underline"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  Szczegóły
+                </a>
+              )}
+            </div>
+            {activeTransport.reason && (
+              <p
+                className="text-[11px]"
+                style={{ color: "var(--text-muted)" }}
+              >
+                Powód: {activeTransport.reason}
+              </p>
+            )}
+            {/* Edycja/anulowanie tylko gdy queued/assigned (przed pickup'em).
+                W in_transit/delivered chip jest read-only (kierowca już ma
+                trasę u siebie). */}
+            {["queued", "assigned"].includes(activeTransport.status) && (
+              <div className="flex flex-wrap gap-1.5">
+                {activeTransport.status === "queued" && (
+                  <button
+                    type="button"
+                    onClick={() => setTransportModalMode("edit")}
+                    className="px-2.5 py-1 rounded-lg text-[11px] font-medium border inline-flex items-center gap-1"
+                    style={{
+                      background: "var(--bg-surface)",
+                      borderColor: "var(--border-subtle)",
+                      color: "var(--text-main)",
+                    }}
+                    aria-label="Edytuj zlecenie transportu"
+                  >
+                    <Pencil className="w-3 h-3" aria-hidden="true" />
+                    Edytuj transport
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void cancelTransport()}
+                  disabled={cancellingTransport}
+                  className="px-2.5 py-1 rounded-lg text-[11px] font-medium border inline-flex items-center gap-1 disabled:opacity-50"
+                  style={{
+                    background: "rgba(239, 68, 68, 0.08)",
+                    borderColor: "rgba(239, 68, 68, 0.4)",
+                    color: "#fca5a5",
+                  }}
+                  aria-label="Anuluj zlecenie transportu"
+                >
+                  {cancellingTransport ? (
+                    <Loader2
+                      className="w-3 h-3 animate-spin"
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    <XCircle className="w-3 h-3" aria-hidden="true" />
+                  )}
+                  Anuluj transport
+                </button>
+              </div>
+            )}
+            {transportError && (
+              <p
+                role="alert"
+                className="text-[11px]"
+                style={{ color: "#fca5a5" }}
+              >
+                {transportError}
+              </p>
+            )}
           </div>
         ) : (
           <div className="space-y-2">
@@ -285,12 +441,12 @@ export function NaprawaTab({
             </p>
             <button
               type="button"
-              onClick={() => setTransportModalOpen(true)}
+              onClick={() => setTransportModalMode("create")}
               disabled={locationsLoading || serviceLocations.length === 0}
               className="px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 disabled:opacity-50"
               style={{ background: "var(--accent)", color: "#fff" }}
             >
-              <Truck className="w-3.5 h-3.5" />
+              <Truck className="w-3.5 h-3.5" aria-hidden="true" />
               Wyślij do innego serwisu
             </button>
             {locationsLoading && (
@@ -304,6 +460,12 @@ export function NaprawaTab({
           </div>
         )}
       </Section>
+
+      {status === "awaiting_parts" && (
+        <Section title="Zamówione części">
+          <PartOrdersSection serviceId={service.id} />
+        </Section>
+      )}
 
       <Section title="Czynności naprawcze">
         {loading ? (
@@ -383,13 +545,28 @@ export function NaprawaTab({
         </div>
       </Section>
 
-      {transportModalOpen && (
+      {transportModalMode && (
         <TransportModal
           service={service}
           availableLocations={serviceLocations}
-          onClose={() => setTransportModalOpen(false)}
+          mode={transportModalMode}
+          existingJob={
+            transportModalMode === "edit" && activeTransport
+              ? ({
+                  id: activeTransport.id,
+                  destinationLocationId:
+                    activeTransport.destinationLocationId,
+                  reason: activeTransport.reason,
+                  notes: activeTransport.notes,
+                } satisfies TransportJobForEdit)
+              : null
+          }
+          onClose={() => setTransportModalMode(null)}
           onSuccess={(updated) => {
-            onServiceUpdated?.(updated);
+            if (updated) onServiceUpdated?.(updated);
+            // Po edycji backend zwraca tylko transportJob (bez service), więc
+            // wymusimy refetch chipa dla aktualnego stanu.
+            setTransportRefreshTick((t) => t + 1);
           }}
         />
       )}

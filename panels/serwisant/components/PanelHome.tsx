@@ -10,6 +10,7 @@ import {
   LogOut,
   MapPin,
   Phone,
+  Plus,
   RotateCcw,
   Mail,
   User as UserIcon,
@@ -19,6 +20,7 @@ import { type ServiceTicket } from "./tabs/ServicesBoard";
 import { ServiceDetailView } from "./ServiceDetailView";
 import { PanelLayout } from "./PanelLayout";
 import { ServiceDetailEmpty } from "./ServiceDetailEmpty";
+import { QuickIntakeModal } from "./QuickIntakeModal";
 import {
   DEFAULT_FILTERS,
   type FilterState,
@@ -32,10 +34,13 @@ export function PanelHome({
   locations,
   userLabel,
   userEmail,
+  userRoles = [],
 }: {
   locations: PanelLocation[];
   userLabel: string;
   userEmail: string;
+  /** Wave 20 — realm roles z KC tokenu propagowane do detail view RBAC. */
+  userRoles?: readonly string[];
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -428,6 +433,7 @@ export function PanelHome({
             locationId={selected.id}
             availableLocations={locations}
             userEmail={userEmail}
+            userRoles={userRoles}
           />
         </div>
       </main>
@@ -443,15 +449,19 @@ function ServicesView({
   locationId,
   availableLocations,
   userEmail,
+  userRoles,
 }: {
   locationId: string;
   availableLocations: PanelLocation[];
   userEmail: string;
+  userRoles: readonly string[];
 }) {
   const [services, setServices] = useState<ServiceTicket[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
+  // Wave 20 / Faza 1D — modal "Nowe zlecenie" (lekki QuickIntakeModal).
+  const [intakeOpen, setIntakeOpen] = useState(false);
 
   // One-time migration: usuń legacy klucz `view-mode` (kanban "Tablica"
   // został wycofany — pozostał tylko widok 3-kolumnowy).
@@ -546,33 +556,80 @@ function ServicesView({
   void STATUS_GROUPS;
   void locationId;
 
+  const intakeHeader = (
+    <div
+      className="flex items-center justify-between gap-2 px-3 py-2 border-b"
+      style={{
+        background: "var(--bg-card)",
+        borderColor: "var(--border-subtle)",
+      }}
+    >
+      <span
+        className="text-[11px] uppercase tracking-wider font-semibold"
+        style={{ color: "var(--text-muted)" }}
+      >
+        Zlecenia
+      </span>
+      <button
+        type="button"
+        onClick={() => setIntakeOpen(true)}
+        className="px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5"
+        style={{ background: "var(--accent)", color: "#fff" }}
+        title="Utwórz nowe zlecenie z poziomu serwisanta"
+      >
+        <Plus className="w-3.5 h-3.5" />
+        Nowe zlecenie
+      </button>
+    </div>
+  );
+
   return (
-    <PanelLayout
-      services={filteredServices}
-      selectedServiceId={selectedId}
-      onSelectService={(id) => setSelectedId(id)}
-      filters={filters}
-      onFiltersChange={setFilters}
-      locations={sidebarLocations}
-      counts={counts}
-      loading={loading}
-      onRefresh={() => void refresh()}
-      detailSlot={
-        selected ? (
-          <ServiceDetailView
-            serviceId={selected.id}
-            service={selected}
-            currentUserEmail={userEmail}
-            onUpdate={(updated) => {
-              setServices((prev) =>
-                prev.map((s) => (s.id === updated.id ? updated : s)),
-              );
-            }}
-          />
-        ) : (
-          <ServiceDetailEmpty counts={counts} />
-        )
-      }
-    />
+    <>
+      <PanelLayout
+        services={filteredServices}
+        selectedServiceId={selectedId}
+        onSelectService={(id) => setSelectedId(id)}
+        filters={filters}
+        onFiltersChange={setFilters}
+        locations={sidebarLocations}
+        counts={counts}
+        loading={loading}
+        onRefresh={() => void refresh()}
+        headerSlot={intakeHeader}
+        detailSlot={
+          selected ? (
+            <ServiceDetailView
+              serviceId={selected.id}
+              service={selected}
+              currentUserEmail={userEmail}
+              currentUserRoles={userRoles}
+              onUpdate={(updated) => {
+                setServices((prev) =>
+                  prev.map((s) => (s.id === updated.id ? updated : s)),
+                );
+              }}
+            />
+          ) : (
+            <ServiceDetailEmpty counts={counts} />
+          )
+        }
+      />
+      {intakeOpen && (
+        <QuickIntakeModal
+          defaultLocationId={locationId}
+          availableLocations={sidebarLocations}
+          onClose={() => setIntakeOpen(false)}
+          onCreated={(created) => {
+            // Wstaw nowe zlecenie do listy + auto-select.
+            setServices((prev) => [created, ...prev]);
+            setSelectedId(created.id);
+            setIntakeOpen(false);
+            // Refresh w tle żeby odebrać auto-mapped service_location +
+            // zaktualizować liczniki.
+            void refresh();
+          }}
+        />
+      )}
+    </>
   );
 }

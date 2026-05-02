@@ -1,13 +1,26 @@
 import PDFDocument from "pdfkit";
 import path from "path";
 import fs from "fs";
+import sharp from "sharp";
 
 /** Wejście do renderowania aneksu. Zachowuje kontrakt zgodny z istniejącym
  * wywołaniem z `app/api/panel/services/[id]/annex/route.ts` (pola `editor`,
  * `changes[]`, `summary`) i dodaje opcjonalne pola wykorzystywane przez
  * nowy branding Caseownia (delta/kwoty, dane kontaktowe klienta, adres
  * lokacji, sygnatariusz, znaczniki czasu). Brak nowych pól = render fallback
- * na bazie `changes` i `summary`. */
+ * na bazie `changes` i `summary`.
+ *
+ * Wave 20 / Faza 1A — pełna konwersja na szarość (grayscale-only):
+ *   - logo headerowe + footerowe konwertowane runtime przez `sharp.grayscale()`
+ *     (cache w pamięci procesu, fallback do oryginału gdy sharp niedostępny),
+ *   - delta tile: zamiast czerwone/zielone — odcień szarości (#333/#E0E0E0/
+ *     #F0F0F0); znak +/- przed kwotą rozróżnia wzrost/spadek wyceny,
+ *   - sygnatariusze: bloki podpisów na sztywno w prawym dolnym i prawym
+ *     górnym położeniu w sekcji STRONY ANEKSU; gdy `employeeSignatureImage`
+ *     / `customerSignatureImage` przekazane jako Buffer (np. extracted z
+ *     Documenso completed PDF) — wstawiamy obraz nad linią podpisu, w
+ *     przeciwnym razie zostawiamy puste pole (placeholder na ręczne
+ *     wpisanie / odręczny podpis). */
 export interface AnnexInput {
   ticketNumber: string;
   serviceCreatedAt: string;
@@ -49,20 +62,55 @@ export interface AnnexInput {
   signedAt?: string;
   /** Customer name override (np. potwierdzenie telefoniczne — kto). */
   customerSignerName?: string;
+  /** Sygnatura graficzna pracownika — render nad linią po prawej stronie
+   * sekcji "STRONY ANEKSU". Buffer PNG/JPEG. Pomijane gdy brak. */
+  employeeSignatureImage?: Buffer;
+  /** Sygnatura graficzna klienta — render nad linią po prawej stronie
+   * sekcji "STRONY ANEKSU" w prawym dolnym rogu. Buffer PNG/JPEG. */
+  customerSignatureImage?: Buffer;
   issuedAt: string;
 }
 
-const TEXT = "#1a1a1a";
-const MUTED = "#666666";
-const LIGHT = "#aaaaaa";
-const BG_LIGHT = "#f0f0f0";
-const BG_ACCENT_RED = "#fde8e8";
-const BG_ACCENT_GREEN = "#e6f6ec";
+// Grayscale palette — Wave 20 / Faza 1A.
+const TEXT = "#000000"; // pure black for body text
+const TEXT_SOFT = "#1a1a1a"; // ciemny dla nagłówków bloków
+const MUTED = "#555555"; // labels (UPPERCASE micro-copy)
+const LIGHT = "#aaaaaa"; // separator lines
+const BG_LIGHT = "#f0f0f0"; // tła sekcji info
+const BG_TILE = "#e0e0e0"; // delta tile
+const BG_TILE_DARK = "#cfcfcf"; // hover/active tile
 
 const FONT_REGULAR = path.join(process.cwd(), "public", "fonts", "Roboto-Regular.ttf");
 const FONT_BOLD = path.join(process.cwd(), "public", "fonts", "Roboto-Bold.ttf");
 const LOGO_SERWIS = path.join(process.cwd(), "public", "logos", "serwis-by-caseownia.png");
 const LOGO_CASEOWNIA = path.join(process.cwd(), "public", "logos", "caseownia.jpeg");
+
+/** Grayscale logo cache. Per-proces, jednorazowy konwert przez sharp. */
+const grayscaleLogoCache = new Map<string, Buffer>();
+
+async function loadGrayscaleLogo(filePath: string): Promise<Buffer | null> {
+  if (!fs.existsSync(filePath)) return null;
+  const cached = grayscaleLogoCache.get(filePath);
+  if (cached) return cached;
+  try {
+    const original = await fs.promises.readFile(filePath);
+    // PNG output zachowuje kanał alpha (transparentne tło logo serwis-by-
+    // caseownia). JPEG byłoby z białym tłem, co psuje header gdy strona
+    // ma inny background.
+    const buf = await sharp(original).grayscale().png().toBuffer();
+    grayscaleLogoCache.set(filePath, buf);
+    return buf;
+  } catch {
+    // Fallback: gdy sharp nie zadziała (rzadkie), użyj oryginału.
+    try {
+      const original = await fs.promises.readFile(filePath);
+      grayscaleLogoCache.set(filePath, original);
+      return original;
+    } catch {
+      return null;
+    }
+  }
+}
 
 /** Krótszy regulamin aneksu (4 punkty) — pełny regulamin jest w receipt-pdf.
  * Aneks tylko deklaruje zmiany do uprzednio podpisanego protokołu. */
@@ -104,8 +152,15 @@ function formatPLN(value: number): string {
 }
 
 /** Render aneksu do Buffer. PDFKit programmatic, JEDNA strona A4, branding
- * Caseownia (header + footer + Roboto fonts). */
+ * Caseownia (header + footer + Roboto fonts) — pełna grayscale palette. */
 export async function renderAnnexPdf(data: AnnexInput): Promise<Buffer> {
+  // Pre-load grayscale logos (async fs+sharp). Robione raz przed otwarciem
+  // PDFDocument, ponieważ doc.image() wymaga sync Buffer.
+  const [logoHeader, logoFooter] = await Promise.all([
+    loadGrayscaleLogo(LOGO_SERWIS),
+    loadGrayscaleLogo(LOGO_CASEOWNIA),
+  ]);
+
   return new Promise((resolve, reject) => {
     try {
       const doc = new PDFDocument({
@@ -127,7 +182,7 @@ export async function renderAnnexPdf(data: AnnexInput): Promise<Buffer> {
       doc.registerFont("B", FONT_BOLD);
 
       doc.addPage({ size: "A4", margin: 0 });
-      drawAnnexPage(doc, data);
+      drawAnnexPage(doc, data, { logoHeader, logoFooter });
       doc.end();
     } catch (err) {
       reject(err);
@@ -135,15 +190,19 @@ export async function renderAnnexPdf(data: AnnexInput): Promise<Buffer> {
   });
 }
 
-function drawAnnexPage(doc: PDFKit.PDFDocument, data: AnnexInput): void {
+function drawAnnexPage(
+  doc: PDFKit.PDFDocument,
+  data: AnnexInput,
+  assets: { logoHeader: Buffer | null; logoFooter: Buffer | null },
+): void {
   const PW = doc.page.width; // 595.28
   const PH = doc.page.height; // 841.89
   const M = 24;
   const W = PW - 2 * M;
 
   // ===== HEADER =====
-  if (fs.existsSync(LOGO_SERWIS)) {
-    doc.image(LOGO_SERWIS, M, M, { fit: [160, 42] });
+  if (assets.logoHeader) {
+    doc.image(assets.logoHeader, M, M, { fit: [160, 42] });
   }
   doc
     .font("B")
@@ -202,7 +261,7 @@ function drawAnnexPage(doc: PDFKit.PDFDocument, data: AnnexInput): void {
   // ===== OPIS USTERKI (opcjonalny) =====
   if (data.device.description?.trim()) {
     y = drawSection(doc, M, y, W, "OPIS USTERKI");
-    doc.font("R").fontSize(8.5).fillColor(TEXT);
+    doc.font("R").fontSize(8.5).fillColor(TEXT_SOFT);
     const txt = data.device.description.trim();
     const h = Math.min(doc.heightOfString(txt, { width: W - 12 }), 38);
     drawBlock(doc, M, y, W, h + 8, BG_LIGHT, TEXT);
@@ -216,7 +275,7 @@ function drawAnnexPage(doc: PDFKit.PDFDocument, data: AnnexInput): void {
 
   // ===== POWÓD ANEKSU =====
   y = drawSection(doc, M, y, W, "POWÓD ZMIANY WYCENY");
-  doc.font("R").fontSize(9).fillColor(TEXT);
+  doc.font("R").fontSize(9).fillColor(TEXT_SOFT);
   const reasonTxt = data.summary?.trim() || "(brak opisu)";
   const reasonH = Math.min(doc.heightOfString(reasonTxt, { width: W - 16 }), 60);
   drawBlock(doc, M, y, W, reasonH + 10, BG_LIGHT, TEXT);
@@ -234,11 +293,20 @@ function drawAnnexPage(doc: PDFKit.PDFDocument, data: AnnexInput): void {
     const tileH = 44;
     const { originalAmount, deltaAmount, newAmount } = data.pricing;
 
-    drawAmountTile(doc, M, y, tileW, tileH, "PIERWOTNA KWOTA", formatPLN(originalAmount), BG_LIGHT, TEXT);
+    drawAmountTile(
+      doc,
+      M,
+      y,
+      tileW,
+      tileH,
+      "PIERWOTNA KWOTA",
+      formatPLN(originalAmount),
+      BG_LIGHT,
+      TEXT,
+    );
 
+    // Delta — w grayscale rozróżnienie znak (+/-) zamiast koloru.
     const deltaPositive = deltaAmount >= 0;
-    const deltaBg = deltaPositive ? BG_ACCENT_RED : BG_ACCENT_GREEN;
-    const deltaFg = deltaPositive ? "#b91c1c" : "#15803d";
     const deltaSign = deltaPositive ? "+" : "";
     drawAmountTile(
       doc,
@@ -248,8 +316,8 @@ function drawAnnexPage(doc: PDFKit.PDFDocument, data: AnnexInput): void {
       tileH,
       "DELTA",
       `${deltaSign}${formatPLN(deltaAmount)}`,
-      deltaBg,
-      deltaFg,
+      BG_TILE,
+      TEXT,
     );
 
     drawAmountTile(
@@ -260,7 +328,7 @@ function drawAnnexPage(doc: PDFKit.PDFDocument, data: AnnexInput): void {
       tileH,
       "NOWA KWOTA",
       formatPLN(newAmount),
-      "#fafafa",
+      BG_TILE_DARK,
       TEXT,
       1,
     );
@@ -326,9 +394,23 @@ function drawAnnexPage(doc: PDFKit.PDFDocument, data: AnnexInput): void {
   ]);
   y += 80;
 
-  // ===== SIGNATURES (linie do podpisu) =====
+  // ===== SIGNATURES (linie do podpisu + opcjonalne obrazy) =====
+  // Lewa kolumna: pracownik (po prawej stronie tabeli WYSTAWIA — w kolumnie
+  // lewej zostawiamy linię i podpis pod imieniem nazwiskiem; sygnatura nad
+  // linią). Prawa kolumna: klient — analogicznie.
   const sigW = (W - 24) / 2;
   const SIG_HEIGHT = 32;
+
+  // Pracownik — linia + ewentualny obraz nad nią.
+  if (data.employeeSignatureImage) {
+    try {
+      doc.image(data.employeeSignatureImage, M + sigW * 0.15, y, {
+        fit: [sigW * 0.7, SIG_HEIGHT - 4],
+      });
+    } catch {
+      // ignore — leave empty placeholder
+    }
+  }
   doc
     .moveTo(M, y + SIG_HEIGHT)
     .lineTo(M + sigW, y + SIG_HEIGHT)
@@ -347,17 +429,47 @@ function drawAnnexPage(doc: PDFKit.PDFDocument, data: AnnexInput): void {
       y + SIG_HEIGHT + 4,
       { width: sigW, align: "center", characterSpacing: 0.5 },
     );
+
+  // Klient — linia + ewentualny obraz nad nią + data pod sygnaturą.
+  if (data.customerSignatureImage) {
+    try {
+      doc.image(data.customerSignatureImage, M + sigW + 24 + sigW * 0.15, y, {
+        fit: [sigW * 0.7, SIG_HEIGHT - 4],
+      });
+    } catch {
+      // ignore
+    }
+  }
   doc
     .moveTo(M + sigW + 24, y + SIG_HEIGHT)
     .lineTo(M + W, y + SIG_HEIGHT)
     .lineWidth(0.8)
+    .strokeColor(TEXT)
     .stroke();
-  doc.text("PODPIS KLIENTA", M + sigW + 24, y + SIG_HEIGHT + 4, {
-    width: sigW,
-    align: "center",
-    characterSpacing: 0.5,
-  });
-  y += SIG_HEIGHT + 18;
+  const customerLabel = data.customerSignerName?.trim()
+    ? `PODPIS KLIENTA — ${data.customerSignerName.toUpperCase()}`
+    : "PODPIS KLIENTA";
+  doc
+    .font("R")
+    .fontSize(7)
+    .fillColor(MUTED)
+    .text(customerLabel, M + sigW + 24, y + SIG_HEIGHT + 4, {
+      width: sigW,
+      align: "center",
+      characterSpacing: 0.5,
+    });
+  // Data klienta (opcjonalna, krótka informacja pod podpisem).
+  doc
+    .font("R")
+    .fontSize(6.5)
+    .fillColor(MUTED)
+    .text(
+      `Data: ${formatDateOnly(signedAt)}`,
+      M + sigW + 24,
+      y + SIG_HEIGHT + 14,
+      { width: sigW, align: "center" },
+    );
+  y += SIG_HEIGHT + 22;
 
   // ===== REGULAMIN ANEKSU (krótszy niż pełny) =====
   const FOOTER_H = 22;
@@ -371,7 +483,7 @@ function drawAnnexPage(doc: PDFKit.PDFDocument, data: AnnexInput): void {
     doc
       .font("R")
       .fontSize(6.5)
-      .fillColor("#333")
+      .fillColor("#333333")
       .text(ANNEX_REGULATIONS, M, y + 11, {
         width: W,
         height: regAvailH - 11,
@@ -399,8 +511,8 @@ function drawAnnexPage(doc: PDFKit.PDFDocument, data: AnnexInput): void {
     .fontSize(6.5)
     .fillColor(MUTED)
     .text(footerLeft, M, fy + 6, { width: W - 80 });
-  if (fs.existsSync(LOGO_CASEOWNIA)) {
-    doc.image(LOGO_CASEOWNIA, M + W - 60, fy + 2, { fit: [60, 14] });
+  if (assets.logoFooter) {
+    doc.image(assets.logoFooter, M + W - 60, fy + 2, { fit: [60, 14] });
   }
 }
 
@@ -468,7 +580,7 @@ function drawColumn(
     doc
       .font("R")
       .fontSize(8.5)
-      .fillColor(TEXT)
+      .fillColor(TEXT_SOFT)
       .text(value, x, yy + 7, {
         width: w,
         lineBreak: false,

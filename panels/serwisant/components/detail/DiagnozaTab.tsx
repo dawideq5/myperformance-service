@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Box, Loader2 } from "lucide-react";
+import { Box, Loader2, Pencil } from "lucide-react";
 import type { ServiceTicket } from "../tabs/ServicesBoard";
 import type { ServiceStatus } from "@/lib/serwisant/status-meta";
 import { PhoneViewer3D, type DamageMarker } from "../features/PhoneViewer3D";
 import { PhotoGallery } from "../features/PhotoGallery";
+import { EditDeviceConditionModal } from "./EditDeviceConditionModal";
 
 interface DiagnozaTabProps {
   service: ServiceTicket;
@@ -23,6 +24,8 @@ export function DiagnozaTab({
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [viewerOpen, setViewerOpen] = useState(false);
+  /** Wave 20 / Faza 1D — modal edycji stanu technicznego (oceny + lock + IMEI). */
+  const [conditionEditorOpen, setConditionEditorOpen] = useState(false);
 
   // Reset gdy zmieni się serviceId (przełączenie na inne zlecenie).
   useEffect(() => {
@@ -124,11 +127,33 @@ export function DiagnozaTab({
           damageMarkers={damageMarkers}
           additionalNotes={additionalNotes}
           onClose={() => setViewerOpen(false)}
+          serviceId={service.id}
+          onSaved={(updatedVc) => {
+            // Server source of truth — merge nowego visual_condition do
+            // service ticket żeby PhoneViewer3D nie miał stale data po
+            // ponownym otwarciu.
+            onUpdate({ ...service, visualCondition: updatedVc });
+          }}
         />
       )}
 
       {/* Stan techniczny — oceny sprzedawcy i kod blokady */}
       <Section title="Stan techniczny urządzenia">
+        <div className="flex justify-end mb-2">
+          <button
+            type="button"
+            onClick={() => setConditionEditorOpen(true)}
+            className="px-3 py-1.5 rounded-lg text-xs font-medium border flex items-center gap-1.5"
+            style={{
+              background: "var(--bg-surface)",
+              borderColor: "var(--border-subtle)",
+              color: "var(--text-main)",
+            }}
+          >
+            <Pencil className="w-3.5 h-3.5" />
+            Edytuj
+          </button>
+        </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div
             className="p-2 rounded-lg"
@@ -293,6 +318,17 @@ export function DiagnozaTab({
       <Section title="Zdjęcia diagnostyczne">
         <PhotoGallery serviceId={service.id} stage="diagnosis" />
       </Section>
+
+      {conditionEditorOpen && (
+        <EditDeviceConditionModal
+          service={service}
+          onClose={() => setConditionEditorOpen(false)}
+          onSaved={(updated) => {
+            onUpdate(updated);
+            setConditionEditorOpen(false);
+          }}
+        />
+      )}
 
       {/* Sugerowane akcje statusowe */}
       <Section title="Następny krok">

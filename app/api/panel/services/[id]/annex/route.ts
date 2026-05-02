@@ -20,6 +20,7 @@ import {
 import { getServiceSignerEmail } from "@/lib/service-config";
 import { createHash } from "node:crypto";
 import { log } from "@/lib/logger";
+import { notifyAnnexCreated } from "@/lib/services/notify-annex";
 
 const annexLogger = log.child({ module: "panel-services-annex-create" });
 
@@ -371,6 +372,33 @@ export async function POST(
         },
       });
 
+      // Wave 20 / Faza 1A — notify klienta o utworzonym aneksie. Dla
+      // Documenso path Documenso sam wysyła link do podpisu na email
+      // klienta, więc dodatkowy nasz email jest opcjonalny ale wciąż
+      // dostarcza PDF i fallback link. SMS przez Chatwoot jako reminder.
+      if (annex) {
+        void notifyAnnexCreated({
+          service: {
+            id,
+            ticketNumber: service.ticketNumber,
+            contactEmail: service.contactEmail,
+            contactPhone: service.contactPhone,
+            customerFirstName: service.customerFirstName,
+            customerLastName: service.customerLastName,
+            chatwootConversationId: service.chatwootConversationId,
+          },
+          annex,
+          pdfBuffer,
+          channels: ["email", "sms"],
+        }).catch((err) => {
+          annexLogger.warn("notify-annex post-create failed", {
+            serviceId: id,
+            annexId: annex.id,
+            err: err instanceof Error ? err.message : String(err),
+          });
+        });
+      }
+
       return NextResponse.json(
         { ok: true, annex },
         { status: 201, headers: PANEL_CORS_HEADERS },
@@ -417,6 +445,76 @@ export async function POST(
         acceptanceMethod: body.acceptanceMethod,
       },
     });
+
+    // Wave 20 / Faza 1A — notify klienta przez email + SMS. PDF
+    // generujemy on-the-fly (manualne ścieżki nie mają persistowanego
+    // pdfHash, więc każde wysłanie maila to świeży render).
+    if (annex) {
+      try {
+        const originalAmount =
+          typeof service.amountEstimate === "number"
+            ? service.amountEstimate
+            : 0;
+        const newAmount = Number(
+          (originalAmount + body.deltaAmount).toFixed(2),
+        );
+        const issuedAt = annex.createdAt;
+        const annexInputForPdf: AnnexInput = {
+          ticketNumber: service.ticketNumber ?? "—",
+          serviceCreatedAt: service.createdAt ?? new Date().toISOString(),
+          customer: {
+            firstName: service.customerFirstName ?? "",
+            lastName: service.customerLastName ?? "",
+            phone: service.contactPhone ?? undefined,
+            email: service.contactEmail ?? undefined,
+          },
+          device: {
+            brand: service.brand ?? "",
+            model: service.model ?? "",
+            imei: service.imei ?? "",
+            description: service.description ?? undefined,
+          },
+          editor: { name: editorName, email: user.email },
+          pricing: {
+            originalAmount,
+            deltaAmount: body.deltaAmount,
+            newAmount,
+          },
+          customerSignerName: customerName,
+          summary: body.reason,
+          signedAt: issuedAt,
+          issuedAt,
+        };
+        const pdfBuffer = await renderAnnexPdf(annexInputForPdf);
+        void notifyAnnexCreated({
+          service: {
+            id,
+            ticketNumber: service.ticketNumber,
+            contactEmail: service.contactEmail,
+            contactPhone: service.contactPhone,
+            customerFirstName: service.customerFirstName,
+            customerLastName: service.customerLastName,
+            chatwootConversationId: service.chatwootConversationId,
+          },
+          annex,
+          pdfBuffer,
+          channels: ["email", "sms"],
+        }).catch((err) => {
+          annexLogger.warn("notify-annex manual post-create failed", {
+            serviceId: id,
+            annexId: annex.id,
+            err: err instanceof Error ? err.message : String(err),
+          });
+        });
+      } catch (renderErr) {
+        annexLogger.warn("notify-annex render PDF failed", {
+          serviceId: id,
+          annexId: annex.id,
+          err: renderErr instanceof Error ? renderErr.message : String(renderErr),
+        });
+      }
+    }
+
     return NextResponse.json(
       { ok: true, annex },
       { status: 201, headers: PANEL_CORS_HEADERS },

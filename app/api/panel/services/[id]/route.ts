@@ -233,6 +233,50 @@ export async function PATCH(
     body.visualCondition = vcPatch as typeof body.visualCondition;
   }
 
+  // Pre-compute per-marker diff (Wave 20 / Faza 1D). Logujemy każdą zmianę
+  // markera osobno do mp_service_actions (panel historii). Diff robimy PRZED
+  // updateService — używa to base z `existing` żeby zlapać dokładne `before`.
+  const markerDiff = (() => {
+    if (!body.visualCondition) return null;
+    const incomingMarkers = (body.visualCondition as { damage_markers?: unknown })
+      .damage_markers;
+    if (!Array.isArray(incomingMarkers)) return null;
+    const before = (existing.visualCondition?.damage_markers ?? []) as Array<{
+      id: string;
+      surface?: string | null;
+      description?: string | null;
+    }>;
+    const after = incomingMarkers as Array<{
+      id: string;
+      surface?: string | null;
+      description?: string | null;
+    }>;
+    const beforeMap = new Map(before.map((m) => [m.id, m]));
+    const afterMap = new Map(after.map((m) => [m.id, m]));
+    const added = after.filter((m) => !beforeMap.has(m.id));
+    const removed = before.filter((m) => !afterMap.has(m.id));
+    const updated = after.filter((m) => {
+      const b = beforeMap.get(m.id);
+      if (!b) return false;
+      return (
+        (b.description ?? "") !== (m.description ?? "") ||
+        (b.surface ?? "") !== (m.surface ?? "")
+      );
+    });
+    return { added, removed, updated };
+  })();
+  // Diff dla additional_notes — osobny event (notes_updated).
+  const notesChanged = (() => {
+    if (!body.visualCondition) return null;
+    const an = (body.visualCondition as { additional_notes?: unknown })
+      .additional_notes;
+    if (an === undefined) return null;
+    const before = existing.visualCondition?.additional_notes ?? "";
+    const after = typeof an === "string" ? an : "";
+    if (before === after) return null;
+    return { before, after };
+  })();
+
   try {
     const service = await updateService(id, body);
     // Zapisz rewizję — best-effort, błąd nie blokuje update'u.
@@ -244,6 +288,142 @@ export async function PATCH(
         name: user.name?.trim() || user.preferred_username || user.email,
       },
     });
+    // Per-marker action log (Wave 20). Best-effort — błąd nie blokuje
+    // response. Każdy marker dostaje osobny rekord w mp_service_actions
+    // z payload {markerId, surface, description (before/after)}.
+    if (markerDiff) {
+      const actor = {
+        email: user.email,
+        name: user.name?.trim() || user.preferred_username || user.email,
+      };
+      for (const m of markerDiff.added) {
+        void logServiceAction({
+          serviceId: service.id,
+          ticketNumber: service.ticketNumber,
+          action: "damage_marker_added",
+          actor,
+          summary: `Dodano marker uszkodzenia (${m.surface ?? "—"})`,
+          payload: {
+            markerId: m.id,
+            surface: m.surface ?? null,
+            description: m.description ?? null,
+          },
+        });
+      }
+      for (const m of markerDiff.removed) {
+        void logServiceAction({
+          serviceId: service.id,
+          ticketNumber: service.ticketNumber,
+          action: "damage_marker_removed",
+          actor,
+          summary: `Usunięto marker uszkodzenia (${m.surface ?? "—"})`,
+          payload: {
+            markerId: m.id,
+            surface: m.surface ?? null,
+            description: m.description ?? null,
+          },
+        });
+      }
+      for (const m of markerDiff.updated) {
+        const beforeRow = (existing.visualCondition?.damage_markers ?? []).find(
+          (b) => b.id === m.id,
+        );
+        void logServiceAction({
+          serviceId: service.id,
+          ticketNumber: service.ticketNumber,
+          action: "damage_marker_updated",
+          actor,
+          summary: `Zaktualizowano marker (${m.surface ?? "—"})`,
+          payload: {
+            markerId: m.id,
+            surface: m.surface ?? null,
+            descriptionBefore: beforeRow?.description ?? null,
+            descriptionAfter: m.description ?? null,
+          },
+        });
+      }
+    }
+    if (notesChanged) {
+      void logServiceAction({
+        serviceId: service.id,
+        ticketNumber: service.ticketNumber,
+        action: "visual_notes_updated",
+        actor: {
+          email: user.email,
+          name: user.name?.trim() || user.preferred_username || user.email,
+        },
+        summary: "Zaktualizowano uwagi do stanu wizualnego",
+        payload: {
+          before: notesChanged.before,
+          after: notesChanged.after,
+        },
+      });
+    }
+    // Wave 20 / Faza 1D — agregowane action kinds dla edycji w panelu
+    // serwisanta. Patrzymy na pola które się zmieniły (z `diff.changes`)
+    // i emit'ujemy odpowiedni action kind. Każdy log jest best-effort.
+    const actor = {
+      email: user.email,
+      name: user.name?.trim() || user.preferred_username || user.email,
+    };
+    const customerFields = [
+      "customerFirstName",
+      "customerLastName",
+      "contactPhone",
+      "contactEmail",
+    ];
+    const customerChanged = customerFields.some(
+      (f) => f in diff.changes,
+    );
+    if (customerChanged) {
+      void logServiceAction({
+        serviceId: service.id,
+        ticketNumber: service.ticketNumber,
+        action: "customer_data_updated",
+        actor,
+        summary: "Zaktualizowano dane klienta",
+        payload: Object.fromEntries(
+          customerFields
+            .filter((f) => f in diff.changes)
+            .map((f) => [f, diff.changes[f]]),
+        ),
+      });
+    }
+    const conditionFields = [
+      "lockCode",
+      "imei",
+      "visualCondition",
+      "intakeChecklist",
+      "chargingCurrent",
+    ];
+    const conditionChanged = conditionFields.some(
+      (f) => f in diff.changes,
+    );
+    if (conditionChanged) {
+      void logServiceAction({
+        serviceId: service.id,
+        ticketNumber: service.ticketNumber,
+        action: "device_condition_updated",
+        actor,
+        summary: "Zaktualizowano stan techniczny urządzenia",
+        payload: {
+          changedFields: conditionFields.filter((f) => f in diff.changes),
+        },
+      });
+    }
+    if ("description" in diff.changes) {
+      void logServiceAction({
+        serviceId: service.id,
+        ticketNumber: service.ticketNumber,
+        action: "repair_type_changed",
+        actor,
+        summary: "Zmieniono opis / typ naprawy",
+        payload: {
+          before: diff.changes.description?.before ?? null,
+          after: diff.changes.description?.after ?? null,
+        },
+      });
+    }
     return NextResponse.json(
       {
         service,

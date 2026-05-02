@@ -19,7 +19,14 @@ import type {
 
 interface AnnexBuilderProps {
   serviceId: string;
-  currentAmount: number;
+  /** Pierwotna kwota (przed zmianą wyceny). Wave 20: prefill z parenta —
+   * AnnexBuilder NIE przyjmuje już ręcznego deltaInput. */
+  previousAmount: number;
+  /** Nowa kwota (po zmianie wyceny). Wylicza delta automatycznie. */
+  newAmount: number;
+  /** Powód zmiany wyceny — przekazany z WycenaTab po quote-update. User
+   * może edytować w trybie review przed wysłaniem aneksu. */
+  prefilledReason: string;
   customerEmail?: string;
   customerPhone?: string;
   onCreated?: (annex: ServiceAnnex) => void;
@@ -32,32 +39,19 @@ interface ApiError {
 }
 
 /**
- * Wave 19/Faza 1E — uproszczony 3-trybowy builder aneksu.
+ * Wave 20 / Faza 1A — AnnexBuilder bez ręcznego delta input.
  *
- * Smart defaults:
- *  - method: documenso gdy email klienta istnieje, inaczej phone (jeśli
- *    telefon jest), inaczej email (manual lookup po messageId).
- *  - delta: 0,00 PLN start.
- *  - reason chips: szybkie wstawienie typowych powodów (bateria/wyświetlacz
- *    /dodatkowa diagnostyka). User może edytować free text.
+ * Flow:
+ *  - Parent (WycenaTab) wywołuje quote-update → backend zwraca
+ *    `requiresAnnexConfirmation + suggestedAnnex { previousAmount, newAmount,
+ *    delta, reason }`. Parent otwiera AnnexBuilder z prefillem.
+ *  - AnnexBuilder pokazuje read-only summary 3 kwot (pierwotna / nowa /
+ *    delta) i pozwala wybrać tylko **metodę akceptacji** + opcjonalne pola
+ *    per metoda.
+ *  - Powód zmiany jest pre-fillowany (z quote-update) — user może go
+ *    poprawić przed wysłaniem aneksu, ale nie wymaga ponownego wpisywania.
  *
- * UX:
- *  - Kompaktowy segmented control z ikonami zamiast verbose radio.
- *  - Pokazuje tylko relevant pola dla wybranej metody.
- *  - Preview PDF — otwiera nową kartę z `/annex/preview` (server render
- *    on-the-fly, bez zapisu w DB).
- *  - Inline confirmation card po sukcesie zamiast generic toast (parent
- *    `WycenaTab` pokazuje status w liście aneksów).
- *
- * Real-time:
- *  - SSE bus (`lib/sse-bus.ts`) PUBLISHES eventy `action_logged` z
- *    payload.action `annex_created/accepted/rejected`. Front-end subscriber
- *    `/api/events` jeszcze nie istnieje (Wave 19/Phase 1D ma backend bus,
- *    `/api/events` endpoint i `useSseEvents` hook są TODO). Po dostarczeniu:
- *    parent `WycenaTab` zasubskrybuje `service:${serviceId}` i automatycznie
- *    refresh-uje listy aneksów.
- *
- * Backend kontrakt (Phase 1 audit):
+ * Backend kontrakt:
  *  - `POST /annex` z `acceptanceMethod=documenso` od razu wysyła do podpisu
  *    (auto-sign jako pracownik) — single call.
  *  - `POST /annex` z `phone`/`email` zawsze tworzy aneks w stanie `pending`
@@ -65,18 +59,11 @@ interface ApiError {
  *    quote-history. Implementujemy 2-step.
  */
 
-const REASON_SUGGESTIONS = [
-  "Dodatkowa wymiana baterii",
-  "Naprawa skomplikowana niż początkowa diagnoza",
-  "Wymiana wyświetlacza zamiast samego digitizera",
-  "Wykryto zalanie — czyszczenie ultradźwiękowe",
-  "Wymiana złącza ładowania",
-  "Dodatkowa diagnostyka (czas pracy)",
-];
-
 export function AnnexBuilder({
   serviceId,
-  currentAmount,
+  previousAmount,
+  newAmount,
+  prefilledReason,
   customerEmail,
   customerPhone,
   onCreated,
@@ -89,8 +76,7 @@ export function AnnexBuilder({
       : "email";
 
   const [method, setMethod] = useState<AnnexAcceptanceMethod>(initialMethod);
-  const [deltaInput, setDeltaInput] = useState<string>("0,00");
-  const [reason, setReason] = useState("");
+  const [reason, setReason] = useState(prefilledReason);
   const [customerName, setCustomerName] = useState("");
   const [messageId, setMessageId] = useState("");
   const [note, setNote] = useState("");
@@ -116,20 +102,15 @@ export function AnnexBuilder({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const deltaParsed = useMemo(() => {
-    const trimmed = deltaInput.trim().replace(",", ".");
-    if (trimmed === "" || trimmed === "-" || trimmed === "+") return null;
-    const n = Number(trimmed);
-    return Number.isFinite(n) ? n : null;
-  }, [deltaInput]);
-
-  const newAmount = useMemo(() => {
-    if (deltaParsed == null) return null;
-    return Math.round((currentAmount + deltaParsed) * 100) / 100;
-  }, [currentAmount, deltaParsed]);
+  // Delta wyliczana raz z props — nie pozwalamy na ręczną edycję.
+  const delta = useMemo(
+    () => Number((newAmount - previousAmount).toFixed(2)),
+    [previousAmount, newAmount],
+  );
+  const deltaSign = delta > 0 ? "+" : delta < 0 ? "−" : "";
 
   const reasonValid = reason.trim().length >= 4;
-  const deltaValid = deltaParsed != null && deltaParsed !== 0;
+  const deltaValid = delta !== 0;
 
   const phoneValid =
     method !== "phone" || (customerName.trim().length > 0 && note.trim().length > 0);
@@ -174,7 +155,7 @@ export function AnnexBuilder({
   const openPreview = () => {
     if (!canPreview) return;
     const params = new URLSearchParams();
-    params.set("delta", String(deltaParsed));
+    params.set("delta", String(delta));
     params.set("reason", reason.trim());
     if (method === "phone" && customerName.trim()) {
       params.set("customerName", customerName.trim());
@@ -191,7 +172,7 @@ export function AnnexBuilder({
     setError(null);
     try {
       const createBody: Record<string, unknown> = {
-        deltaAmount: deltaParsed,
+        deltaAmount: delta,
         reason: reason.trim(),
         acceptanceMethod: method,
       };
@@ -288,7 +269,7 @@ export function AnnexBuilder({
           style={{ borderColor: "var(--border-subtle)" }}
         >
           <h2 id="annex-builder-title" className="text-base font-semibold">
-            Stwórz aneks do zlecenia
+            Wyślij aneks do klienta
           </h2>
           <button
             type="button"
@@ -302,104 +283,84 @@ export function AnnexBuilder({
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
-          {/* Delta + reason */}
-          <div className="space-y-3">
-            <label className="block">
-              <span
-                className="block text-xs font-medium mb-1"
-                style={{ color: "var(--text-muted)" }}
-              >
-                Kwota delta (PLN)
-              </span>
-              <input
-                type="text"
-                inputMode="decimal"
-                value={deltaInput}
-                onChange={(e) => setDeltaInput(e.target.value)}
-                placeholder="np. +150,00 lub -50"
-                className="w-full px-3 py-2 rounded-lg border text-sm outline-none font-mono"
-                style={{
-                  background: "var(--bg-surface)",
-                  borderColor: "var(--border-subtle)",
-                  color: "var(--text-main)",
-                }}
-                aria-describedby="annex-amount-preview"
-              />
-              <p
-                id="annex-amount-preview"
-                className="mt-1 text-[11px]"
-                style={{ color: "var(--text-muted)" }}
-              >
-                Aktualna kwota: {currentAmount.toFixed(2)} PLN
-                {newAmount != null && (
-                  <>
-                    {" → "}
-                    <span
-                      className="font-semibold"
-                      style={{
-                        color:
-                          deltaParsed != null && deltaParsed >= 0
-                            ? "#22c55e"
-                            : "#ef4444",
-                      }}
-                    >
-                      {newAmount.toFixed(2)} PLN
-                    </span>
-                  </>
-                )}
-              </p>
-            </label>
-
-            <label className="block">
-              <span
-                className="block text-xs font-medium mb-1"
-                style={{ color: "var(--text-muted)" }}
-              >
-                Powód aneksu
-              </span>
-              <textarea
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                rows={3}
-                placeholder="np. Wymiana baterii — wykryto spuchnięcie, dodatkowy koszt 80 PLN"
-                className="w-full px-3 py-2 rounded-lg border text-sm outline-none resize-none"
-                style={{
-                  background: "var(--bg-surface)",
-                  borderColor: "var(--border-subtle)",
-                  color: "var(--text-main)",
-                }}
-                aria-describedby="annex-reason-help annex-reason-suggestions"
-              />
-              <p
-                id="annex-reason-help"
-                className="mt-1 text-[10px]"
-                style={{ color: "var(--text-muted)" }}
-              >
-                Min. 4 znaki. Kliknij chip żeby wstawić typowy powód.
-              </p>
-              <div
-                id="annex-reason-suggestions"
-                className="mt-2 flex flex-wrap gap-1.5"
-                aria-label="Typowe powody aneksu"
-              >
-                {REASON_SUGGESTIONS.map((s) => (
-                  <button
-                    type="button"
-                    key={s}
-                    onClick={() => setReason(s)}
-                    className="px-2 py-1 rounded-md text-[10px] border transition-colors hover:bg-black/10"
-                    style={{
-                      background: "var(--bg-surface)",
-                      borderColor: "var(--border-subtle)",
-                      color: "var(--text-main)",
-                    }}
-                  >
-                    {s}
-                  </button>
-                ))}
+          {/* Read-only pricing summary */}
+          <div
+            className="rounded-xl border p-4"
+            style={{
+              background: "var(--bg-surface)",
+              borderColor: "var(--border-subtle)",
+            }}
+          >
+            <p
+              className="text-[10px] uppercase tracking-wider font-semibold mb-2"
+              style={{ color: "var(--text-muted)" }}
+            >
+              Zmiana wyceny
+            </p>
+            <dl className="space-y-1.5 text-sm font-mono">
+              <div className="flex justify-between">
+                <dt style={{ color: "var(--text-muted)" }}>
+                  Pierwotna wycena:
+                </dt>
+                <dd>{previousAmount.toFixed(2)} PLN</dd>
               </div>
-            </label>
+              <div className="flex justify-between">
+                <dt style={{ color: "var(--text-muted)" }}>Nowa wycena:</dt>
+                <dd>{newAmount.toFixed(2)} PLN</dd>
+              </div>
+              <div
+                className="flex justify-between pt-1.5 border-t"
+                style={{ borderColor: "var(--border-subtle)" }}
+              >
+                <dt
+                  className="font-semibold"
+                  style={{ color: "var(--text-main)" }}
+                >
+                  Różnica:
+                </dt>
+                <dd className="font-semibold">
+                  {deltaSign}
+                  {Math.abs(delta).toFixed(2)} PLN
+                </dd>
+              </div>
+            </dl>
+            {!deltaValid && (
+              <p className="mt-2 text-[11px]" style={{ color: "#ef4444" }}>
+                Aneks wymaga niezerowej różnicy między pierwotną a nową kwotą.
+              </p>
+            )}
           </div>
+
+          {/* Reason — pre-filled, editable */}
+          <label className="block">
+            <span
+              className="block text-xs font-medium mb-1"
+              style={{ color: "var(--text-muted)" }}
+            >
+              Powód zmiany wyceny
+            </span>
+            <textarea
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              rows={2}
+              placeholder="np. Dodatkowa wymiana baterii — wykryto spuchnięcie."
+              className="w-full px-3 py-2 rounded-lg border text-sm outline-none resize-none"
+              style={{
+                background: "var(--bg-surface)",
+                borderColor: "var(--border-subtle)",
+                color: "var(--text-main)",
+              }}
+              aria-describedby="annex-reason-help"
+            />
+            <p
+              id="annex-reason-help"
+              className="mt-1 text-[10px]"
+              style={{ color: "var(--text-muted)" }}
+            >
+              Pre-fill z aktualizacji wyceny. Min. 4 znaki — możesz dopisać
+              szczegóły dla klienta.
+            </p>
+          </label>
 
           {/* Method segmented control */}
           <div>
@@ -703,7 +664,7 @@ export function AnnexBuilder({
             title={
               canPreview
                 ? "Otwórz podgląd PDF w nowej karcie"
-                : "Uzupełnij delta i powód, aby zobaczyć podgląd"
+                : "Uzupełnij powód, aby zobaczyć podgląd"
             }
           >
             <Eye className="w-3.5 h-3.5" />
@@ -731,7 +692,7 @@ export function AnnexBuilder({
               style={{ background: "var(--accent)", color: "#fff" }}
             >
               {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
-              Stwórz aneks
+              Wyślij aneks
             </button>
           </div>
         </div>

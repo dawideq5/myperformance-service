@@ -17,7 +17,7 @@ const ALLOWED_PANEL_PREFIXES = new Set([
   "transport-jobs",
   "service-locations",
 ]);
-const ALLOWED_ACCOUNT_PREFIXES = new Set(["inbox"]);
+const ALLOWED_ACCOUNT_PREFIXES = new Set(["inbox", "preferences"]);
 // Top-level non-panel mounts that the serwisant UI is allowed to call. Each
 // entry maps the segment 1:1 to `/api/<segment>/...` on the dashboard.
 const ALLOWED_ROOT_PREFIXES = new Set(["upload-bridge"]);

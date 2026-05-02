@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
+import Image from "next/image";
 import {
   AlertCircle,
   Camera,
@@ -74,6 +75,16 @@ interface UploadClientProps {
   token: string;
 }
 
+/**
+ * Upload Bridge — dark theme spójny z myperformance.pl. Mobilna sesja
+ * przesyłania zdjęć powiązana z tokenowym QR z panelu serwisanta.
+ *
+ * Design:
+ *   - Header z brandowanym logo serwis-by-caseownia + kontekst zlecenia.
+ *   - Card-based UI: var(--bg-card) nad var(--bg-main).
+ *   - Accent indigo (var(--accent)) dla primary action (Camera CTA).
+ *   - prefers-reduced-motion: animacja fade-in jest disabled.
+ */
 export function UploadClient({ token }: UploadClientProps) {
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [statusLoading, setStatusLoading] = useState(true);
@@ -107,14 +118,14 @@ export function UploadClient({ token }: UploadClientProps) {
     void refreshStatus();
   }, [refreshStatus]);
 
-  // Periodic status refresh — every 10s, only while valid
+  // Periodic status refresh — every 10s, only while valid.
   useEffect(() => {
     if (!status?.valid) return;
     const id = window.setInterval(() => void refreshStatus(), 10_000);
     return () => window.clearInterval(id);
   }, [refreshStatus, status?.valid]);
 
-  // Countdown tick — 1s
+  // Countdown tick — 1s.
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(id);
@@ -237,7 +248,7 @@ export function UploadClient({ token }: UploadClientProps) {
         });
       }
       setItems((prev) => [...next, ...prev]);
-      // Trigger uploads sequentially (simpler, fewer rate-limit collisions)
+      // Trigger uploads sequentially (simpler, fewer rate-limit collisions).
       void (async () => {
         for (const it of next) {
           if (it.status === "pending") {
@@ -262,9 +273,9 @@ export function UploadClient({ token }: UploadClientProps) {
       <main className="mx-auto flex min-h-screen max-w-md items-center justify-center px-6 py-12">
         <div
           className="flex items-center gap-3 text-sm"
-          style={{ color: "var(--brand-muted)" }}
+          style={{ color: "var(--text-muted)" }}
         >
-          <Loader2 className="h-5 w-5 animate-spin" />
+          <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
           Sprawdzam link…
         </div>
       </main>
@@ -273,19 +284,22 @@ export function UploadClient({ token }: UploadClientProps) {
 
   if (tokenInvalid) {
     return (
-      <main className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center gap-6 px-6 py-12 text-center">
+      <main className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center gap-6 px-6 py-12 text-center mp-fade-in">
+        <BrandHeader />
         <div
           className="flex h-16 w-16 items-center justify-center rounded-full"
           style={{
-            background: "rgba(220, 38, 38, 0.08)",
-            color: "var(--brand-error)",
+            background: "rgba(239, 68, 68, 0.12)",
+            color: "var(--error)",
           }}
         >
-          <AlertCircle className="h-8 w-8" />
+          <AlertCircle className="h-8 w-8" aria-hidden="true" />
         </div>
         <div>
-          <h1 className="text-xl font-semibold">Link nie jest aktywny</h1>
-          <p className="mt-2 text-sm" style={{ color: "var(--brand-muted)" }}>
+          <h1 className="text-xl font-semibold" style={{ color: "var(--text-main)" }}>
+            Link nie jest aktywny
+          </h1>
+          <p className="mt-2 text-sm" style={{ color: "var(--text-muted)" }}>
             {status?.reason ??
               "Token wygasł lub został unieważniony. Wygeneruj nowy QR z panelu serwisanta."}
           </p>
@@ -295,50 +309,59 @@ export function UploadClient({ token }: UploadClientProps) {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-md flex-col gap-5 px-4 py-6 sm:py-10">
+    <main className="mx-auto flex min-h-screen max-w-md flex-col gap-5 px-4 py-6 sm:py-8 mp-fade-in">
+      <BrandHeader />
+
       <header
-        className="rounded-2xl border bg-white p-4 shadow-sm"
-        style={{ borderColor: "var(--brand-border)" }}
+        className="rounded-2xl border p-4"
+        style={{
+          background: "var(--bg-card)",
+          borderColor: "var(--border-subtle)",
+        }}
       >
         <div className="flex items-start justify-between gap-3">
-          <div className="space-y-1">
+          <div className="space-y-1 min-w-0">
             <p
-              className="text-[11px] font-semibold uppercase tracking-wider"
-              style={{ color: "var(--brand-primary-strong)" }}
+              className="text-[10px] font-semibold uppercase tracking-wider"
+              style={{ color: "var(--accent)" }}
             >
               Upload zdjęć
             </p>
-            <h1 className="text-lg font-semibold leading-tight">
+            <h1
+              className="text-lg font-semibold leading-tight truncate"
+              style={{ color: "var(--text-main)" }}
+            >
               Zlecenie {status?.ticketNumber ?? status?.serviceId ?? "—"}
             </h1>
             {status?.stage && (
-              <p className="text-xs" style={{ color: "var(--brand-muted)" }}>
+              <p className="text-xs" style={{ color: "var(--text-muted)" }}>
                 Etap:{" "}
-                <span className="font-medium" style={{ color: "var(--brand-text)" }}>
+                <span
+                  className="font-medium"
+                  style={{ color: "var(--text-main)" }}
+                >
                   {STAGE_LABELS[status.stage] ?? status.stage}
                 </span>
               </p>
             )}
           </div>
-          <div className="flex flex-col items-end gap-1">
+          <div className="flex flex-col items-end gap-1 flex-shrink-0">
             <span
               className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium"
               style={{
                 background: expired
-                  ? "rgba(220, 38, 38, 0.08)"
-                  : "rgba(22, 163, 74, 0.08)",
-                color: expired
-                  ? "var(--brand-error)"
-                  : "var(--brand-success)",
+                  ? "rgba(239, 68, 68, 0.12)"
+                  : "rgba(16, 185, 129, 0.12)",
+                color: expired ? "var(--error)" : "var(--success)",
               }}
               aria-live="polite"
             >
-              <Clock className="h-3 w-3" />
+              <Clock className="h-3 w-3" aria-hidden="true" />
               {formatRemaining(expiresMs)}
             </span>
             <span
               className="text-[10px]"
-              style={{ color: "var(--brand-muted)" }}
+              style={{ color: "var(--text-muted)" }}
             >
               {status?.photosUploaded ?? 0} przesłanych
             </span>
@@ -351,21 +374,30 @@ export function UploadClient({ token }: UploadClientProps) {
           role="alert"
           className="flex items-start gap-2 rounded-xl px-3 py-2 text-xs"
           style={{
-            background: "rgba(220, 38, 38, 0.08)",
-            color: "var(--brand-error)",
+            background: "rgba(239, 68, 68, 0.12)",
+            color: "var(--error)",
+            border: "1px solid rgba(239, 68, 68, 0.2)",
           }}
         >
-          <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+          <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" />
           <span>{statusError}</span>
         </div>
       )}
 
       {!sessionDone && (
         <section
-          className="space-y-3 rounded-2xl border bg-white p-4 shadow-sm"
-          style={{ borderColor: "var(--brand-border)" }}
+          className="space-y-3 rounded-2xl border p-4"
+          style={{
+            background: "var(--bg-card)",
+            borderColor: "var(--border-subtle)",
+          }}
         >
-          <p className="text-sm font-medium">Dodaj zdjęcia</p>
+          <p
+            className="text-sm font-medium"
+            style={{ color: "var(--text-main)" }}
+          >
+            Dodaj zdjęcia
+          </p>
           <div className="grid grid-cols-2 gap-2">
             <input
               ref={cameraInputRef}
@@ -397,9 +429,9 @@ export function UploadClient({ token }: UploadClientProps) {
               onClick={() => cameraInputRef.current?.click()}
               className="flex min-h-[88px] flex-col items-center justify-center gap-1.5 rounded-xl px-3 py-3 text-sm font-medium transition-transform active:scale-[0.98]"
               style={{
-                background: "var(--brand-primary)",
+                background: "var(--accent)",
                 color: "#fff",
-                boxShadow: "0 8px 18px -8px rgba(249, 115, 22, 0.55)",
+                boxShadow: "0 8px 22px -10px rgba(99, 102, 241, 0.6)",
               }}
             >
               <Camera className="h-6 w-6" aria-hidden="true" />
@@ -410,20 +442,20 @@ export function UploadClient({ token }: UploadClientProps) {
               onClick={() => galleryInputRef.current?.click()}
               className="flex min-h-[88px] flex-col items-center justify-center gap-1.5 rounded-xl border px-3 py-3 text-sm font-medium transition-transform active:scale-[0.98]"
               style={{
-                background: "#fff",
-                borderColor: "var(--brand-border)",
-                color: "var(--brand-text)",
+                background: "var(--bg-surface)",
+                borderColor: "var(--border-subtle)",
+                color: "var(--text-main)",
               }}
             >
               <ImagePlus
                 className="h-6 w-6"
                 aria-hidden="true"
-                style={{ color: "var(--brand-primary)" }}
+                style={{ color: "var(--accent)" }}
               />
               Z galerii
             </button>
           </div>
-          <p className="text-[11px]" style={{ color: "var(--brand-muted)" }}>
+          <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
             JPEG / PNG / WebP / HEIC, max{" "}
             {Math.round(MAX_FILE_BYTES / 1024 / 1024)} MB. Możesz wybrać kilka
             naraz.
@@ -433,16 +465,24 @@ export function UploadClient({ token }: UploadClientProps) {
 
       {sessionDone && (
         <section
-          className="rounded-2xl border bg-white p-4 text-center shadow-sm"
-          style={{ borderColor: "var(--brand-border)" }}
+          className="rounded-2xl border p-4 text-center"
+          style={{
+            background: "var(--bg-card)",
+            borderColor: "var(--border-subtle)",
+          }}
         >
           <CheckCircle2
             className="mx-auto h-8 w-8"
-            style={{ color: "var(--brand-success)" }}
+            style={{ color: "var(--success)" }}
             aria-hidden="true"
           />
-          <p className="mt-2 text-sm font-medium">Sesja zakończona</p>
-          <p className="mt-1 text-xs" style={{ color: "var(--brand-muted)" }}>
+          <p
+            className="mt-2 text-sm font-medium"
+            style={{ color: "var(--text-main)" }}
+          >
+            Sesja zakończona
+          </p>
+          <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
             Wygeneruj nowy QR z panelu, aby przesłać kolejne zdjęcia.
           </p>
         </section>
@@ -451,34 +491,43 @@ export function UploadClient({ token }: UploadClientProps) {
       {items.length > 0 && (
         <section className="space-y-2">
           <div className="flex items-center justify-between px-1">
-            <h2 className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--brand-muted)" }}>
+            <h2
+              className="text-xs font-semibold uppercase tracking-wider"
+              style={{ color: "var(--text-muted)" }}
+            >
               W tej sesji
             </h2>
             <button
               type="button"
               onClick={() => void refreshStatus()}
               className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px]"
-              style={{ color: "var(--brand-muted)" }}
+              style={{ color: "var(--text-muted)" }}
               aria-label="Odśwież status"
             >
-              <RefreshCw className="h-3 w-3" /> Odśwież
+              <RefreshCw className="h-3 w-3" aria-hidden="true" /> Odśwież
             </button>
           </div>
           <ul className="space-y-2" role="list">
             {items.map((it) => (
               <li
                 key={it.localId}
-                className="flex items-center gap-3 rounded-xl border bg-white p-2 shadow-sm"
-                style={{ borderColor: "var(--brand-border)" }}
+                className="flex items-center gap-3 rounded-xl border p-2"
+                style={{
+                  background: "var(--bg-card)",
+                  borderColor: "var(--border-subtle)",
+                }}
               >
                 <PreviewThumb item={it} />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">
+                  <p
+                    className="truncate text-sm font-medium"
+                    style={{ color: "var(--text-main)" }}
+                  >
                     {it.file.name}
                   </p>
                   <p
                     className="text-[11px]"
-                    style={{ color: "var(--brand-muted)" }}
+                    style={{ color: "var(--text-muted)" }}
                   >
                     {(it.file.size / 1024).toFixed(0)} kB ·{" "}
                     {it.status === "uploading"
@@ -492,13 +541,13 @@ export function UploadClient({ token }: UploadClientProps) {
                   {it.status === "uploading" && (
                     <div
                       className="mt-1 h-1 w-full overflow-hidden rounded-full"
-                      style={{ background: "rgba(0, 0, 0, 0.06)" }}
+                      style={{ background: "rgba(255, 255, 255, 0.06)" }}
                     >
                       <div
                         className="h-full"
                         style={{
                           width: `${Math.max(it.progress, 8)}%`,
-                          background: "var(--brand-primary)",
+                          background: "var(--accent)",
                           transition: "width 200ms ease-out",
                         }}
                       />
@@ -507,7 +556,7 @@ export function UploadClient({ token }: UploadClientProps) {
                   {it.error && (
                     <p
                       className="mt-1 text-[11px]"
-                      style={{ color: "var(--brand-error)" }}
+                      style={{ color: "var(--error)" }}
                     >
                       {it.error}
                     </p>
@@ -517,14 +566,14 @@ export function UploadClient({ token }: UploadClientProps) {
                   {it.status === "uploading" && (
                     <Loader2
                       className="h-4 w-4 animate-spin"
-                      style={{ color: "var(--brand-primary)" }}
+                      style={{ color: "var(--accent)" }}
                       aria-label="Wysyłanie"
                     />
                   )}
                   {it.status === "done" && (
                     <CheckCircle2
                       className="h-4 w-4"
-                      style={{ color: "var(--brand-success)" }}
+                      style={{ color: "var(--success)" }}
                       aria-label="Wysłane"
                     />
                   )}
@@ -533,10 +582,10 @@ export function UploadClient({ token }: UploadClientProps) {
                       type="button"
                       onClick={() => removeItem(it.localId)}
                       className="rounded-full p-1"
-                      style={{ color: "var(--brand-muted)" }}
+                      style={{ color: "var(--text-muted)" }}
                       aria-label="Usuń wpis"
                     >
-                      <X className="h-4 w-4" />
+                      <X className="h-4 w-4" aria-hidden="true" />
                     </button>
                   )}
                 </div>
@@ -548,11 +597,46 @@ export function UploadClient({ token }: UploadClientProps) {
 
       <footer
         className="pt-4 text-center text-[11px]"
-        style={{ color: "var(--brand-muted)" }}
+        style={{ color: "var(--text-muted)" }}
       >
-        Caseownia · Upload Bridge
+        myperformance.pl · Upload Bridge
       </footer>
     </main>
+  );
+}
+
+function BrandHeader() {
+  return (
+    <div
+      className="flex items-center gap-3 rounded-2xl border px-4 py-3"
+      style={{
+        background: "var(--bg-header)",
+        borderColor: "var(--border-subtle)",
+      }}
+    >
+      <Image
+        src="/logo.png"
+        alt="Serwis by Caseownia"
+        width={40}
+        height={40}
+        priority
+        className="rounded-lg"
+      />
+      <div className="min-w-0">
+        <p
+          className="text-sm font-semibold leading-tight truncate"
+          style={{ color: "var(--text-main)" }}
+        >
+          Serwis by Caseownia
+        </p>
+        <p
+          className="text-[11px] truncate"
+          style={{ color: "var(--text-muted)" }}
+        >
+          Bezpieczny upload zdjęć
+        </p>
+      </div>
+    </div>
   );
 }
 
@@ -566,7 +650,7 @@ function PreviewThumb({ item }: { item: UploadItem }) {
   return (
     <div
       className="h-12 w-12 flex-shrink-0 overflow-hidden rounded-lg"
-      style={{ background: "rgba(0, 0, 0, 0.06)" }}
+      style={{ background: "var(--bg-surface)" }}
     >
       {src ? (
         // eslint-disable-next-line @next/next/no-img-element

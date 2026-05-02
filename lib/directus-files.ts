@@ -38,6 +38,7 @@ function getConfig(): { baseUrl: string; token: string; dashboardUrl: string } |
 
 const FOLDER_NAME = "locations";
 const SERVICE_PHOTOS_FOLDER = "service-photos";
+const SERVICE_INVOICES_FOLDER = "service-invoices";
 
 /**
  * Find or create folder w Directus Files (idempotent).
@@ -80,10 +81,20 @@ async function ensureServicePhotosFolder(): Promise<string | null> {
   return ensureFolderByName(SERVICE_PHOTOS_FOLDER);
 }
 
+async function ensureServiceInvoicesFolder(): Promise<string | null> {
+  return ensureFolderByName(SERVICE_INVOICES_FOLDER);
+}
+
 /** Eksponowane do auth proxy (`/api/public/service-photos/[id]`) — pozwala
  * sprawdzić, czy plik leży w folderze service-photos zanim go zwrócimy. */
 export async function getServicePhotosFolderId(): Promise<string | null> {
   return ensureServicePhotosFolder();
+}
+
+/** Eksponowane do auth proxy (`/api/public/service-invoices/[id]`) — folder
+ * service-invoices trzyma skany/zdjęcia faktur za komponenty zlecenia. */
+export async function getServiceInvoicesFolderId(): Promise<string | null> {
+  return ensureServiceInvoicesFolder();
 }
 
 export interface UploadedPhoto {
@@ -193,6 +204,58 @@ export async function uploadServicePhoto(args: {
     // Directus auto-generuje thumbnail przez `?key=...` lub `?width=...`.
     // Auth proxy obsłuży opcjonalne forwarding query params (deferowane do UI).
     thumbnailUrl: `${cfg.dashboardUrl}/api/public/service-photos/${fileId}?width=400`,
+  };
+}
+
+export interface UploadedServiceInvoice {
+  fileId: string;
+  url: string;
+}
+
+/**
+ * Upload skanu/zdjęcia faktury (lub paragonu) za komponent użyty w naprawie —
+ * folder "service-invoices". Zwraca publiczny URL przez auth proxy
+ * `/api/public/service-invoices/{id}` (sprawdzany ownership zlecenia
+ * powiązanego z file_id przez mp_service_components).
+ */
+export async function uploadServiceInvoice(args: {
+  file: Blob;
+  filename: string;
+  mimeType: string;
+  serviceId: string;
+  componentId: string;
+  uploadedBy: string;
+}): Promise<UploadedServiceInvoice> {
+  const cfg = getConfig();
+  if (!cfg) throw new Error("Directus is not configured");
+
+  const folderId = await ensureServiceInvoicesFolder();
+
+  const fd = new FormData();
+  if (folderId) fd.set("folder", folderId);
+  fd.set(
+    "description",
+    `service:${args.serviceId} component:${args.componentId} by:${args.uploadedBy}`,
+  );
+  // File MUST be last in multipart (Directus quirk).
+  fd.set("file", args.file, args.filename);
+
+  const res = await fetch(`${cfg.baseUrl}/files`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${cfg.token}` },
+    body: fd,
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Directus upload ${res.status}: ${body.slice(0, 200)}`);
+  }
+  const data = (await res.json()) as { data?: DirectusFile };
+  const fileId = data.data?.id;
+  if (!fileId) throw new Error("Directus did not return file ID");
+
+  return {
+    fileId,
+    url: `${cfg.dashboardUrl}/api/public/service-invoices/${fileId}`,
   };
 }
 

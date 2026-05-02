@@ -277,7 +277,8 @@ function ServiceDetailInner({
         evt.type === "photo_deleted" ||
         evt.type === "internal_note_added" ||
         evt.type === "action_logged" ||
-        evt.type === "chat_message_received"
+        evt.type === "chat_message_received" ||
+        evt.type === "customer_message_sent"
       ) {
         void refresh();
       }

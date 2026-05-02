@@ -520,8 +520,184 @@ export const SERVICES_EXTRAS_SPECS: CollectionSpec[] = [
       { field: "delivered_at", type: "timestamp", meta: { interface: "datetime", width: "half", readonly: true } },
       { field: "recipient_signature", type: "text", meta: { interface: "input-multiline", width: "full", note: "Base64 podpisu odbioru." } },
       { field: "notes", type: "text", meta: { interface: "input-multiline", width: "full" } },
+      {
+        field: "reason",
+        type: "string",
+        meta: {
+          interface: "input",
+          width: "full",
+          note: "Powód transportu — np. 'Brak narzędzi do wymiany płyty głównej'.",
+        },
+      },
+      {
+        field: "tracking_link",
+        type: "string",
+        meta: {
+          interface: "input",
+          width: "full",
+          options: { iconLeft: "link" },
+          note: "Link do śledzenia (Google Maps / kurier) — kierowca uzupełnia po przyjęciu.",
+        },
+      },
+      {
+        field: "created_by_email",
+        type: "string",
+        meta: {
+          interface: "input",
+          readonly: true,
+          width: "half",
+          options: { iconLeft: "person", font: "monospace" },
+          note: "Email serwisanta który utworzył zlecenie.",
+        },
+      },
+      {
+        field: "cancelled_at",
+        type: "timestamp",
+        meta: { interface: "datetime", readonly: true, width: "half" },
+      },
       { field: "created_at", type: "timestamp", meta: { interface: "datetime", readonly: true, width: "half", display: "datetime", display_options: { relative: true } } },
       { field: "updated_at", type: "timestamp", meta: { interface: "datetime", readonly: true, width: "half", display: "datetime", display_options: { relative: true } } },
+    ],
+  },
+
+  // === Zamówione części (panel serwisanta — gdy zlecenie awaiting_parts) ===
+  // Lista zamówionych części od dostawców z trackingiem przesyłki. Service
+  // może mieć multiple part_orders. Soft delete (deleted_at).
+  {
+    collection: "mp_service_part_orders",
+    meta: {
+      icon: "inventory_2",
+      note: "Zamówione części dla zleceń serwisowych w statusie 'awaiting_parts'. Każdy rekord = jedno zamówienie u dostawcy z trackingiem.",
+      display_template: "{{ticket_number}} — {{part_name}} ({{status}})",
+      sort_field: "-ordered_at",
+    },
+    fields: [
+      {
+        field: "id",
+        type: "uuid",
+        schema: { is_primary_key: true },
+        meta: { hidden: true, readonly: true, special: ["uuid"] },
+      },
+      {
+        field: "service_id",
+        type: "uuid",
+        schema: { is_nullable: false },
+        meta: { interface: "input", readonly: true, width: "half" },
+      },
+      {
+        field: "ticket_number",
+        type: "string",
+        meta: { interface: "input", readonly: true, width: "half", options: { font: "monospace" } },
+      },
+      {
+        field: "part_name",
+        type: "string",
+        schema: { is_nullable: false },
+        meta: { interface: "input", required: true, width: "full", note: "Np. 'Wyświetlacz iPhone 13 OEM'." },
+      },
+      {
+        field: "supplier_name",
+        type: "string",
+        meta: { interface: "input", width: "half", options: { iconLeft: "store" }, note: "Nazwa hurtowni/dostawcy." },
+      },
+      {
+        field: "courier",
+        type: "string",
+        meta: {
+          interface: "input",
+          width: "half",
+          options: { iconLeft: "local_shipping" },
+          note: "Np. DPD, InPost, Pocztex, GLS.",
+        },
+      },
+      {
+        field: "tracking_url",
+        type: "string",
+        meta: {
+          interface: "input",
+          width: "full",
+          options: { iconLeft: "link" },
+          note: "Pełen URL do śledzenia (np. https://tracktrace.dpd.com.pl/...).",
+        },
+      },
+      {
+        field: "tracking_number",
+        type: "string",
+        meta: {
+          interface: "input",
+          width: "half",
+          options: { iconLeft: "tag", font: "monospace" },
+          note: "Numer listu przewozowego.",
+        },
+      },
+      {
+        field: "expected_delivery_date",
+        type: "date",
+        meta: { interface: "datetime", width: "half" },
+      },
+      {
+        field: "ordered_at",
+        type: "timestamp",
+        schema: { default_value: "now()", is_nullable: false },
+        meta: { interface: "datetime", readonly: true, width: "half", display: "datetime", display_options: { relative: true } },
+      },
+      {
+        field: "received_at",
+        type: "timestamp",
+        meta: { interface: "datetime", width: "half" },
+      },
+      {
+        field: "status",
+        type: "string",
+        schema: { default_value: "ordered", is_nullable: false },
+        meta: {
+          interface: "select-dropdown",
+          width: "half",
+          display: "labels",
+          options: {
+            choices: [
+              { text: "Zamówione", value: "ordered" },
+              { text: "Wysłane", value: "shipped" },
+              { text: "Dostarczone", value: "delivered" },
+              { text: "Anulowane", value: "cancelled" },
+              { text: "Zaginione", value: "lost" },
+            ],
+          },
+        },
+      },
+      {
+        field: "notes",
+        type: "text",
+        meta: { interface: "input-multiline", width: "full" },
+      },
+      {
+        field: "created_by_email",
+        type: "string",
+        meta: {
+          interface: "input",
+          readonly: true,
+          width: "full",
+          options: { iconLeft: "person", font: "monospace" },
+          note: "Email serwisanta który zamówił.",
+        },
+      },
+      {
+        field: "deleted_at",
+        type: "timestamp",
+        schema: { is_nullable: true },
+        meta: { interface: "datetime", readonly: true, width: "half", note: "Soft delete — null = aktywne." },
+      },
+      {
+        field: "created_at",
+        type: "timestamp",
+        schema: { default_value: "now()" },
+        meta: { interface: "datetime", readonly: true, width: "half", special: ["date-created"] },
+      },
+      {
+        field: "updated_at",
+        type: "timestamp",
+        meta: { interface: "datetime", readonly: true, width: "half", special: ["date-updated"] },
+      },
     ],
   },
 
@@ -895,6 +1071,195 @@ export const SERVICES_EXTRAS_SPECS: CollectionSpec[] = [
         type: "timestamp",
         schema: { is_nullable: true },
         meta: { interface: "datetime", readonly: true, width: "half" },
+      },
+    ],
+  },
+
+  // === Komponenty użyte w naprawie (Wave 20/Phase 1E) ===
+  // Każdy komponent (część zamienna / materiał) użyty w naprawie. Trzymamy
+  // koszt netto, VAT, hurtownię, fakturę (numer + plik), daty zakupu/dostawy
+  // — żeby liczyć marżę i mieć papier na zakup. cost_gross liczone w app
+  // layer (Directus REST nie wspiera GENERATED ALWAYS AS w polu zwykłej
+  // kolekcji; wzór z mp_service_quote_history.delta).
+  // Soft delete (deleted_at). Bez FK do mp_services (Directus REST quirk).
+  {
+    collection: "mp_service_components",
+    meta: {
+      icon: "memory",
+      note: "Komponenty (części zamienne / materiały) użyte w naprawie — koszt, VAT, faktura, kalkulacja marży.",
+      display_template: "{{ticket_number}} — {{name}} ({{cost_net}} PLN)",
+      sort_field: "-created_at",
+    },
+    fields: [
+      {
+        field: "id",
+        type: "uuid",
+        schema: { is_primary_key: true },
+        meta: { hidden: true, readonly: true, special: ["uuid"] },
+      },
+      {
+        field: "service_id",
+        type: "uuid",
+        schema: { is_nullable: false },
+        meta: { interface: "input", readonly: true, width: "half", note: "ID zlecenia (mp_services.id)." },
+      },
+      {
+        field: "ticket_number",
+        type: "string",
+        schema: { is_nullable: true },
+        meta: { interface: "input", readonly: true, width: "half", options: { font: "monospace" } },
+      },
+      {
+        field: "name",
+        type: "string",
+        schema: { is_nullable: false },
+        meta: {
+          interface: "input",
+          required: true,
+          width: "full",
+          note: "Nazwa komponentu (np. 'Wyświetlacz iPhone 13', 'Bateria Galaxy S22').",
+        },
+      },
+      {
+        field: "supplier_name",
+        type: "string",
+        schema: { is_nullable: true },
+        meta: { interface: "input", width: "half", note: "Hurtownia (np. 'GSM Hurt', 'MobileShop')." },
+      },
+      {
+        field: "invoice_number",
+        type: "string",
+        schema: { is_nullable: true },
+        meta: { interface: "input", width: "half", options: { font: "monospace" }, note: "Numer faktury / paragonu (np. 'FV/2026/05/0042')." },
+      },
+      {
+        field: "invoice_kind",
+        type: "string",
+        schema: { default_value: "faktura" },
+        meta: {
+          interface: "select-dropdown",
+          width: "half",
+          options: {
+            choices: [
+              { text: "Faktura", value: "faktura" },
+              { text: "Paragon", value: "paragon" },
+              { text: "WZ", value: "wz" },
+              { text: "Inny", value: "inny" },
+            ],
+          },
+        },
+      },
+      {
+        field: "purchase_date",
+        type: "date",
+        schema: { is_nullable: true },
+        meta: { interface: "datetime", width: "half", note: "Data zakupu komponentu." },
+      },
+      {
+        field: "delivery_date",
+        type: "date",
+        schema: { is_nullable: true },
+        meta: { interface: "datetime", width: "half", note: "Data dostawy do serwisu." },
+      },
+      {
+        field: "cost_net",
+        type: "decimal",
+        schema: { numeric_precision: 10, numeric_scale: 2, is_nullable: false, default_value: 0 },
+        meta: {
+          interface: "input",
+          required: true,
+          width: "third",
+          options: { iconLeft: "payments" },
+          note: "Cena netto za sztukę (PLN).",
+        },
+      },
+      {
+        field: "quantity",
+        type: "decimal",
+        schema: { numeric_precision: 10, numeric_scale: 3, is_nullable: false, default_value: 1 },
+        meta: {
+          interface: "input",
+          required: true,
+          width: "third",
+          note: "Ilość (np. 0.5 dla połowy zestawu).",
+        },
+      },
+      {
+        field: "vat_rate",
+        type: "decimal",
+        schema: { numeric_precision: 4, numeric_scale: 2, is_nullable: false, default_value: 23 },
+        meta: {
+          interface: "select-dropdown",
+          width: "third",
+          options: {
+            choices: [
+              { text: "0%", value: 0 },
+              { text: "5%", value: 5 },
+              { text: "8%", value: 8 },
+              { text: "23%", value: 23 },
+            ],
+          },
+          note: "Stawka VAT (PL: 0/5/8/23).",
+        },
+      },
+      {
+        field: "cost_gross",
+        type: "decimal",
+        schema: { numeric_precision: 10, numeric_scale: 2, is_nullable: true },
+        meta: {
+          interface: "input",
+          readonly: true,
+          width: "third",
+          options: { iconLeft: "receipt_long" },
+          note: "Wirtualna kolumna — wyliczana w app layer (cost_net * quantity * (1 + vat_rate/100)).",
+        },
+      },
+      {
+        field: "margin_target_pct",
+        type: "decimal",
+        schema: { numeric_precision: 5, numeric_scale: 2, is_nullable: true },
+        meta: { interface: "input", width: "third", note: "Docelowa marża %, opcjonalna." },
+      },
+      {
+        field: "invoice_file_id",
+        type: "string",
+        schema: { is_nullable: true },
+        meta: {
+          interface: "input",
+          width: "full",
+          options: { font: "monospace" },
+          note: "Directus file id (folder service-invoices) — skan/zdjęcie faktury.",
+        },
+      },
+      {
+        field: "notes",
+        type: "text",
+        schema: { is_nullable: true },
+        meta: { interface: "input-multiline", width: "full" },
+      },
+      {
+        field: "created_by_email",
+        type: "string",
+        schema: { is_nullable: true },
+        meta: { interface: "input", readonly: true, width: "half" },
+      },
+      {
+        field: "created_by_name",
+        type: "string",
+        schema: { is_nullable: true },
+        meta: { interface: "input", readonly: true, width: "half" },
+      },
+      {
+        field: "created_at",
+        type: "timestamp",
+        schema: { default_value: "now()" },
+        meta: { interface: "datetime", readonly: true, width: "half", special: ["date-created"] },
+      },
+      {
+        field: "deleted_at",
+        type: "timestamp",
+        schema: { is_nullable: true },
+        meta: { interface: "datetime", readonly: true, width: "half", note: "Soft delete — null = aktywne." },
       },
     ],
   },
