@@ -29,7 +29,6 @@ const ALLOWED_PANEL_PREFIXES = new Set([
   "repair-types",
   "quote",
   "service-locations",
-  "phones",
 ]);
 const ALLOWED_ACCOUNT_PREFIXES = new Set(["inbox"]);
 

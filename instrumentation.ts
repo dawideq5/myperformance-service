@@ -572,19 +572,9 @@ export async function register(): Promise<void> {
         /* ignore — table może nie istnieć przy pierwszym deploy */
       }
 
-      // Seed phone models z curated JSON (~150 popularnych modeli).
-      let phonesAdded = 0;
-      try {
-        const { seedDefaultPhoneModels } = await import("@/lib/phones");
-        const res = await seedDefaultPhoneModels();
-        phonesAdded = res.added;
-      } catch {
-        /* ignore */
-      }
-
       // eslint-disable-next-line no-console
       console.log(
-        `[instrumentation] Directus initial push: branding + ${tpls.length} templates + ${appsPushed} apps + ${areasPushed} areas + ${notifPushed} notif + ${layoutsPushed} layouts + ${smtpsPushed} smtps + ${certsPushed} certs + ${blocksPushed} blocks + 1 ovh + ${panelsPushed} panels + ${repairsCreated} repair types + ${phonesAdded} phone models`,
+        `[instrumentation] Directus initial push: branding + ${tpls.length} templates + ${appsPushed} apps + ${areasPushed} areas + ${notifPushed} notif + ${layoutsPushed} layouts + ${smtpsPushed} smtps + ${certsPushed} certs + ${blocksPushed} blocks + 1 ovh + ${panelsPushed} panels + ${repairsCreated} repair types`,
       );
     }
   } catch (err) {
