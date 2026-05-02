@@ -46,6 +46,19 @@ export const SERVICES_EXTRAS_SPECS: CollectionSpec[] = [
         },
       },
       { field: "label", type: "string", schema: { is_nullable: false }, meta: { interface: "input", required: true, width: "half", note: "Polska etykieta widoczna w UI." } },
+      // Kategoria UI — używana do grupowania w cenniku/pickerze. Dowolny string
+      // (allowOther), kategorie mp_pricelist są pochodną unikalnych wartości tego
+      // pola. Bez hardcoded enum.
+      {
+        field: "category",
+        type: "string",
+        schema: { default_value: "Inne" },
+        meta: {
+          interface: "input",
+          width: "half",
+          note: "Kategoria do grupowania (np. Wyświetlacze, Baterie, Czyszczenie). Dowolna nazwa.",
+        },
+      },
       { field: "icon", type: "string", schema: { default_value: "Wrench" }, meta: { interface: "input", width: "half", note: "Nazwa ikony lucide (Battery, Camera, Wrench...)." } },
       { field: "color", type: "string", schema: { default_value: "#3b82f6" }, meta: { interface: "select-color", width: "half" } },
       { field: "description", type: "text", meta: { interface: "input-multiline", width: "full", note: "Opis dla pracownika (kiedy używać)." } },
@@ -149,25 +162,17 @@ export const SERVICES_EXTRAS_SPECS: CollectionSpec[] = [
         },
       },
       { field: "name", type: "string", schema: { is_nullable: false }, meta: { interface: "input", required: true, width: "half" } },
+      // Kategoria — opcjonalna, fallback gdy brak repair_type. Domyślnie
+      // dziedziczona z mp_repair_types[code === pricelist.code].category przez
+      // UI cennika (categoryFromRepairType). Dowolny string — bez hardcoded
+      // enum.
       {
         field: "category",
         type: "string",
         meta: {
-          interface: "select-dropdown",
+          interface: "input",
           width: "half",
-          options: {
-            choices: [
-              { text: "Wymiana ekranu", value: "screen" },
-              { text: "Wymiana baterii", value: "battery" },
-              { text: "Naprawa wody", value: "water_damage" },
-              { text: "Naprawa płyty głównej", value: "logic_board" },
-              { text: "Wymiana złącza", value: "port" },
-              { text: "Pakiet ochronny", value: "protection" },
-              { text: "Diagnostyka", value: "diagnostic" },
-              { text: "Inne", value: "other" },
-            ],
-            allowOther: true,
-          },
+          note: "Pozostawione dla pozycji bez powiązanego repair_type. Inaczej dziedziczone z mp_repair_types.category.",
         },
       },
       {

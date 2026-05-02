@@ -1,18 +1,12 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
   CheckCircle2,
   CircleDot,
-  Cpu,
-  MapPin,
-  ScanFace,
-  Smartphone,
-  Sparkles,
-  Target,
   X,
 } from "lucide-react";
 import * as THREE from "three";
@@ -42,17 +36,8 @@ type StepId =
   | "frames"
   | "cameras"
   | "liquid"
-  | "cleaning"
   | "damage"
   | "summary";
-
-interface CleaningTourPos {
-  pos: [number, number, number];
-  lookAt?: [number, number, number];
-  highlight: HighlightId;
-  caption: string;
-  durationMs: number;
-}
 
 interface Step {
   id: StepId;
@@ -61,7 +46,6 @@ interface Step {
   highlight: HighlightId;
   cameraPos: [number, number, number];
   cameraLookAt?: [number, number, number];
-  cleaningTour?: CleaningTourPos[];
   /** Target rotacja telefonu wokół osi Y (radiany). Domyślnie 0.
    *  display=0, back=π → flip 180° między krokami. */
   phoneRotationY?: number;
@@ -115,38 +99,6 @@ const STEPS: Step[] = [
     cameraLookAt: [0, -1.6, 0],
   },
   {
-    id: "cleaning",
-    title: "Czyszczenie urządzenia",
-    subtitle:
-      "Kurz w głośnikach i porcie powoduje problemy. Jedna usługa — pokażemy gdzie czyścimy.",
-    highlight: null,
-    cameraPos: [4.0, 0, 0],
-    cleaningTour: [
-      {
-        // Earpiece — góra telefonu (+Y) z lekkim przesunięciem do przodu (+X).
-        pos: [2.5, 2.8, 0],
-        lookAt: [0.5, 1.4, 0],
-        highlight: "earpiece",
-        caption: "Głośnik rozmów — pył przyczynia się do problemów ze słyszalnością",
-        durationMs: 10000,
-      },
-      {
-        pos: [0, -3.0, 1.4],
-        lookAt: [0, -1.4, 0],
-        highlight: "speakers",
-        caption: "Głośniczki dolne — kurz tłumi dźwięk multimedia",
-        durationMs: 10000,
-      },
-      {
-        pos: [0, -3.5, 0.6],
-        lookAt: [0, -1.6, 0],
-        highlight: "port",
-        caption: "Port ładowania — kurz blokuje połączenie z kablem",
-        durationMs: 10000,
-      },
-    ],
-  },
-  {
     id: "damage",
     title: "Zaznacz uszkodzenia",
     subtitle:
@@ -186,11 +138,8 @@ export interface VisualConditionState {
   camera_notes?: string;
   frames_rating?: number;
   frames_notes?: string;
-  // Cleaning + markers + final notes
-  cleaning_accepted?: boolean;
-  /** Code z pricelist (np. CLEANING_INTAKE, CLEANING_DEEP). null gdy
-   * cleaning_accepted=false. */
-  cleaning_variant_code?: string;
+  // Markers + final notes (czyszczenie i inne usługi to normalne repair_types
+  // z DescriptionPicker, nie flagi tego state).
   damage_markers?: DamageMarker[];
   additional_notes?: string;
   // === Checklist questions (przeniesione z osobnej sekcji) ===
@@ -237,26 +186,27 @@ const SURFACE_LABELS: Record<string, string> = {
   frame: "Ramka",
 };
 
-export interface CleaningOption {
+/** Pozycja wyceny pochodząca z mp_pricelist (po code repair_type) — używana
+ * do wyświetlania zestawienia w SummaryPanel. Liczona w AddServiceTab i
+ * przekazywana jako prop. */
+export interface PriceLine {
   code: string;
-  name: string;
+  label: string;
   price: number;
-  description: string | null;
 }
 
 export function PhoneConfigurator3D({
   brand,
   brandColorHex,
-  cleaningPrice,
-  cleaningOptions = [],
+  priceLines = [],
   initial,
   onCancel,
   onComplete,
 }: {
   brand: string;
   brandColorHex: string;
-  cleaningPrice: number | null;
-  cleaningOptions?: CleaningOption[];
+  /** Pozycje wyceny z pricelist po wybranych repair_types (z AddServiceTab). */
+  priceLines?: PriceLine[];
   initial?: VisualConditionState;
   onCancel: () => void;
   onComplete: (state: VisualConditionState) => void;
@@ -267,26 +217,6 @@ export function PhoneConfigurator3D({
     initial ?? { damage_markers: [] },
   );
   const [closing, setClosing] = useState(false);
-
-  // Cleaning tour state — kiedy jesteśmy w cleaning step, animujemy kolejne pozycje.
-  const [tourIdx, setTourIdx] = useState(0);
-  const tourTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-    if (step.id !== "cleaning" || !step.cleaningTour) {
-      if (tourTimerRef.current) clearTimeout(tourTimerRef.current);
-      setTourIdx(0);
-      return;
-    }
-    // Loop infinity — port → earpiece → speakers → port → earpiece → ...
-    const len = step.cleaningTour.length;
-    tourTimerRef.current = setTimeout(
-      () => setTourIdx((i) => (i + 1) % len),
-      step.cleaningTour[tourIdx].durationMs,
-    );
-    return () => {
-      if (tourTimerRef.current) clearTimeout(tourTimerRef.current);
-    };
-  }, [stepIdx, tourIdx, step]);
 
   // Damage markers — kliknięcie w model NATYCHMIAST tworzy marker (bez
   // dodatkowego "Zapisz" buttona). User może potem edytować opis w panelu
@@ -440,8 +370,6 @@ export function PhoneConfigurator3D({
           return false;
         }
         return true;
-      case "cleaning":
-        return state.cleaning_accepted != null;
       case "damage":
         return true; // markery opcjonalne
       case "summary":
@@ -466,19 +394,9 @@ export function PhoneConfigurator3D({
   const update = (patch: Partial<VisualConditionState>) =>
     setState((s) => ({ ...s, ...patch }));
 
-  // Compute current camera + highlight (cleaning tour overrides static step.cameraPos).
-  const currentCameraPos: [number, number, number] =
-    step.id === "cleaning" && step.cleaningTour
-      ? step.cleaningTour[tourIdx].pos
-      : step.cameraPos;
-  const currentLookAt: [number, number, number] | undefined =
-    step.id === "cleaning" && step.cleaningTour
-      ? step.cleaningTour[tourIdx].lookAt
-      : step.cameraLookAt;
-  const currentHighlight: HighlightId =
-    step.id === "cleaning" && step.cleaningTour
-      ? step.cleaningTour[tourIdx].highlight
-      : step.highlight;
+  const currentCameraPos: [number, number, number] = step.cameraPos;
+  const currentLookAt: [number, number, number] | undefined = step.cameraLookAt;
+  const currentHighlight: HighlightId = step.highlight;
   const phonePosition: [number, number, number] =
     step.id === "summary" ? [-1.8, 0, 0] : [0, 0, 0];
   const playDisassembly = step.id === "summary";
@@ -561,7 +479,7 @@ export function PhoneConfigurator3D({
                   cameraLookAt={currentLookAt}
                   brandColor={brandColorHex}
                   isFramesStep={step.id === "frames"}
-                  isCleaningStep={step.id === "cleaning"}
+                  isCleaningStep={false}
                   screenOn={false}
                   damageMarkers={state.damage_markers ?? []}
                   damageMode={step.id === "damage"}
@@ -573,14 +491,6 @@ export function PhoneConfigurator3D({
               </Canvas>
             </PhoneSceneErrorBoundary>
             <ModelLoadingOverlay />
-
-            {/* Cleaning tour caption overlay */}
-            {step.id === "cleaning" && step.cleaningTour && (
-              <div className="absolute bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-full bg-black/60 backdrop-blur-md border border-white/10 text-xs text-white/90 max-w-[80%] text-center animate-fade-in">
-                <Sparkles className="w-3 h-3 inline mr-1.5 text-amber-400" />
-                {step.cleaningTour[tourIdx].caption}
-              </div>
-            )}
 
             {/* Damage mode hint — instrukcje zależne od platformy. */}
             {step.id === "damage" && !pendingChoice && (
@@ -642,8 +552,7 @@ export function PhoneConfigurator3D({
               step={step}
               state={state}
               brand={brand}
-              cleaningPrice={cleaningPrice}
-              cleaningOptions={cleaningOptions}
+              priceLines={priceLines}
               editingMarkerId={editingMarkerId}
               onChange={update}
               onUpdateMarkerDescription={updateMarkerDescription}
@@ -731,8 +640,7 @@ function StepInputs({
   step,
   state,
   brand,
-  cleaningPrice,
-  cleaningOptions = [],
+  priceLines,
   editingMarkerId,
   onChange,
   onUpdateMarkerDescription,
@@ -742,8 +650,7 @@ function StepInputs({
   step: Step;
   state: VisualConditionState;
   brand: string;
-  cleaningPrice: number | null;
-  cleaningOptions?: CleaningOption[];
+  priceLines: PriceLine[];
   editingMarkerId: string | null;
   onChange: (patch: Partial<VisualConditionState>) => void;
   onUpdateMarkerDescription: (id: string, description: string) => void;
@@ -888,108 +795,6 @@ function StepInputs({
       </div>
     );
   }
-  if (step.id === "cleaning") {
-    return (
-      <div className="space-y-3">
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-3 text-white/90 text-sm">
-          <p className="font-semibold mb-1 flex items-center gap-1.5">
-            <Sparkles className="w-4 h-4 text-amber-400" />
-            Profesjonalne czyszczenie urządzenia
-          </p>
-          <p className="text-xs text-white/70 mb-3">
-            Jedna usługa, która obejmuje wszystkie miejsca pokazane wyżej:
-            głośnik rozmów, głośniczki dolne i port ładowania.
-          </p>
-          <div className="flex gap-2">
-            <CleaningPill
-              active={state.cleaning_accepted === false}
-              color="#EF4444"
-              onClick={() =>
-                onChange({
-                  cleaning_accepted: false,
-                  cleaning_variant_code: undefined,
-                })
-              }
-            >
-              Pomiń
-            </CleaningPill>
-            <CleaningPill
-              active={state.cleaning_accepted === true}
-              color="#22C55E"
-              onClick={() =>
-                onChange({
-                  cleaning_accepted: true,
-                  cleaning_variant_code:
-                    state.cleaning_variant_code ??
-                    cleaningOptions[0]?.code ??
-                    "CLEANING_INTAKE",
-                })
-              }
-            >
-              Tak, dodaj usługę
-            </CleaningPill>
-          </div>
-          {state.cleaning_accepted === true && (
-            <div className="mt-3 pt-3 border-t border-white/10 animate-fade-in space-y-2">
-              {(cleaningOptions.length > 0
-                ? cleaningOptions
-                : [
-                    {
-                      code: "CLEANING_INTAKE",
-                      name: "Czyszczenie standardowe",
-                      price: cleaningPrice ?? 0,
-                      description:
-                        "Głośnik rozmów + głośniczki dolne + port ładowania",
-                    },
-                  ]
-              ).map((opt) => {
-                const selected =
-                  (state.cleaning_variant_code ??
-                    cleaningOptions[0]?.code ??
-                    "CLEANING_INTAKE") === opt.code;
-                return (
-                  <button
-                    type="button"
-                    key={opt.code}
-                    onClick={() =>
-                      onChange({ cleaning_variant_code: opt.code })
-                    }
-                    className="w-full p-3 rounded-xl border-2 text-left transition-all hover:scale-[1.01]"
-                    style={{
-                      background: selected
-                        ? "rgba(34, 197, 94, 0.18)"
-                        : "rgba(255,255,255,0.04)",
-                      borderColor: selected ? "#22C55E" : "rgba(255,255,255,0.1)",
-                      color: "#fff",
-                    }}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold truncate">
-                          {opt.name}
-                        </p>
-                        {opt.description && (
-                          <p className="text-[11px] text-white/60 mt-0.5 line-clamp-2">
-                            {opt.description}
-                          </p>
-                        )}
-                      </div>
-                      <span
-                        className="text-sm font-mono font-bold"
-                        style={{ color: "#22C55E" }}
-                      >
-                        +{opt.price.toFixed(2)} PLN
-                      </span>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
   if (step.id === "damage") {
     const markers = state.damage_markers ?? [];
     return (
@@ -1065,8 +870,7 @@ function StepInputs({
       <SummaryPanel
         state={state}
         brand={brand}
-        cleaningPrice={cleaningPrice}
-        cleaningOptions={cleaningOptions}
+        priceLines={priceLines}
         onChange={onChange}
       />
     );
@@ -1333,65 +1137,6 @@ function ChecklistSummaryBlock({ state }: { state: VisualConditionState }) {
   );
 }
 
-function NotesField({
-  label,
-  placeholder,
-  value,
-  onChange,
-  rows = 4,
-}: {
-  label: string;
-  placeholder?: string;
-  value: string;
-  onChange: (v: string) => void;
-  rows?: number;
-}) {
-  return (
-    <label className="block">
-      <span className="block text-xs uppercase tracking-wider text-white/60 font-semibold mb-1.5">
-        {label}
-      </span>
-      <textarea
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        rows={rows}
-        className="w-full px-3 py-2 rounded-xl border border-white/10 bg-white/5 text-sm text-white outline-none resize-none focus:border-white/30 placeholder:text-white/30"
-      />
-    </label>
-  );
-}
-
-function CleaningPill({
-  active,
-  color,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  color: string;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex-1 py-2 rounded-xl border text-xs font-bold transition-all hover:scale-105"
-      style={{
-        background: active
-          ? `linear-gradient(135deg, ${color}, ${color}dd)`
-          : "transparent",
-        color: active ? "#fff" : "rgba(255,255,255,0.7)",
-        borderColor: active ? color : "rgba(255,255,255,0.15)",
-        boxShadow: active ? `0 4px 16px ${color}55` : "none",
-      }}
-    >
-      {children}
-    </button>
-  );
-}
-
 // PendingMarkerEditor usunięte — markery dodają się natychmiast po kliknięciu
 // w model, edycja opisu jest inline na liście markerów w panelu prawym.
 function _UnusedPendingMarkerEditorPlaceholder() {
@@ -1509,44 +1254,23 @@ function getInconsistencies(
 }
 
 /** Pełen panel podsumowania w prawej kolumnie summary step. Pokazuje
- * średnią, oceny per element, markery + treść notatek + cleaning total +
- * banner ostrzeżeń o logicznych sprzecznościach. */
+ * średnią, oceny per element, markery + treść notatek + zestawienie cen
+ * z pricelist + banner ostrzeżeń o logicznych sprzecznościach. */
 function SummaryPanel({
   state,
   brand,
-  cleaningPrice,
-  cleaningOptions = [],
+  priceLines,
   onChange,
 }: {
   state: VisualConditionState;
   brand: string;
-  cleaningPrice: number | null;
-  cleaningOptions?: CleaningOption[];
+  priceLines: PriceLine[];
   onChange: (patch: Partial<VisualConditionState>) => void;
 }) {
   const inconsistencies = getInconsistencies(state, brand);
-  // Cena czyszczenia z wybranego wariantu (state.cleaning_variant_code).
-  // Fallback: cleaningPrice (= CLEANING_INTAKE z pricelist) gdy variant
-  // nieznany. Bez tego summary pokazywało zawsze cenę intake niezależnie
-  // od wybranego wariantu w step "cleaning".
-  const cleaningVariant = state.cleaning_accepted
-    ? cleaningOptions.find(
-        (o) => o.code === (state.cleaning_variant_code ?? "CLEANING_INTAKE"),
-      )
-    : undefined;
-  const cleaningLinePrice = state.cleaning_accepted
-    ? (cleaningVariant?.price ?? cleaningPrice ?? 0)
-    : 0;
-  const cleaningLineLabel =
-    cleaningVariant?.name ?? "Czyszczenie urządzenia";
-  // Lista pozycji ceny — obecnie tylko czyszczenie (ratings nie mają cen
-  // w intake step, te dolicza serwisant w "Opis usterki" po finiszu
-  // konfiguratora). Renderowane jako mini-zestawienie żeby user widział
-  // co konkretnie wlicza się w sumę.
-  const priceLines: { label: string; price: number }[] = [];
-  if (state.cleaning_accepted) {
-    priceLines.push({ label: cleaningLineLabel, price: cleaningLinePrice });
-  }
+  // Zestawienie cen pochodzi z mp_pricelist po wybranych repair_types
+  // (przekazywane jako prop z AddServiceTab). Brak specjalnego cleaning
+  // sumowania — wszystkie pozycje sumują się jednakowo.
   const priceTotal = priceLines.reduce((s, l) => s + l.price, 0);
   const ratings: {
     label: string;

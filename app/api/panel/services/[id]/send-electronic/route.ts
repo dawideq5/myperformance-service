@@ -14,7 +14,7 @@ import {
   renderReceiptPdfWithLayout,
   type ReceiptInput,
 } from "@/lib/receipt-pdf";
-import { getPricelistPriceByCode } from "@/lib/pricelist";
+import { getPriceLinesForService } from "@/lib/repair-types";
 import { logServiceAction } from "@/lib/service-actions";
 import { getServiceSignerEmail } from "@/lib/service-config";
 import { log } from "@/lib/logger";
@@ -162,13 +162,10 @@ export async function POST(
     },
     estimate:
       typeof service.amountEstimate === "number" ? service.amountEstimate : null,
-    cleaningPrice: service.visualCondition?.cleaning_accepted
-      ? await getPricelistPriceByCode("CLEANING_INTAKE", {
-          brand: service.brand,
-          model: service.model,
-        })
-      : null,
-    cleaningAccepted: !!service.visualCondition?.cleaning_accepted,
+    priceLines: await getPriceLinesForService(service.description, {
+      brand: service.brand,
+      model: service.model,
+    }),
     handover: { choice: handoverChoice, items: handoverItems },
   };
 

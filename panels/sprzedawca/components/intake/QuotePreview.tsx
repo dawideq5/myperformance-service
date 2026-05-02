@@ -20,10 +20,10 @@ export interface Quote {
 
 /** Pokazuje wycenę dla wybranych typów napraw. Fetchuje /api/relay/quote
  * z debounce na zmianach. Renderuje:
- *  - listę usług z cenami (lub "—" gdy brak ceny w cenniku)
+ *  - listę usług z cenami z mp_pricelist (lub "—" gdy brak ceny)
  *  - razem (gdy sumowalne)
  *  - komunikat "skontaktuj się z serwisantem" gdy kombinacja niełączalna
- *  - błędy combinable rules
+ *  - błędy combinable rules (np. EXPERTISE + inne) — blokujące
  *
  * Po `onTotal` callback przekazuje ostatnią obliczoną sumę — caller może
  * użyć jej żeby podpowiedzieć w polu kwoty. */
@@ -31,35 +31,32 @@ export function QuotePreview({
   brand,
   model,
   repairTypes,
-  cleaningSelected,
-  cleaningPrice,
   onSuggestedTotal,
   onApplyTotal,
+  onLines,
 }: {
   brand: string;
   model: string;
   repairTypes: string[];
-  cleaningSelected?: boolean;
-  cleaningPrice?: number | null;
   onSuggestedTotal?: (total: number | null) => void;
   /** Wywoływane gdy user klika "Zastosuj wycenę" — przenosi total do
    * pola amountEstimate w EstimateBlock. */
   onApplyTotal?: (total: number) => void;
+  /** Wywoływane przy każdej aktualizacji wyceny — przekazuje surowe
+   * pozycje (label + price) do callera, który podaje je dalej do
+   * SummaryPanel konfiguratora 3D. */
+  onLines?: (lines: { code: string; label: string; price: number }[]) => void;
 }) {
   const [quote, setQuote] = useState<Quote | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Czyszczenie = zwykły chip (CLEANING). Brak wirtualnego dodawania —
-  // jeśli sprzedawca wybrał chip, jest w repairTypes; jeśli flagę
-  // visualCondition.cleaning_accepted ustawia 3D walkthrough,
-  // synchronizujemy w AddServiceTab przed przekazaniem repairTypes.
-  void cleaningSelected;
   const codes = repairTypes;
 
   useEffect(() => {
     if (codes.length === 0) {
       setQuote(null);
       onSuggestedTotal?.(null);
+      onLines?.([]);
       return;
     }
     const t = setTimeout(() => {
@@ -72,25 +69,23 @@ export function QuotePreview({
         .then((r) => (r.ok ? r.json() : Promise.reject()))
         .then((j: Quote) => {
           setQuote(j);
-          // Override CLEANING price gdy podana z visualCondition (cennik
-          // mp_pricelist może mieć inną kwotę niż obliczona w intake).
-          if (cleaningSelected && cleaningPrice != null) {
-            const idx = j.lines.findIndex((l) => l.code === "CLEANING");
-            if (idx >= 0) {
-              j.lines[idx].price = cleaningPrice;
-            }
-          }
           onSuggestedTotal?.(j.contactServiceman ? null : j.total);
+          onLines?.(
+            j.lines
+              .filter((l) => l.price != null)
+              .map((l) => ({ code: l.code, label: l.label, price: l.price! })),
+          );
         })
         .catch(() => {
           setQuote(null);
           onSuggestedTotal?.(null);
+          onLines?.([]);
         })
         .finally(() => setLoading(false));
     }, 300);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [codes.join(","), brand, model, cleaningSelected, cleaningPrice]);
+  }, [codes.join(","), brand, model]);
 
   if (codes.length === 0) return null;
 

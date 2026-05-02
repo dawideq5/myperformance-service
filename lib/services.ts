@@ -95,8 +95,6 @@ export interface VisualCondition {
   /** 1-10 ocena ramek bocznych. */
   frames_rating?: number;
   frames_notes?: string;
-  /** Czy zaakceptowano usługę czyszczenia (jedna decyzja dla głośników + portu). */
-  cleaning_accepted?: boolean;
   /** Markery uszkodzeń umieszczone na 3D modelu. */
   damage_markers?: DamageMarker[];
   additional_notes?: string;

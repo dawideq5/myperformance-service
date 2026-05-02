@@ -21,20 +21,21 @@ import { PhoneInputWithFlags } from "../intake/PhoneInputWithFlags";
 // ChecklistSection — pytania przeniesione do konfiguratora 3D (P21).
 import {
   PhoneConfigurator3D,
+  type PriceLine,
   type VisualConditionState,
 } from "../intake/PhoneConfigurator3D";
 import {
   DescriptionPicker,
-  EXPERTISE_VALUE,
-  CLEANING_VALUE,
   deserializeRepairTypes,
   serializeRepairTypes,
+  useRepairTypes,
 } from "../intake/DescriptionPicker";
 import { QuotePreview } from "../intake/QuotePreview";
 import {
   openServiceReceipt,
   sendElectronicReceipt,
 } from "../../lib/receipt";
+import { useToast } from "../ToastProvider";
 
 export function AddServiceTab({
   locationId,
@@ -83,16 +84,12 @@ export function AddServiceTab({
     id: string;
     handover: { choice: "none" | "items"; items: string };
   } | null>(null);
-  const [cleaningPrice, setCleaningPrice] = useState<number | null>(null);
-  const [expertisePrice, setExpertisePrice] = useState<number>(100);
-  const [cleaningOptions, setCleaningOptions] = useState<
-    Array<{
-      code: string;
-      name: string;
-      price: number;
-      description: string | null;
-    }>
-  >([]);
+  // Aktualne pozycje wyceny (z mp_pricelist po wybranych repair_types) —
+  // ustawiane przez QuotePreview onLines, przekazywane do konfiguratora 3D
+  // jako prop SummaryPanel.
+  const [priceLines, setPriceLines] = useState<PriceLine[]>([]);
+  const { types: repairTypeCatalog } = useRepairTypes();
+  const toast = useToast();
   // Dialog "Wystawić aneks?" pokazywany po edycji która zmieniła pole
   // significant (kwota wyceny, diagnoza, gwarancja). Decyzja: pobierz PDF
   // (przyciski drukuj/wyślij), albo pomiń.
@@ -186,12 +183,6 @@ export function AddServiceTab({
     }
   };
 
-  // Ekspertyza: NIE auto-fill kwoty. Cena pojawia się dopiero po
-  // zaznaczeniu w sekcji SUGESTIE CEN Z CENNIKA — pracownik świadomie
-  // wybiera czy zastosować cenę z cennika.
-  const isExpertise = repairTypes.includes(EXPERTISE_VALUE);
-  void isExpertise;
-
   // Edit mode: gdy editingServiceId, pobierz service detail i prefill formularz.
   useEffect(() => {
     if (!editingServiceId) return;
@@ -262,38 +253,6 @@ export function AddServiceTab({
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingServiceId]);
-
-  // Pobierz cennik: wszystkie warianty CLEANING_* + EXPERTISE.
-  useEffect(() => {
-    void (async () => {
-      try {
-        const r = await fetch("/api/relay/pricelist");
-        const json = await r.json();
-        const items = (json.items ?? []) as {
-          code: string;
-          name: string;
-          price: number;
-          description?: string | null;
-        }[];
-        const cleanings = items
-          .filter((i) => i.code.startsWith("CLEANING_"))
-          .map((i) => ({
-            code: i.code,
-            name: i.name,
-            price: Number(i.price),
-            description: i.description ?? null,
-          }));
-        setCleaningOptions(cleanings);
-        const intake = cleanings.find((i) => i.code === "CLEANING_INTAKE");
-        if (intake) setCleaningPrice(intake.price);
-        else if (cleanings[0]) setCleaningPrice(cleanings[0].price);
-        const expertise = items.find((i) => i.code === "EXPERTISE");
-        if (expertise) setExpertisePrice(Number(expertise.price));
-      } catch {
-        /* ignore */
-      }
-    })();
-  }, []);
 
   // Body color dla 3D modelu — z ColorPicker (priorytet) lub fallback na
   // brand color z BRANDS palette.
@@ -416,8 +375,51 @@ export function AddServiceTab({
     setHandoverItems("");
   };
 
+  /** Walidacja kombinacji repair_types przed submitem. Jeśli któryś
+   * wybrany typ ma combinableMode="no" + jest zaznaczony z innymi → toast
+   * + przerwij. Generic — nie hardkodowane EXPERTISE. */
+  const validateRepairCombination = (): string | null => {
+    if (repairTypes.length <= 1) return null;
+    const byCode = new Map(repairTypeCatalog.map((t) => [t.code, t]));
+    for (const code of repairTypes) {
+      const t = byCode.get(code);
+      if (!t) continue;
+      if (t.combinableMode === "no") {
+        return `${t.label} nie może być łączona z innymi naprawami w jednym zleceniu.`;
+      }
+      if (t.combinableMode === "only_with") {
+        const allowed = new Set(t.combinableWith);
+        const others = repairTypes.filter((c) => c !== code);
+        const blocked = others.filter((c) => !allowed.has(c));
+        if (blocked.length > 0) {
+          const names = blocked.map((c) => byCode.get(c)?.label ?? c).join(", ");
+          return `${t.label} może być łączona tylko z wybranymi naprawami; konflikt: ${names}.`;
+        }
+      }
+      if (t.combinableMode === "except") {
+        const blocked = new Set(t.combinableWith);
+        const others = repairTypes.filter((c) => c !== code);
+        const conflict = others.filter((c) => blocked.has(c));
+        if (conflict.length > 0) {
+          const names = conflict.map((c) => byCode.get(c)?.label ?? c).join(", ");
+          return `${t.label} nie łączy się z: ${names}.`;
+        }
+      }
+    }
+    return null;
+  };
+
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const combinationError = validateRepairCombination();
+    if (combinationError) {
+      toast.push({
+        kind: "error",
+        title: "Niedozwolona kombinacja napraw",
+        message: combinationError,
+      });
+      return;
+    }
     setSaving(true);
     setError(null);
     setSuccess(null);
@@ -447,7 +449,6 @@ export function AddServiceTab({
             camera_notes: v.camera_notes,
             frames_rating: v.frames_rating,
             frames_notes: v.frames_notes,
-            cleaning_accepted: v.cleaning_accepted,
             damage_markers: v.damage_markers,
             additional_notes: v.additional_notes,
             // Persist handover w JSON visual_condition — bez schema migration.
@@ -711,7 +712,6 @@ export function AddServiceTab({
           <VisualConditionSummary
             completed={visualCompleted}
             condition={visualCondition}
-            cleaningPrice={cleaningPrice}
             onOpen={() => setShowConfigurator(true)}
           />
         </Section>
@@ -731,42 +731,21 @@ export function AddServiceTab({
         >
           <div className="space-y-3">
             <DescriptionPicker
-              selected={
-                visualCondition.cleaning_accepted &&
-                !repairTypes.includes(CLEANING_VALUE)
-                  ? [...repairTypes, CLEANING_VALUE]
-                  : repairTypes
-              }
+              selected={repairTypes}
               customDescription={customDescription}
-              onChange={(next) => {
-                // Czyszczenie chip ↔ visualCondition.cleaning_accepted
-                // (back-compat: cleaning_accepted to istniejący flag w
-                // intakeChecklist używany przez QuotePreview/PDF). Toggle
-                // chipa CLEANING aktualizuje visualCondition.
-                const cleaningOn = next.includes(CLEANING_VALUE);
-                if (cleaningOn !== !!visualCondition.cleaning_accepted) {
-                  setVisualCondition((v) => ({
-                    ...v,
-                    cleaning_accepted: cleaningOn,
-                  }));
-                }
-                setRepairTypes(next.filter((c) => c !== CLEANING_VALUE));
-              }}
+              onChange={setRepairTypes}
               onChangeCustom={setCustomDescription}
             />
             <QuotePreview
               brand={brand}
               model={model}
               repairTypes={repairTypes}
-              cleaningSelected={!!visualCondition.cleaning_accepted}
-              cleaningPrice={cleaningPrice}
               onApplyTotal={(t) => setAmountEstimate(t.toFixed(2))}
+              onLines={setPriceLines}
             />
             <EstimateBlock
               amountEstimate={amountEstimate}
               onChangeEstimate={setAmountEstimate}
-              cleaningPrice={cleaningPrice}
-              cleaningAccepted={!!visualCondition.cleaning_accepted}
             />
           </div>
         </Section>
@@ -1051,8 +1030,7 @@ export function AddServiceTab({
         <PhoneConfigurator3D
           brand={brand || "Telefon"}
           brandColorHex={brandColorHex}
-          cleaningPrice={cleaningPrice}
-          cleaningOptions={cleaningOptions}
+          priceLines={priceLines}
           initial={visualCondition}
           onCancel={() => setShowConfigurator(false)}
           onComplete={(state) => {
@@ -1232,10 +1210,6 @@ function EstimateBlock({
 }: {
   amountEstimate: string;
   onChangeEstimate: (v: string) => void;
-  /* eslint-disable @typescript-eslint/no-unused-vars */
-  cleaningPrice?: number | null;
-  cleaningAccepted?: boolean;
-  /* eslint-enable @typescript-eslint/no-unused-vars */
 }) {
   return (
     <div
@@ -1339,12 +1313,10 @@ function Input({
 function VisualConditionSummary({
   completed,
   condition,
-  cleaningPrice,
   onOpen,
 }: {
   completed: boolean;
   condition: VisualConditionState;
-  cleaningPrice: number | null;
   onOpen: () => void;
 }) {
   if (!completed) {
@@ -1385,7 +1357,6 @@ function VisualConditionSummary({
     { label: "Ramki boczne", value: condition.frames_rating },
   ];
   const markerCount = (condition.damage_markers ?? []).length;
-  const cleaningSelected = condition.cleaning_accepted ? 1 : 0;
 
   return (
     <div className="space-y-2">
@@ -1477,11 +1448,6 @@ function VisualConditionSummary({
                 </li>
               ))}
             </ul>
-          </div>
-        )}
-        {cleaningSelected > 0 && (
-          <div className="text-xs" style={{ color: "#22c55e" }}>
-            ✓ Czyszczenie urządzenia
           </div>
         )}
         {condition.additional_notes && (

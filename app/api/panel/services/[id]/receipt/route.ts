@@ -5,7 +5,7 @@ import { NextResponse } from "next/server";
 import { PANEL_CORS_HEADERS, getPanelUserFromRequest } from "@/lib/panel-auth";
 import { getService } from "@/lib/services";
 import { renderReceiptPdf, type ReceiptInput } from "@/lib/receipt-pdf";
-import { getPricelistPriceByCode } from "@/lib/pricelist";
+import { getPriceLinesForService } from "@/lib/repair-types";
 import { logServiceAction } from "@/lib/service-actions";
 
 export async function OPTIONS() {
@@ -96,13 +96,10 @@ export async function GET(
     },
     estimate:
       typeof service.amountEstimate === "number" ? service.amountEstimate : null,
-    cleaningPrice: service.visualCondition?.cleaning_accepted
-      ? await getPricelistPriceByCode("CLEANING_INTAKE", {
-          brand: service.brand,
-          model: service.model,
-        })
-      : null,
-    cleaningAccepted: !!service.visualCondition?.cleaning_accepted,
+    priceLines: await getPriceLinesForService(service.description, {
+      brand: service.brand,
+      model: service.model,
+    }),
     handover: { choice: handoverChoice, items: handoverItems },
   };
 

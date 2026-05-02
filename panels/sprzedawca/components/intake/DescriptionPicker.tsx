@@ -26,29 +26,31 @@ import {
 /** Fallback typy napraw — używane gdy mp_repair_types pusta lub fetch
  * failuje. Po seed w produkcji DB powinien zawierać te same wpisy. */
 const FALLBACK_REPAIR_TYPES: RepairTypeApi[] = [
-  { code: "EXPERTISE", label: "Ekspertyza", icon: "ClipboardList", color: "#06B6D4", combinableMode: "only_with", combinableWith: ["CLEANING"], sumsMode: "only_with", sumsWith: ["CLEANING"], sortOrder: 1 },
-  { code: "SCREEN_REPLACEMENT", label: "Wymiana wyświetlacza", icon: "Smartphone", color: "#3b82f6", combinableMode: "yes", combinableWith: [], sumsMode: "only_with", sumsWith: ["CLEANING"], sortOrder: 10 },
-  { code: "BATTERY_REPLACEMENT", label: "Wymiana baterii", icon: "Battery", color: "#22c55e", combinableMode: "yes", combinableWith: [], sumsMode: "only_with", sumsWith: ["CLEANING"], sortOrder: 20 },
-  { code: "CHARGING_PORT_REPLACEMENT", label: "Wymiana gniazda ładowania", icon: "Cable", color: "#f59e0b", combinableMode: "yes", combinableWith: [], sumsMode: "only_with", sumsWith: ["CLEANING"], sortOrder: 30 },
-  { code: "EARPIECE_SPEAKER_REPLACEMENT", label: "Wymiana głośnika rozmów", icon: "Volume2", color: "#a855f7", combinableMode: "yes", combinableWith: [], sumsMode: "only_with", sumsWith: ["CLEANING"], sortOrder: 40 },
-  { code: "MEDIA_SPEAKER_REPLACEMENT", label: "Wymiana głośnika multimedialnego", icon: "Speaker", color: "#a855f7", combinableMode: "yes", combinableWith: [], sumsMode: "only_with", sumsWith: ["CLEANING"], sortOrder: 50 },
-  { code: "BACK_PANEL_REPLACEMENT", label: "Wymiana panelu tylnego", icon: "TabletSmartphone", color: "#ef4444", combinableMode: "yes", combinableWith: [], sumsMode: "only_with", sumsWith: ["CLEANING"], sortOrder: 60 },
-  { code: "FRAME_REPLACEMENT", label: "Wymiana korpusu", icon: "Wrench", color: "#ef4444", combinableMode: "yes", combinableWith: [], sumsMode: "only_with", sumsWith: ["CLEANING"], sortOrder: 70 },
-  { code: "CAMERA_GLASS_REPLACEMENT", label: "Wymiana szkła aparatu", icon: "Camera", color: "#3b82f6", combinableMode: "yes", combinableWith: [], sumsMode: "only_with", sumsWith: ["CLEANING"], sortOrder: 80 },
-  { code: "SOFTWARE_FAULT", label: "Usterka oprogramowania", icon: "Code", color: "#06B6D4", combinableMode: "yes", combinableWith: [], sumsMode: "only_with", sumsWith: ["CLEANING"], sortOrder: 90 },
-  { code: "SIM_SD_SLOT", label: "Gniazdo SIM/SD", icon: "PackageOpen", color: "#f59e0b", combinableMode: "yes", combinableWith: [], sumsMode: "only_with", sumsWith: ["CLEANING"], sortOrder: 100 },
-  { code: "MICROPHONE_REPLACEMENT", label: "Wymiana mikrofonu", icon: "Mic", color: "#a855f7", combinableMode: "yes", combinableWith: [], sumsMode: "only_with", sumsWith: ["CLEANING"], sortOrder: 110 },
-  { code: "SIM_TRAY_REPLACEMENT", label: "Wymiana tacki SIM", icon: "PackageOpen", color: "#f59e0b", combinableMode: "yes", combinableWith: [], sumsMode: "yes", sumsWith: [], sortOrder: 120 },
-  { code: "DATA_RECOVERY", label: "Odzysk danych", icon: "Database", color: "#06B6D4", combinableMode: "yes", combinableWith: [], sumsMode: "only_with", sumsWith: ["CLEANING"], sortOrder: 130 },
-  { code: "UNKNOWN_LOCK", label: "Nieznany wzór/kod blokady", icon: "KeyRound", color: "#ef4444", combinableMode: "yes", combinableWith: [], sumsMode: "only_with", sumsWith: ["CLEANING"], sortOrder: 140 },
-  { code: "FRP_GOOGLE", label: "FRP (usunięcie blokady Google)", icon: "Shield", color: "#ef4444", combinableMode: "yes", combinableWith: [], sumsMode: "only_with", sumsWith: ["CLEANING"], sortOrder: 150 },
-  { code: "CLEANING", label: "Czyszczenie urządzenia", icon: "Sparkles", color: "#22c55e", combinableMode: "yes", combinableWith: [], sumsMode: "yes", sumsWith: [], sortOrder: 160 },
-  { code: "OTHER", label: "Inne", icon: "HelpCircle", color: "#64748b", combinableMode: "yes", combinableWith: [], sumsMode: "no", sumsWith: [], sortOrder: 999 },
+  { code: "EXPERTISE", label: "Ekspertyza", category: "Diagnostyka", icon: "ClipboardList", color: "#06B6D4", combinableMode: "no", combinableWith: [], sumsMode: "no", sumsWith: [], sortOrder: 1 },
+  { code: "SCREEN_REPLACEMENT", label: "Wymiana wyświetlacza", category: "Wyświetlacze", icon: "Smartphone", color: "#3b82f6", combinableMode: "yes", combinableWith: [], sumsMode: "yes", sumsWith: [], sortOrder: 10 },
+  { code: "BATTERY_REPLACEMENT", label: "Wymiana baterii", category: "Baterie", icon: "Battery", color: "#22c55e", combinableMode: "yes", combinableWith: [], sumsMode: "yes", sumsWith: [], sortOrder: 20 },
+  { code: "CHARGING_PORT_REPLACEMENT", label: "Wymiana gniazda ładowania", category: "Gniazda", icon: "Cable", color: "#f59e0b", combinableMode: "yes", combinableWith: [], sumsMode: "yes", sumsWith: [], sortOrder: 30 },
+  { code: "EARPIECE_SPEAKER_REPLACEMENT", label: "Wymiana głośnika rozmów", category: "Audio", icon: "Volume2", color: "#a855f7", combinableMode: "yes", combinableWith: [], sumsMode: "yes", sumsWith: [], sortOrder: 40 },
+  { code: "MEDIA_SPEAKER_REPLACEMENT", label: "Wymiana głośnika multimedialnego", category: "Audio", icon: "Speaker", color: "#a855f7", combinableMode: "yes", combinableWith: [], sumsMode: "yes", sumsWith: [], sortOrder: 50 },
+  { code: "BACK_PANEL_REPLACEMENT", label: "Wymiana panelu tylnego", category: "Obudowy", icon: "TabletSmartphone", color: "#ef4444", combinableMode: "yes", combinableWith: [], sumsMode: "yes", sumsWith: [], sortOrder: 60 },
+  { code: "FRAME_REPLACEMENT", label: "Wymiana korpusu", category: "Obudowy", icon: "Wrench", color: "#ef4444", combinableMode: "yes", combinableWith: [], sumsMode: "yes", sumsWith: [], sortOrder: 70 },
+  { code: "CAMERA_GLASS_REPLACEMENT", label: "Wymiana szkła aparatu", category: "Aparaty", icon: "Camera", color: "#3b82f6", combinableMode: "yes", combinableWith: [], sumsMode: "yes", sumsWith: [], sortOrder: 80 },
+  { code: "SOFTWARE_FAULT", label: "Usterka oprogramowania", category: "Software", icon: "Code", color: "#06B6D4", combinableMode: "yes", combinableWith: [], sumsMode: "yes", sumsWith: [], sortOrder: 90 },
+  { code: "SIM_SD_SLOT", label: "Gniazdo SIM/SD", category: "Gniazda", icon: "PackageOpen", color: "#f59e0b", combinableMode: "yes", combinableWith: [], sumsMode: "yes", sumsWith: [], sortOrder: 100 },
+  { code: "MICROPHONE_REPLACEMENT", label: "Wymiana mikrofonu", category: "Audio", icon: "Mic", color: "#a855f7", combinableMode: "yes", combinableWith: [], sumsMode: "yes", sumsWith: [], sortOrder: 110 },
+  { code: "SIM_TRAY_REPLACEMENT", label: "Wymiana tacki SIM", category: "Gniazda", icon: "PackageOpen", color: "#f59e0b", combinableMode: "yes", combinableWith: [], sumsMode: "yes", sumsWith: [], sortOrder: 120 },
+  { code: "DATA_RECOVERY", label: "Odzysk danych", category: "Software", icon: "Database", color: "#06B6D4", combinableMode: "yes", combinableWith: [], sumsMode: "yes", sumsWith: [], sortOrder: 130 },
+  { code: "UNKNOWN_LOCK", label: "Nieznany wzór/kod blokady", category: "Software", icon: "KeyRound", color: "#ef4444", combinableMode: "yes", combinableWith: [], sumsMode: "yes", sumsWith: [], sortOrder: 140 },
+  { code: "FRP_GOOGLE", label: "FRP (usunięcie blokady Google)", category: "Software", icon: "Shield", color: "#ef4444", combinableMode: "yes", combinableWith: [], sumsMode: "yes", sumsWith: [], sortOrder: 150 },
+  { code: "CLEANING", label: "Czyszczenie urządzenia", category: "Czyszczenie", icon: "Sparkles", color: "#22c55e", combinableMode: "yes", combinableWith: [], sumsMode: "yes", sumsWith: [], sortOrder: 160 },
+  { code: "OTHER", label: "Inne", category: "Inne", icon: "HelpCircle", color: "#64748b", combinableMode: "yes", combinableWith: [], sumsMode: "yes", sumsWith: [], sortOrder: 999 },
 ];
 
 export interface RepairTypeApi {
   code: string;
   label: string;
+  /** Kategoria UI — używana do grupowania w cenniku admin. */
+  category: string;
   icon: string;
   color: string;
   description?: string | null;
@@ -63,8 +65,6 @@ export interface RepairTypeApi {
   sortOrder: number;
 }
 
-export const EXPERTISE_VALUE = "EXPERTISE";
-export const CLEANING_VALUE = "CLEANING";
 export const OTHER_VALUE = "OTHER";
 
 const ICON_FALLBACK: Record<string, typeof Smartphone> = {
@@ -143,14 +143,16 @@ export function DescriptionPicker({
 }) {
   const { types } = useRepairTypes();
   const isOther = selected.includes(OTHER_VALUE);
-  const isExpertise = selected.includes(EXPERTISE_VALUE);
 
   const sortedTypes = useMemo(
     () => [...types].sort((a, b) => a.sortOrder - b.sortOrder),
     [types],
   );
 
-  /** Toggle kodu z respektowaniem combinable rules. */
+  /** Toggle kodu — bez auto-replace ani disable. Konflikty (combinable_mode)
+   * są raportowane jako błąd walidacji w `EstimateBlock` / `QuotePreview`
+   * (combinationErrors) i blokują przejście dalej, ale chip pozostaje
+   * klikalny — user świadomie odznacza co chce. */
   const toggle = (code: string) => {
     const t = sortedTypes.find((x) => x.code === code);
     if (!t) return;
@@ -159,45 +161,7 @@ export function DescriptionPicker({
       onChange(selected.filter((c) => c !== code));
       return;
     }
-    // Adding — sprawdź combinable_mode dla wybieranego typu vs istniejących.
-    if (t.combinableMode === "no" && selected.length > 0) {
-      // EXPERTISE-style: zastąp wszystko nową naprawą.
-      onChange([code]);
-      return;
-    }
-    // Sprawdź czy istnieje już jakiś wybór z combinable_mode=no.
-    const existingExclusive = selected.find((c) => {
-      const e = sortedTypes.find((x) => x.code === c);
-      return e?.combinableMode === "no";
-    });
-    if (existingExclusive) {
-      onChange([code]);
-      return;
-    }
     onChange([...selected, code]);
-  };
-
-  /** Czy kod jest disabled (nie da się go wybrać przy aktualnym selection). */
-  const isDisabled = (code: string): boolean => {
-    if (selected.includes(code)) return false;
-    const t = sortedTypes.find((x) => x.code === code);
-    if (!t) return false;
-    // Gdy istnieje wybrana naprawa exclusive (mode=no), nie pokazuj innych.
-    const hasExclusive = selected.some((c) => {
-      const e = sortedTypes.find((x) => x.code === c);
-      return e?.combinableMode === "no" && c !== code;
-    });
-    if (hasExclusive) return true;
-    // Sprawdź combinable rules tego typu wobec wybranych.
-    if (t.combinableMode === "only_with" && selected.length > 0) {
-      const allowed = new Set(t.combinableWith);
-      return !selected.every((c) => allowed.has(c));
-    }
-    if (t.combinableMode === "except" && selected.length > 0) {
-      const blocked = new Set(t.combinableWith);
-      return selected.some((c) => blocked.has(c));
-    }
-    return false;
   };
 
   return (
@@ -212,19 +176,13 @@ export function DescriptionPicker({
         {sortedTypes.map((rt) => {
           const Icon = resolveIcon(rt.icon);
           const active = selected.includes(rt.code);
-          const disabled = isDisabled(rt.code);
           return (
             <button
               key={rt.code}
               type="button"
               onClick={() => toggle(rt.code)}
-              disabled={disabled}
-              title={
-                disabled
-                  ? "Ta naprawa nie łączy się z aktualnym wyborem"
-                  : rt.description ?? undefined
-              }
-              className="p-2.5 rounded-xl border flex items-center gap-2 transition-all duration-200 hover:scale-[1.02] text-left disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
+              title={rt.description ?? undefined}
+              className="p-2.5 rounded-xl border flex items-center gap-2 transition-all duration-200 hover:scale-[1.02] text-left"
               style={{
                 background: active
                   ? `linear-gradient(135deg, ${rt.color}33, ${rt.color}14)`
@@ -270,15 +228,6 @@ export function DescriptionPicker({
           }}
           autoFocus
         />
-      )}
-      {isExpertise && selected.length === 1 && (
-        <p
-          className="text-[11px]"
-          style={{ color: "var(--text-muted)" }}
-        >
-          Ekspertyza jest wyłącznym typem zlecenia — wybierając inną
-          naprawę zastąpisz ekspertyzę.
-        </p>
       )}
     </div>
   );

@@ -89,6 +89,7 @@ export function RepairTypesAdminClient({
     setEditing({
       code: "",
       label: "",
+      category: "Inne",
       icon: "Wrench",
       color: "#3b82f6",
       description: "",
@@ -530,6 +531,21 @@ function RepairTypeEditor({
             value={draft.label}
             onChange={(e) => onChange({ ...draft, label: e.target.value })}
             placeholder="Wymiana wyświetlacza"
+            className="w-full px-3 py-2 rounded-lg border outline-none focus:border-[var(--accent)]"
+            style={{
+              background: "var(--bg-surface)",
+              borderColor: "var(--border-subtle)",
+              color: "var(--text-main)",
+            }}
+          />
+        </Field>
+
+        <Field label="Kategoria UI (np. Wyświetlacze, Czyszczenie)">
+          <input
+            type="text"
+            value={draft.category}
+            onChange={(e) => onChange({ ...draft, category: e.target.value })}
+            placeholder="Wyświetlacze"
             className="w-full px-3 py-2 rounded-lg border outline-none focus:border-[var(--accent)]"
             style={{
               background: "var(--bg-surface)",

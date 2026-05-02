@@ -32,7 +32,6 @@ export interface ReceiptInput {
     face_touch_id?: boolean;
     water_damage?: string;
     charging_current?: number;
-    cleaning_accepted?: boolean;
     damage_markers?: {
       id: string;
       x: number;
@@ -42,9 +41,13 @@ export interface ReceiptInput {
       description?: string;
     }[];
   };
+  /** Wycena finalna sprzedawcy — pole jednorazowe (override). Gdy null,
+   * suma liczona z `priceLines`. */
   estimate: number | null;
-  cleaningPrice: number | null;
-  cleaningAccepted: boolean;
+  /** Pozycje wyceny pochodzące z `mp_pricelist` po `selectedRepairTypes`.
+   * Renderowane jako tabela "Naprawa A — XX PLN, Naprawa B — YY PLN, Razem".
+   * Pusta lista → renderujemy tylko pojedynczą linię "Naprawa" z `estimate`. */
+  priceLines?: { label: string; price: number }[];
   handover: { choice: "none" | "items"; items: string };
 }
 
@@ -481,42 +484,48 @@ function drawSinglePage(
   }
 
   // ===== WYCENA =====
+  // Wszystkie ceny pochodzą z mp_pricelist po code repair_type (priceLines).
+  // Jeżeli sprzedawca podał `estimate` (override) i nie ma rozpisu — pokazujemy
+  // jedną linię "Naprawa". Jeżeli są priceLines — renderujemy każdą pozycję +
+  // sumę. `estimate` w obecności priceLines traktujemy jako informacyjny override
+  // wyświetlany jako "Razem" (gdy podany), inaczej suma cen z linii.
   y = drawSection(doc, M, y, W, "WYCENA");
-  const repair = data.estimate ?? 0;
-  const cleaning =
-    data.cleaningAccepted && data.cleaningPrice ? data.cleaningPrice : 0;
-  const total = repair + cleaning;
-  // Wysokość bloku liczona dynamicznie z liczby pozycji + zawsze separator
-  // + Razem. 16pt na pozycję + 4pt padding nad separatorem + 16pt Razem
-  // + 6pt dolnego paddingu. Bez cleaning: 1 pozycja → 16+4+16+6 = 42.
-  // Z cleaning: 2 pozycje → 32+4+16+6 = 58.
-  const itemRows = cleaning > 0 ? 2 : 1;
+  const lines = data.priceLines ?? [];
+  const linesTotal = lines.reduce((s, l) => s + (l.price ?? 0), 0);
+  const total = data.estimate ?? linesTotal;
+  // Wysokość bloku — dynamiczna na podstawie liczby pozycji.
+  const itemRows = lines.length > 0 ? lines.length : 1;
   const totH = itemRows * 16 + 4 + 18 + 6;
   drawBlock(doc, M, y, W, totH, "#fafafa", TEXT, 1);
-  doc.font("R").fontSize(8.5).fillColor(TEXT).text("Naprawa", M + 8, y + 6);
-  doc
-    .font("R")
-    .fontSize(8.5)
-    .text(`${repair.toFixed(2)} PLN`, M, y + 6, {
-      width: W - 16,
-      align: "right",
-    });
-  let cy = y + 22;
-  if (cleaning > 0) {
+  let cy = y + 6;
+  if (lines.length === 0) {
+    // Brak rozpisu z pricelist — pojedyncza linia z estimate.
+    doc.font("R").fontSize(8.5).fillColor(TEXT).text("Naprawa", M + 8, cy);
     doc
       .font("R")
       .fontSize(8.5)
-      .fillColor(TEXT)
-      .text("Czyszczenie urządzenia", M + 8, cy - 6);
-    doc
-      .font("R")
-      .fontSize(8.5)
-      .text(`${cleaning.toFixed(2)} PLN`, M, cy - 6, {
+      .text(`${(data.estimate ?? 0).toFixed(2)} PLN`, M, cy, {
         width: W - 16,
         align: "right",
       });
-    cy += 10;
+    cy += 16;
+  } else {
+    for (const ln of lines) {
+      doc.font("R").fontSize(8.5).fillColor(TEXT).text(ln.label, M + 8, cy, {
+        width: W - 90,
+        ellipsis: true,
+      });
+      doc
+        .font("R")
+        .fontSize(8.5)
+        .text(`${ln.price.toFixed(2)} PLN`, M, cy, {
+          width: W - 16,
+          align: "right",
+        });
+      cy += 16;
+    }
   }
+  cy += 4;
   doc
     .moveTo(M + 8, cy)
     .lineTo(M + W - 8, cy)

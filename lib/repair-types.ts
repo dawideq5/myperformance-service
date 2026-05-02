@@ -17,6 +17,9 @@ export interface RepairType {
   id: string;
   code: string;
   label: string;
+  /** Kategoria UI — np. "Wyświetlacze", "Baterie", "Czyszczenie". Cennik
+   * grupuje pozycje po category z tej tabeli (deduplikowane Set). */
+  category: string;
   icon: string;
   color: string;
   description: string | null;
@@ -36,6 +39,7 @@ interface RepairTypeRow {
   id: string;
   code: string;
   label: string;
+  category: string | null;
   icon: string | null;
   color: string | null;
   description: string | null;
@@ -69,6 +73,7 @@ function mapRow(r: RepairTypeRow): RepairType {
     id: r.id,
     code: r.code,
     label: r.label,
+    category: (r.category ?? "Inne").trim() || "Inne",
     icon: r.icon ?? "Wrench",
     color: r.color ?? "#3b82f6",
     description: r.description ?? null,
@@ -121,6 +126,7 @@ export async function getRepairTypeByCode(
 export interface RepairTypeInput {
   code: string;
   label: string;
+  category?: string;
   icon?: string;
   color?: string;
   description?: string | null;
@@ -140,6 +146,7 @@ function inputToRow(input: Partial<RepairTypeInput>): Record<string, unknown> {
   const patch: Record<string, unknown> = {};
   if (input.code !== undefined) patch.code = input.code;
   if (input.label !== undefined) patch.label = input.label;
+  if (input.category !== undefined) patch.category = input.category;
   if (input.icon !== undefined) patch.icon = input.icon;
   if (input.color !== undefined) patch.color = input.color;
   if (input.description !== undefined) patch.description = input.description;
@@ -197,6 +204,29 @@ export async function updateRepairType(
 
 export async function deleteRepairType(id: string): Promise<void> {
   await deleteItem("mp_repair_types", id);
+}
+
+/** Wyciąga kody repair_types z description zlecenia. Description zawiera
+ * etykiety polskie rozdzielone " · " (zob. serializeRepairTypes w panelu).
+ * Mapowanie label.toLowerCase() → code z `types`. Nieznane fragmenty są
+ * pomijane (np. wpisy "Inne: <user text>"). */
+export function extractRepairCodesFromDescription(
+  description: string | null | undefined,
+  types: RepairType[],
+): string[] {
+  if (!description?.trim()) return [];
+  const labelToCode = new Map(
+    types.map((t) => [t.label.toLowerCase(), t.code]),
+  );
+  const parts = description.split(/[·,]/).map((s) => s.trim()).filter(Boolean);
+  const codes: string[] = [];
+  for (const part of parts) {
+    const lower = part.toLowerCase();
+    if (lower.startsWith("inne:") || lower === "inne") continue;
+    const code = labelToCode.get(lower);
+    if (code) codes.push(code);
+  }
+  return [...new Set(codes)];
 }
 
 // === Quote computation ===
@@ -377,6 +407,36 @@ export function computeQuoteSync(
   };
 }
 
+/** Zwraca listę pozycji wyceny (label + price z pricelist) na podstawie
+ * description zlecenia i urządzenia. Używane przez generator PDF — żeby
+ * potwierdzenie pokazywało zestawienie cen identyczne z wyceną w panelu. */
+export async function getPriceLinesForService(
+  description: string | null | undefined,
+  device: { brand?: string | null; model?: string | null } = {},
+): Promise<{ label: string; price: number }[]> {
+  const types = await listRepairTypes({ activeOnly: true });
+  const codes = extractRepairCodesFromDescription(description, types);
+  if (codes.length === 0) return [];
+  const pricelist = await listPricelist({ enabledOnly: true });
+  const byCode = new Map(types.map((t) => [t.code, t]));
+  const lines: { label: string; price: number }[] = [];
+  for (const code of codes) {
+    const t = byCode.get(code);
+    const matches = pricelist.filter(
+      (p) => p.code === code && matchesPricelist(p, device),
+    );
+    matches.sort((a, b) => {
+      const ax = (a.brand ? 1 : 0) + (a.modelPattern ? 1 : 0);
+      const bx = (b.brand ? 1 : 0) + (b.modelPattern ? 1 : 0);
+      return bx - ax;
+    });
+    const price = matches[0]?.price;
+    if (price == null) continue; // pozycja bez ceny — pomiń
+    lines.push({ label: t?.label ?? code, price });
+  }
+  return lines;
+}
+
 // === Seed default repair types ===
 
 /** Domyślny katalog 17 typów napraw. Seed-owany przy startupie jeśli baza pusta.
@@ -391,21 +451,21 @@ export const DEFAULT_REPAIR_TYPES: RepairTypeInput[] = [
   {
     code: "EXPERTISE",
     label: "Ekspertyza",
+    category: "Diagnostyka",
     icon: "ClipboardList",
     color: "#06B6D4",
     defaultWarrantyMonths: null,
     timeMin: 30,
     timeMax: 120,
     timeUnit: "minutes",
-    combinableMode: "only_with",
-    combinableWith: ["CLEANING"],
-    sumsMode: "only_with",
-    sumsWith: ["CLEANING"],
+    combinableMode: "no",
+    sumsMode: "no",
     sortOrder: 1,
   },
   {
     code: "SCREEN_REPLACEMENT",
     label: "Wymiana wyświetlacza",
+    category: "Wyświetlacze",
     icon: "Smartphone",
     color: "#3b82f6",
     defaultWarrantyMonths: 6,
@@ -413,13 +473,13 @@ export const DEFAULT_REPAIR_TYPES: RepairTypeInput[] = [
     timeMax: 3,
     timeUnit: "days",
     combinableMode: "yes",
-    sumsMode: "only_with",
-    sumsWith: ["CLEANING"],
+    sumsMode: "yes",
     sortOrder: 10,
   },
   {
     code: "BATTERY_REPLACEMENT",
     label: "Wymiana baterii",
+    category: "Baterie",
     icon: "Battery",
     color: "#22c55e",
     defaultWarrantyMonths: 6,
@@ -427,13 +487,13 @@ export const DEFAULT_REPAIR_TYPES: RepairTypeInput[] = [
     timeMax: 2,
     timeUnit: "days",
     combinableMode: "yes",
-    sumsMode: "only_with",
-    sumsWith: ["CLEANING"],
+    sumsMode: "yes",
     sortOrder: 20,
   },
   {
     code: "CHARGING_PORT_REPLACEMENT",
     label: "Wymiana gniazda ładowania",
+    category: "Gniazda",
     icon: "Cable",
     color: "#f59e0b",
     defaultWarrantyMonths: 3,
@@ -441,13 +501,13 @@ export const DEFAULT_REPAIR_TYPES: RepairTypeInput[] = [
     timeMax: 3,
     timeUnit: "days",
     combinableMode: "yes",
-    sumsMode: "only_with",
-    sumsWith: ["CLEANING"],
+    sumsMode: "yes",
     sortOrder: 30,
   },
   {
     code: "EARPIECE_SPEAKER_REPLACEMENT",
     label: "Wymiana głośnika rozmów",
+    category: "Audio",
     icon: "Volume2",
     color: "#a855f7",
     defaultWarrantyMonths: 3,
@@ -455,13 +515,13 @@ export const DEFAULT_REPAIR_TYPES: RepairTypeInput[] = [
     timeMax: 2,
     timeUnit: "days",
     combinableMode: "yes",
-    sumsMode: "only_with",
-    sumsWith: ["CLEANING"],
+    sumsMode: "yes",
     sortOrder: 40,
   },
   {
     code: "MEDIA_SPEAKER_REPLACEMENT",
     label: "Wymiana głośnika multimedialnego",
+    category: "Audio",
     icon: "Speaker",
     color: "#a855f7",
     defaultWarrantyMonths: 3,
@@ -469,13 +529,13 @@ export const DEFAULT_REPAIR_TYPES: RepairTypeInput[] = [
     timeMax: 2,
     timeUnit: "days",
     combinableMode: "yes",
-    sumsMode: "only_with",
-    sumsWith: ["CLEANING"],
+    sumsMode: "yes",
     sortOrder: 50,
   },
   {
     code: "BACK_PANEL_REPLACEMENT",
     label: "Wymiana panelu tylnego",
+    category: "Obudowy",
     icon: "TabletSmartphone",
     color: "#ef4444",
     defaultWarrantyMonths: 3,
@@ -483,13 +543,13 @@ export const DEFAULT_REPAIR_TYPES: RepairTypeInput[] = [
     timeMax: 3,
     timeUnit: "days",
     combinableMode: "yes",
-    sumsMode: "only_with",
-    sumsWith: ["CLEANING"],
+    sumsMode: "yes",
     sortOrder: 60,
   },
   {
     code: "FRAME_REPLACEMENT",
     label: "Wymiana korpusu",
+    category: "Obudowy",
     icon: "Wrench",
     color: "#ef4444",
     defaultWarrantyMonths: 3,
@@ -497,13 +557,13 @@ export const DEFAULT_REPAIR_TYPES: RepairTypeInput[] = [
     timeMax: 5,
     timeUnit: "days",
     combinableMode: "yes",
-    sumsMode: "only_with",
-    sumsWith: ["CLEANING"],
+    sumsMode: "yes",
     sortOrder: 70,
   },
   {
     code: "CAMERA_GLASS_REPLACEMENT",
     label: "Wymiana szkła aparatu",
+    category: "Aparaty",
     icon: "Camera",
     color: "#3b82f6",
     defaultWarrantyMonths: 3,
@@ -511,13 +571,13 @@ export const DEFAULT_REPAIR_TYPES: RepairTypeInput[] = [
     timeMax: 2,
     timeUnit: "days",
     combinableMode: "yes",
-    sumsMode: "only_with",
-    sumsWith: ["CLEANING"],
+    sumsMode: "yes",
     sortOrder: 80,
   },
   {
     code: "SOFTWARE_FAULT",
     label: "Usterka oprogramowania",
+    category: "Software",
     icon: "Code",
     color: "#06B6D4",
     defaultWarrantyMonths: null,
@@ -525,13 +585,13 @@ export const DEFAULT_REPAIR_TYPES: RepairTypeInput[] = [
     timeMax: 3,
     timeUnit: "days",
     combinableMode: "yes",
-    sumsMode: "only_with",
-    sumsWith: ["CLEANING"],
+    sumsMode: "yes",
     sortOrder: 90,
   },
   {
     code: "SIM_SD_SLOT",
     label: "Gniazdo SIM/SD",
+    category: "Gniazda",
     icon: "PackageOpen",
     color: "#f59e0b",
     defaultWarrantyMonths: 3,
@@ -539,13 +599,13 @@ export const DEFAULT_REPAIR_TYPES: RepairTypeInput[] = [
     timeMax: 2,
     timeUnit: "days",
     combinableMode: "yes",
-    sumsMode: "only_with",
-    sumsWith: ["CLEANING"],
+    sumsMode: "yes",
     sortOrder: 100,
   },
   {
     code: "MICROPHONE_REPLACEMENT",
     label: "Wymiana mikrofonu",
+    category: "Audio",
     icon: "Mic",
     color: "#a855f7",
     defaultWarrantyMonths: 3,
@@ -553,13 +613,13 @@ export const DEFAULT_REPAIR_TYPES: RepairTypeInput[] = [
     timeMax: 2,
     timeUnit: "days",
     combinableMode: "yes",
-    sumsMode: "only_with",
-    sumsWith: ["CLEANING"],
+    sumsMode: "yes",
     sortOrder: 110,
   },
   {
     code: "SIM_TRAY_REPLACEMENT",
     label: "Wymiana tacki SIM",
+    category: "Gniazda",
     icon: "PackageOpen",
     color: "#f59e0b",
     defaultWarrantyMonths: 1,
@@ -573,6 +633,7 @@ export const DEFAULT_REPAIR_TYPES: RepairTypeInput[] = [
   {
     code: "DATA_RECOVERY",
     label: "Odzysk danych",
+    category: "Software",
     icon: "Database",
     color: "#06B6D4",
     defaultWarrantyMonths: null,
@@ -580,13 +641,13 @@ export const DEFAULT_REPAIR_TYPES: RepairTypeInput[] = [
     timeMax: 7,
     timeUnit: "days",
     combinableMode: "yes",
-    sumsMode: "only_with",
-    sumsWith: ["CLEANING"],
+    sumsMode: "yes",
     sortOrder: 130,
   },
   {
     code: "UNKNOWN_LOCK",
     label: "Nieznany wzór/kod blokady",
+    category: "Software",
     icon: "KeyRound",
     color: "#ef4444",
     defaultWarrantyMonths: null,
@@ -594,13 +655,13 @@ export const DEFAULT_REPAIR_TYPES: RepairTypeInput[] = [
     timeMax: 14,
     timeUnit: "days",
     combinableMode: "yes",
-    sumsMode: "only_with",
-    sumsWith: ["CLEANING"],
+    sumsMode: "yes",
     sortOrder: 140,
   },
   {
     code: "FRP_GOOGLE",
     label: "FRP (usunięcie blokady Google)",
+    category: "Software",
     icon: "Shield",
     color: "#ef4444",
     defaultWarrantyMonths: null,
@@ -608,13 +669,13 @@ export const DEFAULT_REPAIR_TYPES: RepairTypeInput[] = [
     timeMax: 7,
     timeUnit: "days",
     combinableMode: "yes",
-    sumsMode: "only_with",
-    sumsWith: ["CLEANING"],
+    sumsMode: "yes",
     sortOrder: 150,
   },
   {
     code: "CLEANING",
     label: "Czyszczenie urządzenia",
+    category: "Czyszczenie",
     icon: "Sparkles",
     color: "#22c55e",
     defaultWarrantyMonths: null,
@@ -628,11 +689,12 @@ export const DEFAULT_REPAIR_TYPES: RepairTypeInput[] = [
   {
     code: "OTHER",
     label: "Inne",
+    category: "Inne",
     icon: "HelpCircle",
     color: "#64748b",
     defaultWarrantyMonths: null,
     combinableMode: "yes",
-    sumsMode: "no",
+    sumsMode: "yes",
     sortOrder: 999,
   },
 ];

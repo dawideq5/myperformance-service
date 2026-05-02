@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   CheckCircle2,
   Clock,
@@ -11,7 +11,6 @@ import {
   ShieldCheck,
   Tags,
   Trash2,
-  XCircle,
 } from "lucide-react";
 import {
   Badge,
@@ -27,31 +26,62 @@ import {
 import { AppHeader } from "@/components/AppHeader";
 import Link from "next/link";
 import type { PricelistItem, PricelistInput } from "@/lib/pricelist";
-
-const CATEGORIES: { value: string; label: string }[] = [
-  { value: "screen", label: "Wyświetlacz" },
-  { value: "battery", label: "Bateria" },
-  { value: "water_damage", label: "Zalanie" },
-  { value: "logic_board", label: "Płyta główna" },
-  { value: "port", label: "Port ładowania" },
-  { value: "protection", label: "Ochrona / czyszczenie" },
-  { value: "diagnostic", label: "Diagnostyka" },
-  { value: "other", label: "Inne" },
-];
-
-const CATEGORY_LABELS: Record<string, string> = Object.fromEntries(
-  CATEGORIES.map((c) => [c.value, c.label]),
-);
+import type { RepairType } from "@/lib/repair-types";
 
 export function PricelistAdminClient({
   initialItems,
+  initialRepairTypes,
   userLabel,
   userEmail,
 }: {
   initialItems: PricelistItem[];
+  initialRepairTypes: RepairType[];
   userLabel: string | undefined;
   userEmail: string | undefined;
 }) {
+  const [repairTypes, setRepairTypes] = useState<RepairType[]>(initialRepairTypes);
+
+  // Mapowanie code -> repair_type (dla auto-uzupełniania kategorii nowej
+  // pozycji cennika gdy kod pasuje do istniejącego repair_type).
+  const repairTypeByCode = useMemo(
+    () => new Map(repairTypes.map((t) => [t.code, t])),
+    [repairTypes],
+  );
+
+  // Lista kategorii do filtrów + edytora — pochodzi z unikalnych
+  // mp_repair_types.category + kategorie pojawiające się w istniejących
+  // pozycjach cennika (na wypadek pozycji sierot bez powiązanego
+  // repair_type). Posortowane alfabetycznie. Bez hardcoded enum.
+  const allCategories = useMemo(() => {
+    const set = new Set<string>();
+    for (const rt of repairTypes) if (rt.category?.trim()) set.add(rt.category.trim());
+    for (const it of initialItems) if (it.category?.trim()) set.add(it.category.trim());
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "pl"));
+  }, [repairTypes, initialItems]);
+
+  /** Etykieta kategorii dla item — preferuje category z mp_repair_types po
+   * code pricelist (gdy match), fallback na surową wartość pricelist.category. */
+  const categoryFor = useCallback(
+    (it: { code: string; category: string }): string => {
+      return repairTypeByCode.get(it.code)?.category ?? it.category ?? "Inne";
+    },
+    [repairTypeByCode],
+  );
+
+  // Refresh repair types przy mount (gdyby admin edytował w innej karcie).
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch("/api/admin/repair-types");
+        if (!res.ok) return;
+        const json = await res.json();
+        if (Array.isArray(json.types)) setRepairTypes(json.types as RepairType[]);
+      } catch {
+        /* ignore */
+      }
+    })();
+  }, []);
+
   const [items, setItems] = useState<PricelistItem[]>(initialItems);
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("");
@@ -76,7 +106,7 @@ export function PricelistAdminClient({
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return items.filter((it) => {
-      if (categoryFilter && it.category !== categoryFilter) return false;
+      if (categoryFilter && categoryFor(it) !== categoryFilter) return false;
       if (brandFilter) {
         const b = (it.brand ?? "").toLowerCase();
         if (!b.includes(brandFilter.toLowerCase())) return false;
@@ -88,7 +118,7 @@ export function PricelistAdminClient({
       }
       return true;
     });
-  }, [items, search, categoryFilter, brandFilter]);
+  }, [items, search, categoryFilter, brandFilter, categoryFor]);
 
   const stats = useMemo(() => {
     const enabled = items.filter((i) => i.enabled).length;
@@ -186,9 +216,9 @@ export function PricelistAdminClient({
           className="px-3 py-2 rounded-xl border bg-[var(--bg-surface)] text-sm border-[var(--border-subtle)]"
         >
           <option value="">Wszystkie kategorie</option>
-          {CATEGORIES.map((c) => (
-            <option key={c.value} value={c.value}>
-              {c.label}
+          {allCategories.map((c) => (
+            <option key={c} value={c}>
+              {c}
             </option>
           ))}
         </select>
@@ -249,7 +279,7 @@ export function PricelistAdminClient({
                     <td className="px-3 py-2 font-mono text-xs">{it.code}</td>
                     <td className="px-3 py-2">{it.name}</td>
                     <td className="px-3 py-2 text-xs">
-                      {CATEGORY_LABELS[it.category] ?? it.category}
+                      {categoryFor(it)}
                     </td>
                     <td className="px-3 py-2 text-xs">
                       <div>{it.brand || <span className="opacity-50">wszystkie</span>}</div>
@@ -314,6 +344,8 @@ export function PricelistAdminClient({
       {(editing || creating) && (
         <PricelistDialog
           item={editing}
+          repairTypes={repairTypes}
+          allCategories={allCategories}
           onClose={() => {
             setEditing(null);
             setCreating(false);
@@ -350,18 +382,30 @@ function StatCard({
 
 function PricelistDialog({
   item,
+  repairTypes,
+  allCategories,
   onClose,
   onSave,
   busy,
 }: {
   item: PricelistItem | null;
+  repairTypes: RepairType[];
+  allCategories: string[];
   onClose: () => void;
   onSave: (input: PricelistInput) => void;
   busy: boolean;
 }) {
+  const repairTypeByCode = useMemo(
+    () => new Map(repairTypes.map((t) => [t.code, t])),
+    [repairTypes],
+  );
   const [code, setCode] = useState(item?.code ?? "");
   const [name, setName] = useState(item?.name ?? "");
-  const [category, setCategory] = useState(item?.category ?? "screen");
+  // Initial category: z item, jeśli edycja; inaczej z mp_repair_types po
+  // matching code; inaczej "Inne".
+  const initialCategory =
+    item?.category ?? repairTypeByCode.get(item?.code ?? "")?.category ?? "Inne";
+  const [category, setCategory] = useState(initialCategory);
   const [price, setPrice] = useState(item?.price?.toString() ?? "0");
   const [brand, setBrand] = useState(item?.brand ?? "");
   const [modelPattern, setModelPattern] = useState(item?.modelPattern ?? "");
@@ -400,14 +444,43 @@ function PricelistDialog({
     >
       <form onSubmit={submit} className="space-y-3">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <Input
-            label="Kod (A-Z 0-9 _)"
-            value={code}
-            onChange={(e) => setCode(e.target.value.toUpperCase())}
-            disabled={!!item}
-            required
-            placeholder="SCREEN_REPLACE_IPHONE12"
-          />
+          <label className="block">
+            <span
+              className="block text-xs font-medium mb-1.5"
+              style={{ color: "var(--text-muted)" }}
+            >
+              Kod / Typ naprawy
+            </span>
+            {/* Wybór z listy istniejących repair_types (auto-fill kategorii)
+                LUB wpis ręczny dla pozycji standalone (np. wariant brand-only). */}
+            <input
+              list="repair-type-codes"
+              value={code}
+              onChange={(e) => {
+                const v = e.target.value.toUpperCase();
+                setCode(v);
+                const rt = repairTypeByCode.get(v);
+                if (rt) {
+                  setCategory(rt.category);
+                  if (!name.trim()) setName(rt.label);
+                }
+              }}
+              disabled={!!item}
+              required
+              placeholder="SCREEN_REPLACEMENT lub SCREEN_REPLACE_IPHONE12"
+              className="w-full px-3 py-2 rounded-xl border text-sm bg-[var(--bg-surface)] border-[var(--border-subtle)] uppercase font-mono"
+            />
+            <datalist id="repair-type-codes">
+              {repairTypes.map((t) => (
+                <option key={t.code} value={t.code}>
+                  {t.label} · {t.category}
+                </option>
+              ))}
+            </datalist>
+            <p className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>
+              Wybierz z listy → kategoria uzupełni się automatycznie z mp_repair_types.
+            </p>
+          </label>
           <Input
             label="Nazwa"
             value={name}
@@ -423,17 +496,20 @@ function PricelistDialog({
             >
               Kategoria
             </span>
-            <select
+            {/* Lista pochodzi z unikalnych mp_repair_types.category — bez
+                hardcoded enum. allowOther: input + datalist. */}
+            <input
+              list="pricelist-categories"
               value={category}
               onChange={(e) => setCategory(e.target.value)}
+              required
               className="w-full px-3 py-2 rounded-xl border text-sm bg-[var(--bg-surface)] border-[var(--border-subtle)]"
-            >
-              {CATEGORIES.map((c) => (
-                <option key={c.value} value={c.value}>
-                  {c.label}
-                </option>
+            />
+            <datalist id="pricelist-categories">
+              {allCategories.map((c) => (
+                <option key={c} value={c} />
               ))}
-            </select>
+            </datalist>
           </label>
           <Input
             label="Cena (PLN)"

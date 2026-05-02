@@ -14,19 +14,14 @@ interface PricelistItem {
   durationMinutes: number | null;
 }
 
-const CATEGORY_LABELS: Record<string, string> = {
-  screen: "Wymiana ekranu",
-  battery: "Wymiana baterii",
-  water_damage: "Naprawa po zalaniu",
-  logic_board: "Naprawa płyty głównej",
-  port: "Wymiana złącza",
-  protection: "Pakiet ochronny",
-  diagnostic: "Diagnostyka",
-  other: "Inne",
-};
+interface RepairType {
+  code: string;
+  category: string;
+}
 
 export function PricelistTab() {
   const [items, setItems] = useState<PricelistItem[]>([]);
+  const [repairTypes, setRepairTypes] = useState<RepairType[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<string>("");
@@ -35,9 +30,14 @@ export function PricelistTab() {
     void (async () => {
       setLoading(true);
       try {
-        const res = await fetch("/api/relay/pricelist");
-        const json = await res.json();
-        setItems(json.items ?? []);
+        const [pricelistRes, typesRes] = await Promise.all([
+          fetch("/api/relay/pricelist"),
+          fetch("/api/relay/repair-types"),
+        ]);
+        const pricelistJson = await pricelistRes.json();
+        const typesJson = await typesRes.json();
+        setItems(pricelistJson.items ?? []);
+        setRepairTypes(typesJson.types ?? []);
       } catch {
         /* ignore */
       } finally {
@@ -46,16 +46,26 @@ export function PricelistTab() {
     })();
   }, []);
 
+  // Mapowanie code → category z mp_repair_types. Pricelist item dziedziczy
+  // kategorię z powiązanego repair_type po code (fallback na item.category).
+  const repairTypeByCode = useMemo(
+    () => new Map(repairTypes.map((t) => [t.code, t])),
+    [repairTypes],
+  );
+  const categoryFor = (it: PricelistItem) =>
+    repairTypeByCode.get(it.code)?.category ?? it.category ?? "Inne";
+
   const categories = useMemo(() => {
     const set = new Set<string>();
-    for (const i of items) set.add(i.category);
-    return Array.from(set);
-  }, [items]);
+    for (const i of items) set.add(categoryFor(i));
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "pl"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, repairTypeByCode]);
 
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();
     return items.filter((i) => {
-      if (category && i.category !== category) return false;
+      if (category && categoryFor(i) !== category) return false;
       if (!s) return true;
       return (
         i.name.toLowerCase().includes(s) ||
@@ -63,7 +73,8 @@ export function PricelistTab() {
         (i.description ?? "").toLowerCase().includes(s)
       );
     });
-  }, [items, search, category]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, search, category, repairTypeByCode]);
 
   if (loading) {
     return (
@@ -124,7 +135,7 @@ export function PricelistTab() {
             active={category === c}
             onClick={() => setCategory(c)}
           >
-            {CATEGORY_LABELS[c] ?? c}
+            {c}
           </CategoryChip>
         ))}
       </div>
@@ -163,7 +174,7 @@ export function PricelistTab() {
                 className="text-xs mt-1 flex flex-wrap gap-3"
                 style={{ color: "var(--text-muted)" }}
               >
-                <span>{CATEGORY_LABELS[i.category] ?? i.category}</span>
+                <span>{categoryFor(i)}</span>
                 {i.warrantyMonths != null && (
                   <span>gwarancja {i.warrantyMonths} mies.</span>
                 )}

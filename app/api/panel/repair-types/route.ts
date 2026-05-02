@@ -24,6 +24,7 @@ export async function GET(req: Request) {
       types: types.map((t) => ({
         code: t.code,
         label: t.label,
+        category: t.category,
         icon: t.icon,
         color: t.color,
         description: t.description,
