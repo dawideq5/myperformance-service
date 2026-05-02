@@ -8,8 +8,6 @@ import {
 } from "react";
 import {
   Filter,
-  LayoutGrid,
-  List,
   Loader2,
   RefreshCw,
   Search,
@@ -21,8 +19,6 @@ import { ServiceDetailEmpty } from "./ServiceDetailEmpty";
 import type { ServiceTicket } from "./tabs/ServicesBoard";
 import type { FilterState } from "@/lib/serwisant/filters";
 
-export type ViewMode = "list" | "board";
-
 interface PanelLayoutProps {
   /** Już przefiltrowana lista do renderu w środkowej kolumnie. */
   services: ServiceTicket[];
@@ -33,12 +29,8 @@ interface PanelLayoutProps {
   locations: SidebarLocation[];
   /** Liczniki per status — dla sidebar i empty state. */
   counts: Record<string, number>;
-  viewMode: ViewMode;
-  onViewModeChange: (mode: ViewMode) => void;
-  /** Slot dla prawej kolumny — QuickPreview lub ServiceDetailEmpty. */
+  /** Slot dla prawej kolumny — ServiceDetailView lub ServiceDetailEmpty. */
   detailSlot: ReactNode;
-  /** Slot dla widoku tablicy (kanban) — renderowany zamiast listy. */
-  boardSlot?: ReactNode;
   /** Header (sticky top) — jeśli null, renderujemy domyślny mini-header. */
   headerSlot?: ReactNode;
   loading?: boolean;
@@ -53,10 +45,7 @@ export function PanelLayout({
   onFiltersChange,
   locations,
   counts,
-  viewMode,
-  onViewModeChange,
   detailSlot,
-  boardSlot,
   headerSlot,
   loading = false,
   onRefresh,
@@ -114,44 +103,6 @@ export function PanelLayout({
           />
         </div>
 
-        <div
-          className="hidden sm:inline-flex rounded-lg border overflow-hidden"
-          style={{ borderColor: "var(--border-subtle)" }}
-          role="tablist"
-          aria-label="Tryb widoku"
-        >
-          <button
-            type="button"
-            role="tab"
-            aria-selected={viewMode === "list"}
-            onClick={() => onViewModeChange("list")}
-            className="px-2.5 py-1.5 text-xs flex items-center gap-1.5"
-            style={{
-              background:
-                viewMode === "list" ? "var(--accent)" : "var(--bg-main)",
-              color: viewMode === "list" ? "#fff" : "var(--text-muted)",
-            }}
-          >
-            <List className="w-3.5 h-3.5" />
-            Lista
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={viewMode === "board"}
-            onClick={() => onViewModeChange("board")}
-            className="px-2.5 py-1.5 text-xs flex items-center gap-1.5"
-            style={{
-              background:
-                viewMode === "board" ? "var(--accent)" : "var(--bg-main)",
-              color: viewMode === "board" ? "#fff" : "var(--text-muted)",
-            }}
-          >
-            <LayoutGrid className="w-3.5 h-3.5" />
-            Tablica
-          </button>
-        </div>
-
         {onRefresh && (
           <button
             type="button"
@@ -171,7 +122,7 @@ export function PanelLayout({
         )}
       </div>
     ),
-    [filters, loading, onFiltersChange, onRefresh, onViewModeChange, viewMode],
+    [filters, loading, onFiltersChange, onRefresh],
   );
 
   const listColumn = (
@@ -221,20 +172,13 @@ export function PanelLayout({
         variant="desktop"
       />
 
-      {/* Middle: list or board */}
+      {/* Middle: list */}
       <div
         className="flex flex-col min-h-[400px] border-r"
         style={{ borderColor: "var(--border-subtle)" }}
       >
         {headerSlot}
-        {viewMode === "board" && boardSlot ? (
-          <>
-            {middleHeader}
-            <div className="flex-1 overflow-y-auto p-3">{boardSlot}</div>
-          </>
-        ) : (
-          listColumn
-        )}
+        {listColumn}
       </div>
 
       {/* Right: detail */}

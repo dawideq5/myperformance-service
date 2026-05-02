@@ -15,9 +15,9 @@ import {
   User as UserIcon,
 } from "lucide-react";
 import { PanelLocationMap, type PanelLocation } from "./PanelLocationMap";
-import { ServicesBoard, type ServiceTicket } from "./tabs/ServicesBoard";
+import { type ServiceTicket } from "./tabs/ServicesBoard";
 import { ServiceDetailView } from "./ServiceDetailView";
-import { PanelLayout, type ViewMode } from "./PanelLayout";
+import { PanelLayout } from "./PanelLayout";
 import { ServiceDetailEmpty } from "./ServiceDetailEmpty";
 import {
   DEFAULT_FILTERS,
@@ -26,12 +26,12 @@ import {
 import { STATUS_GROUPS } from "@/lib/serwisant/status-meta";
 
 const STORAGE_KEY = "panel-serwisant:selected-location";
-const VIEW_MODE_KEY = "panel-serwisant:view-mode";
+const LEGACY_VIEW_MODE_KEY = "panel-serwisant:view-mode";
 
 export function PanelHome({
   locations,
   userLabel,
-  userEmail,
+  userEmail: _userEmail,
 }: {
   locations: PanelLocation[];
   userLabel: string;
@@ -422,10 +422,9 @@ export function PanelHome({
           </div>
         </div>
 
-        {/* Główna treść — przełącznik widoku lista (3-col) | tablica (kanban) */}
+        {/* Główna treść — widok 3-kolumnowy (sidebar filtrów / lista / detail) */}
         <div className="flex-1 mt-4">
           <ServicesView
-            userEmail={userEmail}
             locationId={selected.id}
             availableLocations={locations}
           />
@@ -437,40 +436,25 @@ export function PanelHome({
 
 /**
  * Wewnętrzny komponent — fetch listy zleceń + przełącznik widoku
- * lista (3-col PanelLayout) / tablica (kanban ServicesBoard).
- *
- * Lista filtruje lokalnie po `filters` z sidebara; tablica zachowuje
- * własne filtrowanie wewnętrzne (search + onlyMine).
+ * lista (3-kolumnowy PanelLayout). Filtrowanie lokalne po `filters` z sidebara.
  */
 function ServicesView({
-  userEmail,
   locationId,
   availableLocations,
 }: {
-  userEmail: string;
   locationId: string;
   availableLocations: PanelLocation[];
 }) {
-  const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [services, setServices] = useState<ServiceTicket[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
 
-  // Restore view-mode preference from localStorage (best-effort).
+  // One-time migration: usuń legacy klucz `view-mode` (kanban "Tablica"
+  // został wycofany — pozostał tylko widok 3-kolumnowy).
   useEffect(() => {
     try {
-      const saved = localStorage.getItem(VIEW_MODE_KEY);
-      if (saved === "list" || saved === "board") setViewMode(saved);
-    } catch {
-      /* noop */
-    }
-  }, []);
-
-  const onViewModeChange = useCallback((mode: ViewMode) => {
-    setViewMode(mode);
-    try {
-      localStorage.setItem(VIEW_MODE_KEY, mode);
+      localStorage.removeItem(LEGACY_VIEW_MODE_KEY);
     } catch {
       /* noop */
     }
@@ -565,18 +549,6 @@ function ServicesView({
   void STATUS_GROUPS;
   void locationId;
 
-  if (viewMode === "board") {
-    // Zachowany kanban — własny fetch + własna selekcja + modal.
-    return (
-      <div className="mx-auto max-w-7xl w-full px-4 sm:px-6 pb-8">
-        <div className="flex justify-end mb-3">
-          <ViewModeToggle viewMode={viewMode} onChange={onViewModeChange} />
-        </div>
-        <ServicesBoard userEmail={userEmail} />
-      </div>
-    );
-  }
-
   return (
     <PanelLayout
       services={filteredServices}
@@ -586,8 +558,6 @@ function ServicesView({
       onFiltersChange={setFilters}
       locations={sidebarLocations}
       counts={counts}
-      viewMode={viewMode}
-      onViewModeChange={onViewModeChange}
       loading={loading}
       onRefresh={() => void refresh()}
       detailSlot={
@@ -606,39 +576,5 @@ function ServicesView({
         )
       }
     />
-  );
-}
-
-function ViewModeToggle({
-  viewMode,
-  onChange,
-}: {
-  viewMode: ViewMode;
-  onChange: (m: ViewMode) => void;
-}) {
-  return (
-    <div
-      className="inline-flex rounded-lg border overflow-hidden"
-      style={{ borderColor: "var(--border-subtle)" }}
-      role="tablist"
-      aria-label="Tryb widoku"
-    >
-      {(["list", "board"] as const).map((mode) => (
-        <button
-          key={mode}
-          type="button"
-          role="tab"
-          aria-selected={viewMode === mode}
-          onClick={() => onChange(mode)}
-          className="px-3 py-1.5 text-xs font-medium"
-          style={{
-            background: viewMode === mode ? "var(--accent)" : "var(--bg-card)",
-            color: viewMode === mode ? "#fff" : "var(--text-muted)",
-          }}
-        >
-          {mode === "list" ? "Lista" : "Tablica"}
-        </button>
-      ))}
-    </div>
   );
 }
