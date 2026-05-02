@@ -7,6 +7,7 @@ import {
   ArrowRight,
   CheckCircle2,
   CircleDot,
+  Sparkles,
   X,
 } from "lucide-react";
 import * as THREE from "three";
@@ -36,8 +37,17 @@ type StepId =
   | "frames"
   | "cameras"
   | "liquid"
+  | "cleaning"
   | "damage"
   | "summary";
+
+interface CleaningTourPos {
+  pos: [number, number, number];
+  lookAt: [number, number, number];
+  highlight: HighlightId;
+  caption: string;
+  durationMs: number;
+}
 
 interface Step {
   id: StepId;
@@ -49,6 +59,9 @@ interface Step {
   /** Target rotacja telefonu wokół osi Y (radiany). Domyślnie 0.
    *  display=0, back=π → flip 180° między krokami. */
   phoneRotationY?: number;
+  /** Tour pozycji kamery dla cleaning step — animacja showcase miejsc
+   * gdzie kurz powoduje problemy. Pure viewer, nie wymaga interakcji. */
+  cleaningTour?: CleaningTourPos[];
 }
 
 // Display → back przez OBRÓT telefonu (kamera stoi w +X, telefon flipuje się
@@ -97,6 +110,37 @@ const STEPS: Step[] = [
     // Widok dolnej krawędzi z portem ładowania.
     cameraPos: [0, -3.5, 0.6],
     cameraLookAt: [0, -1.6, 0],
+  },
+  {
+    id: "cleaning",
+    title: "Czyszczenie urządzenia",
+    subtitle:
+      "Kurz w głośnikach i porcie powoduje problemy. Pokażemy gdzie czyścimy.",
+    highlight: null,
+    cameraPos: [4.0, 0, 0],
+    cleaningTour: [
+      {
+        pos: [2.5, 2.8, 0],
+        lookAt: [0.5, 1.4, 0],
+        highlight: "earpiece",
+        caption: "Głośnik rozmów — pył przyczynia się do problemów ze słyszalnością",
+        durationMs: 10000,
+      },
+      {
+        pos: [0, -3.0, 1.4],
+        lookAt: [0, -1.4, 0],
+        highlight: "speakers",
+        caption: "Głośniczki dolne — kurz tłumi dźwięk multimedia",
+        durationMs: 10000,
+      },
+      {
+        pos: [0, -3.5, 0.6],
+        lookAt: [0, -1.6, 0],
+        highlight: "port",
+        caption: "Port ładowania — kurz blokuje połączenie z kablem",
+        durationMs: 10000,
+      },
+    ],
   },
   {
     id: "damage",
@@ -370,6 +414,8 @@ export function PhoneConfigurator3D({
           return false;
         }
         return true;
+      case "cleaning":
+        return true; // viewer step — animacja showcase, brak interakcji
       case "damage":
         return true; // markery opcjonalne
       case "summary":
@@ -394,9 +440,33 @@ export function PhoneConfigurator3D({
   const update = (patch: Partial<VisualConditionState>) =>
     setState((s) => ({ ...s, ...patch }));
 
-  const currentCameraPos: [number, number, number] = step.cameraPos;
-  const currentLookAt: [number, number, number] | undefined = step.cameraLookAt;
-  const currentHighlight: HighlightId = step.highlight;
+  // Cleaning tour — gdy step.id === "cleaning", animuj kolejne pozycje.
+  const [cleaningTourIdx, setCleaningTourIdx] = useState(0);
+  useEffect(() => {
+    if (step.id !== "cleaning" || !step.cleaningTour) {
+      setCleaningTourIdx(0);
+      return;
+    }
+    const len = step.cleaningTour.length;
+    const t = setTimeout(
+      () => setCleaningTourIdx((i) => (i + 1) % len),
+      step.cleaningTour[cleaningTourIdx]?.durationMs ?? 8000,
+    );
+    return () => clearTimeout(t);
+  }, [step.id, step.cleaningTour, cleaningTourIdx]);
+
+  const currentCameraPos: [number, number, number] =
+    step.id === "cleaning" && step.cleaningTour
+      ? step.cleaningTour[cleaningTourIdx].pos
+      : step.cameraPos;
+  const currentLookAt: [number, number, number] | undefined =
+    step.id === "cleaning" && step.cleaningTour
+      ? step.cleaningTour[cleaningTourIdx].lookAt
+      : step.cameraLookAt;
+  const currentHighlight: HighlightId =
+    step.id === "cleaning" && step.cleaningTour
+      ? step.cleaningTour[cleaningTourIdx].highlight
+      : step.highlight;
   const phonePosition: [number, number, number] =
     step.id === "summary" ? [-1.8, 0, 0] : [0, 0, 0];
   const playDisassembly = step.id === "summary";
@@ -479,7 +549,7 @@ export function PhoneConfigurator3D({
                   cameraLookAt={currentLookAt}
                   brandColor={brandColorHex}
                   isFramesStep={step.id === "frames"}
-                  isCleaningStep={false}
+                  isCleaningStep={step.id === "cleaning"}
                   screenOn={false}
                   damageMarkers={state.damage_markers ?? []}
                   damageMode={step.id === "damage"}
@@ -491,6 +561,15 @@ export function PhoneConfigurator3D({
               </Canvas>
             </PhoneSceneErrorBoundary>
             <ModelLoadingOverlay />
+
+            {/* Cleaning tour caption overlay — pokazuje opis miejsca które
+             * aktualnie jest highlightowane (rotacja co ~10s). Pure viewer. */}
+            {step.id === "cleaning" && step.cleaningTour && (
+              <div className="absolute bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-full bg-black/60 backdrop-blur-md border border-white/10 text-xs text-white/90 max-w-[80%] text-center animate-fade-in">
+                <Sparkles className="w-3 h-3 inline mr-1.5 text-amber-400" />
+                {step.cleaningTour[cleaningTourIdx].caption}
+              </div>
+            )}
 
             {/* Damage mode hint — instrukcje zależne od platformy. */}
             {step.id === "damage" && !pendingChoice && (
