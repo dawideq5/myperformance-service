@@ -45,8 +45,15 @@ interface PhoneGLBProps {
   /** Trigger disassembly animation (summary step). */
   playDisassembly?: boolean;
   /** Callback dla kliku w model — pozycja w LOKALNYCH koordynatach grupy +
-   * lista kandydatów stref (1 = jedyna opcja, >1 = boundary, popup z wyborem). */
-  onModelClick?: (localPoint: THREE.Vector3, candidates: string[]) => void;
+   * lista kandydatów stref (1 = jedyna opcja, >1 = boundary, popup z wyborem).
+   * normalLocal — normalna powierzchni w tym samym frame co localPoint
+   * (pre-offset; caller dodaje offset wzdłuż normalnej żeby marker nie
+   * "przebijał" geometrii od tyłu). */
+  onModelClick?: (
+    localPoint: THREE.Vector3,
+    candidates: string[],
+    normalLocal?: THREE.Vector3,
+  ) => void;
   /** Subtelne unoszenie się modelu w przestrzeni (idle effect). */
   floating?: boolean;
   /** Kolor body urządzenia — z ColorPicker w intake formie (hex). */
@@ -299,7 +306,9 @@ export function PhoneGLB({
             point: THREE.Vector3;
             delta: number;
             stopPropagation: () => void;
-            object?: { name?: string };
+            object?: THREE.Object3D & { name?: string };
+            face?: { normal: THREE.Vector3 } | null;
+            normal?: THREE.Vector3;
           }) => {
             if (!damageMode || !onModelClick) return;
             if (e.delta > 5) return;
@@ -313,7 +322,30 @@ export function PhoneGLB({
             const localScene = sceneOuter
               ? sceneOuter.worldToLocal(e.point.clone())
               : worldP.clone();
-            onModelClick(localScene, classifyDamageZones(worldP));
+
+            // Wyznacz normalną powierzchni w outer-scene frame. Raycaster
+            // domyślnie zwraca face.normal w lokalnym frame intersected
+            // mesha — transform przez normalMatrix (z worldMatrix), potem
+            // worldToLocal(outer) dla kierunku (origin = (0,0,0), end =
+            // normalKierunek; różnica daje finalny wektor w outer frame).
+            let normalScene: THREE.Vector3 | undefined;
+            const faceNormal = e.face?.normal ?? e.normal;
+            if (faceNormal && e.object) {
+              const worldNormal = faceNormal.clone();
+              const nm = new THREE.Matrix3().getNormalMatrix(
+                e.object.matrixWorld,
+              );
+              worldNormal.applyMatrix3(nm).normalize();
+              if (sceneOuter) {
+                const o0 = sceneOuter.worldToLocal(new THREE.Vector3(0, 0, 0));
+                const o1 = sceneOuter.worldToLocal(worldNormal.clone());
+                normalScene = o1.sub(o0).normalize();
+              } else {
+                normalScene = worldNormal;
+              }
+            }
+
+            onModelClick(localScene, classifyDamageZones(worldP), normalScene);
           }}
         />
       </group>
@@ -430,24 +462,24 @@ function DamagePin({ x, y, z }: { x: number; y: number; z: number }) {
     }
   });
 
+  // depthTest WŁĄCZONY (true to default) — marker zniknie, gdy będzie za
+  // płaszczyzną telefonu z perspektywy kamery. To eliminuje "przeświecanie"
+  // markerów na drugiej powierzchni. Caller offsetuje pozycję wzdłuż
+  // normalnej powierzchni (PhoneConfigurator3D.addMarker) tak, żeby kropka
+  // siedziała tuż NAD meshem zamiast clipować się z nim w buforze głębi.
   return (
     <group ref={groupRef} position={[x, y, z]}>
-      <mesh ref={dotRef} renderOrder={999}>
+      <mesh ref={dotRef}>
         <sphereGeometry args={[0.06, 12, 12]} />
-        <meshBasicMaterial
-          color="#ff2020"
-          depthTest={false}
-          transparent={false}
-        />
+        <meshBasicMaterial color="#ff2020" transparent={false} />
       </mesh>
-      <mesh ref={ringRef} renderOrder={998}>
+      <mesh ref={ringRef}>
         <ringGeometry args={[0.085, 0.107, 24]} />
         <meshBasicMaterial
           color="#ff3030"
           transparent
           opacity={0.55}
           side={THREE.DoubleSide}
-          depthTest={false}
           depthWrite={false}
         />
       </mesh>

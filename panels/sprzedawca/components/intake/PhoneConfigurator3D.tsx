@@ -297,18 +297,33 @@ export function PhoneConfigurator3D({
     x: number;
     y: number;
     z: number;
+    nx?: number;
+    ny?: number;
+    nz?: number;
     candidates: string[];
   } | null>(null);
+
+  // Offset markera wzdłuż normalnej powierzchni — w jednostkach outer-scene.
+  // Wartość dobrana eksperymentalnie: dotyka mesha (brak floating) ale jest
+  // za nim niewidoczny dzięki depthTest = true w PhoneGLB/DamagePin.
+  const MARKER_NORMAL_OFFSET = 0.04;
 
   const addMarker = (
     point: { x: number; y: number; z: number },
     surface: string,
+    normal?: { x: number; y: number; z: number },
   ) => {
+    // Marker tuż NAD powierzchnią — zapobiega clippingowi z meshem +
+    // razem z depthTest na DamagePin gwarantuje że marker po drugiej
+    // stronie telefonu jest niewidoczny.
+    const ox = normal ? point.x + normal.x * MARKER_NORMAL_OFFSET : point.x;
+    const oy = normal ? point.y + normal.y * MARKER_NORMAL_OFFSET : point.y;
+    const oz = normal ? point.z + normal.z * MARKER_NORMAL_OFFSET : point.z;
     const m: DamageMarker = {
       id: `m-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      x: point.x,
-      y: point.y,
-      z: point.z,
+      x: ox,
+      y: oy,
+      z: oz,
       surface,
       description: "",
     };
@@ -319,11 +334,19 @@ export function PhoneConfigurator3D({
     setEditingMarkerId(m.id);
   };
 
-  const onModelClick = (point: THREE.Vector3, candidates: string[]) => {
+  const onModelClick = (
+    point: THREE.Vector3,
+    candidates: string[],
+    normal?: THREE.Vector3,
+  ) => {
     if (step.id !== "damage") return;
     if (candidates.length === 0) return;
     if (candidates.length === 1) {
-      addMarker(point, candidates[0]);
+      addMarker(
+        point,
+        candidates[0],
+        normal ? { x: normal.x, y: normal.y, z: normal.z } : undefined,
+      );
       return;
     }
     // Multi-candidate (boundary case) — popup wyboru.
@@ -331,6 +354,9 @@ export function PhoneConfigurator3D({
       x: point.x,
       y: point.y,
       z: point.z,
+      nx: normal?.x,
+      ny: normal?.y,
+      nz: normal?.z,
       candidates,
     });
   };
@@ -340,6 +366,15 @@ export function PhoneConfigurator3D({
     addMarker(
       { x: pendingChoice.x, y: pendingChoice.y, z: pendingChoice.z },
       choice,
+      pendingChoice.nx != null &&
+        pendingChoice.ny != null &&
+        pendingChoice.nz != null
+        ? {
+            x: pendingChoice.nx,
+            y: pendingChoice.ny,
+            z: pendingChoice.nz,
+          }
+        : undefined,
     );
     setPendingChoice(null);
   };
@@ -1031,6 +1066,7 @@ function StepInputs({
         state={state}
         brand={brand}
         cleaningPrice={cleaningPrice}
+        cleaningOptions={cleaningOptions}
         onChange={onChange}
       />
     );
@@ -1479,16 +1515,39 @@ function SummaryPanel({
   state,
   brand,
   cleaningPrice,
+  cleaningOptions = [],
   onChange,
 }: {
   state: VisualConditionState;
   brand: string;
   cleaningPrice: number | null;
+  cleaningOptions?: CleaningOption[];
   onChange: (patch: Partial<VisualConditionState>) => void;
 }) {
   const inconsistencies = getInconsistencies(state, brand);
-  const totalCleaning =
-    state.cleaning_accepted && cleaningPrice ? cleaningPrice : 0;
+  // Cena czyszczenia z wybranego wariantu (state.cleaning_variant_code).
+  // Fallback: cleaningPrice (= CLEANING_INTAKE z pricelist) gdy variant
+  // nieznany. Bez tego summary pokazywało zawsze cenę intake niezależnie
+  // od wybranego wariantu w step "cleaning".
+  const cleaningVariant = state.cleaning_accepted
+    ? cleaningOptions.find(
+        (o) => o.code === (state.cleaning_variant_code ?? "CLEANING_INTAKE"),
+      )
+    : undefined;
+  const cleaningLinePrice = state.cleaning_accepted
+    ? (cleaningVariant?.price ?? cleaningPrice ?? 0)
+    : 0;
+  const cleaningLineLabel =
+    cleaningVariant?.name ?? "Czyszczenie urządzenia";
+  // Lista pozycji ceny — obecnie tylko czyszczenie (ratings nie mają cen
+  // w intake step, te dolicza serwisant w "Opis usterki" po finiszu
+  // konfiguratora). Renderowane jako mini-zestawienie żeby user widział
+  // co konkretnie wlicza się w sumę.
+  const priceLines: { label: string; price: number }[] = [];
+  if (state.cleaning_accepted) {
+    priceLines.push({ label: cleaningLineLabel, price: cleaningLinePrice });
+  }
+  const priceTotal = priceLines.reduce((s, l) => s + l.price, 0);
   const ratings: {
     label: string;
     value: number | undefined;
@@ -1638,14 +1697,32 @@ function SummaryPanel({
       {/* Test funkcjonalny — pokazuje wszystkie odpowiedzi z checklisty. */}
       <ChecklistSummaryBlock state={state} />
 
-      {state.cleaning_accepted && (
-        <div className="rounded-xl p-3 border border-emerald-500/30 bg-emerald-500/10 flex items-center justify-between">
-          <span className="text-xs text-emerald-300 font-semibold">
-            ✓ Czyszczenie urządzenia
-          </span>
-          <span className="text-sm font-bold text-emerald-400">
-            +{totalCleaning} PLN
-          </span>
+      {priceLines.length > 0 && (
+        <div className="rounded-xl p-3 border border-emerald-500/30 bg-emerald-500/10 space-y-2">
+          <p className="text-[10px] uppercase tracking-wide text-emerald-300 font-semibold">
+            Zestawienie ceny
+          </p>
+          <ul className="space-y-1 text-xs">
+            {priceLines.map((l) => (
+              <li
+                key={l.label}
+                className="flex items-center justify-between gap-2 text-white/85"
+              >
+                <span className="truncate">{l.label}</span>
+                <span className="font-semibold whitespace-nowrap text-emerald-300">
+                  {l.price.toFixed(2)} PLN
+                </span>
+              </li>
+            ))}
+          </ul>
+          <div className="pt-1.5 border-t border-emerald-500/30 flex items-center justify-between">
+            <span className="text-[10px] uppercase tracking-wide text-emerald-300 font-semibold">
+              Razem
+            </span>
+            <span className="text-sm font-bold text-emerald-400">
+              {priceTotal.toFixed(2)} PLN
+            </span>
+          </div>
         </div>
       )}
 

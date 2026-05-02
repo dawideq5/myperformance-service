@@ -65,7 +65,11 @@ export default function PhoneScene({
   phonePosition?: [number, number, number];
   /** Animowana rotacja telefonu wokół osi Y (np. flip display→back). */
   phoneRotationY?: number;
-  onModelClick?: (point: THREE.Vector3, candidates: string[]) => void;
+  onModelClick?: (
+    point: THREE.Vector3,
+    candidates: string[],
+    normal?: THREE.Vector3,
+  ) => void;
 }) {
   const groupRef = useRef<THREE.Group>(null);
   const tgtPos = useRef(new THREE.Vector3(...phonePosition));
