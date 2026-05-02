@@ -22,6 +22,7 @@ import {
   createInternalNote,
   listInternalNotes,
   type InternalNoteAuthorRole,
+  type InternalNoteViewerRole,
   type InternalNoteVisibility,
 } from "@/lib/service-internal-notes";
 import { publish } from "@/lib/sse-bus";
@@ -29,7 +30,40 @@ import { log } from "@/lib/logger";
 
 const logger = log.child({ module: "panel-internal-notes" });
 
-const ALLOWED_VISIBILITY: InternalNoteVisibility[] = ["team", "service_only"];
+// Wave 21 / Faza 1D — `sales_only` dodane gdy zostały zunifikowane czat
+// zespołu + notatki. UI mapuje "Wszyscy / Tylko serwisanci / Tylko sprzedawcy"
+// → "team / service_only / sales_only".
+const ALLOWED_VISIBILITY: InternalNoteVisibility[] = [
+  "team",
+  "service_only",
+  "sales_only",
+];
+
+/**
+ * Heurystyka roli widza na podstawie realm roles z KC. Priorytet:
+ *   1. `service_admin` / `admin` → admin (widzi wszystko)
+ *   2. `serwisant` → service
+ *   3. `sprzedawca` → sales
+ *   4. fallback service (najczęstszy konsument panelu)
+ *
+ * Wave 21 — sprzedawca również może mieć rolę `serwisant` (uniwersalny user);
+ * w tym wypadku gra rolę serwisanta. Eksplicytny query param `?role=sales`
+ * pozwala panelowi sprzedawcy wymusić swoją perspektywę gdy konto ma obie
+ * role. Bez query param → fallback do automatycznej heurystyki.
+ */
+function resolveViewerRole(
+  realmRoles: readonly string[],
+  override: string | null,
+): InternalNoteViewerRole {
+  if (override === "sales" || override === "service" || override === "admin") {
+    return override;
+  }
+  const set = new Set(realmRoles);
+  if (set.has("admin") || set.has("service_admin")) return "admin";
+  if (set.has("serwisant")) return "service";
+  if (set.has("sprzedawca")) return "sales";
+  return "service";
+}
 
 export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: PANEL_CORS_HEADERS });
@@ -74,8 +108,16 @@ export async function GET(
       { status: 403, headers: PANEL_CORS_HEADERS },
     );
   }
-  const notes = await listInternalNotes(id);
-  return NextResponse.json({ notes }, { headers: PANEL_CORS_HEADERS });
+  const url = new URL(req.url);
+  const viewerRole = resolveViewerRole(
+    user.realmRoles,
+    url.searchParams.get("role"),
+  );
+  const notes = await listInternalNotes(id, { viewerRole });
+  return NextResponse.json(
+    { notes, viewerRole },
+    { headers: PANEL_CORS_HEADERS },
+  );
 }
 
 interface PostBody {
@@ -153,6 +195,17 @@ export async function POST(
   const authorName =
     user.name?.trim() || user.preferred_username || user.email;
 
+  // Wave 21 — domyślny `authorRole` z heurystyki KC roles. Klient może
+  // nadpisać (panel sprzedawcy → "sales").
+  const url = new URL(req.url);
+  const viewerRole = resolveViewerRole(
+    user.realmRoles,
+    url.searchParams.get("role"),
+  );
+  const inferredAuthorRole: InternalNoteAuthorRole =
+    body?.authorRole ??
+    (viewerRole === "sales" ? "sales" : "service");
+
   try {
     const note = await createInternalNote({
       serviceId: id,
@@ -160,7 +213,7 @@ export async function POST(
       body: text,
       authorEmail: user.email,
       authorName,
-      authorRole: body?.authorRole ?? "service",
+      authorRole: inferredAuthorRole,
       visibility,
       pinned: body?.pinned === true,
     });

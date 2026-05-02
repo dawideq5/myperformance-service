@@ -11,9 +11,37 @@ import {
 } from "@/lib/services";
 import { getLocation } from "@/lib/locations";
 import { createTransportJob } from "@/lib/transport-jobs";
+import {
+  generateReleaseCode,
+  markReleaseCodeSent,
+} from "@/lib/service-release-codes";
+import { notifyReleaseCode } from "@/lib/services/notify-release-code";
+import { logServiceAction } from "@/lib/service-actions";
 import { log } from "@/lib/logger";
 
 const logger = log.child({ module: "services-create" });
+
+/**
+ * Wave 21 / Faza 1C — kanał wysyłki 6-cyfrowego kodu wydania.
+ * Opcjonalne pole w body POST. Default = "email" gdy `contactEmail` set,
+ * fallback "sms" gdy tylko `contactPhone`, ostatecznie "paper". Niepowiązane
+ * ze schematem `CreateServiceInput` (kod żyje w osobnej kolekcji
+ * mp_service_release_codes).
+ */
+type ReleaseCodeChannelInput = "email" | "sms" | "paper";
+
+function pickReleaseChannel(
+  requested: unknown,
+  contactEmail: string | null | undefined,
+  contactPhone: string | null | undefined,
+): ReleaseCodeChannelInput {
+  if (requested === "email" || requested === "sms" || requested === "paper") {
+    return requested;
+  }
+  if (contactEmail && contactEmail.trim().length > 0) return "email";
+  if (contactPhone && contactPhone.trim().length > 0) return "sms";
+  return "paper";
+}
 
 export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: PANEL_CORS_HEADERS });
@@ -48,7 +76,9 @@ export async function POST(req: Request) {
     );
   }
   const body = (await req.json().catch(() => null)) as
-    | Omit<CreateServiceInput, "receivedBy">
+    | (Omit<CreateServiceInput, "receivedBy"> & {
+        releaseCodeChannel?: ReleaseCodeChannelInput;
+      })
     | null;
   if (!body) {
     return NextResponse.json(
@@ -112,6 +142,95 @@ export async function POST(req: Request) {
         });
       }
     }
+    // Wave 21 / Faza 1C — wygeneruj kod wydania urządzenia i wyślij
+    // wybranym kanałem. Best-effort: error nie blokuje creation response.
+    const releaseChannel = pickReleaseChannel(
+      body.releaseCodeChannel,
+      service.contactEmail,
+      service.contactPhone,
+    );
+    try {
+      const gen = await generateReleaseCode(service.id, service.ticketNumber);
+      if (gen) {
+        void logServiceAction({
+          serviceId: service.id,
+          ticketNumber: service.ticketNumber,
+          action: "release_code_generated",
+          actor: {
+            email: user.email,
+            name: user.name ?? user.email,
+          },
+          summary: `Wygenerowano kod wydania urządzenia (kanał: ${releaseChannel}).`,
+          payload: { channel: releaseChannel },
+        });
+        // Tylko email/sms wysyłamy run-time. paper = no-op (kod w PDF
+        // potwierdzenia, jeśli zaimplementowane w przyszłości).
+        if (releaseChannel === "email" || releaseChannel === "sms") {
+          const notifyResult = await notifyReleaseCode({
+            service: {
+              id: service.id,
+              ticketNumber: service.ticketNumber,
+              contactEmail: service.contactEmail,
+              contactPhone: service.contactPhone,
+              customerFirstName: service.customerFirstName,
+              customerLastName: service.customerLastName,
+              chatwootConversationId: service.chatwootConversationId,
+            },
+            code: gen.code,
+            channel: releaseChannel,
+          });
+          if (notifyResult.ok) {
+            await markReleaseCodeSent({
+              serviceId: service.id,
+              channel: releaseChannel,
+            });
+            void logServiceAction({
+              serviceId: service.id,
+              ticketNumber: service.ticketNumber,
+              action: "release_code_sent",
+              actor: {
+                email: user.email,
+                name: user.name ?? user.email,
+              },
+              summary: `Wysłano kod wydania (${releaseChannel}).`,
+              payload: { channel: releaseChannel },
+            });
+          } else {
+            void logServiceAction({
+              serviceId: service.id,
+              ticketNumber: service.ticketNumber,
+              action: "release_code_failed",
+              actor: {
+                email: user.email,
+                name: user.name ?? user.email,
+              },
+              summary: `Nie udało się wysłać kodu wydania (${releaseChannel}).`,
+              payload: {
+                channel: releaseChannel,
+                error: notifyResult.error ?? null,
+              },
+            });
+            logger.warn("release-code initial notify failed", {
+              serviceId: service.id,
+              channel: releaseChannel,
+              err: notifyResult.error,
+            });
+          }
+        } else {
+          // paper — markSent dla audit, kod uwidoczniony tylko w PDF.
+          await markReleaseCodeSent({
+            serviceId: service.id,
+            channel: "paper",
+          });
+        }
+      }
+    } catch (err) {
+      logger.warn("generateReleaseCode failed at intake", {
+        serviceId: service.id,
+        err: err instanceof Error ? err.message : String(err),
+      });
+    }
+
     return NextResponse.json(
       {
         service,

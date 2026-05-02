@@ -28,12 +28,21 @@ export default async function VerifyPage({ searchParams }: Props) {
         style={{ color: "var(--text-muted)" }}
       >
         Wysłaliśmy 6-cyfrowy kod na{" "}
-        <span className="font-mono" style={{ color: "var(--text)" }}>
+        <span className="font-mono" style={{ color: "var(--text-main)" }}>
           {email ? maskEmail(email) : "Twój email"}
         </span>
         . Kod jest ważny przez 10 minut.
       </p>
-      <VerifyForm email={email} />
+      <div
+        className="rounded-2xl border p-6 md:p-8"
+        style={{
+          borderColor: "var(--border-subtle)",
+          background: "var(--bg-main)",
+          boxShadow: "0 1px 2px rgba(10,10,10,0.04)",
+        }}
+      >
+        <VerifyForm email={email} />
+      </div>
     </section>
   );
 }

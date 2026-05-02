@@ -29,6 +29,9 @@ const ALLOWED_PANEL_PREFIXES = new Set([
   "repair-types",
   "quote",
   "service-locations",
+  // Wave 21 Faza 1A — DeviceLocationMap potrzebuje lat/lng punktów (full
+  // Location object), których service-locations endpoint nie zwraca.
+  "locations",
 ]);
 const ALLOWED_ACCOUNT_PREFIXES = new Set(["inbox"]);
 

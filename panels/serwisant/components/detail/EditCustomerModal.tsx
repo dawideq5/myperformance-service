@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2, X } from "lucide-react";
 import type { ServiceTicket } from "../tabs/ServicesBoard";
+import { ClearableInput } from "../ui/ClearableInput";
 
 interface EditCustomerModalProps {
   service: ServiceTicket;
@@ -220,11 +221,13 @@ export function EditCustomerModal({
             >
               Telefon
             </label>
-            <input
+            <ClearableInput
               id="cust-phone"
               type="tel"
               value={phone}
-              onChange={(e) => setPhone(e.target.value)}
+              onValueChange={setPhone}
+              optional
+              clearAriaLabel="Wyczyść pole telefonu klienta"
               className="w-full px-3 py-2 rounded-lg border text-sm outline-none font-mono"
               style={{
                 background: "var(--bg-surface)",
@@ -244,11 +247,13 @@ export function EditCustomerModal({
             >
               E-mail
             </label>
-            <input
+            <ClearableInput
               id="cust-email"
               type="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onValueChange={setEmail}
+              optional
+              clearAriaLabel="Wyczyść pole e-mail klienta"
               className="w-full px-3 py-2 rounded-lg border text-sm outline-none"
               style={{
                 background: "var(--bg-surface)",

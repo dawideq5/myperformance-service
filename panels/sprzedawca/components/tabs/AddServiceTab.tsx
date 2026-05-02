@@ -75,6 +75,12 @@ export function AddServiceTab({
   type HandoverChoice = "none" | "items" | null;
   const [handoverChoice, setHandoverChoice] = useState<HandoverChoice>(null);
   const [handoverItems, setHandoverItems] = useState("");
+  // Wave 21 / Faza 1C — kanał wysyłki 6-cyfrowego kodu wydania urządzenia
+  // (klient podaje go przy odbiorze). Default jest derived z dostępnego
+  // emaila/telefonu na poziomie backendu, ale UI pozwala explicit wybrać.
+  type ReleaseCodeChannel = "email" | "sms" | "paper";
+  const [releaseCodeChannel, setReleaseCodeChannel] =
+    useState<ReleaseCodeChannel | null>(null);
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -491,6 +497,10 @@ export function AddServiceTab({
         customerLastName: customerLastName.trim() || null,
         contactPhone: contactPhone.trim() || null,
         contactEmail: contactEmail.trim().toLowerCase() || null,
+        // Wave 21 / Faza 1C — explicit wybór kanału kodu wydania. Backend
+        // domyślnie wybiera email (gdy contactEmail) → sms (gdy phone) →
+        // paper. POST tylko gdy user świadomie wybrał inną opcję.
+        ...(releaseCodeChannel ? { releaseCodeChannel } : {}),
       };
       // POST = utworzenie nowego zlecenia. PATCH = edycja istniejącego.
       const isEdit = !!editingServiceId;
@@ -824,6 +834,16 @@ export function AddServiceTab({
                 <li>Kontakt w razie pytań do diagnostyki.</li>
               </ul>
             </div>
+
+            {/* Wave 21 / Faza 1C — kanał kodu wydania urządzenia. */}
+            {!editingServiceId && (
+              <ReleaseCodeChannelPicker
+                value={releaseCodeChannel}
+                onChange={setReleaseCodeChannel}
+                hasEmail={contactEmail.trim().length > 0}
+                hasPhone={contactPhone.trim().length > 0}
+              />
+            )}
           </div>
         </Section>
         </div>
@@ -1759,5 +1779,126 @@ function ServiceLocationPicker({
         </div>
       )}
     </div>
+  );
+}
+
+/** Wave 21 / Faza 1C — wybór kanału wysyłki 6-cyfrowego kodu wydania
+ * urządzenia. Domyślnie backend wybiera email/sms/paper na podstawie
+ * dostępnych pól kontaktu, ale UI pozwala explicit override (np. klient
+ * woli SMS mimo posiadanego emaila). */
+function ReleaseCodeChannelPicker({
+  value,
+  onChange,
+  hasEmail,
+  hasPhone,
+}: {
+  value: "email" | "sms" | "paper" | null;
+  onChange: (next: "email" | "sms" | "paper" | null) => void;
+  hasEmail: boolean;
+  hasPhone: boolean;
+}) {
+  // Wskazówka — jak fallback sam wybierze gdy user nic nie zaznaczy.
+  const inferred: "email" | "sms" | "paper" = hasEmail
+    ? "email"
+    : hasPhone
+      ? "sms"
+      : "paper";
+  const options: Array<{
+    key: "email" | "sms" | "paper";
+    label: string;
+    hint: string;
+    disabled?: boolean;
+  }> = [
+    {
+      key: "email",
+      label: "Email",
+      hint: hasEmail ? "Wyślemy 6-cyfrowy kod na podany email." : "Brak emaila",
+      disabled: !hasEmail,
+    },
+    {
+      key: "sms",
+      label: "SMS",
+      hint: hasPhone
+        ? "Wyślemy SMS z 6-cyfrowym kodem na podany telefon."
+        : "Brak numeru telefonu",
+      disabled: !hasPhone,
+    },
+    {
+      key: "paper",
+      label: "Papier",
+      hint: "Kod nadrukujemy na potwierdzeniu odbioru — wręcz klientowi.",
+    },
+  ];
+  return (
+    <fieldset
+      className="rounded-xl border p-3 space-y-2"
+      style={{
+        background: "var(--bg-card)",
+        borderColor: "var(--border-subtle)",
+      }}
+    >
+      <legend
+        className="px-1 text-xs font-semibold"
+        style={{ color: "var(--text-main)" }}
+      >
+        Jak wysłać kod wydania urządzenia?
+      </legend>
+      <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+        Klient poda ten 6-cyfrowy kod przy odbiorze, żeby zweryfikować swoją
+        tożsamość.
+      </p>
+      <div className="grid gap-1.5">
+        {options.map((opt) => {
+          const checked = (value ?? inferred) === opt.key;
+          return (
+            <label
+              key={opt.key}
+              className="flex items-start gap-2 rounded-lg border p-2 cursor-pointer transition-colors"
+              style={{
+                background: checked
+                  ? "linear-gradient(135deg, rgba(34, 197, 94, 0.08), rgba(34, 197, 94, 0.02))"
+                  : "var(--bg-surface)",
+                borderColor: checked
+                  ? "rgba(34, 197, 94, 0.5)"
+                  : "var(--border-subtle)",
+                opacity: opt.disabled ? 0.55 : 1,
+              }}
+            >
+              <input
+                type="radio"
+                name="releaseCodeChannel"
+                value={opt.key}
+                checked={checked}
+                disabled={opt.disabled}
+                onChange={() => onChange(opt.key)}
+                className="mt-0.5"
+              />
+              <div className="flex-1">
+                <span
+                  className="text-xs font-semibold"
+                  style={{ color: "var(--text-main)" }}
+                >
+                  {opt.label}
+                  {value == null && opt.key === inferred && (
+                    <span
+                      className="ml-1.5 text-[10px] font-normal"
+                      style={{ color: "var(--text-muted)" }}
+                    >
+                      (domyślnie)
+                    </span>
+                  )}
+                </span>
+                <p
+                  className="text-[11px] mt-0.5"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  {opt.hint}
+                </p>
+              </div>
+            </label>
+          );
+        })}
+      </div>
+    </fieldset>
   );
 }

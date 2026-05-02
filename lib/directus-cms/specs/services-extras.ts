@@ -379,6 +379,12 @@ export const SERVICES_EXTRAS_SPECS: CollectionSpec[] = [
               { text: "Notatka dodana", value: "note_added" },
               { text: "Notatka usunięta", value: "note_deleted" },
               { text: "Transport zamówiony", value: "transport_requested" },
+              { text: "Kod wydania wygenerowany", value: "release_code_generated" },
+              { text: "Kod wydania wysłany", value: "release_code_sent" },
+              { text: "Kod wydania ponownie wysłany", value: "release_code_resent" },
+              { text: "Wysyłka kodu wydania nieudana", value: "release_code_failed" },
+              { text: "Wydanie urządzenia", value: "release_completed" },
+              { text: "Notatka o kontakcie z klientem", value: "customer_contact_recorded" },
               { text: "Inne", value: "other" },
             ],
           },
@@ -1264,6 +1270,328 @@ export const SERVICES_EXTRAS_SPECS: CollectionSpec[] = [
     ],
   },
 
+  // === Biblioteka dokumentów per zlecenie (Wave 21 / Faza 1B) ===
+  // Każdy dokument PDF wystawiony w cyklu życia zlecenia (potwierdzenie
+  // przyjęcia, aneks, protokół wydania, kod wydania, gwarancja...) ma
+  // tutaj swój wpis. Trzymamy 2 wersje: oryginał (wygenerowany lokalnie
+  // przez nasze PDF helpery) i wersję podpisaną (sciągniętą z Documenso
+  // po COMPLETED), oraz mapę pól podpisu (signature_anchors) — pozwala
+  // automatycznie pozycjonować pola w Documenso v3 fields API i renderować
+  // overlay w naszych podglądach. Soft delete (deleted_at).
+  // Bez FK do mp_services (Directus REST quirk) — service_id jako uuid,
+  // purge przy delete service obsługuje handler.
+  {
+    collection: "mp_service_documents",
+    meta: {
+      icon: "description",
+      note: "Biblioteka dokumentów per zlecenie serwisowe — oryginał + podpisana wersja PDF, integracja z Documenso (signature anchors).",
+      display_template: "{{ticket_number}} — {{title}} ({{status}})",
+      sort_field: "-created_at",
+    },
+    fields: [
+      {
+        field: "id",
+        type: "uuid",
+        schema: { is_primary_key: true },
+        meta: { hidden: true, readonly: true, special: ["uuid"] },
+      },
+      {
+        field: "service_id",
+        type: "uuid",
+        schema: { is_nullable: false },
+        meta: { interface: "input", readonly: true, width: "half", note: "ID zlecenia (mp_services.id)." },
+      },
+      {
+        field: "ticket_number",
+        type: "string",
+        schema: { is_nullable: true },
+        meta: { interface: "input", readonly: true, width: "half", options: { font: "monospace" } },
+      },
+      {
+        field: "kind",
+        type: "string",
+        schema: { is_nullable: false },
+        meta: {
+          interface: "select-dropdown",
+          required: true,
+          width: "half",
+          display: "labels",
+          options: {
+            choices: [
+              { text: "Potwierdzenie przyjęcia", value: "receipt" },
+              { text: "Aneks", value: "annex" },
+              { text: "Protokół wydania", value: "handover" },
+              { text: "Kod wydania", value: "release_code" },
+              { text: "Gwarancja", value: "warranty" },
+              { text: "Inny", value: "other" },
+            ],
+          },
+        },
+      },
+      {
+        field: "title",
+        type: "string",
+        schema: { is_nullable: true },
+        meta: { interface: "input", width: "half", note: "Wyświetlana nazwa dokumentu (np. 'Aneks #1', 'Protokół przyjęcia')." },
+      },
+      {
+        field: "original_pdf_file_id",
+        type: "string",
+        schema: { is_nullable: true },
+        meta: {
+          interface: "input",
+          readonly: true,
+          width: "half",
+          options: { font: "monospace" },
+          note: "Directus file id wersji oryginalnej (niepodpisanej).",
+        },
+      },
+      {
+        field: "signed_pdf_file_id",
+        type: "string",
+        schema: { is_nullable: true },
+        meta: {
+          interface: "input",
+          readonly: true,
+          width: "half",
+          options: { font: "monospace" },
+          note: "Directus file id wersji podpisanej (cache z Documenso po COMPLETED).",
+        },
+      },
+      {
+        field: "documenso_doc_id",
+        type: "bigInteger",
+        schema: { is_nullable: true },
+        meta: { interface: "input", readonly: true, width: "half", note: "ID dokumentu w Documenso (gdy wysłane do podpisu)." },
+      },
+      {
+        field: "documenso_signing_url",
+        type: "string",
+        schema: { is_nullable: true },
+        meta: { interface: "input", readonly: true, width: "full", note: "Bezpośredni link do podpisu (klient lub pracownik)." },
+      },
+      {
+        field: "status",
+        type: "string",
+        schema: { default_value: "draft", is_nullable: false },
+        meta: {
+          interface: "select-dropdown",
+          width: "half",
+          display: "labels",
+          options: {
+            choices: [
+              { text: "Szkic", value: "draft" },
+              { text: "Wysłany do podpisu", value: "sent" },
+              { text: "Częściowo podpisany", value: "partially_signed" },
+              { text: "Podpisany", value: "signed" },
+              { text: "Odrzucony", value: "rejected" },
+              { text: "Wygasł", value: "expired" },
+            ],
+          },
+        },
+      },
+      {
+        field: "signature_anchors",
+        type: "json",
+        schema: { is_nullable: true },
+        meta: {
+          interface: "input-code",
+          width: "full",
+          options: { language: "json" },
+          note: "Mapa pól podpisu/daty na PDF: [{role, page, x, y, width, height, kind}] (jednostki: pkt PDF).",
+        },
+      },
+      {
+        field: "related_id",
+        type: "uuid",
+        schema: { is_nullable: true },
+        meta: {
+          interface: "input",
+          readonly: true,
+          width: "half",
+          note: "FK do encji powiązanej (np. mp_service_annexes.id).",
+        },
+      },
+      {
+        field: "related_kind",
+        type: "string",
+        schema: { is_nullable: true },
+        meta: {
+          interface: "select-dropdown",
+          width: "half",
+          options: {
+            choices: [
+              { text: "Aneks", value: "annex" },
+              { text: "Kod wydania", value: "release_code" },
+              { text: "Potwierdzenie", value: "receipt" },
+              { text: "Wydanie", value: "handover" },
+              { text: "Gwarancja", value: "warranty" },
+              { text: "Inny", value: "other" },
+            ],
+          },
+        },
+      },
+      {
+        field: "created_by_email",
+        type: "string",
+        schema: { is_nullable: true },
+        meta: { interface: "input", readonly: true, width: "half" },
+      },
+      {
+        field: "created_at",
+        type: "timestamp",
+        schema: { default_value: "now()" },
+        meta: { interface: "datetime", readonly: true, width: "half", special: ["date-created"] },
+      },
+      {
+        field: "updated_at",
+        type: "timestamp",
+        meta: { interface: "datetime", readonly: true, width: "half", special: ["date-updated"] },
+      },
+      {
+        field: "deleted_at",
+        type: "timestamp",
+        schema: { is_nullable: true },
+        meta: { interface: "datetime", readonly: true, width: "half", note: "Soft delete — null = aktywne." },
+      },
+    ],
+  },
+
+  // === Kody wydania (Wave 21 / Faza 1C) ===
+  // 6-cyfrowy kod wydania urządzenia po finalnym statusie (delivered/closed/
+  // rejected_by_customer/returned_no_repair). Generowany przy intake i wysyłany
+  // wybranym kanałem (email/sms/paper). Trzymamy tylko hash (sha256+salt) —
+  // plain code nigdy nie jest persistowany. UNIQUE(service_id) — 1 aktywny kod
+  // per zlecenie. Lock po 5 błędnych próbach na 30 minut (locked_until).
+  // Bez FK do mp_services (Directus REST quirk; service usuwany manualnie
+  // wraz z kasacją zlecenia gdyby kiedyś wprowadzono delete service).
+  {
+    collection: "mp_service_release_codes",
+    meta: {
+      icon: "vpn_key",
+      note: "Kody wydania urządzenia (6-cyfrowy). Trzymane jako hash+salt; lock po 5 błędach na 30 min.",
+      display_template: "{{ticket_number}} ({{sent_via}})",
+      sort_field: "-created_at",
+    },
+    fields: [
+      {
+        field: "id",
+        type: "uuid",
+        schema: { is_primary_key: true },
+        meta: { hidden: true, readonly: true, special: ["uuid"] },
+      },
+      {
+        field: "service_id",
+        type: "uuid",
+        schema: { is_nullable: false, is_unique: true },
+        meta: {
+          interface: "input",
+          readonly: true,
+          width: "half",
+          note: "ID zlecenia (mp_services.id). UNIQUE — 1 kod per service.",
+        },
+      },
+      {
+        field: "ticket_number",
+        type: "string",
+        meta: { interface: "input", readonly: true, width: "half", options: { font: "monospace" } },
+      },
+      {
+        field: "code_hash",
+        type: "string",
+        schema: { is_nullable: false },
+        meta: {
+          interface: "input",
+          readonly: true,
+          width: "full",
+          options: { font: "monospace" },
+          note: "sha256(code+salt) — plain code nigdy nie jest persistowany.",
+        },
+      },
+      {
+        field: "code_salt",
+        type: "string",
+        schema: { is_nullable: false },
+        meta: {
+          interface: "input",
+          readonly: true,
+          width: "half",
+          options: { font: "monospace" },
+          note: "Random 16 bajtów (hex).",
+        },
+      },
+      {
+        field: "sent_via",
+        type: "string",
+        schema: { default_value: "none" },
+        meta: {
+          interface: "select-dropdown",
+          width: "half",
+          display: "labels",
+          options: {
+            choices: [
+              { text: "Email", value: "email" },
+              { text: "SMS", value: "sms" },
+              { text: "Papier (na potwierdzeniu)", value: "paper" },
+              { text: "Brak (nie wysłano)", value: "none" },
+            ],
+          },
+        },
+      },
+      {
+        field: "sent_at",
+        type: "timestamp",
+        schema: { is_nullable: true },
+        meta: { interface: "datetime", readonly: true, width: "half" },
+      },
+      {
+        field: "used_at",
+        type: "timestamp",
+        schema: { is_nullable: true },
+        meta: {
+          interface: "datetime",
+          readonly: true,
+          width: "half",
+          note: "Wypełnione gdy kod został zweryfikowany — po tym kod nieaktywny.",
+        },
+      },
+      {
+        field: "used_by_email",
+        type: "string",
+        schema: { is_nullable: true },
+        meta: { interface: "input", readonly: true, width: "half" },
+      },
+      {
+        field: "attempts",
+        type: "integer",
+        schema: { default_value: 0, is_nullable: false },
+        meta: {
+          interface: "input",
+          readonly: true,
+          width: "half",
+          note: "Licznik nieudanych prób; reset do 0 po skutecznej weryfikacji.",
+        },
+      },
+      {
+        field: "locked_until",
+        type: "timestamp",
+        schema: { is_nullable: true },
+        meta: {
+          interface: "datetime",
+          readonly: true,
+          width: "half",
+          note: "Po 5 błędach lock 30 min — odrzucamy verify do tego czasu.",
+        },
+      },
+      {
+        field: "created_at",
+        type: "timestamp",
+        schema: { default_value: "now()" },
+        meta: { interface: "datetime", readonly: true, width: "half", special: ["date-created"] },
+      },
+    ],
+  },
+
   // === Notatki wewnętrzne (Wave 19/Phase 1D) ===
   // Komunikacja serwisant↔sprzedawca per zlecenie (NIE widoczne dla klienta).
   // visibility=team → widzą wszyscy z dostępem; service_only → tylko serwis.
@@ -1340,6 +1668,7 @@ export const SERVICES_EXTRAS_SPECS: CollectionSpec[] = [
             choices: [
               { text: "Cały zespół", value: "team" },
               { text: "Tylko serwis", value: "service_only" },
+              { text: "Tylko sprzedaż", value: "sales_only" },
             ],
           },
         },
@@ -1361,6 +1690,106 @@ export const SERVICES_EXTRAS_SPECS: CollectionSpec[] = [
         type: "timestamp",
         schema: { is_nullable: true },
         meta: { interface: "datetime", readonly: true, width: "half", note: "Soft delete — null = aktywne." },
+      },
+    ],
+  },
+
+  // === Notatki o kontakcie z klientem (Wave 21 / Faza 1D) ===
+  // Każdy ręczny kontakt z klientem (telefon / osobiste spotkanie / inne)
+  // jest tu rejestrowany — agreguje się z Chatwoot/email do jednego streamu
+  // "Komunikacja z klientem" w panelu serwisanta. Nie wpływa to na auto
+  // wysyłki (Postal/SMS) — to jest rękodzieło pracownika dokumentujące
+  // off-channel rozmowę.
+  {
+    collection: "mp_service_customer_contacts",
+    meta: {
+      icon: "support_agent",
+      note: "Notatki o kontakcie z klientem off-channel (telefon / osobiście). Agregowane z Chatwoot/email w panelu.",
+      display_template: "{{ticket_number}} — {{channel}} ({{contacted_at}})",
+      sort_field: "-contacted_at",
+    },
+    fields: [
+      {
+        field: "id",
+        type: "uuid",
+        schema: { is_primary_key: true },
+        meta: { hidden: true, readonly: true, special: ["uuid"] },
+      },
+      {
+        field: "service_id",
+        type: "uuid",
+        schema: { is_nullable: false },
+        meta: { interface: "input", readonly: true, width: "half", note: "ID zlecenia (mp_services.id)." },
+      },
+      {
+        field: "ticket_number",
+        type: "string",
+        schema: { is_nullable: true },
+        meta: { interface: "input", readonly: true, width: "half", options: { font: "monospace" } },
+      },
+      {
+        field: "channel",
+        type: "string",
+        schema: { default_value: "phone", is_nullable: false },
+        meta: {
+          interface: "select-dropdown",
+          required: true,
+          width: "half",
+          display: "labels",
+          options: {
+            choices: [
+              { text: "Telefon", value: "phone" },
+              { text: "Osobiście", value: "in_person" },
+              { text: "Inny", value: "other" },
+            ],
+          },
+        },
+      },
+      {
+        field: "direction",
+        type: "string",
+        schema: { default_value: "outbound", is_nullable: true },
+        meta: {
+          interface: "select-dropdown",
+          width: "half",
+          display: "labels",
+          options: {
+            choices: [
+              { text: "Przychodzący", value: "inbound" },
+              { text: "Wychodzący", value: "outbound" },
+            ],
+          },
+        },
+      },
+      {
+        field: "note",
+        type: "text",
+        schema: { is_nullable: false },
+        meta: { interface: "input-multiline", required: true, width: "full" },
+      },
+      {
+        field: "recorded_by_email",
+        type: "string",
+        schema: { is_nullable: true },
+        meta: { interface: "input", readonly: true, width: "half" },
+      },
+      {
+        field: "recorded_by_name",
+        type: "string",
+        schema: { is_nullable: true },
+        meta: { interface: "input", readonly: true, width: "half" },
+      },
+      {
+        field: "contacted_at",
+        type: "timestamp",
+        schema: { default_value: "now()", is_nullable: false },
+        meta: { interface: "datetime", required: true, width: "half" },
+      },
+      {
+        field: "created_at",
+        type: "timestamp",
+        schema: { default_value: "now()" },
+        meta: { interface: "datetime", readonly: true, width: "half", special: ["date-created"] },
       },
     ],
   },

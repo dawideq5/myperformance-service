@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Mail, Pencil, Phone, User } from "lucide-react";
 import type { ServiceTicket } from "../tabs/ServicesBoard";
-import { ChatwootDeepLink } from "../features/ChatwootDeepLink";
+import { CustomerCommunicationLog } from "../features/CustomerCommunicationLog";
 import { CustomerMessageSender } from "../features/CustomerMessageSender";
 import { EditCustomerModal } from "./EditCustomerModal";
 
@@ -88,7 +88,7 @@ export function KlientTab({
         onSent={() => setLocalRefresh((v) => v + 1)}
       />
 
-      <ChatwootDeepLink
+      <CustomerCommunicationLog
         serviceId={service.id}
         customerEmail={service.contactEmail ?? undefined}
         customerPhone={service.contactPhone ?? undefined}

@@ -1,21 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { subscribeToService } from "@/lib/sse-client";
 import {
   ArrowLeft,
+  Box,
   CheckCircle2,
+  Download,
   FileText,
+  Files,
   Mail,
+  MapPin,
+  MessageSquare,
   Printer,
   Loader2,
   AlertCircle,
   Phone,
   AtSign,
-  Tag,
   Wrench,
-  Calendar,
-  Clock,
   History,
   Send,
   Edit3,
@@ -23,6 +25,11 @@ import {
 import Link from "next/link";
 import { ToastProvider, useToast } from "../ToastProvider";
 import { sendElectronicReceipt } from "../../lib/receipt";
+import { StatusBadge } from "@/components/StatusBadge";
+import { DeviceLocationMap } from "@/components/serwis/DeviceLocationMap";
+import { CzatZespoluPanel } from "@/components/serwis/CzatZespoluPanel";
+import { PhoneConfigurator3D } from "@/components/intake/PhoneConfigurator3D";
+import type { DamageMarker } from "@/components/intake/PhoneConfigurator3D";
 
 interface ServiceDetail {
   id: string;
@@ -40,8 +47,14 @@ interface ServiceDetail {
   amountEstimate: number | null;
   locationId: string | null;
   serviceLocationId: string | null;
+  assignedTechnician?: string | null;
+  receivedBy?: string | null;
   createdAt: string | null;
   visualCondition?: {
+    /** Markery uszkodzeń z 3D walkthrough (intake) — sprzedawca może
+     *  obejrzeć je read-only w PhoneConfigurator3D viewer mode. */
+    damage_markers?: DamageMarker[];
+    additional_notes?: string;
     documenso?: {
       docId: number;
       status:
@@ -66,6 +79,24 @@ interface ServiceDetail {
     };
     handover?: { choice: "none" | "items"; items: string };
   };
+}
+
+interface ServiceAnnex {
+  id: string;
+  serviceId: string;
+  ticketNumber: string | null;
+  deltaAmount: number;
+  reason: string;
+  acceptanceMethod: string;
+  acceptanceStatus: string;
+  documensoDocId: number | null;
+  documensoSigningUrl: string | null;
+  customerName: string | null;
+  note: string | null;
+  pdfHash: string | null;
+  createdAt: string;
+  acceptedAt: string | null;
+  rejectedAt: string | null;
 }
 
 const DOCUMENSO_STATUS_PHRASES: Record<
@@ -126,17 +157,6 @@ interface MailMessage {
   bounce?: boolean;
 }
 
-const STATUS_LABELS: Record<string, { label: string; color: string }> = {
-  received: { label: "Przyjęty", color: "#64748B" },
-  diagnosing: { label: "Diagnoza", color: "#0EA5E9" },
-  awaiting_quote: { label: "Wycena", color: "#F59E0B" },
-  repairing: { label: "Naprawa", color: "#A855F7" },
-  testing: { label: "Testy", color: "#06B6D4" },
-  ready: { label: "Gotowy", color: "#22C55E" },
-  delivered: { label: "Wydany", color: "#16A34A" },
-  cancelled: { label: "Anulowany", color: "#EF4444" },
-};
-
 export function ServiceDetailView({
   serviceId,
   initialAction,
@@ -163,23 +183,34 @@ function ServiceDetailInner({
   const [revisions, setRevisions] = useState<Revision[]>([]);
   const [actions, setActions] = useState<ServiceActionEntry[]>([]);
   const [mailMessages, setMailMessages] = useState<MailMessage[]>([]);
+  const [annexes, setAnnexes] = useState<ServiceAnnex[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Wave 21 Faza 1A — modal 3D viewer (read-only). Pokazuje markery
+  // uszkodzeń zarejestrowane przy intake.
+  const [show3D, setShow3D] = useState(false);
+  // Bumpowane przy SSE transport_job_* żeby DeviceLocationMap zrobił
+  // re-fetch transport-jobs/locations bez full page refresh.
+  const [mapRefreshKey, setMapRefreshKey] = useState(0);
 
   const refresh = useCallback(async () => {
     setError(null);
     try {
-      const [r1, r2, r3, r4] = await Promise.all([
+      const [r1, r2, r3, r4, r5] = await Promise.all([
         fetch(`/api/relay/services/${serviceId}`),
         fetch(`/api/relay/services/${serviceId}/revisions`),
         fetch(`/api/relay/services/${serviceId}/actions`),
         fetch(`/api/relay/services/${serviceId}/mail-history`),
+        fetch(`/api/relay/services/${serviceId}/annexes`),
       ]);
       const j1 = await r1.json();
       const j2 = await r2.json();
       const j3 = await r3.json().catch(() => ({ actions: [] }));
       const j4 = await r4.json().catch(() => ({ messages: [] }));
+      const j5 = (await r5.json().catch(() => ({ annexes: [] }))) as {
+        annexes?: ServiceAnnex[];
+      };
       if (!r1.ok) throw new Error(j1?.error ?? `HTTP ${r1.status}`);
       const fetched = (j1.service ?? j1.data?.service) as ServiceDetail;
       // Handover z sessionStorage — przeniesiony z AddServiceTab po
@@ -205,6 +236,7 @@ function ServiceDetailInner({
       setRevisions((j2.revisions ?? []) as Revision[]);
       setActions((j3.actions ?? []) as ServiceActionEntry[]);
       setMailMessages((j4.messages ?? []) as MailMessage[]);
+      setAnnexes(Array.isArray(j5.annexes) ? j5.annexes : []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Błąd pobierania");
     } finally {
@@ -278,9 +310,21 @@ function ServiceDetailInner({
         evt.type === "internal_note_added" ||
         evt.type === "action_logged" ||
         evt.type === "chat_message_received" ||
-        evt.type === "customer_message_sent"
+        evt.type === "customer_message_sent" ||
+        // Wave 21 Faza 1A — transport job events forcują re-fetch w
+        // DeviceLocationMap przez bump mapRefreshKey (poniżej).
+        evt.type === "transport_job_created" ||
+        evt.type === "transport_job_updated"
       ) {
         void refresh();
+        if (
+          evt.type === "transport_job_created" ||
+          evt.type === "transport_job_updated" ||
+          evt.type === "status_changed" ||
+          evt.type === "service_updated"
+        ) {
+          setMapRefreshKey((n) => n + 1);
+        }
       }
     });
     return unsub;
@@ -535,11 +579,6 @@ function ServiceDetailInner({
     );
   }
 
-  const status = STATUS_LABELS[service.status] ?? {
-    label: service.status,
-    color: "#64748B",
-  };
-
   return (
     <div
       className="min-h-screen flex flex-col"
@@ -562,12 +601,10 @@ function ServiceDetailInner({
             <span className="hidden sm:inline">Lista zleceń</span>
           </Link>
           <div className="flex items-center gap-3 min-w-0">
-            <span
-              className="text-xs font-bold px-2 py-1 rounded-full uppercase tracking-wide"
-              style={{ background: status.color + "22", color: status.color }}
-            >
-              {status.label}
-            </span>
+            {/* StatusBadge — Wave 21 Faza 1A. Spójne PL etykiety + ikona +
+             *  tone color z `lib/serwisant/status-meta`. Mirror panelu
+             *  serwisanta. */}
+            <StatusBadge status={service.status} size="md" />
             <p
               className="font-mono font-bold truncate"
               style={{ color: "var(--text-main)" }}
@@ -690,6 +727,36 @@ function ServiceDetailInner({
                 )}
             </Card>
           )}
+
+          {/* Wave 21 Faza 1A — Stan urządzenia (3D viewer read-only). */}
+          <Device3DCard
+            hasMarkers={
+              (service.visualCondition?.damage_markers?.length ?? 0) > 0
+            }
+            onShow={() => setShow3D(true)}
+          />
+
+          {/* Wave 21 Faza 1A — Mapa lokalizacji urządzenia. Pokazuje
+           *  marker w lokacji obecnego pobytu lub trasę transportu. */}
+          <Card
+            icon={<MapPin className="w-4 h-4" />}
+            title="Lokalizacja urządzenia"
+          >
+            <DeviceLocationMap
+              serviceId={service.id}
+              locationId={service.locationId}
+              serviceLocationId={service.serviceLocationId}
+              refreshKey={mapRefreshKey}
+            />
+          </Card>
+
+          {/* Wave 21 Faza 1A — Dokumenty zlecenia (aneksy MVP; receipt +
+           *  handover są pokazywane w sekcji Documenso obok). Faza 1B
+           *  rozszerzy o pełną tabelę mp_service_documents. */}
+          <DocumentsCard
+            serviceId={service.id}
+            annexes={annexes}
+          />
         </section>
 
         {/* PRAWA — historia, status documenso */}
@@ -706,9 +773,186 @@ function ServiceDetailInner({
             serviceLocationsById={serviceLocationsById}
           />
         </aside>
+
+        {/* Wave 21 Faza 1A — Czat zespołu (sprzedawca↔serwisant). Embedded
+         *  ze sprzedawca panelu, port `CzatZespoluTab` z serwisanta bez
+         *  zależności od `ServiceTicket`. Full-width pod gridem. */}
+        <section className="lg:col-span-3">
+          <div
+            className="text-xs uppercase font-bold tracking-wider mb-2 flex items-center gap-2"
+            style={{ color: "var(--text-muted)" }}
+          >
+            <MessageSquare className="w-4 h-4" />
+            Czat zespołu
+          </div>
+          <CzatZespoluPanel
+            serviceId={service.id}
+            technicianLabel={service.assignedTechnician ?? null}
+            salesLabel={service.receivedBy ?? null}
+            defaultRole="sales"
+          />
+        </section>
       </main>
 
+      {/* Modal 3D viewer (read-only). Pokazuje markery uszkodzeń + dodatkowe
+       *  notatki z intake. Sprzedawca nie edytuje markerów. */}
+      {show3D && (
+        <PhoneConfigurator3D
+          brand={service.brand ?? ""}
+          brandColorHex="#9CA3AF"
+          readOnly
+          initial={{
+            damage_markers:
+              service.visualCondition?.damage_markers ?? [],
+            additional_notes:
+              service.visualCondition?.additional_notes ?? undefined,
+          }}
+          onCancel={() => setShow3D(false)}
+          onComplete={() => setShow3D(false)}
+        />
+      )}
     </div>
+  );
+}
+
+/** Karta CTA do otwarcia 3D viewera (read-only). */
+function Device3DCard({
+  hasMarkers,
+  onShow,
+}: {
+  hasMarkers: boolean;
+  onShow: () => void;
+}) {
+  return (
+    <Card icon={<Box className="w-4 h-4" />} title="Stan urządzenia (3D)">
+      <p className="text-xs mb-3" style={{ color: "var(--text-muted)" }}>
+        {hasMarkers
+          ? "Otwórz interaktywny model 3D z zaznaczonymi miejscami uszkodzeń."
+          : "Otwórz interaktywny model 3D urządzenia (markery uszkodzeń mogą być puste, jeśli intake przeszedł bez zaznaczeń)."}
+      </p>
+      <button
+        type="button"
+        onClick={onShow}
+        className="px-3 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 transition-all hover:scale-[1.01]"
+        style={{
+          background:
+            "linear-gradient(135deg, rgba(168,85,247,0.2), rgba(59,130,246,0.15))",
+          color: "#fff",
+          border: "1px solid rgba(168,85,247,0.4)",
+        }}
+        aria-label="Pokaż urządzenie w 3D"
+      >
+        <Box className="w-4 h-4" aria-hidden="true" />
+        Pokaż urządzenie
+      </button>
+    </Card>
+  );
+}
+
+const ANNEX_STATUS_LABELS: Record<
+  string,
+  { label: string; color: string }
+> = {
+  pending: { label: "Oczekuje", color: "#F59E0B" },
+  sent: { label: "Wysłany", color: "#06B6D4" },
+  accepted: { label: "Zaakceptowany", color: "#22C55E" },
+  rejected: { label: "Odrzucony", color: "#EF4444" },
+  expired: { label: "Wygasły", color: "#64748B" },
+  completed: { label: "Zakończony", color: "#22C55E" },
+};
+
+function DocumentsCard({
+  serviceId,
+  annexes,
+}: {
+  serviceId: string;
+  annexes: ServiceAnnex[];
+}) {
+  return (
+    <Card icon={<Files className="w-4 h-4" />} title="Dokumenty zlecenia">
+      {annexes.length === 0 ? (
+        <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+          Brak aneksów. Dokumenty potwierdzenia odbioru widoczne są w panelu
+          po prawej.
+        </p>
+      ) : (
+        <ul className="space-y-2">
+          {annexes.map((a) => {
+            const meta = ANNEX_STATUS_LABELS[a.acceptanceStatus] ?? {
+              label: a.acceptanceStatus,
+              color: "#64748b",
+            };
+            const pdfUrl = `/api/relay/services/${encodeURIComponent(serviceId)}/annexes/${encodeURIComponent(a.id)}/pdf`;
+            return (
+              <li
+                key={a.id}
+                className="rounded-lg border p-3 flex items-start gap-3"
+                style={{
+                  background: "var(--bg-surface)",
+                  borderColor: "var(--border-subtle)",
+                }}
+              >
+                <FileText
+                  className="w-4 h-4 mt-0.5 flex-shrink-0"
+                  style={{ color: "var(--text-muted)" }}
+                  aria-hidden="true"
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span
+                      className="text-sm font-semibold"
+                      style={{ color: "var(--text-main)" }}
+                    >
+                      Aneks {a.deltaAmount >= 0 ? "+" : ""}
+                      {a.deltaAmount.toFixed(2)} PLN
+                    </span>
+                    <span
+                      className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full"
+                      style={{
+                        background: meta.color + "22",
+                        color: meta.color,
+                      }}
+                    >
+                      {meta.label}
+                    </span>
+                  </div>
+                  {a.reason && (
+                    <p
+                      className="text-xs mt-1 truncate"
+                      style={{ color: "var(--text-muted)" }}
+                      title={a.reason}
+                    >
+                      {a.reason}
+                    </p>
+                  )}
+                  <p
+                    className="text-[10px] mt-1"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    {new Date(a.createdAt).toLocaleString("pl-PL")}
+                  </p>
+                </div>
+                <a
+                  href={pdfUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-2.5 py-1.5 rounded-lg border text-xs font-medium flex items-center gap-1.5 flex-shrink-0 hover:opacity-80 transition-opacity"
+                  style={{
+                    background: "var(--bg-card)",
+                    borderColor: "var(--border-subtle)",
+                    color: "var(--text-main)",
+                  }}
+                  aria-label="Pobierz PDF aneksu"
+                >
+                  <Download className="w-3.5 h-3.5" aria-hidden="true" />
+                  PDF
+                </a>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Card>
   );
 }
 

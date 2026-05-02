@@ -65,8 +65,11 @@ export function VerifyForm({ email }: Props) {
           value={code}
           onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
           aria-describedby={error ? "otp-error" : undefined}
-          className="w-full rounded-lg border px-3 py-3 text-2xl tracking-[0.5em] font-mono outline-none focus:border-[var(--accent)] text-center"
-          style={{ borderColor: "var(--border-strong)" }}
+          className="w-full rounded-lg border px-4 py-4 text-3xl tracking-[0.5em] font-mono outline-none transition-colors focus:border-[var(--accent)] text-center"
+          style={{
+            borderColor: "var(--border-strong)",
+            background: "var(--bg-main)",
+          }}
           placeholder="------"
           aria-label="Kod 6-cyfrowy"
         />

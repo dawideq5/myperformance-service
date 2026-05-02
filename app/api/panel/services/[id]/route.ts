@@ -389,6 +389,38 @@ export async function PATCH(
         ),
       });
     }
+    // Wave 21 / Faza 1E — gdy zmienia się email klienta, unieważniamy
+    // pending Documenso aneksy. Stary link Documenso był dostarczony na
+    // poprzedni adres — klient na nowym mailu go nie zobaczy. Aneks
+    // expired może zostać re-issued przez serwisanta.
+    if ("contactEmail" in diff.changes) {
+      const { expirePendingAnnexes } = await import("@/lib/service-annexes");
+      try {
+        const { expiredAnnexIds } = await expirePendingAnnexes(
+          service.id,
+          "Zmiana adresu e-mail klienta",
+        );
+        if (expiredAnnexIds.length > 0) {
+          void logServiceAction({
+            serviceId: service.id,
+            ticketNumber: service.ticketNumber,
+            action: "annex_expired",
+            actor,
+            summary: `Unieważniono ${expiredAnnexIds.length} oczekujących aneksów (zmiana e-mail klienta)`,
+            payload: {
+              expiredAnnexIds,
+              previousEmail: diff.changes.contactEmail?.before ?? null,
+              newEmail: diff.changes.contactEmail?.after ?? null,
+            },
+          });
+        }
+      } catch (err) {
+        logger.warn("expirePendingAnnexes (email change) failed", {
+          serviceId: service.id,
+          err: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
     const conditionFields = [
       "lockCode",
       "imei",

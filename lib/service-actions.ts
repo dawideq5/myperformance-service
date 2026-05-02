@@ -22,6 +22,9 @@ export type ServiceActionKind =
   | "annex_accepted"
   | "annex_rejected"
   | "annex_resend"
+  // Wave 21 / Faza 1E — automatyczne unieważnianie pending aneksów przy
+  // zmianie wyceny lub adresu e-mail klienta.
+  | "annex_expired"
   | "photo_uploaded"
   | "photo_deleted"
   | "note_added"
@@ -50,6 +53,15 @@ export type ServiceActionKind =
   // Wave 20 / Faza 1F — wysyłka wiadomości do klienta z poziomu panelu
   // (SMS / email / Chatwoot).
   | "customer_message_sent"
+  // Wave 21 / Faza 1C — wydanie urządzenia (release code).
+  | "release_code_generated"
+  | "release_code_sent"
+  | "release_code_resent"
+  | "release_code_failed"
+  | "release_completed"
+  // Wave 21 / Faza 1D — ręczna notatka o kontakcie z klientem (telefon /
+  // osobiście / inne) zarejestrowana z panelu serwisanta.
+  | "customer_contact_recorded"
   | "other";
 
 export interface ServiceAction {

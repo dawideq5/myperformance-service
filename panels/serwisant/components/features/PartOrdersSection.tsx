@@ -10,6 +10,7 @@ import {
   Trash2,
   Truck,
 } from "lucide-react";
+import { ClearableInput } from "../ui/ClearableInput";
 
 export interface PartOrder {
   id: string;
@@ -587,13 +588,15 @@ export function PartOrdersSection({ serviceId }: PartOrdersSectionProps) {
               >
                 Dostawca
               </label>
-              <input
+              <ClearableInput
                 id="part-supplier"
                 type="text"
                 value={form.supplierName}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, supplierName: e.target.value }))
+                onValueChange={(v) =>
+                  setForm((f) => ({ ...f, supplierName: v }))
                 }
+                optional
+                clearAriaLabel="Wyczyść pole dostawcy"
                 placeholder="Komputronik / Hurtownia X"
                 className="w-full px-2 py-1.5 rounded border text-xs outline-none"
                 style={{
@@ -611,13 +614,15 @@ export function PartOrdersSection({ serviceId }: PartOrdersSectionProps) {
               >
                 Kurier
               </label>
-              <input
+              <ClearableInput
                 id="part-courier"
                 type="text"
                 value={form.courier}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, courier: e.target.value }))
+                onValueChange={(v) =>
+                  setForm((f) => ({ ...f, courier: v }))
                 }
+                optional
+                clearAriaLabel="Wyczyść pole kuriera"
                 placeholder="DPD / InPost / Pocztex"
                 className="w-full px-2 py-1.5 rounded border text-xs outline-none"
                 style={{
@@ -636,13 +641,15 @@ export function PartOrdersSection({ serviceId }: PartOrdersSectionProps) {
             >
               URL śledzenia
             </label>
-            <input
+            <ClearableInput
               id="part-tracking-url"
               type="url"
               value={form.trackingUrl}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, trackingUrl: e.target.value }))
+              onValueChange={(v) =>
+                setForm((f) => ({ ...f, trackingUrl: v }))
               }
+              optional
+              clearAriaLabel="Wyczyść pole URL śledzenia"
               placeholder="https://tracktrace.dpd.com.pl/parcelDetails?p=…"
               className="w-full px-2 py-1.5 rounded border text-xs outline-none"
               style={{
@@ -661,13 +668,15 @@ export function PartOrdersSection({ serviceId }: PartOrdersSectionProps) {
               >
                 Nr listu
               </label>
-              <input
+              <ClearableInput
                 id="part-tracking-no"
                 type="text"
                 value={form.trackingNumber}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, trackingNumber: e.target.value }))
+                onValueChange={(v) =>
+                  setForm((f) => ({ ...f, trackingNumber: v }))
                 }
+                optional
+                clearAriaLabel="Wyczyść pole numeru listu"
                 className="w-full px-2 py-1.5 rounded border text-xs outline-none font-mono"
                 style={{
                   background: "var(--bg-card)",
@@ -684,16 +693,18 @@ export function PartOrdersSection({ serviceId }: PartOrdersSectionProps) {
               >
                 Przewidywana data
               </label>
-              <input
+              <ClearableInput
                 id="part-eta"
                 type="date"
                 value={form.expectedDeliveryDate}
-                onChange={(e) =>
+                onValueChange={(v) =>
                   setForm((f) => ({
                     ...f,
-                    expectedDeliveryDate: e.target.value,
+                    expectedDeliveryDate: v,
                   }))
                 }
+                optional
+                clearAriaLabel="Wyczyść pole przewidywanej daty"
                 className="w-full px-2 py-1.5 rounded border text-xs outline-none"
                 style={{
                   background: "var(--bg-card)",

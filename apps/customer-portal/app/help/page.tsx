@@ -5,7 +5,7 @@ export const metadata = {
 const FAQ: Array<{ q: string; a: string }> = [
   {
     q: "Czy potrzebuję konta, żeby sprawdzić status?",
-    a: "Nie. Wystarczy email i 6-cyfrowy kod, który wyślemy na ten adres. Konto jest opcjonalne — przyda się, jeśli chcesz mieć stały dostęp do historii.",
+    a: "Nie. Wystarczy email i 6-cyfrowy kod, który wyślemy na ten adres. Tu nie zakładamy żadnych kont — sprawdzasz status w 10 sekund.",
   },
   {
     q: "Jak długo ważny jest kod?",

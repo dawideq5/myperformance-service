@@ -53,7 +53,16 @@ export type SseEventType =
   | "transport_job_updated"
   | "component_added"
   | "component_updated"
-  | "component_deleted";
+  | "component_deleted"
+  | "document_created"
+  | "document_updated"
+  | "document_deleted"
+  // Wave 21 / Faza 1C — wydanie urządzenia (po weryfikacji 6-cyfrowego kodu).
+  | "released"
+  | "release_code_sent"
+  // Wave 21 / Faza 1D — notatka o kontakcie z klientem (off-channel,
+  // telefon / osobiście) dodana przez pracownika.
+  | "customer_contact_recorded";
 
 export interface SseEvent {
   /** Random UUID — używane przez klientów do dedup. */

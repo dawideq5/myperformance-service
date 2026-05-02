@@ -1,9 +1,15 @@
 /**
- * Notatki wewnętrzne pracowników (Wave 19/Phase 1D).
+ * Notatki wewnętrzne pracowników (Wave 19/Phase 1D, Wave 21/Faza 1D).
  *
  * Komunikacja serwisant↔sprzedawca per zlecenie — NIE widoczne dla klienta.
- * visibility=team → wszyscy z dostępem; service_only → tylko serwis.
+ * visibility=team → wszyscy z dostępem; service_only → tylko serwis;
+ * sales_only → tylko sprzedaż (Wave 21).
  * Soft delete (deleted_at). Tylko autor może usunąć/odpinąć własną notatkę.
+ *
+ * Wave 21 / Faza 1D — `mp_service_internal_notes` jest single source of
+ * truth dla "TeamCommunicationTab"; nowe wpisy z czatu zespołu również
+ * idą tutaj (legacy `mp_service_internal_messages` zostawione dla
+ * historycznych rekordów, bez nowych zapisów).
  */
 
 import {
@@ -16,8 +22,20 @@ import { log } from "@/lib/logger";
 
 const logger = log.child({ module: "service-internal-notes" });
 
-export type InternalNoteVisibility = "team" | "service_only";
+/**
+ * `team` = widzą wszyscy (sprzedawca + serwisant). `service_only` = tylko
+ * serwisant. `sales_only` = tylko sprzedawca. Wave 21 dodała `sales_only`
+ * gdy zostały zunifikowane czat + notatki — sprzedawca może wpisywać
+ * komentarze widoczne tylko dla działu sprzedaży.
+ */
+export type InternalNoteVisibility = "team" | "service_only" | "sales_only";
 export type InternalNoteAuthorRole = "service" | "sales" | "driver" | "other";
+
+/**
+ * Rola "viewera" — kto czyta listę. Używane przez `listInternalNotes` do
+ * filtrowania wpisów na podstawie pola `visibility`. `admin` widzi wszystko.
+ */
+export type InternalNoteViewerRole = "service" | "sales" | "admin";
 
 export interface InternalNote {
   id: string;
@@ -107,13 +125,24 @@ export async function createInternalNote(
 }
 
 /**
- * Lista aktywnych notatek dla zlecenia. Sortowanie aplikowane po stronie
- * klienta (pinned first, potem chronologicznie). Filtr visibility w warstwie
- * endpointów (rola usera decyduje).
+ * Lista aktywnych notatek dla zlecenia z filtrowaniem visibility per
+ * `viewerRole`:
+ *   - `service` → widzi `team` + `service_only` (NIE `sales_only`)
+ *   - `sales`   → widzi `team` + `sales_only` (NIE `service_only`)
+ *   - `admin`   → widzi wszystko
+ *   - undefined → backward compat — zwraca wszystkie wpisy (legacy callers,
+ *                 zostanie zdjęte po migracji wszystkich konsumentów).
+ *
+ * Filtrowanie post-fetch (po stronie aplikacji) — Directus REST nie obsługuje
+ * eleganckiego OR z dwóch wartości w jednym filtrze; lista 200 rekordów to
+ * pomijalny koszt vs. dwa zapytania.
  */
 export async function listInternalNotes(
   serviceId: string,
-  options: { includeDeleted?: boolean } = {},
+  options: {
+    includeDeleted?: boolean;
+    viewerRole?: InternalNoteViewerRole;
+  } = {},
 ): Promise<InternalNote[]> {
   if (!(await directusConfigured())) return [];
   const query: Record<string, string | number> = {
@@ -126,7 +155,18 @@ export async function listInternalNotes(
   }
   try {
     const rows = await listItems<Row>("mp_service_internal_notes", query);
-    const notes = rows.map(mapRow);
+    let notes = rows.map(mapRow);
+    // Visibility filter — per viewerRole.
+    if (options.viewerRole === "service") {
+      notes = notes.filter(
+        (n) => n.visibility === "team" || n.visibility === "service_only",
+      );
+    } else if (options.viewerRole === "sales") {
+      notes = notes.filter(
+        (n) => n.visibility === "team" || n.visibility === "sales_only",
+      );
+    }
+    // admin / undefined → no filter
     // Pinned first, potem najnowsze.
     notes.sort((a, b) => {
       if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;

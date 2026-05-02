@@ -6,6 +6,7 @@ import { PANEL_CORS_HEADERS, getPanelUserFromRequest } from "@/lib/panel-auth";
 import { getService } from "@/lib/services";
 import { findCustomerConversations } from "@/lib/chatwoot-customer";
 import { listMessagesForRecipient, isPostalConfigured } from "@/lib/postal";
+import { listCustomerContacts } from "@/lib/service-customer-contacts";
 import { getOptionalEnv } from "@/lib/env";
 
 export async function OPTIONS() {
@@ -58,7 +59,7 @@ export async function GET(
     "https://chat.myperformance.pl";
   const accountId = getOptionalEnv("CHATWOOT_ACCOUNT_ID", "1").trim() || "1";
 
-  const [conversations, emails] = await Promise.all([
+  const [conversations, emails, customerContacts] = await Promise.all([
     findCustomerConversations({
       customerEmail: service.contactEmail,
       customerPhone: service.contactPhone,
@@ -67,6 +68,9 @@ export async function GET(
     service.contactEmail && isPostalConfigured()
       ? listMessagesForRecipient(service.contactEmail, 20)
       : Promise.resolve([]),
+    // Wave 21 / Faza 1D — off-channel notatki (telefon/osobiście) zarejestrowane
+    // przez pracownika trafiają tutaj i UI agreguje je z resztą kanałów.
+    listCustomerContacts(id),
   ]);
 
   const chatwoot = conversations.map((c) => ({
@@ -82,6 +86,7 @@ export async function GET(
     {
       chatwoot,
       email: emails,
+      customerContacts,
       meta: {
         chatwootEnabled: chatwoot.length > 0,
         postalEnabled: isPostalConfigured(),

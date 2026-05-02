@@ -1,7 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Bell, Loader2, RefreshCw, Settings2, X } from "lucide-react";
+import {
+  AlertTriangle,
+  Bell,
+  Loader2,
+  RefreshCw,
+  Settings2,
+  Trash2,
+  X,
+} from "lucide-react";
 import type { ServiceTicket } from "./tabs/ServicesBoard";
 import { StatusBadge } from "./StatusBadge";
 import { StatusTransitionModal } from "./StatusTransitionModal";
@@ -11,8 +19,9 @@ import { NaprawaTab } from "./detail/NaprawaTab";
 import { WycenaTab } from "./detail/WycenaTab";
 import { KlientTab } from "./detail/KlientTab";
 import { HistoriaTab } from "./detail/HistoriaTab";
-import { CzatZespoluTab } from "./detail/CzatZespoluTab";
-import { InternalNotesPanel } from "./detail/InternalNotesPanel";
+import { TeamCommunicationTab } from "./detail/TeamCommunicationTab";
+import { DocumentsLibraryTab } from "./detail/DocumentsLibraryTab";
+import { DeleteServiceModal } from "./detail/DeleteServiceModal";
 import { subscribeToService, subscribeToUser } from "@/lib/sse-client";
 import { ViewSettingsModal, type TabSpec } from "./ViewSettingsModal";
 import { useServiceDetailPrefs } from "./useServiceDetailPrefs";
@@ -23,18 +32,21 @@ type TabId =
   | "naprawa"
   | "wycena"
   | "klient"
-  | "czat"
-  | "notatki"
-  | "historia";
+  | "dokumenty"
+  | "zespol"
+  | "historia"
+  | "danger";
 
 const TABS: { id: TabId; label: string }[] = [
   { id: "diagnoza", label: "Diagnoza" },
   { id: "naprawa", label: "Naprawa" },
   { id: "wycena", label: "Wycena" },
   { id: "klient", label: "Klient" },
-  { id: "czat", label: "Czat zespołu" },
-  { id: "notatki", label: "Notatki" },
+  { id: "dokumenty", label: "Dokumenty" },
+  // Wave 21 / Faza 1D — czat zespołu + notatki zunifikowane w jednym tabie.
+  { id: "zespol", label: "Zespół" },
   { id: "historia", label: "Historia" },
+  { id: "danger", label: "Niebezpieczna strefa" },
 ];
 
 const TABS_FOR_MODAL: TabSpec[] = TABS.map((t) => ({
@@ -120,6 +132,8 @@ function ServiceDetailViewInner({
   const [statusModalTarget, setStatusModalTarget] = useState<
     ServiceStatus | undefined
   >(undefined);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [postDeleteBanner, setPostDeleteBanner] = useState<string | null>(null);
   // Wave 20 / Faza 1F — generic version counter inkrementowany na każdy
   // service-scoped SSE event. Child taby (KlientTab → ChatwootDeepLink)
   // dostają jako prop i włączają w useEffect deps żeby re-fetch.
@@ -140,24 +154,38 @@ function ServiceDetailViewInner({
   }, [prefsReady]);
 
   // Resolve final ordered + visible tabs.
+  // "danger" tab jest GATED na `canDeleteService` — nawet jeśli user
+  // dodał ją do tabOrder przez ViewSettingsModal, ukrywamy gdy brak
+  // uprawnień (RBAC defense-in-depth).
   const visibleTabs = useMemo<{ id: TabId; label: string }[]>(() => {
     const byId = new Map(TABS.map((t) => [t.id, t]));
     const result: { id: TabId; label: string }[] = [];
     const seen = new Set<TabId>();
+    const allowedIds = new Set(
+      TABS.filter(
+        (t) => t.id !== "danger" || panelUser.permissions.canDeleteService,
+      ).map((t) => t.id),
+    );
     for (const id of viewPrefs.tabOrder) {
       const t = byId.get(id as TabId);
-      if (t && viewPrefs.tabVisibility[id] !== false) {
-        result.push(t);
-        seen.add(t.id);
-      }
+      if (!t) continue;
+      if (!allowedIds.has(t.id)) continue;
+      if (viewPrefs.tabVisibility[id] === false) continue;
+      result.push(t);
+      seen.add(t.id);
     }
     for (const t of TABS) {
       if (seen.has(t.id)) continue;
+      if (!allowedIds.has(t.id)) continue;
       if (viewPrefs.tabVisibility[t.id] === false) continue;
       result.push(t);
     }
     return result;
-  }, [viewPrefs.tabOrder, viewPrefs.tabVisibility]);
+  }, [
+    viewPrefs.tabOrder,
+    viewPrefs.tabVisibility,
+    panelUser.permissions.canDeleteService,
+  ]);
 
   // Fallback gdy aktualna activeTab nie jest widoczna — wybierz pierwszą.
   useEffect(() => {
@@ -225,7 +253,7 @@ function ServiceDetailViewInner({
   // bumpujemy `realtimeVersion` — child taby (KlientTab → ChatwootDeepLink,
   // CustomerMessageSender) z propsem realtimeVersion samodzielnie re-fetchują.
   // `chat_message_received` dodatkowo pokazuje banner powiadomienia.
-  // Komponenty z własną subskrypcją (InternalNotesPanel) zostają — duplikacja
+  // Komponenty z własną subskrypcją (TeamCommunicationTab) zostają — duplikacja
   // jest tania (dedup po event.id w sse-client.ts).
   useEffect(() => {
     const unsub = subscribeToService(serviceId, (evt) => {
@@ -464,6 +492,7 @@ function ServiceDetailViewInner({
       >
         {visibleTabs.map((t) => {
           const active = activeTab === t.id;
+          const isDanger = t.id === "danger";
           return (
             <button
               key={t.id}
@@ -476,12 +505,23 @@ function ServiceDetailViewInner({
                 setActiveTab(t.id);
                 setTabTouched(true);
               }}
-              className="px-3 py-2 text-xs font-medium border-b-2 -mb-px whitespace-nowrap"
+              className="px-3 py-2 text-xs font-medium border-b-2 -mb-px whitespace-nowrap inline-flex items-center gap-1.5"
               style={{
-                borderBottomColor: active ? "var(--accent)" : "transparent",
-                color: active ? "var(--text-main)" : "var(--text-muted)",
+                borderBottomColor: active
+                  ? isDanger
+                    ? "#ef4444"
+                    : "var(--accent)"
+                  : "transparent",
+                color: isDanger
+                  ? "#ef4444"
+                  : active
+                    ? "var(--text-main)"
+                    : "var(--text-muted)",
               }}
             >
+              {isDanger && (
+                <AlertTriangle className="w-3 h-3" aria-hidden="true" />
+              )}
               {t.label}
             </button>
           );
@@ -524,16 +564,65 @@ function ServiceDetailViewInner({
             realtimeVersion={realtimeVersion}
           />
         )}
-        {activeTab === "czat" && (
-          <CzatZespoluTab service={service} defaultRole="service" />
+        {activeTab === "dokumenty" && (
+          <DocumentsLibraryTab serviceId={service.id} />
         )}
-        {activeTab === "notatki" && (
-          <InternalNotesPanel
+        {activeTab === "zespol" && (
+          <TeamCommunicationTab
             serviceId={service.id}
             currentUserEmail={currentUserEmail}
+            viewerRole="service"
           />
         )}
         {activeTab === "historia" && <HistoriaTab service={service} />}
+        {activeTab === "danger" &&
+          panelUser.permissions.canDeleteService && (
+            <div className="space-y-4 max-w-2xl">
+              <div
+                className="rounded-xl border p-4 space-y-2"
+                style={{
+                  borderColor: "rgba(239, 68, 68, 0.4)",
+                  background: "rgba(239, 68, 68, 0.05)",
+                }}
+                role="region"
+                aria-label="Niebezpieczna strefa"
+              >
+                <div className="flex items-start gap-2">
+                  <AlertTriangle
+                    className="w-5 h-5 flex-shrink-0 mt-0.5"
+                    style={{ color: "#ef4444" }}
+                    aria-hidden="true"
+                  />
+                  <div className="space-y-1">
+                    <h3
+                      className="text-sm font-semibold"
+                      style={{ color: "var(--text-main)" }}
+                    >
+                      Trwałe usunięcie zlecenia
+                    </h3>
+                    <p
+                      className="text-xs leading-relaxed"
+                      style={{ color: "var(--text-muted)" }}
+                    >
+                      Operacja jest nieodwracalna. Usuwa wszystkie powiązane
+                      dane: zdjęcia, aneksy, komponenty, notatki, historię
+                      wycen, dokumenty oraz wycofuje powiązane PDF-y w
+                      Documenso. Wymaga potwierdzenia wpisaniem nazwy.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDeleteModalOpen(true)}
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5"
+                  style={{ background: "#dc2626", color: "#fff" }}
+                >
+                  <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+                  Usuń zlecenie
+                </button>
+              </div>
+            </div>
+          )}
       </div>
 
       {statusModalOpen && (
@@ -556,6 +645,51 @@ function ServiceDetailViewInner({
         onChange={setViewPrefs}
         onReset={resetPrefs}
       />
+
+      <DeleteServiceModal
+        open={deleteModalOpen}
+        serviceId={service.id}
+        ticketNumber={service.ticketNumber ?? null}
+        onClose={() => setDeleteModalOpen(false)}
+        onDeleted={() => {
+          setDeleteModalOpen(false);
+          setPostDeleteBanner(
+            `Zlecenie #${service.ticketNumber ?? ""} zostało trwale usunięte.`,
+          );
+          // Po krótkim opóźnieniu redirect do listy / zamknięcie. Banner
+          // jest niezależny — sessionStorage żeby przeżył nawigację.
+          try {
+            window.sessionStorage.setItem(
+              "mp:flash:service-deleted",
+              `Zlecenie #${service.ticketNumber ?? ""} zostało trwale usunięte.`,
+            );
+          } catch {
+            /* private mode lub blocked storage — banner i tak zostaje. */
+          }
+          // Redirect do panel home — onClose jest preferowane (modal/drawer
+          // mode) bo zostawia w listingu; brak onClose → window.location.
+          if (onClose) {
+            onClose();
+          } else {
+            window.location.href = "/";
+          }
+        }}
+      />
+
+      {postDeleteBanner && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed bottom-4 left-1/2 -translate-x-1/2 px-4 py-2 rounded-full shadow-2xl z-[2200]"
+          style={{
+            background: "rgba(34, 197, 94, 0.95)",
+            color: "#fff",
+            fontSize: "0.75rem",
+          }}
+        >
+          {postDeleteBanner}
+        </div>
+      )}
     </div>
   );
 }

@@ -77,8 +77,7 @@ const TEXT_SOFT = "#1a1a1a"; // ciemny dla nagłówków bloków
 const MUTED = "#555555"; // labels (UPPERCASE micro-copy)
 const LIGHT = "#aaaaaa"; // separator lines
 const BG_LIGHT = "#f0f0f0"; // tła sekcji info
-const BG_TILE = "#e0e0e0"; // delta tile
-const BG_TILE_DARK = "#cfcfcf"; // hover/active tile
+const BG_TILE = "#e0e0e0"; // amount-change block (Wave 21 Faza 1E)
 
 const FONT_REGULAR = path.join(process.cwd(), "public", "fonts", "Roboto-Regular.ttf");
 const FONT_BOLD = path.join(process.cwd(), "public", "fonts", "Roboto-Bold.ttf");
@@ -286,52 +285,37 @@ function drawAnnexPage(
   });
   y += reasonH + 14;
 
-  // ===== ZMIANA WYCENY (3 kafelki) lub fallback CHANGES TABLE =====
+  // ===== ZMIANA WYCENY — Wave 21 / Faza 1E: human-readable opis zamiast 3
+  // kafelków Δ. Jedna sekcja "Wycena zmieniona z X PLN do Y PLN — wzrost/
+  // spadek o Z PLN". Bez symbolu Δ. =====
   if (data.pricing) {
     y = drawSection(doc, M, y, W, "ZMIANA WYCENY");
-    const tileW = (W - 16) / 3;
-    const tileH = 44;
     const { originalAmount, deltaAmount, newAmount } = data.pricing;
-
-    drawAmountTile(
-      doc,
-      M,
-      y,
-      tileW,
-      tileH,
-      "PIERWOTNA KWOTA",
-      formatPLN(originalAmount),
-      BG_LIGHT,
-      TEXT,
-    );
-
-    // Delta — w grayscale rozróżnienie znak (+/-) zamiast koloru.
-    const deltaPositive = deltaAmount >= 0;
-    const deltaSign = deltaPositive ? "+" : "";
-    drawAmountTile(
-      doc,
-      M + tileW + 8,
-      y,
-      tileW,
-      tileH,
-      "DELTA",
-      `${deltaSign}${formatPLN(deltaAmount)}`,
-      BG_TILE,
-      TEXT,
-    );
-
-    drawAmountTile(
-      doc,
-      M + 2 * (tileW + 8),
-      y,
-      tileW,
-      tileH,
-      "NOWA KWOTA",
-      formatPLN(newAmount),
-      BG_TILE_DARK,
-      TEXT,
-      1,
-    );
+    const verb =
+      deltaAmount > 0
+        ? "zwiększona"
+        : deltaAmount < 0
+          ? "obniżona"
+          : "bez zmian";
+    const direction =
+      deltaAmount > 0 ? "wzrost" : deltaAmount < 0 ? "spadek" : null;
+    const absDelta = Math.abs(deltaAmount);
+    const sentence =
+      deltaAmount === 0
+        ? `Wycena pozostaje na poziomie ${formatPLN(originalAmount)}.`
+        : `Wycena ${verb} z ${formatPLN(originalAmount)} do ${formatPLN(newAmount)} — ${direction} o ${formatPLN(absDelta)}.`;
+    const tileH = 44;
+    drawBlock(doc, M, y, W, tileH, BG_TILE, TEXT, 1);
+    doc
+      .font("B")
+      .fontSize(11)
+      .fillColor(TEXT)
+      .text(sentence, M + 12, y + 14, {
+        width: W - 24,
+        align: "left",
+        height: tileH - 18,
+        ellipsis: true,
+      });
     y += tileH + 14;
   } else if (data.changes && data.changes.length > 0) {
     y = drawSection(doc, M, y, W, "ZMIANY");
@@ -514,38 +498,6 @@ function drawAnnexPage(
   if (assets.logoFooter) {
     doc.image(assets.logoFooter, M + W - 60, fy + 2, { fit: [60, 14] });
   }
-}
-
-function drawAmountTile(
-  doc: PDFKit.PDFDocument,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  label: string,
-  value: string,
-  bg: string,
-  fg: string,
-  borderWidth = 0,
-): void {
-  doc.rect(x, y, w, h).fill(bg);
-  if (borderWidth > 0) {
-    doc.rect(x, y, w, h).lineWidth(borderWidth).strokeColor(fg).stroke();
-  }
-  doc
-    .font("R")
-    .fontSize(6.5)
-    .fillColor(MUTED)
-    .text(label, x, y + 8, {
-      width: w,
-      align: "center",
-      characterSpacing: 0.5,
-    });
-  doc
-    .font("B")
-    .fontSize(13)
-    .fillColor(fg)
-    .text(value, x, y + 20, { width: w, align: "center" });
 }
 
 function drawColumn(

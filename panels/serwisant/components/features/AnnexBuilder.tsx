@@ -107,7 +107,13 @@ export function AnnexBuilder({
     () => Number((newAmount - previousAmount).toFixed(2)),
     [previousAmount, newAmount],
   );
-  const deltaSign = delta > 0 ? "+" : delta < 0 ? "−" : "";
+  // Wave 21 / Faza 1E — human-readable opis zamiast Δ +X.
+  const deltaPhrase = useMemo(() => {
+    if (delta > 0) return "zwiększona";
+    if (delta < 0) return "obniżona";
+    return "bez zmian";
+  }, [delta]);
+  const deltaColor = delta > 0 ? "#10b981" : delta < 0 ? "#f59e0b" : "var(--text-muted)";
 
   const reasonValid = reason.trim().length >= 4;
   const deltaValid = delta !== 0;
@@ -283,7 +289,7 @@ export function AnnexBuilder({
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
-          {/* Read-only pricing summary */}
+          {/* Read-only pricing summary — human readable (Wave 21 Faza 1E). */}
           <div
             className="rounded-xl border p-4"
             style={{
@@ -297,33 +303,37 @@ export function AnnexBuilder({
             >
               Zmiana wyceny
             </p>
-            <dl className="space-y-1.5 text-sm font-mono">
-              <div className="flex justify-between">
-                <dt style={{ color: "var(--text-muted)" }}>
-                  Pierwotna wycena:
-                </dt>
-                <dd>{previousAmount.toFixed(2)} PLN</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt style={{ color: "var(--text-muted)" }}>Nowa wycena:</dt>
-                <dd>{newAmount.toFixed(2)} PLN</dd>
-              </div>
-              <div
-                className="flex justify-between pt-1.5 border-t"
-                style={{ borderColor: "var(--border-subtle)" }}
+            {deltaValid ? (
+              <p
+                className="text-sm leading-relaxed"
+                style={{ color: "var(--text-main)" }}
               >
-                <dt
-                  className="font-semibold"
-                  style={{ color: "var(--text-main)" }}
-                >
-                  Różnica:
-                </dt>
-                <dd className="font-semibold">
-                  {deltaSign}
-                  {Math.abs(delta).toFixed(2)} PLN
-                </dd>
-              </div>
-            </dl>
+                Wycena{" "}
+                <span style={{ color: deltaColor, fontWeight: 600 }}>
+                  {deltaPhrase}
+                </span>{" "}
+                z{" "}
+                <strong className="font-mono">
+                  {previousAmount.toFixed(2)} PLN
+                </strong>{" "}
+                do{" "}
+                <strong className="font-mono">
+                  {newAmount.toFixed(2)} PLN
+                </strong>
+                .
+              </p>
+            ) : (
+              <p
+                className="text-sm leading-relaxed"
+                style={{ color: "var(--text-muted)" }}
+              >
+                Wycena pozostaje na poziomie{" "}
+                <strong className="font-mono">
+                  {previousAmount.toFixed(2)} PLN
+                </strong>
+                .
+              </p>
+            )}
             {!deltaValid && (
               <p className="mt-2 text-[11px]" style={{ color: "#ef4444" }}>
                 Aneks wymaga niezerowej różnicy między pierwotną a nową kwotą.

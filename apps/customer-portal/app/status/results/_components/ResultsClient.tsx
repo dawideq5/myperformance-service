@@ -105,7 +105,7 @@ export function ResultsClient() {
           className="inline-flex rounded-lg px-4 py-2 text-sm font-medium"
           style={{ background: "var(--accent)", color: "var(--accent-fg)" }}
         >
-          Wróć do logowania
+          Wróć i wpisz email
         </Link>
       </div>
     );

@@ -34,6 +34,7 @@ import {
   X,
 } from "lucide-react";
 import { subscribeToService } from "@/lib/sse-client";
+import { ClearableInput } from "../ui/ClearableInput";
 
 interface ServiceComponent {
   id: string;
@@ -140,7 +141,12 @@ interface ComponentFormDraft {
   invoiceKind: "faktura" | "paragon" | "wz" | "inny";
   purchaseDate: string;
   deliveryDate: string;
-  costNet: string;
+  /** Wartość wpisana przez serwisanta — interpretacja zależy od `priceMode`. */
+  priceInput: string;
+  /** Wave 21 / Faza 1E — toggle netto/brutto. Backend nadal przyjmuje
+   * wyłącznie `costNet`; brutto liczymy klientowo i konwertujemy do net
+   * przy submit. */
+  priceMode: "net" | "gross";
   quantity: string;
   vatRate: 0 | 5 | 8 | 23;
   marginTargetPct: string;
@@ -155,7 +161,8 @@ function emptyDraft(): ComponentFormDraft {
     invoiceKind: "faktura",
     purchaseDate: "",
     deliveryDate: "",
-    costNet: "",
+    priceInput: "",
+    priceMode: "net",
     quantity: "1",
     vatRate: 23,
     marginTargetPct: "",
@@ -171,7 +178,11 @@ function draftFromComponent(c: ServiceComponent): ComponentFormDraft {
     invoiceKind: (c.invoiceKind as ComponentFormDraft["invoiceKind"]) ?? "faktura",
     purchaseDate: c.purchaseDate ?? "",
     deliveryDate: c.deliveryDate ?? "",
-    costNet: String(c.costNet),
+    // Edycja istniejącego komponentu: zaczynamy zawsze w trybie netto, bo
+    // backend trzyma wyłącznie cost_net. User może przełączyć na brutto i
+    // konwersja zostanie obliczona on-the-fly.
+    priceInput: String(c.costNet),
+    priceMode: "net",
     quantity: String(c.quantity),
     vatRate: (VAT_OPTIONS as readonly number[]).includes(c.vatRate)
       ? (c.vatRate as ComponentFormDraft["vatRate"])
@@ -600,11 +611,22 @@ function ComponentModal({
       setError("Pole `Nazwa` jest wymagane");
       return;
     }
-    const costNet = Number(draft.costNet);
-    if (!Number.isFinite(costNet) || costNet < 0) {
-      setError("Pole `Cena netto` musi być liczbą >= 0");
+    // Wave 21 / Faza 1E — netto/brutto toggle. Backend dalej dostaje
+    // wyłącznie cost_net; brutto konwertujemy klientowo: net = gross /
+    // (1 + vat/100). Walidacja na inputie po konwersji.
+    const priceValue = Number(draft.priceInput);
+    if (!Number.isFinite(priceValue) || priceValue < 0) {
+      setError(
+        draft.priceMode === "gross"
+          ? "Pole `Cena brutto` musi być liczbą >= 0"
+          : "Pole `Cena netto` musi być liczbą >= 0",
+      );
       return;
     }
+    const costNet =
+      draft.priceMode === "gross"
+        ? Number((priceValue / (1 + draft.vatRate / 100)).toFixed(4))
+        : Number(priceValue.toFixed(4));
     const quantity = Number(draft.quantity);
     if (!Number.isFinite(quantity) || quantity <= 0) {
       setError("Pole `Ilość` musi być liczbą > 0");
@@ -766,13 +788,13 @@ function ComponentModal({
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Hurtownia" htmlFor="cmp-supplier">
-              <input
+              <ClearableInput
                 id="cmp-supplier"
                 type="text"
                 value={draft.supplierName}
-                onChange={(e) =>
-                  setDraft({ ...draft, supplierName: e.target.value })
-                }
+                onValueChange={(v) => setDraft({ ...draft, supplierName: v })}
+                optional
+                clearAriaLabel="Wyczyść pole hurtowni"
                 className="w-full px-3 py-2 rounded-lg border text-sm outline-none"
                 style={{
                   background: "var(--bg-surface)",
@@ -783,13 +805,13 @@ function ComponentModal({
               />
             </Field>
             <Field label="Numer faktury / paragonu" htmlFor="cmp-invoice">
-              <input
+              <ClearableInput
                 id="cmp-invoice"
                 type="text"
                 value={draft.invoiceNumber}
-                onChange={(e) =>
-                  setDraft({ ...draft, invoiceNumber: e.target.value })
-                }
+                onValueChange={(v) => setDraft({ ...draft, invoiceNumber: v })}
+                optional
+                clearAriaLabel="Wyczyść pole numeru faktury"
                 className="w-full px-3 py-2 rounded-lg border text-sm outline-none font-mono"
                 style={{
                   background: "var(--bg-surface)",
@@ -827,13 +849,13 @@ function ComponentModal({
               </select>
             </Field>
             <Field label="Data zakupu" htmlFor="cmp-purchase">
-              <input
+              <ClearableInput
                 id="cmp-purchase"
                 type="date"
                 value={draft.purchaseDate}
-                onChange={(e) =>
-                  setDraft({ ...draft, purchaseDate: e.target.value })
-                }
+                onValueChange={(v) => setDraft({ ...draft, purchaseDate: v })}
+                optional
+                clearAriaLabel="Wyczyść pole daty zakupu"
                 className="w-full px-3 py-2 rounded-lg border text-sm outline-none"
                 style={{
                   background: "var(--bg-surface)",
@@ -843,13 +865,13 @@ function ComponentModal({
               />
             </Field>
             <Field label="Data dostawy" htmlFor="cmp-delivery">
-              <input
+              <ClearableInput
                 id="cmp-delivery"
                 type="date"
                 value={draft.deliveryDate}
-                onChange={(e) =>
-                  setDraft({ ...draft, deliveryDate: e.target.value })
-                }
+                onValueChange={(v) => setDraft({ ...draft, deliveryDate: v })}
+                optional
+                clearAriaLabel="Wyczyść pole daty dostawy"
                 className="w-full px-3 py-2 rounded-lg border text-sm outline-none"
                 style={{
                   background: "var(--bg-surface)",
@@ -860,16 +882,74 @@ function ComponentModal({
             </Field>
           </div>
 
+          {/* Wave 21 / Faza 1E — toggle netto/brutto + dynamiczny label. */}
+          <div className="space-y-2">
+            <span
+              className="block text-[11px] uppercase tracking-wider font-semibold"
+              style={{ color: "var(--text-muted)" }}
+            >
+              Cena (PLN) <span style={{ color: "#ef4444" }}>*</span>
+            </span>
+            <div
+              role="radiogroup"
+              aria-label="Sposób wprowadzania ceny"
+              className="inline-flex gap-1 p-0.5 rounded-lg border"
+              style={{
+                background: "var(--bg-surface)",
+                borderColor: "var(--border-subtle)",
+              }}
+            >
+              <button
+                type="button"
+                role="radio"
+                aria-checked={draft.priceMode === "net"}
+                onClick={() => setDraft({ ...draft, priceMode: "net" })}
+                className="px-3 py-1 rounded text-xs font-medium transition-colors"
+                style={{
+                  background:
+                    draft.priceMode === "net" ? "var(--accent)" : "transparent",
+                  color: draft.priceMode === "net" ? "#fff" : "var(--text-main)",
+                }}
+              >
+                Netto
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={draft.priceMode === "gross"}
+                onClick={() => setDraft({ ...draft, priceMode: "gross" })}
+                className="px-3 py-1 rounded text-xs font-medium transition-colors"
+                style={{
+                  background:
+                    draft.priceMode === "gross"
+                      ? "var(--accent)"
+                      : "transparent",
+                  color:
+                    draft.priceMode === "gross" ? "#fff" : "var(--text-main)",
+                }}
+              >
+                Brutto
+              </button>
+            </div>
+          </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <Field label="Cena netto (PLN)" htmlFor="cmp-net" required>
+            <Field
+              label={
+                draft.priceMode === "gross"
+                  ? "Cena brutto (PLN)"
+                  : "Cena netto (PLN)"
+              }
+              htmlFor="cmp-price"
+              required
+            >
               <input
-                id="cmp-net"
+                id="cmp-price"
                 type="number"
                 min={0}
                 step="0.01"
-                value={draft.costNet}
+                value={draft.priceInput}
                 onChange={(e) =>
-                  setDraft({ ...draft, costNet: e.target.value })
+                  setDraft({ ...draft, priceInput: e.target.value })
                 }
                 required
                 className="w-full px-3 py-2 rounded-lg border text-sm outline-none font-mono"
@@ -879,6 +959,12 @@ function ComponentModal({
                   color: "var(--text-main)",
                 }}
                 inputMode="decimal"
+                aria-describedby="cmp-price-preview"
+              />
+              <PricePreview
+                priceInput={draft.priceInput}
+                priceMode={draft.priceMode}
+                vatRate={draft.vatRate}
               />
             </Field>
             <Field label="Ilość" htmlFor="cmp-qty" required>
@@ -929,14 +1015,16 @@ function ComponentModal({
               </select>
             </Field>
             <Field label="Marża target %" htmlFor="cmp-margin">
-              <input
+              <ClearableInput
                 id="cmp-margin"
                 type="number"
                 step="0.1"
                 value={draft.marginTargetPct}
-                onChange={(e) =>
-                  setDraft({ ...draft, marginTargetPct: e.target.value })
+                onValueChange={(v) =>
+                  setDraft({ ...draft, marginTargetPct: v })
                 }
+                optional
+                clearAriaLabel="Wyczyść pole marży"
                 className="w-full px-3 py-2 rounded-lg border text-sm outline-none font-mono"
                 style={{
                   background: "var(--bg-surface)",
@@ -1046,6 +1134,44 @@ function ComponentModal({
         </form>
       </div>
     </div>
+  );
+}
+
+/** Wave 21 / Faza 1E — preview "= X PLN brutto/netto" pod inputem ceny. */
+function PricePreview({
+  priceInput,
+  priceMode,
+  vatRate,
+}: {
+  priceInput: string;
+  priceMode: "net" | "gross";
+  vatRate: number;
+}) {
+  const value = Number(priceInput);
+  if (!priceInput.trim() || !Number.isFinite(value) || value < 0) {
+    return (
+      <p
+        id="cmp-price-preview"
+        className="mt-1 text-[10px]"
+        style={{ color: "var(--text-muted)" }}
+      >
+        VAT {vatRate}% — wpisz wartość, aby zobaczyć przeliczenie.
+      </p>
+    );
+  }
+  const counterpart =
+    priceMode === "net"
+      ? value * (1 + vatRate / 100)
+      : value / (1 + vatRate / 100);
+  const counterLabel = priceMode === "net" ? "brutto" : "netto";
+  return (
+    <p
+      id="cmp-price-preview"
+      className="mt-1 text-[10px]"
+      style={{ color: "var(--text-muted)" }}
+    >
+      = {counterpart.toFixed(2)} PLN {counterLabel} (VAT {vatRate}%)
+    </p>
   );
 }
 

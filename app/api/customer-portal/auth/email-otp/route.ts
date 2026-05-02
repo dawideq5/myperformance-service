@@ -88,7 +88,20 @@ export async function POST(req: Request) {
     const rendered = await renderTemplate("customer_portal_otp", {
       draftSubject: subject,
       draftBody: bodyMd,
-      context: { otp: issued.code },
+      // Wave 21 Faza 1F: jawny layout slug zamiast default — żeby wszystkie
+      // emaile do klienta serwisu trafiały w layoucie Caseownia (białe tło,
+      // logo "Serwis telefonów by Caseownia"), nie myperformance.
+      layoutSlug: "zlecenieserwisowe",
+      context: {
+        otp: issued.code,
+        brand: {
+          name: "Serwis telefonów by Caseownia",
+          url: "https://zlecenieserwisowe.pl",
+          logoUrl: "https://zlecenieserwisowe.pl/logo-serwis.png",
+          supportEmail: "caseownia@zlecenieserwisowe.pl",
+          legalName: "UNIKOM S.C.",
+        },
+      },
     });
     html = rendered?.html ?? null;
   } catch (err) {
@@ -98,14 +111,16 @@ export async function POST(req: Request) {
   }
 
   // Plain HTML fallback gdy template-render nie dostępne (np. DB layout puste).
-  const fallbackHtml = `<!doctype html><html><body style="font-family:Arial,sans-serif;background:#fafafa;padding:32px;color:#1a1a1a;">
-    <table style="max-width:520px;margin:auto;background:#fff;border:1px solid #e5e5e5;border-radius:12px;overflow:hidden;">
-      <tr><td style="background:#0a0a0a;color:#fff;padding:20px 24px;font-weight:700;">Caseownia — Serwis telefonów</td></tr>
-      <tr><td style="padding:28px 24px;">
+  // Light theme spójny z layoutem zlecenieserwisowe — bez czarnego headera.
+  const fallbackHtml = `<!doctype html><html lang="pl"><body style="font-family:Inter,Arial,sans-serif;background:#f5f5f5;padding:32px;color:#1a1a1a;margin:0;">
+    <table style="max-width:600px;margin:auto;background:#fff;border:1px solid #e0e0e0;border-radius:12px;overflow:hidden;">
+      <tr><td style="background:#fff;border-bottom:1px solid #e0e0e0;padding:20px 24px;text-align:center;font-weight:600;color:#1a1a1a;">Serwis telefonów by Caseownia</td></tr>
+      <tr><td style="padding:32px 24px;">
         <p style="margin:0 0 16px;">Twój 6-cyfrowy kod do sprawdzenia statusu naprawy:</p>
-        <p style="font-size:32px;font-weight:700;letter-spacing:6px;text-align:center;background:#fafafa;padding:18px;border-radius:8px;border:1px solid #e5e5e5;">${issued.code}</p>
+        <p style="font-size:32px;font-weight:700;letter-spacing:6px;text-align:center;background:#fafafa;padding:18px;border-radius:8px;border:1px solid #e0e0e0;color:#0a0a0a;">${issued.code}</p>
         <p style="color:#666;font-size:13px;margin-top:18px;">Kod jest ważny przez 10 minut. Jeśli nie prosiłeś o ten kod — zignoruj wiadomość.</p>
       </td></tr>
+      <tr><td style="background:#fafafa;border-top:1px solid #e0e0e0;padding:16px 24px;text-align:center;font-size:12px;color:#666;">Wiadomość od caseownia@zlecenieserwisowe.pl</td></tr>
     </table>
   </body></html>`;
 

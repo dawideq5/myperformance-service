@@ -121,19 +121,27 @@ export async function ensureDefaultSmtpProfiles(): Promise<void> {
     );
     // zlecenieserwisowe — Caseownia / UNIKOM brand. Same Postal host,
     // different credential username + domain, password from
-    // CONFIRMATION_SMTP_PASSWORD env.
+    // CONFIRMATION_SMTP_PASSWORD env. From: "Serwis telefonów by Caseownia"
+    // <caseownia@zlecenieserwisowe.pl> (Wave 21 Faza 1F branding).
     await c.query(
       `INSERT INTO mp_email_smtp_profiles
          (slug, name, description, host, port, secure, username, password_ref,
-          from_address, from_name, postal_org_name, postal_server_name, is_default)
+          from_address, from_name, reply_to,
+          postal_org_name, postal_server_name, is_default)
        VALUES ('zlecenieserwisowe',
-               'Zlecenie serwisowe (Caseownia)',
-               'Profil dla domeny zlecenieserwisowe.pl (UNIKOM S.C.). Hasło z env CONFIRMATION_SMTP_PASSWORD.',
+               'Serwis telefonów by Caseownia',
+               'Profil dla domeny zlecenieserwisowe.pl (UNIKOM S.C., brand Caseownia). Wszystkie wiadomości do klientów customer-portalu. Hasło z env CONFIRMATION_SMTP_PASSWORD.',
                'smtp-iut9wf1rz9ey54g7lbkje0je',
                25, FALSE, 'zlecenieserwisowe', 'CONFIRMATION_SMTP_PASSWORD',
-               'noreply@zlecenieserwisowe.pl', 'Zlecenie serwisowe',
+               'caseownia@zlecenieserwisowe.pl', 'Serwis telefonow by Caseownia',
+               'caseownia@zlecenieserwisowe.pl',
                'Zlecenie serwisowe', 'zlecenieserwisowe', FALSE)
-       ON CONFLICT (slug) DO NOTHING`,
+       ON CONFLICT (slug) DO UPDATE SET
+         name = EXCLUDED.name,
+         description = EXCLUDED.description,
+         from_address = EXCLUDED.from_address,
+         from_name = EXCLUDED.from_name,
+         reply_to = EXCLUDED.reply_to`,
     );
   }).catch((err) => {
     seedReady = null;

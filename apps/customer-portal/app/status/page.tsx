@@ -17,7 +17,16 @@ export default function StatusPage() {
         Wpisz email użyty przy rejestracji urządzenia. Wyślemy 6-cyfrowy kod
         jednorazowy, ważny przez 10 minut.
       </p>
-      <StatusForm />
+      <div
+        className="rounded-2xl border p-6 md:p-8"
+        style={{
+          borderColor: "var(--border-subtle)",
+          background: "var(--bg-main)",
+          boxShadow: "0 1px 2px rgba(10,10,10,0.04)",
+        }}
+      >
+        <StatusForm />
+      </div>
     </section>
   );
 }

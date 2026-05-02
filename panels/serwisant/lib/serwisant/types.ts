@@ -80,9 +80,29 @@ export interface PostalEmailMessage {
   bounce?: boolean;
 }
 
+/**
+ * Wave 21 / Faza 1D — wpis off-channel kontaktu z klientem
+ * (telefon / osobiście / inne) rejestrowany ręcznie z panelu.
+ */
+export interface CustomerContactEntry {
+  id: string;
+  serviceId: string;
+  ticketNumber: string | null;
+  channel: "phone" | "in_person" | "other";
+  direction: "inbound" | "outbound" | null;
+  note: string;
+  recordedByEmail: string | null;
+  recordedByName: string | null;
+  contactedAt: string;
+  createdAt: string;
+}
+
 export interface CommunicationResponse {
   chatwoot: ChatwootConversationSummary[];
   email: PostalEmailMessage[];
+  /** Wave 21 / Faza 1D — opcjonalne; starsze deploye bez kolekcji
+   *  customer_contacts zwrócą [] / undefined. */
+  customerContacts?: CustomerContactEntry[];
   meta?: {
     chatwootEnabled?: boolean;
     postalEnabled?: boolean;

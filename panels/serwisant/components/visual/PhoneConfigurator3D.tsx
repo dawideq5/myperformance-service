@@ -617,9 +617,23 @@ export function PhoneConfigurator3D({
                   outputColorSpace: THREE.SRGBColorSpace,
                 }}
                 onCreated={({ gl }) => {
+                  // Wave 21 Faza 1G — pełna obsługa context lost/restored.
+                  // Bez `restored` listenera Canvas pozostaje czarny po
+                  // pressure GPU. R3F dokumentuje że jeśli setSize jest
+                  // wywołane po restored, scena automatycznie się odświeża.
                   gl.domElement.addEventListener("webglcontextlost", (e) => {
                     e.preventDefault();
-                    console.error("[Canvas] WebGL context lost");
+                    console.warn("[Canvas] WebGL context lost — czekanie na restore");
+                  });
+                  gl.domElement.addEventListener("webglcontextrestored", () => {
+                    console.info("[Canvas] WebGL context restored");
+                    try {
+                      // Force re-render przez setSize na aktualne wymiary.
+                      const canvas = gl.domElement;
+                      gl.setSize(canvas.clientWidth, canvas.clientHeight, false);
+                    } catch (err) {
+                      console.error("[Canvas] restored re-init failed", err);
+                    }
                   });
                 }}
                 onPointerMissed={() => setEditingMarkerId(null)}

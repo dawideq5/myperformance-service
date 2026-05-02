@@ -205,6 +205,42 @@ export async function findAnnexByDocumensoId(
   }
 }
 
+/** Wave 21 / Faza 1E — błąd biznesowy gdy próba zmiany statusu narusza
+ * skończony stan aneksu (accepted/rejected/expired). Caller (route)
+ * powinien zwrócić HTTP 409 (Conflict) z komunikatem dla UI. */
+export class AnnexStatusTransitionError extends Error {
+  readonly currentStatus: AnnexAcceptanceStatus;
+  readonly attemptedStatus: AnnexAcceptanceStatus;
+  constructor(
+    current: AnnexAcceptanceStatus,
+    attempted: AnnexAcceptanceStatus,
+  ) {
+    super(
+      `Aneks ma status finalny (${current}) — nie można zmienić na ${attempted}.`,
+    );
+    this.name = "AnnexStatusTransitionError";
+    this.currentStatus = current;
+    this.attemptedStatus = attempted;
+  }
+}
+
+/** Wave 21 / Faza 1E — czy `from -> to` jest dopuszczalne. Polityka:
+ *   pending → accepted | rejected | expired
+ *   accepted | rejected | expired → tylko same do siebie (idempotent NO-OP);
+ *     ale ponowne wpisanie tego samego statusu NIE jest błędem (np. webhook
+ *     retry).
+ */
+export function isAnnexStatusTransitionAllowed(
+  from: AnnexAcceptanceStatus,
+  to: AnnexAcceptanceStatus,
+): boolean {
+  if (from === to) return true;
+  if (from === "pending") {
+    return to === "accepted" || to === "rejected" || to === "expired";
+  }
+  return false;
+}
+
 export async function updateServiceAnnex(
   annexId: string,
   patch: Partial<{
@@ -220,6 +256,23 @@ export async function updateServiceAnnex(
   }>,
 ): Promise<ServiceAnnex | null> {
   if (!(await directusConfigured())) return null;
+  // Wave 21 / Faza 1E — gdy przekazujemy nowy `acceptanceStatus`, walidujemy
+  // przejście stanu. Pomijamy gdy patch jest czysto-meta (np. messageId).
+  if (patch.acceptanceStatus !== undefined) {
+    const current = await getServiceAnnex(annexId);
+    if (
+      current &&
+      !isAnnexStatusTransitionAllowed(
+        current.acceptanceStatus,
+        patch.acceptanceStatus,
+      )
+    ) {
+      throw new AnnexStatusTransitionError(
+        current.acceptanceStatus,
+        patch.acceptanceStatus,
+      );
+    }
+  }
   const dbPatch: Record<string, unknown> = {};
   if (patch.acceptanceStatus !== undefined)
     dbPatch.acceptance_status = patch.acceptanceStatus;
@@ -264,7 +317,44 @@ export async function updateServiceAnnex(
     }
     return mapped;
   } catch (err) {
+    if (err instanceof AnnexStatusTransitionError) throw err;
     logger.warn("updateServiceAnnex failed", { annexId, err: String(err) });
     return null;
   }
+}
+
+/**
+ * Wave 21 / Faza 1E — unieważnia wszystkie pending aneksy do danego
+ * service'u. Używane gdy serwisant zmienia wycenę poza aneksem (każda
+ * dotychczas otwarta propozycja staje się nieaktualna) lub zmienia email
+ * klienta (Documenso link na stary email staje się sierotą).
+ *
+ * Zwraca liczbę zaktualizowanych aneksów. Best-effort — błąd update
+ * pojedynczego aneksu nie blokuje pozostałych.
+ */
+export async function expirePendingAnnexes(
+  serviceId: string,
+  reason: string,
+): Promise<{ expiredAnnexIds: string[] }> {
+  if (!(await directusConfigured())) return { expiredAnnexIds: [] };
+  const annexes = await listServiceAnnexes(serviceId);
+  const pending = annexes.filter((a) => a.acceptanceStatus === "pending");
+  const expiredAnnexIds: string[] = [];
+  for (const a of pending) {
+    try {
+      const note = a.note ? `${a.note}\n[expired] ${reason}` : `[expired] ${reason}`;
+      const updated = await updateServiceAnnex(a.id, {
+        acceptanceStatus: "expired",
+        note,
+      });
+      if (updated) expiredAnnexIds.push(a.id);
+    } catch (err) {
+      logger.warn("expirePendingAnnexes single update failed", {
+        serviceId,
+        annexId: a.id,
+        err: String(err),
+      });
+    }
+  }
+  return { expiredAnnexIds };
 }

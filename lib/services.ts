@@ -1007,3 +1007,244 @@ export async function updateService(
 export async function deleteService(id: string): Promise<void> {
   await deleteItem("mp_services", id);
 }
+
+/**
+ * Wave 21 / Faza 1G — cascade hard-delete zlecenia serwisowego.
+ *
+ * Usuwa wszystkie powiązane rekordy (photos, components, annexes, actions,
+ * quote_history, internal_notes, internal_messages, transport_jobs,
+ * release_codes, documents, part_orders) z Directus + best-effort cleanup
+ * powiązanych dokumentów Documenso, a finalnie samo `mp_services` row.
+ *
+ * Atomicity: Directus REST nie wspiera multi-collection transaction —
+ * usuwamy sekwencyjnie best-effort. Pierwszy "twardy" błąd (poza 404)
+ * przerywa cykl i rzuca dalej; już usunięte rekordy zostają usunięte
+ * (pre-existing data loss model w Directus). Caller dostaje counts
+ * częściowego usunięcia, więc operator może ręcznie dokończyć w razie
+ * awarii.
+ *
+ * Wywoływane przez `DELETE /api/panel/services/:id/full` — endpoint
+ * waliduje confirmText + RBAC przed delegacją tutaj.
+ */
+export interface DeleteServiceCascadeCounts {
+  photos: number;
+  components: number;
+  annexes: number;
+  actions: number;
+  quoteHistory: number;
+  internalNotes: number;
+  internalMessages: number;
+  transportJobs: number;
+  releaseCodes: number;
+  documents: number;
+  partOrders: number;
+  documensoDeleted: number;
+}
+
+export async function deleteServiceCascade(id: string): Promise<{
+  ticketNumber: string | null;
+  counts: DeleteServiceCascadeCounts;
+}> {
+  if (!(await directusConfigured())) {
+    throw new Error("Directus is not configured");
+  }
+  const existing = await getService(id);
+  if (!existing) throw new Error("not_found");
+
+  const counts: DeleteServiceCascadeCounts = {
+    photos: 0,
+    components: 0,
+    annexes: 0,
+    actions: 0,
+    quoteHistory: 0,
+    internalNotes: 0,
+    internalMessages: 0,
+    transportJobs: 0,
+    releaseCodes: 0,
+    documents: 0,
+    partOrders: 0,
+    documensoDeleted: 0,
+  };
+
+  // Helper: list all items by service_id and hard-delete each.
+  // includeDeleted=true bo chcemy hard-delete RÓWNIEŻ soft-deleted rekordów
+  // (cleanup pełny — orphan rows nie pozostają).
+  const listAndDelete = async (
+    collection: string,
+    fkField: string = "service_id",
+  ): Promise<number> => {
+    let total = 0;
+    // page-loop — Directus default limit=100, sortujemy po PK żeby idempotent.
+    // Limit 200 per stronę × max 50 stron = bezpieczny upper bound.
+    for (let page = 0; page < 50; page++) {
+      const rows = await listItems<{ id: string }>(collection, {
+        [`filter[${fkField}][_eq]`]: id,
+        limit: 200,
+      });
+      if (rows.length === 0) break;
+      for (const row of rows) {
+        try {
+          await deleteItem(collection, row.id);
+          total++;
+        } catch (err) {
+          logger.warn("cascade delete row failed", {
+            collection,
+            rowId: row.id,
+            serviceId: id,
+            err: String(err),
+          });
+          // Re-throw — caller dostanie 500 z informacją że cascade jest
+          // niekompletny. Na razie zliczone do counts.
+          throw err;
+        }
+      }
+      if (rows.length < 200) break;
+    }
+    return total;
+  };
+
+  // 1. Documenso cleanup — przed usunięciem annexów/dokumentów spróbuj
+  // usunąć ich PDF w Documenso (pending = sent/employee_signed). Best-effort,
+  // błąd nie blokuje cascade.
+  try {
+    const annexRows = await listItems<{
+      id: string;
+      documenso_doc_id: number | string | null;
+      acceptance_status: string | null;
+    }>("mp_service_annexes", {
+      "filter[service_id][_eq]": id,
+      limit: 200,
+    });
+    const docRows = await listItems<{
+      id: string;
+      documenso_doc_id: number | string | null;
+      status: string | null;
+    }>("mp_service_documents", {
+      "filter[service_id][_eq]": id,
+      limit: 200,
+    });
+    const docIds = new Set<number>();
+    for (const r of annexRows) {
+      const docId =
+        typeof r.documenso_doc_id === "number"
+          ? r.documenso_doc_id
+          : r.documenso_doc_id != null
+            ? Number(r.documenso_doc_id)
+            : null;
+      if (docId && Number.isFinite(docId)) docIds.add(docId);
+    }
+    for (const r of docRows) {
+      const docId =
+        typeof r.documenso_doc_id === "number"
+          ? r.documenso_doc_id
+          : r.documenso_doc_id != null
+            ? Number(r.documenso_doc_id)
+            : null;
+      if (docId && Number.isFinite(docId)) docIds.add(docId);
+    }
+    // Z visualCondition.documenso (intake confirmation).
+    const vcDocId = existing.visualCondition?.documenso?.docId;
+    if (vcDocId) docIds.add(vcDocId);
+    if (docIds.size > 0) {
+      const { deleteDocument } = await import("@/lib/documenso");
+      for (const docId of docIds) {
+        try {
+          await deleteDocument(docId);
+          counts.documensoDeleted++;
+        } catch (err) {
+          logger.warn("cascade documenso delete failed", {
+            serviceId: id,
+            docId,
+            err: String(err),
+          });
+        }
+      }
+    }
+  } catch (err) {
+    logger.warn("cascade documenso enumeration failed", {
+      serviceId: id,
+      err: String(err),
+    });
+  }
+
+  // 2. Sequential cascade delete. Order: child→parent. Order matters dla
+  // foreign-key constraints jeśli istnieją w Postgresie pod Directusem.
+  counts.actions = await listAndDelete("mp_service_actions");
+  counts.photos = await listAndDelete("mp_service_photos");
+  counts.annexes = await listAndDelete("mp_service_annexes");
+  counts.quoteHistory = await listAndDelete("mp_service_quote_history");
+  counts.components = await listAndDelete("mp_service_components");
+  counts.partOrders = await listAndDelete("mp_service_part_orders");
+  counts.internalNotes = await listAndDelete("mp_service_internal_notes");
+  // Transport jobs — fkField może być "source_service_id" w newer schema.
+  // Sprawdzamy oba.
+  try {
+    counts.transportJobs += await listAndDelete(
+      "mp_transport_jobs",
+      "service_id",
+    );
+  } catch {
+    /* fall-through do source_service_id */
+  }
+  try {
+    counts.transportJobs += await listAndDelete(
+      "mp_transport_jobs",
+      "source_service_id",
+    );
+  } catch {
+    /* ok jeśli pole nie istnieje */
+  }
+
+  // Release codes (Wave 21 Faza 1C) — tabela może nie istnieć w starszych
+  // środowiskach, traktujemy jako optional.
+  try {
+    counts.releaseCodes = await listAndDelete("mp_service_release_codes");
+  } catch (err) {
+    logger.warn("release_codes cascade skipped", {
+      serviceId: id,
+      err: String(err),
+    });
+  }
+  // Documents (Wave 21 Faza 1B) — soft-delete only model, ale tutaj robimy
+  // hard delete (cascade musi być pełny).
+  try {
+    counts.documents = await listAndDelete("mp_service_documents");
+  } catch (err) {
+    logger.warn("documents cascade skipped", {
+      serviceId: id,
+      err: String(err),
+    });
+  }
+
+  // mp_service_internal_messages — custom Postgres table (lib/services/internal-chat.ts),
+  // nie Directus. Usuwamy bezpośrednim SQL.
+  try {
+    const { withClient } = await import("@/lib/db");
+    counts.internalMessages = await withClient(async (c) => {
+      const r = await c.query(
+        "DELETE FROM mp_service_internal_messages WHERE service_id = $1",
+        [id],
+      );
+      return r.rowCount ?? 0;
+    });
+  } catch (err) {
+    logger.warn("internal_messages cascade failed", {
+      serviceId: id,
+      err: String(err),
+    });
+  }
+
+  // 3. Finally — usuń sam mp_services row.
+  await deleteItem("mp_services", id);
+
+  logger.info("service cascade delete completed", {
+    serviceId: id,
+    ticketNumber: existing.ticketNumber,
+    counts,
+  });
+
+  return {
+    ticketNumber: existing.ticketNumber,
+    counts,
+  };
+}

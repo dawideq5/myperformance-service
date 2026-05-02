@@ -19,6 +19,7 @@ import {
   type TransportLocationOption,
   type TransportJobForEdit,
 } from "../TransportModal";
+import { ReleaseDeviceModal } from "../ReleaseDeviceModal";
 
 interface ServiceAction {
   id: string;
@@ -89,6 +90,8 @@ export function NaprawaTab({
   const [cancellingTransport, setCancellingTransport] = useState(false);
   const [transportError, setTransportError] = useState<string | null>(null);
   const [transportRefreshTick, setTransportRefreshTick] = useState(0);
+  // Wave 21 / Faza 1C — modal "Wydaj urządzenie".
+  const [releaseModalOpen, setReleaseModalOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -311,6 +314,24 @@ export function NaprawaTab({
               }}
             >
               Wznów naprawę
+            </button>
+          )}
+          {/* Wave 21 / Faza 1C — wydanie urządzenia po finalnym statusie. */}
+          {(
+            [
+              "delivered",
+              "ready",
+              "rejected_by_customer",
+              "returned_no_repair",
+            ] as ServiceStatus[]
+          ).includes(status) && (
+            <button
+              type="button"
+              onClick={() => setReleaseModalOpen(true)}
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold"
+              style={{ background: "var(--accent)", color: "#fff" }}
+            >
+              Wydaj urządzenie
             </button>
           )}
         </div>
@@ -560,6 +581,16 @@ export function NaprawaTab({
           }}
         />
       )}
+
+      <ReleaseDeviceModal
+        service={service}
+        open={releaseModalOpen}
+        onClose={() => setReleaseModalOpen(false)}
+        onSuccess={(updated) => {
+          onServiceUpdated?.(updated);
+          setReleaseModalOpen(false);
+        }}
+      />
     </div>
   );
 }

@@ -21,6 +21,11 @@ import { getServiceSignerEmail } from "@/lib/service-config";
 import { createHash } from "node:crypto";
 import { log } from "@/lib/logger";
 import { notifyAnnexCreated } from "@/lib/services/notify-annex";
+import {
+  getAnchorsForAnnex,
+  mapAnchorsToDocumensoFields,
+} from "@/lib/services/signature-anchors";
+import { createServiceDocument } from "@/lib/service-documents";
 
 const annexLogger = log.child({ module: "panel-services-annex-create" });
 
@@ -301,10 +306,25 @@ export async function POST(
       const pdfHash = createHash("sha256").update(pdfBuffer).digest("hex");
 
       const SIGNER_EMAIL = getServiceSignerEmail();
+      // Wave 21 / Faza 1B — pre-positioned fields z signature-anchors
+      // (employee + customer SIGNATURE + DATE) zamiast pojedynczego pola
+      // w lewym górnym rogu. signerIndex 0 = pracownik, 1 = klient
+      // (zgodnie z kolejnością signers[]).
+      const anchors = getAnchorsForAnnex();
+      const documensoFields = mapAnchorsToDocumensoFields(anchors, {
+        employee: 0,
+        customer: 1,
+      });
+
       const result = await createDocumentForSigning({
-        title: `Aneks ${service.ticketNumber} (Δ ${body.deltaAmount} PLN)`,
+        title: `Aneks ${service.ticketNumber} (zmiana wyceny o ${Math.abs(body.deltaAmount).toFixed(2)} PLN)`,
         pdfBuffer,
         sendEmail: false,
+        // Wave 21 / Faza 1B — Documenso NIE wysyła żadnych maili (NONE).
+        // Custom invitation idzie z `notifyDocumentForSigning` w branding
+        // Caseownia (Postal + zlecenieserwisowe profile).
+        disableEmails: true,
+        fields: documensoFields,
         message:
           "Prosimy o akceptację aneksu do zlecenia serwisowego (zmiana wyceny).",
         signers: [
@@ -357,15 +377,53 @@ export async function POST(
         createdByName: editorName,
       });
 
+      // Wave 21 / Faza 1B — biblioteka dokumentów: rejestrujemy aneks jako
+      // osobny rekord w mp_service_documents (status=sent, anchors zapisane
+      // dla podglądu w UI overlay). Original PDF nie jest uploadowany do
+      // Directus Files w tym kroku — Documenso trzyma kopię, a sciągniemy
+      // ją do `signed_pdf_file_id` po COMPLETED przez download endpoint.
+      if (annex) {
+        await createServiceDocument({
+          serviceId: id,
+          ticketNumber: service.ticketNumber,
+          kind: "annex",
+          title:
+            `Aneks ${service.ticketNumber ?? ""} (zmiana wyceny o ${Math.abs(body.deltaAmount).toFixed(2)} PLN)`.trim(),
+          documensoDocId: result.documentId,
+          documensoSigningUrl: signingUrl,
+          status: "sent",
+          signatureAnchors: anchors,
+          relatedId: annex.id,
+          relatedKind: "annex",
+          createdByEmail: user.email,
+        }).catch((err) => {
+          annexLogger.warn("create service-document row failed", {
+            serviceId: id,
+            annexId: annex.id,
+            err: err instanceof Error ? err.message : String(err),
+          });
+        });
+      }
+
+      // Wave 21 / Faza 1E — human-readable summary; payload niesie pełen
+      // kontekst (previousAmount/newAmount) dla HistoriaTab.
+      const verbDoc =
+        body.deltaAmount > 0
+          ? "zwiększona"
+          : body.deltaAmount < 0
+            ? "obniżona"
+            : "bez zmian";
       void logServiceAction({
         serviceId: id,
         ticketNumber: service.ticketNumber,
         action: "annex_created",
         actor: { email: user.email, name: editorName },
-        summary: `Utworzono aneks (Documenso): Δ ${body.deltaAmount} PLN`,
+        summary: `Utworzono aneks (Documenso) — wycena ${verbDoc} z ${originalAmount.toFixed(2)} PLN do ${newAmount.toFixed(2)} PLN`,
         payload: {
           annexId: annex?.id ?? null,
           deltaAmount: body.deltaAmount,
+          previousAmount: originalAmount,
+          newAmount,
           reason: body.reason,
           documensoDocId: result.documentId,
           pdfHash: pdfHash.slice(0, 16),
@@ -420,6 +478,11 @@ export async function POST(
 
   // Phone / email — manual confirmation.
   try {
+    const manualOriginalAmount =
+      typeof service.amountEstimate === "number" ? service.amountEstimate : 0;
+    const manualNewAmount = Number(
+      (manualOriginalAmount + body.deltaAmount).toFixed(2),
+    );
     const annex = await createServiceAnnex({
       serviceId: id,
       ticketNumber: service.ticketNumber,
@@ -433,15 +496,24 @@ export async function POST(
       createdByEmail: user.email,
       createdByName: editorName,
     });
+    // Wave 21 / Faza 1E — human-readable summary.
+    const manualVerb =
+      body.deltaAmount > 0
+        ? "zwiększona"
+        : body.deltaAmount < 0
+          ? "obniżona"
+          : "bez zmian";
     void logServiceAction({
       serviceId: id,
       ticketNumber: service.ticketNumber,
       action: "annex_created",
       actor: { email: user.email, name: editorName },
-      summary: `Utworzono aneks (${body.acceptanceMethod}): Δ ${body.deltaAmount} PLN`,
+      summary: `Utworzono aneks (${body.acceptanceMethod}) — wycena ${manualVerb} z ${manualOriginalAmount.toFixed(2)} PLN do ${manualNewAmount.toFixed(2)} PLN`,
       payload: {
         annexId: annex?.id ?? null,
         deltaAmount: body.deltaAmount,
+        previousAmount: manualOriginalAmount,
+        newAmount: manualNewAmount,
         acceptanceMethod: body.acceptanceMethod,
       },
     });

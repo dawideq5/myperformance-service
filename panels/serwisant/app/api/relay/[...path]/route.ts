@@ -22,6 +22,13 @@ const ALLOWED_ACCOUNT_PREFIXES = new Set(["inbox", "preferences"]);
 // entry maps the segment 1:1 to `/api/<segment>/...` on the dashboard.
 const ALLOWED_ROOT_PREFIXES = new Set(["upload-bridge"]);
 
+// Wave 21 Faza 1G — niektóre sub-route'y panelu serwisanta wymagają
+// dłuższego timeoutu bo wewnątrz wykonują integracje zewnętrzne (Documenso,
+// Chatwoot, Directus uploads). 15s to za mało żeby zdążyć przed cold-start
+// upstream'em. 30s daje margines, jednocześnie nie pozwala "wisiącym"
+// requestom blokować UI w nieskończoność.
+const RELAY_TIMEOUT_MS = 30_000;
+
 async function handle(
   req: Request,
   { params }: { params: Promise<{ path: string[] }> },
@@ -58,7 +65,7 @@ async function handle(
       Authorization: `Bearer ${accessToken}`,
       "Content-Type": req.headers.get("content-type") ?? "application/json",
     },
-    signal: AbortSignal.timeout(15_000),
+    signal: AbortSignal.timeout(RELAY_TIMEOUT_MS),
   };
   if (req.method !== "GET" && req.method !== "HEAD") {
     // Binary-safe: arrayBuffer() zachowuje bytes dla multipart/form-data

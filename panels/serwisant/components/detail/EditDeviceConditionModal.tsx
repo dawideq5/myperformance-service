@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2, X } from "lucide-react";
 import type { ServiceTicket } from "../tabs/ServicesBoard";
+import { ClearableInput } from "../ui/ClearableInput";
 
 interface EditDeviceConditionModalProps {
   service: ServiceTicket;
@@ -223,12 +224,14 @@ export function EditDeviceConditionModal({
               >
                 Kod blokady
               </label>
-              <input
+              <ClearableInput
                 id="lock-code"
                 ref={firstFocusRef}
                 type="text"
                 value={lockCode}
-                onChange={(e) => setLockCode(e.target.value)}
+                onValueChange={setLockCode}
+                optional
+                clearAriaLabel="Wyczyść pole kodu blokady"
                 placeholder="np. 1234, brak"
                 className="w-full px-3 py-2 rounded-lg border text-sm font-mono outline-none"
                 style={{
@@ -246,11 +249,13 @@ export function EditDeviceConditionModal({
               >
                 IMEI
               </label>
-              <input
+              <ClearableInput
                 id="imei-field"
                 type="text"
                 value={imei}
-                onChange={(e) => setImei(e.target.value)}
+                onValueChange={setImei}
+                optional
+                clearAriaLabel="Wyczyść pole IMEI"
                 placeholder="15 cyfr (lub 17 dla MEID)"
                 className="w-full px-3 py-2 rounded-lg border text-sm font-mono outline-none"
                 style={{
@@ -300,12 +305,14 @@ export function EditDeviceConditionModal({
                     }}
                   />
                 </div>
-                <input
+                <ClearableInput
                   type="text"
                   value={(form[f.notesKey] as string | null) ?? ""}
-                  onChange={(e) =>
-                    setForm((s) => ({ ...s, [f.notesKey]: e.target.value }))
+                  onValueChange={(v) =>
+                    setForm((s) => ({ ...s, [f.notesKey]: v }))
                   }
+                  optional
+                  clearAriaLabel={`Wyczyść notatki dla ${f.label.toLowerCase()}`}
                   placeholder="Notatki (opcjonalne)"
                   className="w-full px-2 py-1.5 rounded-lg border text-xs outline-none"
                   style={{

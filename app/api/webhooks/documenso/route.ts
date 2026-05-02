@@ -483,12 +483,19 @@ export async function POST(req: Request) {
                   changedByName: "Klient (Documenso)",
                 });
               }
+              // Wave 21 / Faza 1E — human-readable summary.
+              const wbVerb =
+                annex.deltaAmount > 0
+                  ? "zwiększona"
+                  : annex.deltaAmount < 0
+                    ? "obniżona"
+                    : "bez zmian";
               void logServiceAction({
                 serviceId: annex.serviceId,
                 ticketNumber: annex.ticketNumber,
                 action: "annex_accepted",
                 actor: { name: "Klient (Documenso)" },
-                summary: `Aneks zaakceptowany — Δ ${annex.deltaAmount} PLN`,
+                summary: `Klient zaakceptował aneks — wycena ${wbVerb} o ${Math.abs(annex.deltaAmount).toFixed(2)} PLN`,
                 payload: {
                   annexId: annex.id,
                   documensoDocId: Number(doc.id),
@@ -560,10 +567,11 @@ export async function POST(req: Request) {
               ticketNumber: annex.ticketNumber,
               action: "annex_rejected",
               actor: { name: "Klient (Documenso)" },
-              summary: `Aneks odrzucony — Δ ${annex.deltaAmount} PLN`,
+              summary: `Klient odrzucił aneks (zmiana wyceny o ${Math.abs(annex.deltaAmount).toFixed(2)} PLN)`,
               payload: {
                 annexId: annex.id,
                 documensoDocId: Number(doc.id),
+                deltaAmount: annex.deltaAmount,
               },
             });
           } catch (e) {

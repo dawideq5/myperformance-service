@@ -121,7 +121,7 @@ export async function POST(
         email: user.email,
         name: user.name?.trim() || user.preferred_username || user.email,
       },
-      summary: `Wysłano przypomnienie Documenso dla aneksu (Δ ${annex.deltaAmount} PLN)`,
+      summary: `Wysłano przypomnienie Documenso dla aneksu (zmiana wyceny o ${Math.abs(annex.deltaAmount).toFixed(2)} PLN)`,
       payload: {
         annexId,
         documensoDocId: annex.documensoDocId,

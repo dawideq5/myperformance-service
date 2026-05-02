@@ -122,29 +122,39 @@ const DEFAULT_LAYOUT_HTML = `<!DOCTYPE html>
 </body>
 </html>`;
 
+// Layout Caseownia / Serwis telefonów by Caseownia — Wave 21 Faza 1F.
+// Light theme (biały header + jasna stopka), monochromatyczny czarny accent
+// (#0a0a0a — signature Caseownia). Logo serwowane z portalu klienckiego
+// (zlecenieserwisowe.pl) — ścieżka: /logo-serwis.png. NIE używamy layoutu
+// myperformance (czarny header z brand jako tekst) bo cała komunikacja
+// klientowi musi być spójna z dokumentami serwisowymi (annex/receipt PDF).
 const ZLECENIESERWISOWE_LAYOUT_HTML = `<!DOCTYPE html>
 <html lang="pl">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#f5f5f5;font-family:Inter,Arial,sans-serif">
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f5f5;padding:40px 0">
-<tr><td align="center">
-  <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08)">
-    <!-- Header -->
-    <tr><td style="background:#1a1a2e;padding:24px 40px;text-align:center">
-      <img src="{{brand.logoUrl}}" alt="{{brand.name}}" height="40" style="max-height:40px">
-    </td></tr>
-    <!-- Content -->
-    <tr><td style="padding:40px">
-      {{content}}
-    </td></tr>
-    <!-- Footer -->
-    <tr><td style="background:#f8f8f8;padding:24px 40px;text-align:center;font-size:12px;color:#999">
-      <p style="margin:0 0 8px">{{brand.name}} · UNIKOM S.C., ul. Towarowa 2c, 43-100 Tychy</p>
-      <p style="margin:0">Śledź status zlecenia: <a href="{{brand.url}}" style="color:#6366f1">{{brand.url}}</a></p>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{subject}}</title>
+</head>
+<body style="margin:0;padding:0;background:#f5f5f5;font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#1a1a1a;-webkit-font-smoothing:antialiased;">
+  <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background:#f5f5f5;padding:32px 16px;">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" role="presentation" style="max-width:600px;width:100%;background:#ffffff;border:1px solid #e0e0e0;border-radius:12px;overflow:hidden;">
+        <!-- Header: białe tło + logo "Serwis telefonów by Caseownia" -->
+        <tr><td style="background:#ffffff;border-bottom:1px solid #e0e0e0;padding:24px;text-align:center;">
+          <img src="{{brand.logoUrl}}" alt="{{brand.name}}" height="40" style="height:40px;max-height:40px;display:inline-block;border:0;">
+        </td></tr>
+        <!-- Content -->
+        <tr><td style="padding:32px 32px 24px;color:#1a1a1a;line-height:1.6;font-size:15px;">
+          {{content}}
+        </td></tr>
+        <!-- Footer -->
+        <tr><td style="background:#fafafa;border-top:1px solid #e0e0e0;padding:20px 24px;text-align:center;font-size:12px;color:#666666;line-height:1.5;">
+          <p style="margin:0 0 6px;">Wiadomość od <a href="mailto:caseownia@zlecenieserwisowe.pl" style="color:#0a0a0a;text-decoration:none;">caseownia@zlecenieserwisowe.pl</a></p>
+          <p style="margin:0;">&copy; {{now.year}} Caseownia &middot; <a href="{{brand.url}}" style="color:#0a0a0a;text-decoration:none;">zlecenieserwisowe.pl</a></p>
+        </td></tr>
+      </table>
     </td></tr>
   </table>
-</td></tr>
-</table>
 </body>
 </html>`;
 
@@ -156,10 +166,18 @@ export async function ensureDefaultLayout(): Promise<void> {
        ON CONFLICT (slug) DO NOTHING`,
       [DEFAULT_LAYOUT_HTML],
     );
+    // Wave 21 Faza 1F: upsert (NIE DO NOTHING) zlecenieserwisowe — odświeża
+    // body przy każdym deployu, żeby produkcja dostała nowy branding bez
+    // ręcznych migracji. Caller zachowuje is_default = FALSE (single-default
+    // invariant — domyślny pozostaje "default" / myperformance).
     await c.query(
       `INSERT INTO mp_email_layouts (slug, name, description, html, is_default)
-       VALUES ('zlecenieserwisowe', 'Zlecenieserwisowe.pl — Serwis Telefonów', 'Layout dla wiadomości z serwisu telefonów (zlecenieserwisowe.pl). Ciemny header z logo, biała treść, stopka z adresem UNIKOM S.C. i linkiem do śledzenia zlecenia.', $1, FALSE)
-       ON CONFLICT (slug) DO NOTHING`,
+       VALUES ('zlecenieserwisowe', 'Serwis telefonów by Caseownia', 'Layout dla wszystkich wiadomości od Caseownia (customer-portal, OTP, aneksy, kody odbioru). Białe tło, czarny accent #0a0a0a, logo "Serwis telefonów by Caseownia". Spójny z dokumentami serwisowymi (annex/receipt PDF).', $1, FALSE)
+       ON CONFLICT (slug) DO UPDATE SET
+         name = EXCLUDED.name,
+         description = EXCLUDED.description,
+         html = EXCLUDED.html,
+         updated_at = now()`,
       [ZLECENIESERWISOWE_LAYOUT_HTML],
     );
   });
@@ -192,6 +210,24 @@ export async function getLayout(id: string): Promise<EmailLayout | null> {
       `SELECT id, slug, name, description, html, is_default, updated_at, updated_by
          FROM mp_email_layouts WHERE id = $1`,
       [id],
+    );
+    return res.rows[0] ? rowToLayout(res.rows[0]) : null;
+  });
+}
+
+/**
+ * Lookup po slugu (Wave 21 Faza 1F). Używane przez sender helpers żeby
+ * jawnie wybrać layout per brand bez polegania na is_default.
+ */
+export async function getLayoutBySlug(
+  slug: string,
+): Promise<EmailLayout | null> {
+  await ensureDefaultLayout();
+  return withEmailClient(async (c) => {
+    const res = await c.query(
+      `SELECT id, slug, name, description, html, is_default, updated_at, updated_by
+         FROM mp_email_layouts WHERE slug = $1`,
+      [slug],
     );
     return res.rows[0] ? rowToLayout(res.rows[0]) : null;
   });

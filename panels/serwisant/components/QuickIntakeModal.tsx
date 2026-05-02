@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2, X } from "lucide-react";
 import type { ServiceTicket } from "./tabs/ServicesBoard";
+import { ClearableInput } from "./ui/ClearableInput";
 
 interface QuickIntakeModalProps {
   /** ID punktu sprzedaży (lub serwisu) — auto-pre-filled przy tworzeniu. */
@@ -269,11 +270,13 @@ export function QuickIntakeModal({
                 <label htmlFor="qi-email" className="sr-only">
                   E-mail
                 </label>
-                <input
+                <ClearableInput
                   id="qi-email"
                   type="email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onValueChange={setEmail}
+                  optional
+                  clearAriaLabel="Wyczyść pole e-mail"
                   placeholder="E-mail (opcjonalnie)"
                   className="w-full px-3 py-2 rounded-lg border text-sm outline-none"
                   style={{
@@ -337,11 +340,13 @@ export function QuickIntakeModal({
               <label htmlFor="qi-imei" className="sr-only">
                 IMEI
               </label>
-              <input
+              <ClearableInput
                 id="qi-imei"
                 type="text"
                 value={imei}
-                onChange={(e) => setImei(e.target.value)}
+                onValueChange={setImei}
+                optional
+                clearAriaLabel="Wyczyść pole IMEI"
                 placeholder="IMEI (15 cyfr, opcjonalnie)"
                 className="w-full px-3 py-2 rounded-lg border text-sm outline-none font-mono"
                 style={{

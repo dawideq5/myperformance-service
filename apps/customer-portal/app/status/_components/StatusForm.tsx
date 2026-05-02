@@ -67,8 +67,11 @@ export function StatusForm() {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           aria-describedby={error ? "form-error" : undefined}
-          className="w-full rounded-lg border px-3 py-2.5 text-base outline-none focus:border-[var(--accent)]"
-          style={{ borderColor: "var(--border-strong)" }}
+          className="w-full rounded-lg border px-4 py-3.5 text-base outline-none transition-colors focus:border-[var(--accent)]"
+          style={{
+            borderColor: "var(--border-strong)",
+            background: "var(--bg-main)",
+          }}
           placeholder="email@example.com"
         />
       </div>
@@ -84,8 +87,11 @@ export function StatusForm() {
           autoComplete="off"
           value={ticket}
           onChange={(e) => setTicket(e.target.value)}
-          className="w-full rounded-lg border px-3 py-2.5 text-base font-mono outline-none focus:border-[var(--accent)]"
-          style={{ borderColor: "var(--border-strong)" }}
+          className="w-full rounded-lg border px-4 py-3.5 text-base font-mono outline-none transition-colors focus:border-[var(--accent)]"
+          style={{
+            borderColor: "var(--border-strong)",
+            background: "var(--bg-main)",
+          }}
           placeholder="ZS-2026-XXXX"
         />
       </div>
@@ -99,17 +105,16 @@ export function StatusForm() {
           {error}
         </div>
       ) : null}
-      <div className="flex flex-col sm:flex-row sm:items-center gap-3 pt-2">
-        <Button type="submit" loading={loading} size="lg">
+      <p
+        className="text-xs"
+        style={{ color: "var(--text-muted)" }}
+      >
+        Otrzymasz kod jednorazowy na podany adres. Ważny przez 10 minut.
+      </p>
+      <div className="pt-2">
+        <Button type="submit" loading={loading} size="lg" className="w-full sm:w-auto">
           Wyślij kod
         </Button>
-        <a
-          href="/auth/login"
-          className="text-sm hover:underline"
-          style={{ color: "var(--text-muted)" }}
-        >
-          Masz konto? Zaloguj się →
-        </a>
       </div>
     </form>
   );

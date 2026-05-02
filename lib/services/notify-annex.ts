@@ -21,7 +21,7 @@ import { sendServiceMessage } from "@/lib/chatwoot-customer";
 import { applyLayout } from "@/lib/email/render";
 import {
   ensureDefaultLayout,
-  getDefaultLayout,
+  getLayoutBySlug,
 } from "@/lib/email/db/layouts";
 import { getBranding } from "@/lib/email/db";
 import { getOptionalEnv } from "@/lib/env";
@@ -87,8 +87,18 @@ function renderEmailContent(input: NotifyAnnexInput): {
     : "Dzień dobry,";
   const subject = `Aneks do zlecenia ${service.ticketNumber} — Serwis telefonów by Caseownia`;
 
-  const deltaSign = annex.deltaAmount >= 0 ? "+" : "";
-  const deltaText = `${deltaSign}${annex.deltaAmount.toFixed(2)} PLN`;
+  // Wave 21 / Faza 1E — human-readable opis zmiany wyceny.
+  const verb =
+    annex.deltaAmount > 0
+      ? "zwiększona"
+      : annex.deltaAmount < 0
+        ? "obniżona"
+        : "bez zmian";
+  const absDelta = Math.abs(annex.deltaAmount).toFixed(2);
+  const deltaText =
+    annex.deltaAmount === 0
+      ? "Wycena pozostaje bez zmian"
+      : `Wycena ${verb} o ${absDelta} PLN`;
   const ctaSection =
     annex.acceptanceMethod === "documenso" && annex.documensoSigningUrl
       ? `<p style="margin:0 0 16px;color:#1a1a1a;font-size:15px;line-height:1.6;">
@@ -117,7 +127,7 @@ function renderEmailContent(input: NotifyAnnexInput): {
     <td style="padding:6px 0;color:#1a1a1a;font-size:14px;font-weight:600;">${escapeHtml(annex.reason)}</td>
   </tr>
   <tr>
-    <td style="padding:6px 12px 6px 0;color:#555555;font-size:13px;">Różnica (delta):</td>
+    <td style="padding:6px 12px 6px 0;color:#555555;font-size:13px;">Zmiana wyceny:</td>
     <td style="padding:6px 0;color:#1a1a1a;font-size:14px;font-weight:600;">${escapeHtml(deltaText)}</td>
   </tr>
 </table>
@@ -132,7 +142,7 @@ ${ctaSection}
     "",
     `Aneks do zlecenia ${service.ticketNumber}.`,
     `Powód: ${annex.reason}`,
-    `Delta: ${deltaText}`,
+    deltaText,
     `Sposób akceptacji: ${methodLabel(annex.acceptanceMethod)}`,
     annex.acceptanceMethod === "documenso" && annex.documensoSigningUrl
       ? `Podpisz online: ${annex.documensoSigningUrl}`
@@ -147,44 +157,41 @@ ${ctaSection}
 }
 
 async function buildLayoutedHtml(contentHtml: string): Promise<string> {
-  // Best-effort: użyj zlecenieserwisowe layoutu (DEFAULT_LAYOUT_HTML 1:1
-  // dla maili Caseownia). Gdy DB niedostępne — fallback do prostego
-  // wrappera tylko z escape'd zawartością.
+  // Wave 21 Faza 1F: jawny lookup po slug-u "zlecenieserwisowe" (NIE
+  // getDefaultLayout() — bo default = MyPerformance, którego nie chcemy
+  // wysyłać klientom serwisu). Fallback: prosty wrapper bez branding gdy
+  // DB niedostępne.
   try {
     await ensureDefaultLayout();
-    // Używamy global default layout (DEFAULT_LAYOUT_HTML zdefiniowany w
-    // `lib/email/db/layouts.ts`) — czarny header, slot {{content}}, footer
-    // z support email. Specyficzny per-brand override (slug
-    // 'zlecenieserwisowe') byłby preferowany ale lookup po slug-u nie ma
-    // dedykowanego helpera, a default layout jest 1:1 zgodny ze specyfikacją.
-    const def = await getDefaultLayout();
-    if (def?.html) {
+    const layout = await getLayoutBySlug("zlecenieserwisowe");
+    if (layout?.html) {
       const branding = await getBranding().catch(() => null);
-      // Layout zawiera placeholdery {{brand.name}}, {{brand.url}}, etc.
-      // Renderujemy je tu inline, bez pełnego renderTemplate (który wymaga
-      // action key z catalogu).
-      const html = applyLayout(def.html, contentHtml);
+      const portalUrl =
+        branding?.brandUrl?.trim() || "https://zlecenieserwisowe.pl";
+      const logoUrl =
+        branding?.brandLogoUrl?.trim() || `${portalUrl}/logo-serwis.png`;
+      const html = applyLayout(layout.html, contentHtml);
       return html
-        .replace(/\{\{\s*brand\.name\s*\}\}/g, escapeHtml(branding?.brandName ?? "Serwis telefonów by Caseownia"))
         .replace(
-          /\{\{\s*brand\.url\s*\}\}/g,
-          escapeHtml(branding?.brandUrl ?? "https://zlecenieserwisowe.pl"),
+          /\{\{\s*brand\.name\s*\}\}/g,
+          escapeHtml("Serwis telefonów by Caseownia"),
         )
-        .replace(
-          /\{\{\s*brand\.logoUrl\s*\}\}/g,
-          escapeHtml(branding?.brandLogoUrl ?? ""),
-        )
+        .replace(/\{\{\s*brand\.url\s*\}\}/g, escapeHtml(portalUrl))
+        .replace(/\{\{\s*brand\.logoUrl\s*\}\}/g, escapeHtml(logoUrl))
         .replace(
           /\{\{\s*brand\.supportEmail\s*\}\}/g,
-          escapeHtml(branding?.supportEmail ?? "biuro@caseownia.com"),
+          escapeHtml("caseownia@zlecenieserwisowe.pl"),
         )
-        .replace(/\{\{\s*subject\s*\}\}/g, "")
-        .replace(/\{\{\s*content\s*\}\}/g, contentHtml);
+        .replace(
+          /\{\{\s*now\.year\s*\}\}/g,
+          String(new Date().getFullYear()),
+        )
+        .replace(/\{\{\s*subject\s*\}\}/g, "");
     }
   } catch (err) {
     logger.warn("notify-annex.layout_lookup_failed", { err: String(err) });
   }
-  return `<!DOCTYPE html><html><body style="font-family:system-ui,sans-serif;background:#f4f4f5;padding:24px;"><div style="max-width:600px;margin:0 auto;background:#fff;padding:32px;border-radius:8px;">${contentHtml}</div></body></html>`;
+  return `<!DOCTYPE html><html><body style="font-family:Inter,system-ui,sans-serif;background:#f5f5f5;padding:24px;"><div style="max-width:600px;margin:0 auto;background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:32px;">${contentHtml}</div></body></html>`;
 }
 
 async function deliverEmail(input: NotifyAnnexInput): Promise<{
@@ -240,15 +247,27 @@ async function deliverEmail(input: NotifyAnnexInput): Promise<{
 
 function buildSmsBody(input: NotifyAnnexInput): string {
   const { service, annex } = input;
-  const sign = annex.deltaAmount >= 0 ? "+" : "";
-  const delta = `${sign}${annex.deltaAmount.toFixed(2)} PLN`;
+  // Wave 21 / Faza 1E — human-readable opis bez Δ. SMS body bez polskich
+  // znaków diakrytycznych żeby nie pakowac wiadomosci do unicode (UCS2)
+  // gdy operator naliczyl by 70 znakow zamiast 160.
+  const verb =
+    annex.deltaAmount > 0
+      ? "zwiekszona"
+      : annex.deltaAmount < 0
+        ? "obnizona"
+        : "bez zmian";
+  const absDelta = Math.abs(annex.deltaAmount).toFixed(2);
+  const summary =
+    annex.deltaAmount === 0
+      ? "wycena bez zmian"
+      : `wycena ${verb} o ${absDelta} PLN`;
   if (annex.acceptanceMethod === "documenso" && annex.documensoSigningUrl) {
-    return `Caseownia: aneks ${service.ticketNumber} (${delta}) czeka na akceptacje. Podpisz: ${annex.documensoSigningUrl}`;
+    return `Caseownia: aneks ${service.ticketNumber} (${summary}) czeka na akceptacje. Podpisz: ${annex.documensoSigningUrl}`;
   }
   if (annex.acceptanceMethod === "phone") {
-    return `Caseownia: aneks ${service.ticketNumber} (${delta}). Skontaktujemy sie wkrotce telefonicznie w celu akceptacji.`;
+    return `Caseownia: aneks ${service.ticketNumber} (${summary}). Skontaktujemy sie wkrotce telefonicznie w celu akceptacji.`;
   }
-  return `Caseownia: aneks ${service.ticketNumber} (${delta}) zostal wystawiony. Sprawdz e-mail po szczegoly i potwierdz akceptacje.`;
+  return `Caseownia: aneks ${service.ticketNumber} (${summary}) zostal wystawiony. Sprawdz e-mail po szczegoly i potwierdz akceptacje.`;
 }
 
 async function deliverSms(input: NotifyAnnexInput): Promise<{

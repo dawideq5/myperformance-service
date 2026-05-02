@@ -63,6 +63,24 @@ const STAGE_TONE: Record<
 const ALLOWED_MIME = ["image/jpeg", "image/png", "image/webp"];
 const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5 MB (panel-side guard; backend ma 15 MB)
 
+/**
+ * Wave 21 / Faza 1G — przepisz absolutny URL dashboardowy
+ * (`https://myperformance.pl/api/public/service-photos/<id>?width=...`)
+ * na panel-side relay (`/api/relay/photo/<id>?width=...`). Browser
+ * `<img src>` nie wysyła Bearer-a — relay re-injectuje go z session.
+ *
+ * Backward compat: jeśli URL nie pasuje do wzorca (np. inny CDN, MinIO),
+ * zwracamy oryginał — wtedy obrazek może 401-ować, ale nic nie psujemy.
+ */
+function rewritePhotoUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const m = url.match(/\/api\/public\/service-photos\/([^?]+)(\?.*)?$/);
+  if (!m) return url;
+  const id = m[1];
+  const qs = m[2] ?? "";
+  return `/api/relay/photo/${encodeURIComponent(id)}${qs}`;
+}
+
 interface PhotoGalleryProps {
   serviceId: string;
   /** Filter; gdy `undefined`, pokazuje wszystkie etapy. */
@@ -561,7 +579,7 @@ function PhotoCard({
   onDelete: () => void;
 }) {
   const tone = STAGE_TONE[photo.stage] ?? STAGE_TONE.other;
-  const url = photo.thumbnailUrl ?? photo.url ?? null;
+  const url = rewritePhotoUrl(photo.thumbnailUrl ?? photo.url);
   const altText = `Zdjęcie ${tone.label}${
     photo.filename ? ` — ${photo.filename}` : ""
   }`;
@@ -678,7 +696,7 @@ function PhotoLightbox({
   if (!photo) return null;
 
   const tone = STAGE_TONE[photo.stage] ?? STAGE_TONE.other;
-  const url = photo.url ?? photo.thumbnailUrl ?? null;
+  const url = rewritePhotoUrl(photo.url ?? photo.thumbnailUrl);
   const altText = `Zdjęcie ${tone.label}${
     photo.filename ? ` — ${photo.filename}` : ""
   }`;

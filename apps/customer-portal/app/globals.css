@@ -2,28 +2,53 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Wave 21 Faza 1F — paleta Caseownia / "Serwis telefonów by Caseownia".
+ * Light theme, monochromatyczny czarny accent (#0a0a0a — signature
+ * Caseownia). Spójność z dokumentami serwisowymi (annex/receipt PDF).
+ *
+ * Nazwy zachowane wstecznie kompatybilne z Wave 19/20 (--bg-subtle,
+ * --bg-muted, --text, etc.) + dorzucone aliasy ze spec'a Faza 1F
+ * (--bg-main, --bg-card, --bg-surface, --text-main, --accent-soft,
+ * --border-subtle, --info, --info-bg etc.).
+ */
 :root {
   color-scheme: light;
+
+  /* Surfaces */
   --bg: #ffffff;
+  --bg-main: #ffffff;
   --bg-subtle: #fafafa;
+  --bg-card: #fafafa;
   --bg-muted: #f0f0f0;
-  --border: #e5e5e5;
+  --bg-surface: #f0f0f0;
+
+  /* Borders */
+  --border: #e0e0e0;
+  --border-subtle: #e0e0e0;
   --border-strong: #d4d4d4;
+
+  /* Text */
   --text: #1a1a1a;
+  --text-main: #1a1a1a;
   --text-muted: #666666;
-  --text-light: #aaaaaa;
+  --text-light: #a3a3a3;
+
+  /* Accent — Caseownia czarny monochromat */
   --accent: #0a0a0a;
   --accent-hover: #1f1f1f;
+  --accent-soft: #f5f5f5;
   --accent-fg: #ffffff;
-  --focus-ring: #1a1a1a;
+  --focus-ring: #0a0a0a;
 
+  /* Status */
   --info: #2563eb;
   --info-bg: #eff6ff;
-  --success: #059669;
+  --success: #1a7f37;
   --success-bg: #ecfdf5;
-  --warning: #d97706;
+  --warning: #bf8700;
   --warning-bg: #fffbeb;
-  --danger: #dc2626;
+  --danger: #cf222e;
   --danger-bg: #fef2f2;
   --neutral: #525252;
   --neutral-bg: #f5f5f5;
@@ -31,10 +56,17 @@
 
 html,
 body {
-  font-family: Inter, system-ui, -apple-system, sans-serif;
+  font-family:
+    Inter,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    system-ui,
+    sans-serif;
   -webkit-font-smoothing: antialiased;
-  background: var(--bg);
-  color: var(--text);
+  background: var(--bg-main);
+  color: var(--text-main);
   min-height: 100vh;
 }
 
@@ -64,12 +96,21 @@ textarea {
   border: 0;
 }
 
-/* Hero gradient placeholder — zastąpione w fazie 3 modelem 3D. */
+/* Hero gradient — biały z subtelnym graniem cieni dla głębi.
+ * Faza 1F: bez Three.js / GSAP, tylko statyczne radiale. */
 .hero-gradient {
   background:
     radial-gradient(circle at 30% 30%, rgba(10, 10, 10, 0.04) 0%, transparent 60%),
     radial-gradient(circle at 70% 70%, rgba(10, 10, 10, 0.06) 0%, transparent 50%),
-    linear-gradient(180deg, #fafafa 0%, #f0f0f0 100%);
+    linear-gradient(180deg, #ffffff 0%, #fafafa 100%);
+}
+
+/* Subtelna karta z cieniem — używana w landing/features/status. */
+.surface-card {
+  background: var(--bg-main);
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  box-shadow: 0 1px 2px rgba(10, 10, 10, 0.04);
 }
 
 @media (prefers-reduced-motion: reduce) {

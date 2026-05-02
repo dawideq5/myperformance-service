@@ -388,10 +388,17 @@ export function WycenaTab({ service, onUpdate }: WycenaTabProps) {
                   className="text-[11px] mt-0.5"
                   style={{ color: "var(--text-muted)" }}
                 >
-                  {pendingAnnex.previousAmount.toFixed(2)} PLN →{" "}
-                  {pendingAnnex.newAmount.toFixed(2)} PLN (
-                  {pendingAnnex.delta > 0 ? "+" : ""}
-                  {pendingAnnex.delta.toFixed(2)} PLN)
+                  Wycena{" "}
+                  <span
+                    style={{
+                      color: pendingAnnex.delta > 0 ? "#10b981" : "#f59e0b",
+                      fontWeight: 600,
+                    }}
+                  >
+                    {pendingAnnex.delta > 0 ? "zwiększona" : "obniżona"}
+                  </span>{" "}
+                  z {pendingAnnex.previousAmount.toFixed(2)} PLN do{" "}
+                  {pendingAnnex.newAmount.toFixed(2)} PLN.
                 </p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   <button
@@ -443,46 +450,55 @@ export function WycenaTab({ service, onUpdate }: WycenaTabProps) {
                   className="text-left text-[10px] uppercase tracking-wider"
                 >
                   <th className="py-1.5 pr-3">Data</th>
-                  <th className="py-1.5 pr-3">Wartość</th>
-                  <th className="py-1.5 pr-3">Delta</th>
+                  <th className="py-1.5 pr-3">Zmiana</th>
                   <th className="py-1.5 pr-3">Powód</th>
                   <th className="py-1.5">Autor</th>
                 </tr>
               </thead>
               <tbody>
-                {history.map((h) => (
-                  <tr
-                    key={h.id}
-                    className="border-t"
-                    style={{ borderColor: "var(--border-subtle)" }}
-                  >
-                    <td className="py-1.5 pr-3 whitespace-nowrap">
-                      {new Date(h.changedAt).toLocaleString("pl-PL")}
-                    </td>
-                    <td className="py-1.5 pr-3 font-mono">
-                      {formatPLN(h.newAmount)}
-                    </td>
-                    <td
-                      className="py-1.5 pr-3 font-mono"
-                      style={{
-                        color:
-                          (h.delta ?? 0) > 0
-                            ? "#ef4444"
-                            : (h.delta ?? 0) < 0
-                              ? "#22c55e"
-                              : "var(--text-muted)",
-                      }}
+                {history.map((h) => {
+                  // Wave 21 / Faza 1E — opisowa zmiana zamiast Δ.
+                  const oldA = h.oldAmount;
+                  const newA = h.newAmount;
+                  const delta = h.delta ?? 0;
+                  const verb =
+                    delta > 0
+                      ? "zwiększona"
+                      : delta < 0
+                        ? "obniżona"
+                        : "bez zmian";
+                  const color =
+                    delta > 0 ? "#10b981" : delta < 0 ? "#f59e0b" : "var(--text-muted)";
+                  return (
+                    <tr
+                      key={h.id}
+                      className="border-t"
+                      style={{ borderColor: "var(--border-subtle)" }}
                     >
-                      {h.delta != null
-                        ? `${h.delta > 0 ? "+" : ""}${h.delta.toFixed(2)}`
-                        : "—"}
-                    </td>
-                    <td className="py-1.5 pr-3">{h.reason ?? "—"}</td>
-                    <td className="py-1.5">
-                      {h.changedByName ?? h.changedByEmail ?? "—"}
-                    </td>
-                  </tr>
-                ))}
+                      <td className="py-1.5 pr-3 whitespace-nowrap">
+                        {new Date(h.changedAt).toLocaleString("pl-PL")}
+                      </td>
+                      <td className="py-1.5 pr-3">
+                        {oldA != null && newA != null ? (
+                          <span>
+                            Wycena{" "}
+                            <span style={{ color, fontWeight: 600 }}>{verb}</span>{" "}
+                            z{" "}
+                            <span className="font-mono">{oldA.toFixed(2)} PLN</span>{" "}
+                            do{" "}
+                            <span className="font-mono">{newA.toFixed(2)} PLN</span>
+                          </span>
+                        ) : (
+                          formatPLN(newA)
+                        )}
+                      </td>
+                      <td className="py-1.5 pr-3">{h.reason ?? "—"}</td>
+                      <td className="py-1.5">
+                        {h.changedByName ?? h.changedByEmail ?? "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -531,23 +547,51 @@ export function WycenaTab({ service, onUpdate }: WycenaTabProps) {
           </p>
         ) : (
           <ul className="space-y-2">
-            {annexes.map((a) => (
-              <AnnexCard
-                key={a.id}
-                annex={a}
-                onDownload={() => downloadAnnexPdf(a.id)}
-                onPrint={() => printAnnex(a.id)}
-                onResend={
-                  a.acceptanceMethod === "documenso" &&
-                  a.acceptanceStatus === "pending" &&
-                  Date.now() - new Date(a.createdAt).getTime() > ONE_DAY_MS
-                    ? () => void resendAnnexReminder(a.id)
-                    : undefined
-                }
-                resending={resendingId === a.id}
-                resendOk={resendOk === a.id}
-              />
-            ))}
+            {annexes.map((a) => {
+              // Wave 21 / Faza 1E — derive previous/new amounts:
+              //  - accepted: quote-history zawiera wpis z annexId, używamy go,
+              //  - pending/rejected/expired: previous = aktualna wycena,
+              //    new = previous + delta (projekcja, jeszcze nie zastosowana).
+              const histEntry = history.find((h) => {
+                // QuoteHistoryEntry interface above nie ma annexId, ale
+                // payload zwracany z relay je posiada (Directus row).
+                const raw = h as QuoteHistoryEntry & {
+                  annexId?: string | null;
+                };
+                return raw.annexId === a.id;
+              }) as (QuoteHistoryEntry & { annexId?: string | null }) | undefined;
+              const baseAmount =
+                typeof service.amountEstimate === "number"
+                  ? service.amountEstimate
+                  : 0;
+              const previousAmount =
+                a.acceptanceStatus === "accepted" && histEntry?.oldAmount != null
+                  ? histEntry.oldAmount
+                  : baseAmount;
+              const newAmount =
+                a.acceptanceStatus === "accepted" && histEntry?.newAmount != null
+                  ? histEntry.newAmount
+                  : Number((previousAmount + a.deltaAmount).toFixed(2));
+              return (
+                <AnnexCard
+                  key={a.id}
+                  annex={a}
+                  previousAmount={previousAmount}
+                  newAmount={newAmount}
+                  onDownload={() => downloadAnnexPdf(a.id)}
+                  onPrint={() => printAnnex(a.id)}
+                  onResend={
+                    a.acceptanceMethod === "documenso" &&
+                    a.acceptanceStatus === "pending" &&
+                    Date.now() - new Date(a.createdAt).getTime() > ONE_DAY_MS
+                      ? () => void resendAnnexReminder(a.id)
+                      : undefined
+                  }
+                  resending={resendingId === a.id}
+                  resendOk={resendOk === a.id}
+                />
+              );
+            })}
           </ul>
         )}
       </Section>
@@ -582,6 +626,8 @@ export function WycenaTab({ service, onUpdate }: WycenaTabProps) {
 
 function AnnexCard({
   annex,
+  previousAmount,
+  newAmount,
   onDownload,
   onPrint,
   onResend,
@@ -589,6 +635,8 @@ function AnnexCard({
   resendOk,
 }: {
   annex: ServiceAnnex;
+  previousAmount: number;
+  newAmount: number;
   onDownload: () => void;
   onPrint: () => void;
   onResend?: () => void;
@@ -635,13 +683,29 @@ function AnnexCard({
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-wrap">
             <span style={{ color: meta.color }}>{meta.icon}</span>
             <span
               className="text-xs font-semibold"
               style={{ color: "var(--text-main)" }}
             >
-              Δ {annex.deltaAmount.toFixed(2)} PLN
+              {/* Wave 21 / Faza 1E — human readable summary zamiast Δ. */}
+              {annex.deltaAmount > 0
+                ? "Wycena zwiększona"
+                : annex.deltaAmount < 0
+                  ? "Wycena obniżona"
+                  : "Wycena bez zmian"}
+              {annex.deltaAmount !== 0 && (
+                <>
+                  {" "}
+                  z{" "}
+                  <span className="font-mono">
+                    {previousAmount.toFixed(2)} PLN
+                  </span>{" "}
+                  do{" "}
+                  <span className="font-mono">{newAmount.toFixed(2)} PLN</span>
+                </>
+              )}
             </span>
             <span
               className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded"

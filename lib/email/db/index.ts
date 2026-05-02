@@ -30,6 +30,7 @@ export {
   listLayouts,
   getDefaultLayout,
   getLayout,
+  getLayoutBySlug,
   upsertLayout,
 } from "./layouts";
 export type { SmtpConfig } from "./smtp";

@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { PANEL_CORS_HEADERS, getPanelUserFromRequest } from "@/lib/panel-auth";
 import { getService, updateService } from "@/lib/services";
 import {
+  AnnexStatusTransitionError,
   getServiceAnnex,
   updateServiceAnnex,
 } from "@/lib/service-annexes";
@@ -130,18 +131,26 @@ export async function POST(
       changedByName: editorName,
     });
 
+    // Wave 21 / Faza 1E — human-readable summary.
+    const acceptVerb =
+      annex.deltaAmount > 0
+        ? "zwiększona"
+        : annex.deltaAmount < 0
+          ? "obniżona"
+          : "bez zmian";
     void logServiceAction({
       serviceId: id,
       ticketNumber: service.ticketNumber,
       action: "annex_accepted",
       actor: { email: user.email, name: editorName },
-      summary: `Aneks zaakceptowany (${body.method}) — Δ ${annex.deltaAmount} PLN`,
+      summary: `Aneks zaakceptowany (${body.method}) — wycena ${acceptVerb} z ${oldAmount.toFixed(2)} PLN do ${newAmount.toFixed(2)} PLN`,
       payload: {
         annexId,
         method: body.method,
         deltaAmount: annex.deltaAmount,
         oldAmount,
         newAmount,
+        previousAmount: oldAmount,
         quoteHistoryId: entry?.id ?? null,
         messageId: body.messageId ?? null,
       },
@@ -152,6 +161,18 @@ export async function POST(
       { headers: PANEL_CORS_HEADERS },
     );
   } catch (err) {
+    if (err instanceof AnnexStatusTransitionError) {
+      // Race-condition guard: ktoś inny zaakceptował/odrzucił aneks między
+      // walidacją a updateServiceAnnex. Zwracamy 409 ze szczegółem stanu.
+      return NextResponse.json(
+        {
+          error: err.message,
+          currentStatus: err.currentStatus,
+          attemptedStatus: err.attemptedStatus,
+        },
+        { status: 409, headers: PANEL_CORS_HEADERS },
+      );
+    }
     logger.error("annex accept failed", {
       serviceId: id,
       annexId,

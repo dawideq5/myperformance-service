@@ -463,9 +463,32 @@ export function computeDocumensoStats(docs: DocumensoDocument[]): DocumensoDocum
  *   2. PUT do uploadUrl z PDF bytes
  *   3. POST /api/v1/documents/{id}/send-document — wysłanie email z linkami
  *
- * Zwraca documentId + signing URLs per recipient. */
+ * Zwraca documentId + signing URLs per recipient.
+ *
+ * Wave 21 / Faza 1B — wsparcie dla pre-positioned fields per signer:
+ *   - `signers[i].signatureBox` (legacy: pojedyncze SIGNATURE pole) działa nadal,
+ *   - `signers[i].extraFields` (nowe) pozwala dorzucić DATE/TEXT/SIGNATURE
+ *     w określonych miejscach na PDF (przekładane z `signature-anchors`).
+ *   - `disableEmails: true` (domyślne dla Wave 21) — wszystkie automatyczne
+ *     maile od Documenso (vide `emailSettings`) wyłączone, zaproszenie do
+ *     podpisu wysyła nasz własny `lib/services/notify-document.ts` przez
+ *     Postal z brandingiem Caseownia. */
 export interface SignatureFieldBox {
   /** Procent strony [0-100] origin top-left. */
+  pageX: number;
+  pageY: number;
+  pageWidth: number;
+  pageHeight: number;
+}
+
+/** Documenso v3 field shape akceptowany przez `POST /documents/{id}/fields`.
+ * Eksponowane jako re-export — wewnętrznie wywołujemy go z mapAnchorsTo... */
+export interface DocumensoField {
+  /** Index w `signers[]` (mapuje się na recipientId po create response). */
+  signerIndex: number;
+  type: "SIGNATURE" | "DATE" | "TEXT";
+  pageNumber: number; // 1-based
+  /** Procenty strony [0..100], origin top-left. */
   pageX: number;
   pageY: number;
   pageWidth: number;
@@ -488,6 +511,23 @@ export async function createDocumentForSigning(opts: {
    * dostaną automatycznie po podpisaniu poprzedniego. `false` = nie
    * wysyłaj nikomu — używane gdy auto-podpisujemy 1szego sami. */
   sendEmail?: boolean;
+  /**
+   * Wave 21 / Faza 1B — pre-positioned fields wynikłe z signature-anchors
+   * (mapAnchorsToDocumensoFields). Każdy item ma `signerIndex` (0-based,
+   * mapowane na `created.recipients[i].recipientId` po create response) i
+   * Documenso v3 field shape. Gdy niepuste — `signatureBox` na signersach
+   * jest IGNOROWANY (pełna kontrola z anchors).
+   */
+  fields?: DocumensoField[];
+  /**
+   * Wave 21 / Faza 1B — gdy true, wyłącza WSZYSTKIE automatyczne maile od
+   * Documenso (`recipientSigningRequest`, `documentCompleted`...). Customowy
+   * invitation idzie przez `lib/services/notify-document.ts` (Postal + brand
+   * Caseownia). Default (`false`) zachowuje legacy zachowanie: Documenso
+   * wysyła `recipientSigningRequest` do pierwszego signera. Wave 21 annex
+   * route ustawia `true` i wysyła własny email (notifyAnnexCreated).
+   */
+  disableEmails?: boolean;
 }): Promise<{
   documentId: number;
   signingUrls: Array<{ email: string; url: string | null }>;
@@ -504,6 +544,13 @@ export async function createDocumentForSigning(opts: {
   // 1. Create draft document. Documenso v1 expects flat structure.
   // signingOrder=SEQUENTIAL: klient dostaje prośbę DOPIERO po podpisie
   // pracownika. Bez tego oboje sygnatariusze dostają emaile od razu.
+  //
+  // Wave 21 / Faza 1B — `disableEmails: true` (opt-in dla nowych callsite'ów,
+  // np. annex route) wyłącza WSZYSTKIE automatyczne maile Documenso. Klient
+  // dostaje custom invitation przez Postal (notify-document.ts/notify-annex.ts)
+  // z brandingiem Caseownia. Default (`false`) zachowuje legacy zachowanie:
+  // Documenso wysyła signing-request do pierwszego signera.
+  const disableAllEmails = opts.disableEmails ?? false;
   const createPayload = {
     title: opts.title,
     recipients: opts.signers.map((s, i) => ({
@@ -521,12 +568,14 @@ export async function createDocumentForSigning(opts: {
       signingOrder: "SEQUENTIAL",
       typedSignatureEnabled: true,
       drawSignatureEnabled: true,
-      // Wyłącz wszystkie automatyczne maile od Documenso poza
-      // recipientSigningRequest (to jedyny mail którego klient potrzebuje
-      // — z linkiem do podpisu). Pozostałe (X has signed, document
-      // completed) są spamem dla naszego use case.
+      // Wyłącz wszystkie automatyczne maile od Documenso. Domyślnie (Wave 21+)
+      // nawet `recipientSigningRequest` jest false — invitation idzie przez
+      // nasz `notifyDocumentForSigning` (Postal + branding Caseownia).
+      // Gdy `disableEmails=false` (legacy callers) zostawiamy oryginalne
+      // zachowanie: Documenso wysyła signing request do pierwszego signera.
+      distributionMethod: disableAllEmails ? "NONE" : "EMAIL",
       emailSettings: {
-        recipientSigningRequest: true,
+        recipientSigningRequest: !disableAllEmails,
         recipientRemoved: false,
         recipientSigned: false,
         documentPending: false,
@@ -581,40 +630,64 @@ export async function createDocumentForSigning(opts: {
   // 2b. Mapowanie signers ↔ created.recipients PO INDEKSIE / signingOrder.
   // Documenso zwraca recipients w tej samej kolejności co request, więc
   // signers[i] pasuje do created.recipients[i] (i odpowiada signingOrder=i+1).
-  // Każdy signer ma swój signatureBox z rzeczywistych coords PDF.
+  //
+  // Dwie ścieżki tworzenia pól:
+  //   A) `opts.fields` (Wave 21+, preferowane) — pełna kontrola z signature-
+  //       anchors, każde pole ma własny type (SIGNATURE/DATE/TEXT) i pozycję.
+  //   B) Fallback legacy: per signer 1× SIGNATURE z `signatureBox` lub
+  //       hardcoded default position.
   const createdRecipients = created.recipients ?? [];
-  for (let i = 0; i < createdRecipients.length; i++) {
-    const rec = createdRecipients[i];
-    const signer = opts.signers[i];
-    const box = signer?.signatureBox;
-    if (!box) {
-      const isFirst = i === 0;
+  if (opts.fields && opts.fields.length > 0) {
+    for (const f of opts.fields) {
+      const rec = createdRecipients[f.signerIndex];
+      if (!rec) continue;
+      await documensoFetch<unknown>(`/api/v1/documents/${docId}/fields`, {
+        method: "POST",
+        body: JSON.stringify({
+          recipientId: rec.recipientId,
+          type: f.type,
+          pageNumber: f.pageNumber,
+          pageX: f.pageX,
+          pageY: f.pageY,
+          pageWidth: f.pageWidth,
+          pageHeight: f.pageHeight,
+        }),
+      });
+    }
+  } else {
+    for (let i = 0; i < createdRecipients.length; i++) {
+      const rec = createdRecipients[i];
+      const signer = opts.signers[i];
+      const box = signer?.signatureBox;
+      if (!box) {
+        const isFirst = i === 0;
+        await documensoFetch<unknown>(`/api/v1/documents/${docId}/fields`, {
+          method: "POST",
+          body: JSON.stringify({
+            recipientId: rec.recipientId,
+            type: "SIGNATURE",
+            pageNumber: 1,
+            pageX: isFirst ? 6 : 56,
+            pageY: 56,
+            pageWidth: 38,
+            pageHeight: 5,
+          }),
+        });
+        continue;
+      }
       await documensoFetch<unknown>(`/api/v1/documents/${docId}/fields`, {
         method: "POST",
         body: JSON.stringify({
           recipientId: rec.recipientId,
           type: "SIGNATURE",
           pageNumber: 1,
-          pageX: isFirst ? 6 : 56,
-          pageY: 56,
-          pageWidth: 38,
-          pageHeight: 5,
+          pageX: box.pageX,
+          pageY: box.pageY,
+          pageWidth: box.pageWidth,
+          pageHeight: box.pageHeight,
         }),
       });
-      continue;
     }
-    await documensoFetch<unknown>(`/api/v1/documents/${docId}/fields`, {
-      method: "POST",
-      body: JSON.stringify({
-        recipientId: rec.recipientId,
-        type: "SIGNATURE",
-        pageNumber: 1,
-        pageX: box.pageX,
-        pageY: box.pageY,
-        pageWidth: box.pageWidth,
-        pageHeight: box.pageHeight,
-      }),
-    });
   }
 
   // 3. Send — sendEmail: false gdy auto-podpisujemy pracownika (Documenso

@@ -24,6 +24,7 @@ import { openServiceReceipt, sendElectronicReceipt } from "../../lib/receipt";
 import { useToast } from "../ToastProvider";
 import { SignaturePadDialog } from "../SignaturePadDialog";
 import { ServiceListSkeleton } from "../Skeleton";
+import { getStatusMeta } from "@/lib/serwisant/status-meta";
 
 interface ServiceTicket {
   id: string;
@@ -126,13 +127,15 @@ const STATUS_LABELS: Record<
   archived: { label: "Archiwum", color: "#1F2937", bg: "#1F293722" },
 };
 
+// Wave 21 Faza 1A — etykiety filtrów pochodzą z `lib/serwisant/status-meta`.
+// Wartość pusta = wszystkie statusy (label hardcoded "Wszystkie").
 const STATUS_FILTERS: { value: string; label: string }[] = [
   { value: "", label: "Wszystkie" },
-  { value: "received", label: "Przyjęte" },
-  { value: "diagnosing", label: "Diagnoza" },
-  { value: "repairing", label: "Naprawa" },
-  { value: "ready", label: "Gotowe" },
-  { value: "delivered", label: "Wydane" },
+  { value: "received", label: getStatusMeta("received").label },
+  { value: "diagnosing", label: getStatusMeta("diagnosing").label },
+  { value: "repairing", label: getStatusMeta("repairing").label },
+  { value: "ready", label: getStatusMeta("ready").label },
+  { value: "delivered", label: getStatusMeta("delivered").label },
 ];
 
 const DEVICE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -330,11 +333,16 @@ function ServiceCard({
   onChanged?: () => void;
   onEdit?: (id: string) => void;
 }) {
-  const status = STATUS_LABELS[service.status] ?? {
+  const colorMeta = STATUS_LABELS[service.status] ?? {
     label: service.status,
     color: "#64748B",
     bg: "#64748B22",
   };
+  // Wave 21 Faza 1A — etykiety PL z `lib/serwisant/status-meta` (single
+  // source of truth — mirror panelu serwisanta). Kolor zachowany z
+  // lokalnej palety dla spójności wizualnej karty.
+  const statusLabel = getStatusMeta(service.status).label;
+  const status = { ...colorMeta, label: statusLabel };
   const DeviceIcon = DEVICE_ICONS[service.type ?? ""] ?? Smartphone;
   const customerName =
     [service.customerFirstName, service.customerLastName]

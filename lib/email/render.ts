@@ -1,6 +1,7 @@
 import {
   getDefaultLayout,
   getLayout,
+  getLayoutBySlug,
   getTemplate,
   type EmailLayout,
   type EmailTemplate,
@@ -202,6 +203,8 @@ export interface RenderOptions {
   draftBody?: string;
   /** Override layout id. Domyślnie używamy z template lub default. */
   layoutId?: string | null;
+  /** Override layout slug — preferowane przed `layoutId` gdy oba podane. */
+  layoutSlug?: string | null;
   /**
    * Context zmienne. Zawsze automatycznie dokleja `brand` z mp_branding,
    * `now` z aktualnego czasu. Caller dorzuca user/event/cert/etc.
@@ -234,7 +237,9 @@ export async function renderTemplate(
   const body = opts.draftBody ?? stored?.body ?? action.defaultBody;
 
   let layout: EmailLayout | null = null;
-  if (opts.layoutId !== undefined) {
+  if (opts.layoutSlug !== undefined && opts.layoutSlug !== null) {
+    layout = await getLayoutBySlug(opts.layoutSlug);
+  } else if (opts.layoutId !== undefined) {
     layout = opts.layoutId ? await getLayout(opts.layoutId) : null;
   } else if (stored?.layoutId) {
     layout = await getLayout(stored.layoutId);
@@ -263,6 +268,7 @@ export async function renderTemplate(
         hour: "2-digit",
         minute: "2-digit",
       }),
+      year: String(now.getFullYear()),
       iso: now.toISOString(),
     },
     subject, // dostępny dla layoutu
