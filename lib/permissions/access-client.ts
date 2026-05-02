@@ -1,13 +1,12 @@
-"use client";
-
 import { AREAS } from "./areas";
 import { SUPERADMIN_ROLES } from "./superadmin";
 
 /**
  * Sprawdza czy user ma dostęp do area na podstawie listy realm roles
- * (z `session.user.roles`). Pure-client function — bez fetch, bez
- * external state. Używana w OnboardingCard + tour.ts + komponentach
- * filtrujących UI po roli.
+ * (z `session.user.roles`). Pure function — bez fetch, bez external state.
+ * Używana zarówno w client (OnboardingCard, tour.ts), jak i w server
+ * (notifyUser area gate). Bez "use client" bo pure-logic — żadnych
+ * client-only API.
  */
 export function userHasAreaClient(
   roles: string[],

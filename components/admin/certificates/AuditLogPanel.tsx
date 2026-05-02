@@ -22,19 +22,25 @@ export function AuditLogPanel({ audit }: { audit: AuditEvent[] }) {
             <thead>
               <tr className="text-[var(--text-muted)] text-left border-b border-[var(--border-subtle)]">
                 <th className="py-2 px-3 font-medium">Czas</th>
-                <th className="py-2 px-3 font-medium">Admin</th>
+                <th className="py-2 px-3 font-medium">Użytkownik</th>
                 <th className="py-2 px-3 font-medium">Akcja</th>
                 <th className="py-2 px-3 font-medium">Subject</th>
                 <th className="py-2 px-3 font-medium">Wynik</th>
               </tr>
             </thead>
             <tbody>
-              {audit.map((e, idx) => (
+              {audit.map((e, idx) => {
+                const actorName =
+                  (e as { actorName?: string | null }).actorName ?? null;
+                const displayActor = actorName && actorName.length > 0
+                  ? actorName
+                  : e.actor;
+                return (
                 <tr key={idx} className="border-b border-[var(--border-subtle)]/50">
                   <td className="py-2 px-3 text-[var(--text-muted)] font-mono whitespace-nowrap">
                     {new Date(e.ts).toLocaleString("pl-PL")}
                   </td>
-                  <td className="py-2 px-3 text-[var(--text-muted)]">{e.actor}</td>
+                  <td className="py-2 px-3 text-[var(--text-muted)]">{displayActor}</td>
                   <td className="py-2 px-3 text-[var(--text-main)]">{e.action}</td>
                   <td className="py-2 px-3 text-[var(--text-muted)]">
                     {e.subject ?? "—"}
@@ -49,7 +55,8 @@ export function AuditLogPanel({ audit }: { audit: AuditEvent[] }) {
                     )}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

@@ -11,23 +11,16 @@ import { withClient } from "@/lib/db";
  *   - "documenso" / "moodle" / "chatwoot" = tylko userzy mający dostęp do tej apki
  *
  * `userVisible` (default true): czy event ma się pojawić w bell-icon
- * dropdown (NotificationBell) i toastach. Eventy security.* są zapisywane
- * do mp_inbox jako audit trail (i dalej trafiają na email gdy user ma email
- * channel włączony), ale NIE pokazujemy ich w UI dropdown — user nie chce
- * widzieć "security.login.new_device" obok "Nowa wiadomość w Chatwoocie".
+ * dropdown (NotificationBell) i toastach.
  *
- * Filtrowanie jest na poziomie:
- *   - PreferencesTab UI (matrix nie pokazuje eventów do których brak dostępu)
- *   - notifyUser dispatcher (gate przy sendzie — nie warto pchać do mp_inbox
- *     userowi który i tak nie zobaczy ze względu na uprawnienia)
- *   - GET /api/account/inbox (user-facing) — odfiltrowuje userVisible:false
+ * `description`: pełne wyjaśnienie kiedy event się pojawia — pokazywane
+ * w PreferencesTab pod label-em (zamiast surowego event_key).
  */
 export const NOTIF_EVENTS = {
-  // Bezpieczeństwo — każdy zalogowany user (dotyczy własnego konta).
-  // userVisible:false → nie pokazujemy w bell dropdown (techniczny szum),
-  // ale dalej zapisujemy do mp_inbox jako audit + email gdy włączony.
   "security.login.new_device": {
     label: "Nowe urządzenie loguje się na konto",
+    description:
+      "Wysyłamy alert gdy widzimy logowanie z nieznanego urządzenia/IP. Pomaga wykryć przejęcie konta.",
     category: "security",
     defaultInApp: true,
     defaultEmail: true,
@@ -36,6 +29,8 @@ export const NOTIF_EVENTS = {
   },
   "security.login.failed": {
     label: "Nieudana próba logowania na Twoje konto",
+    description:
+      "Pojedyncza nieudana próba logowania (złe hasło/2FA). Większa seria → osobny alert brute-force.",
     category: "security",
     defaultInApp: true,
     defaultEmail: false,
@@ -44,6 +39,8 @@ export const NOTIF_EVENTS = {
   },
   "security.totp.configured": {
     label: "Skonfigurowano aplikację 2FA",
+    description:
+      "Potwierdzenie że aplikacja autentykująca (Google Authenticator, Authy) została podpięta do konta.",
     category: "security",
     defaultInApp: true,
     defaultEmail: true,
@@ -52,6 +49,8 @@ export const NOTIF_EVENTS = {
   },
   "security.totp.removed": {
     label: "Usunięto aplikację 2FA",
+    description:
+      "Aplikacja autentykująca została odłączona od konta. Jeśli to nie Ty — natychmiast skontaktuj się z administratorem.",
     category: "security",
     defaultInApp: true,
     defaultEmail: true,
@@ -60,6 +59,8 @@ export const NOTIF_EVENTS = {
   },
   "security.webauthn.configured": {
     label: "Zarejestrowano klucz bezpieczeństwa / passkey",
+    description:
+      "Nowy klucz sprzętowy (YubiKey) lub passkey (Touch ID, Face ID) został dodany do konta.",
     category: "security",
     defaultInApp: true,
     defaultEmail: true,
@@ -68,6 +69,8 @@ export const NOTIF_EVENTS = {
   },
   "security.webauthn.removed": {
     label: "Usunięto klucz bezpieczeństwa / passkey",
+    description:
+      "Klucz sprzętowy lub passkey został usunięty z konta. Jeśli to nie Ty — natychmiast skontaktuj się z administratorem.",
     category: "security",
     defaultInApp: true,
     defaultEmail: true,
@@ -75,9 +78,10 @@ export const NOTIF_EVENTS = {
     userVisible: true,
   },
 
-  // Knowledge / Outline — comments, mentions, document publish.
   "knowledge.mention": {
     label: "Wspomniano o Tobie w dokumencie (Knowledge)",
+    description:
+      "Ktoś użył `@TwojaNazwa` w treści dokumentu lub komentarza w Outline.",
     category: "apps",
     defaultInApp: true,
     defaultEmail: true,
@@ -85,6 +89,8 @@ export const NOTIF_EVENTS = {
   },
   "knowledge.comment.created": {
     label: "Nowy komentarz w dokumencie (Knowledge)",
+    description:
+      "Pod jednym z Twoich dokumentów pojawił się komentarz innego użytkownika.",
     category: "apps",
     defaultInApp: true,
     defaultEmail: false,
@@ -92,6 +98,8 @@ export const NOTIF_EVENTS = {
   },
   "knowledge.document.published": {
     label: "Opublikowano dokument w Knowledge",
+    description:
+      "Twój własny dokument został opublikowany (przeszedł ze stanu draft).",
     category: "apps",
     defaultInApp: true,
     defaultEmail: false,
@@ -99,6 +107,8 @@ export const NOTIF_EVENTS = {
   },
   "knowledge.document.updated": {
     label: "Zaktualizowano dokument w Knowledge",
+    description:
+      "Aktualizacja treści dokumentu którego jesteś autorem (revisions/edycje).",
     category: "apps",
     defaultInApp: false,
     defaultEmail: false,
@@ -106,6 +116,8 @@ export const NOTIF_EVENTS = {
   },
   "security.brute_force.detected": {
     label: "Wykryto brute force na Twoim koncie",
+    description:
+      "Wykryto serię nieudanych prób logowania w krótkim czasie. Konto może być atakowane.",
     category: "security",
     defaultInApp: true,
     defaultEmail: true,
@@ -114,6 +126,8 @@ export const NOTIF_EVENTS = {
   },
   "security.password.changed": {
     label: "Zmieniono hasło",
+    description:
+      "Hasło do konta zostało zmienione (przez Ciebie lub przez admina). Jeśli to nie Ty — działaj natychmiast.",
     category: "security",
     defaultInApp: true,
     defaultEmail: true,
@@ -121,11 +135,10 @@ export const NOTIF_EVENTS = {
     userVisible: false,
   },
 
-  // Konto — własne. Każdy user. Cert events tylko dla userów mających cert
-  // (sprzedawca/serwisant/kierowca area), ale zostawmy null żeby user zawsze
-  // zobaczył ważne info.
   "account.role.assigned": {
     label: "Przypisano nową rolę",
+    description:
+      "Administrator nadał Ci nowy poziom dostępu (np. dokumenty, panele sprzedawcy, akademia).",
     category: "account",
     defaultInApp: true,
     defaultEmail: false,
@@ -133,6 +146,8 @@ export const NOTIF_EVENTS = {
   },
   "account.role.revoked": {
     label: "Cofnięto rolę",
+    description:
+      "Administrator zabrał jeden z poziomów dostępu. Niektóre funkcje mogą stać się niedostępne.",
     category: "account",
     defaultInApp: true,
     defaultEmail: false,
@@ -140,6 +155,8 @@ export const NOTIF_EVENTS = {
   },
   "account.cert.issued": {
     label: "Wystawiono certyfikat klienta",
+    description:
+      "Wygenerowano dla Ciebie certyfikat mTLS — niezbędny do logowania do paneli sprzedawcy/serwisanta/kierowcy.",
     category: "account",
     defaultInApp: true,
     defaultEmail: true,
@@ -147,15 +164,18 @@ export const NOTIF_EVENTS = {
   },
   "account.cert.expiring": {
     label: "Certyfikat wygasa za <14 dni",
+    description:
+      "Twój certyfikat klienta jest blisko wygaśnięcia. Po wygaśnięciu stracisz dostęp do paneli — wygeneruj nowy.",
     category: "account",
     defaultInApp: true,
     defaultEmail: true,
     requiresArea: null,
   },
 
-  // Aplikacje — tylko userzy z dostępem do danej apki
   "documents.signature.requested": {
     label: "Prośba o podpis dokumentu",
+    description:
+      "Otrzymałeś dokument do podpisu w Documenso. Otwórz Documenso żeby zaakceptować lub odrzucić.",
     category: "apps",
     defaultInApp: true,
     defaultEmail: true,
@@ -163,6 +183,8 @@ export const NOTIF_EVENTS = {
   },
   "documents.signature.completed": {
     label: "Dokument podpisany",
+    description:
+      "Dokument który wysłałeś został podpisany przez wszystkich odbiorców.",
     category: "apps",
     defaultInApp: true,
     defaultEmail: false,
@@ -170,6 +192,8 @@ export const NOTIF_EVENTS = {
   },
   "moodle.course.assigned": {
     label: "Przypisano do kursu Moodle",
+    description:
+      "Zostałeś zapisany na nowy kurs w Akademii. Wejdź żeby zobaczyć materiały.",
     category: "apps",
     defaultInApp: true,
     defaultEmail: false,
@@ -177,6 +201,8 @@ export const NOTIF_EVENTS = {
   },
   "chatwoot.conversation.assigned": {
     label: "Przypisano do rozmowy Chatwoot",
+    description:
+      "Otrzymałeś nową rozmowę z klientem do obsłużenia w Chatwoot.",
     category: "apps",
     defaultInApp: true,
     defaultEmail: false,
@@ -184,6 +210,8 @@ export const NOTIF_EVENTS = {
   },
   "chatwoot.message.new": {
     label: "Nowa wiadomość od klienta (Chatwoot)",
+    description:
+      "Klient odpisał w prowadzonej przez Ciebie rozmowie. Otwórz Chatwoot żeby odpowiedzieć.",
     category: "apps",
     defaultInApp: true,
     defaultEmail: false,
@@ -191,6 +219,8 @@ export const NOTIF_EVENTS = {
   },
   "chatwoot.unread_message": {
     label: "Nieprzeczytana wiadomość w Chatwoocie",
+    description:
+      "Wiadomość od klienta z poziomu skrzynki, do której masz dostęp, lecz która nie ma jeszcze przypisanego agenta.",
     category: "apps",
     defaultInApp: true,
     defaultEmail: false,
@@ -198,6 +228,8 @@ export const NOTIF_EVENTS = {
   },
   "chatwoot.conversation.resolved": {
     label: "Rozmowa oznaczona jako rozwiązana (Chatwoot)",
+    description:
+      "Twoja rozmowa z klientem została zamknięta (przez Ciebie, kolegę z zespołu lub auto-resolve).",
     category: "apps",
     defaultInApp: true,
     defaultEmail: false,
@@ -205,6 +237,8 @@ export const NOTIF_EVENTS = {
   },
   "moodle.grade.received": {
     label: "Otrzymano ocenę w Akademii (Moodle)",
+    description:
+      "Trener wystawił Ci ocenę z zadania. Wejdź do kursu żeby zobaczyć szczegóły.",
     category: "apps",
     defaultInApp: true,
     defaultEmail: false,
@@ -212,15 +246,18 @@ export const NOTIF_EVENTS = {
   },
   "moodle.group.joined": {
     label: "Dołączono do grupy w kursie (Moodle)",
+    description:
+      "Trener przypisał Cię do nowej grupy w obrębie kursu (np. zespół projektowy).",
     category: "apps",
     defaultInApp: true,
     defaultEmail: false,
     requiresArea: "moodle",
   },
 
-  // Admin — TYLKO infra/security adminzy widzą te zdarzenia
   "admin.snapshot.created": {
     label: "Utworzono snapshot VPS",
+    description:
+      "Codzienny snapshot serwera został utworzony pomyślnie (audit infra).",
     category: "admin",
     defaultInApp: true,
     defaultEmail: false,
@@ -228,6 +265,8 @@ export const NOTIF_EVENTS = {
   },
   "admin.snapshot.failed": {
     label: "Snapshot VPS nie powiódł się",
+    description:
+      "Snapshot się nie powiódł — sprawdź logi infrastruktury (OVH/Coolify) i wymuś manual snapshot.",
     category: "admin",
     defaultInApp: true,
     defaultEmail: true,
@@ -235,6 +274,8 @@ export const NOTIF_EVENTS = {
   },
   "admin.backup.completed": {
     label: "Backup nocny wykonany",
+    description:
+      "Plan zapasowy bazy + plików zakończony. Sprawdź rotację retention w razie potrzeby.",
     category: "admin",
     defaultInApp: false,
     defaultEmail: true,
@@ -242,6 +283,8 @@ export const NOTIF_EVENTS = {
   },
   "admin.backup.failed": {
     label: "Backup nie powiódł się",
+    description:
+      "Backup nie zakończył się powodzeniem. Sprawdź logi i upewnij się że disaster recovery jest na miejscu.",
     category: "admin",
     defaultInApp: true,
     defaultEmail: true,
@@ -249,6 +292,8 @@ export const NOTIF_EVENTS = {
   },
   "admin.security.event.high": {
     label: "Wykryto zdarzenie bezpieczeństwa (high/critical)",
+    description:
+      "Wazuh wykrył zdarzenie o wysokim priorytecie (eskalacja uprawnień, podejrzane logowania, malware).",
     category: "admin",
     defaultInApp: true,
     defaultEmail: true,
@@ -256,6 +301,8 @@ export const NOTIF_EVENTS = {
   },
   "admin.ip.auto_blocked": {
     label: "Auto-zablokowano IP (Wazuh AR)",
+    description:
+      "Wazuh automatic response zablokował podejrzane IP (brute-force, scanning). Sprawdź panel security.",
     category: "admin",
     defaultInApp: true,
     defaultEmail: false,
@@ -273,39 +320,57 @@ export interface UserPreferences {
   moodleCourseId?: number;
 }
 
-const DEFAULT_PREFS: UserPreferences = {
+export const DEFAULT_PREFERENCES: UserPreferences = {
   hintsEnabled: true,
   notifInApp: {},
   notifEmail: {},
   introCompletedSteps: [],
 };
 
+let schemaReady = false;
+
+async function ensureSchema(): Promise<void> {
+  if (schemaReady) return;
+  await withClient(async (c) => {
+    await c.query(`
+      CREATE TABLE IF NOT EXISTS mp_user_preferences (
+        user_id     TEXT PRIMARY KEY,
+        prefs       JSONB NOT NULL DEFAULT '{}'::jsonb,
+        updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `);
+  });
+  schemaReady = true;
+}
+
 export async function getUserPreferences(
   userId: string,
 ): Promise<UserPreferences> {
-  return withClient(async (c) => {
-    const r = await c.query<{ prefs: Record<string, unknown> }>(
+  await ensureSchema();
+  const r = await withClient((c) =>
+    c.query<{ prefs: UserPreferences }>(
       `SELECT prefs FROM mp_user_preferences WHERE user_id = $1`,
       [userId],
-    );
-    const stored = (r.rows[0]?.prefs ?? {}) as Partial<UserPreferences>;
-    return {
-      hintsEnabled: stored.hintsEnabled ?? DEFAULT_PREFS.hintsEnabled,
-      notifInApp: { ...DEFAULT_PREFS.notifInApp, ...(stored.notifInApp ?? {}) },
-      notifEmail: { ...DEFAULT_PREFS.notifEmail, ...(stored.notifEmail ?? {}) },
-      introCompletedSteps:
-        stored.introCompletedSteps ?? DEFAULT_PREFS.introCompletedSteps,
-      moodleCourseId: stored.moodleCourseId,
-    };
-  });
+    ),
+  );
+  if (r.rows.length === 0) return DEFAULT_PREFERENCES;
+  const stored = r.rows[0].prefs ?? {};
+  return {
+    hintsEnabled: stored.hintsEnabled ?? true,
+    notifInApp: stored.notifInApp ?? {},
+    notifEmail: stored.notifEmail ?? {},
+    introCompletedSteps: stored.introCompletedSteps ?? [],
+    moodleCourseId: stored.moodleCourseId,
+  };
 }
 
 export async function setUserPreferences(
   userId: string,
   patch: Partial<UserPreferences>,
-): Promise<UserPreferences> {
+): Promise<void> {
+  await ensureSchema();
   const current = await getUserPreferences(userId);
-  const next: UserPreferences = {
+  const merged: UserPreferences = {
     hintsEnabled: patch.hintsEnabled ?? current.hintsEnabled,
     notifInApp: { ...current.notifInApp, ...(patch.notifInApp ?? {}) },
     notifEmail: { ...current.notifEmail, ...(patch.notifEmail ?? {}) },
@@ -315,18 +380,14 @@ export async function setUserPreferences(
   };
   await withClient((c) =>
     c.query(
-      `INSERT INTO mp_user_preferences (user_id, prefs, updated_at)
-       VALUES ($1, $2, now())
+      `INSERT INTO mp_user_preferences (user_id, prefs)
+       VALUES ($1, $2::jsonb)
        ON CONFLICT (user_id) DO UPDATE SET prefs = EXCLUDED.prefs, updated_at = now()`,
-      [userId, JSON.stringify(next)],
+      [userId, JSON.stringify(merged)],
     ),
   );
-  return next;
 }
 
-/**
- * Sprawdza czy user dostaje powiadomienie. Łączy default policy z user override.
- */
 export function shouldNotify(
   prefs: UserPreferences,
   event: NotifEventKey,
@@ -334,40 +395,16 @@ export function shouldNotify(
 ): boolean {
   const def = NOTIF_EVENTS[event];
   if (!def) return false;
-  const override =
+  const userOverride =
     channel === "inApp" ? prefs.notifInApp[event] : prefs.notifEmail[event];
-  if (typeof override === "boolean") return override;
+  if (typeof userOverride === "boolean") return userOverride;
   return channel === "inApp" ? def.defaultInApp : def.defaultEmail;
 }
 
-/**
- * Czy event powinien być pokazany w bell-icon dropdown / toastach.
- *
- * Domyślnie `true`. Eventy security.* (login.new_device, brute_force,
- * webauthn.*, totp.*, password.changed, login.failed) mają `userVisible:false`
- * — są zapisywane do mp_inbox jako audit trail i wysyłane mailem (gdy user
- * opt-in), ale NIE pojawiają się w UI dropdown — to "techniczny szum"
- * którego user nie chce widzieć obok user-facing powiadomień typu "Nowa
- * wiadomość w Chatwoocie".
- *
- * Funkcja akceptuje `string` (nie `NotifEventKey`) bo używamy jej w API
- * route na surowych event_key z DB — historyczne mogą być spoza catalog
- * (po refactorze key bywały zmieniane).
- */
 export function isUserVisibleEvent(eventKey: string): boolean {
   const def = (NOTIF_EVENTS as Record<string, { userVisible?: boolean }>)[
     eventKey
   ];
   if (!def) return true;
   return def.userVisible !== false;
-}
-
-/**
- * Lista event_keys które są "user-visible" — używana przez API
- * GET /api/account/inbox jako whitelist filter.
- */
-export function userVisibleEventKeys(): string[] {
-  return Object.entries(NOTIF_EVENTS)
-    .filter(([, def]) => (def as { userVisible?: boolean }).userVisible !== false)
-    .map(([key]) => key);
 }

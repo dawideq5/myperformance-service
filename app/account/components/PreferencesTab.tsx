@@ -180,28 +180,7 @@ export function PreferencesTab() {
           description="Per-zdarzenie kontrola nad in-app (toast/badge) i email-em. Domyślne polityki opatrzone gwiazdką."
         />
 
-        <div className="flex flex-wrap items-center gap-2 mt-4 mb-2 text-xs text-[var(--text-muted)]">
-          <span>Wyczyść wszystko:</span>
-          <button
-            type="button"
-            onClick={() => toggleAll("inApp", false)}
-            className="px-2 py-1 rounded-md hover:bg-[var(--bg-surface)] flex items-center gap-1"
-          >
-            <Bell className="w-3 h-3" />
-            in-app
-          </button>
-          <button
-            type="button"
-            onClick={() => toggleAll("email", false)}
-            className="px-2 py-1 rounded-md hover:bg-[var(--bg-surface)] flex items-center gap-1"
-          >
-            <Mail className="w-3 h-3" />
-            email
-          </button>
-          <span className="ml-auto">Powrót do ustawień domyślnych: zaznacz <span className="text-[var(--text-main)]">*</span> przy wybranych eventach.</span>
-        </div>
-
-        <div className="mt-2 divide-y divide-[var(--border-subtle)]">
+        <div className="mt-4 divide-y divide-[var(--border-subtle)]">
           {CATEGORY_ORDER.map((cat) => {
             const items = grouped?.[cat];
             if (!items || items.length === 0) return null;
@@ -229,9 +208,14 @@ export function PreferencesTab() {
                     >
                       <div>
                         <div className="text-sm">{def.label}</div>
-                        <div className="text-[10px] text-[var(--text-muted)] font-mono">
-                          {ev}
-                        </div>
+                        {(() => {
+                          const desc = (def as { description?: string }).description;
+                          return desc ? (
+                            <div className="text-xs text-[var(--text-muted)] mt-0.5">
+                              {desc}
+                            </div>
+                          ) : null;
+                        })()}
                       </div>
                       <label className="flex items-center gap-2 text-xs cursor-pointer">
                         <input

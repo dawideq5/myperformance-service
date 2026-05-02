@@ -6,7 +6,10 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { log } from "@/lib/logger";
 import { getUserIdByEmail, notifyUser } from "@/lib/notify";
 import { rateLimit } from "@/lib/rate-limit";
-import { getChatwootAgentEmail } from "@/lib/chatwoot/agent-lookup";
+import {
+  getChatwootAgentEmail,
+  getChatwootInboxAgentEmails,
+} from "@/lib/chatwoot/agent-lookup";
 import { recordWebhookHit } from "@/lib/webhooks/health";
 
 const logger = log.child({ module: "chatwoot-webhook" });
@@ -34,13 +37,24 @@ interface ChatwootPayload {
     status?: string;
     assignee?: ChatwootAssignee;
     meta?: { assignee?: ChatwootAssignee };
-    inbox?: { name?: string };
+    inbox?: { id?: number; name?: string };
+    inbox_id?: number;
     contact?: { name?: string; email?: string };
   };
+  inbox_id?: number;
   meta?: { assignee?: ChatwootAssignee };
   message_type?: string;
   content?: string;
   sender?: { name?: string; email?: string };
+}
+
+function extractInboxId(payload: ChatwootPayload): number | null {
+  return (
+    payload.conversation?.inbox?.id ??
+    payload.conversation?.inbox_id ??
+    payload.inbox_id ??
+    null
+  );
 }
 
 /**
@@ -180,32 +194,69 @@ export async function POST(req: Request) {
     if (payload.message_type === "outgoing") {
       return NextResponse.json({ ok: true, ignored: "outgoing-message" });
     }
-    const assigneeEmail = await resolveAssigneeEmail(payload);
-    if (!assigneeEmail) {
-      logger.info("chatwoot message_created skipped — no assignee email", { conversationId });
-      return NextResponse.json({ ok: true, ignored: "no-assignee" });
-    }
-    const uid = await getUserIdByEmail(assigneeEmail);
-    if (!uid) {
-      logger.info("chatwoot no kc user", { conversationId, email: assigneeEmail });
-      return NextResponse.json({ ok: true, ignored: "no-kc-user" });
-    }
     const rawContent = payload.content ?? "";
     const messagePreview =
       rawContent.length > 100 ? rawContent.slice(0, 97) + "..." : rawContent;
     const senderName = payload.sender?.name ?? contactName;
-    await notifyUser(uid, "chatwoot.message.new", {
-      title: "Nowa wiadomość w Chatwoot",
-      body: `${senderName}: ${messagePreview}`,
-      severity: "info",
-      payload: {
-        conversationId,
-        inbox: payload.conversation?.inbox?.name,
-      },
-    });
-    logger.info("chatwoot message_created notified", { uid, conv: conversationId });
-    await recordWebhookHit("chatwoot", "ok", "message_created");
-    return NextResponse.json({ ok: true });
+
+    const assigneeEmail = await resolveAssigneeEmail(payload);
+
+    // Path A: rozmowa przypisana → notyfikuj agenta-przypisanego (chatwoot.message.new)
+    if (assigneeEmail) {
+      const uid = await getUserIdByEmail(assigneeEmail);
+      if (!uid) {
+        logger.info("chatwoot no kc user", { conversationId, email: assigneeEmail });
+        await recordWebhookHit("chatwoot", "ignored", "message_created", "no-kc-user");
+        return NextResponse.json({ ok: true, ignored: "no-kc-user" });
+      }
+      await notifyUser(uid, "chatwoot.message.new", {
+        title: "Nowa wiadomość w Chatwoot",
+        body: `${senderName}: ${messagePreview}`,
+        severity: "info",
+        payload: {
+          conversationId,
+          inbox: payload.conversation?.inbox?.name,
+        },
+      });
+      logger.info("chatwoot message_created notified (assignee)", { uid, conv: conversationId });
+      await recordWebhookHit("chatwoot", "ok", "message_created");
+      return NextResponse.json({ ok: true });
+    }
+
+    // Path B: brak assignee → fan-out do wszystkich agentów inboxa
+    // (chatwoot.unread_message). Pomija outgoing i wyłącza tylko gdy inbox_id
+    // nie jest dostępne w payload.
+    const inboxId = extractInboxId(payload);
+    if (!inboxId) {
+      logger.info("chatwoot unassigned skipped — no inbox_id", { conversationId });
+      await recordWebhookHit("chatwoot", "ignored", "message_created", "no-inbox-id");
+      return NextResponse.json({ ok: true, ignored: "no-inbox-id" });
+    }
+    const agentEmails = await getChatwootInboxAgentEmails(inboxId);
+    if (agentEmails.length === 0) {
+      logger.info("chatwoot unassigned no agents", { conversationId, inboxId });
+      await recordWebhookHit("chatwoot", "ignored", "message_created", "no-inbox-agents");
+      return NextResponse.json({ ok: true, ignored: "no-inbox-agents" });
+    }
+    const uids = await Promise.all(agentEmails.map(getUserIdByEmail));
+    const targets = uids.filter((u): u is string => typeof u === "string");
+    await Promise.allSettled(
+      targets.map((uid) =>
+        notifyUser(uid, "chatwoot.unread_message", {
+          title: "Nieprzypisana wiadomość w Chatwoot",
+          body: `${senderName}: ${messagePreview}`,
+          severity: "info",
+          payload: {
+            conversationId,
+            inbox: payload.conversation?.inbox?.name,
+            inboxId,
+          },
+        }),
+      ),
+    );
+    logger.info("chatwoot unassigned fanout", { conv: conversationId, count: targets.length });
+    await recordWebhookHit("chatwoot", "ok", "message_created", `unassigned-fanout:${targets.length}`);
+    return NextResponse.json({ ok: true, fanout: targets.length });
   }
 
   // --- conversation_status_changed: rozmowa rozwiązana ---

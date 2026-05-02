@@ -16,6 +16,19 @@ interface ChatwootUserResponse {
   name?: string;
 }
 
+interface ChatwootInboxAgent {
+  id?: number;
+  email?: string;
+  name?: string;
+}
+
+interface CachedInboxAgents {
+  agents: ChatwootInboxAgent[];
+  fetchedAt: number;
+}
+
+const inboxAgentsCache = new Map<number, CachedInboxAgents>();
+
 /**
  * Resolve Chatwoot agent email po user_id. Chatwoot Account Webhooks v3+
  * wysyłają assignee jako `{id, name, type}` bez emaila — żeby zmapować
@@ -73,5 +86,67 @@ export async function getChatwootAgentEmail(
       err: err instanceof Error ? err.message : String(err),
     });
     return null;
+  }
+}
+
+/**
+ * Resolve emaile wszystkich agentów (admin+agent) w danym inboxie. Używane
+ * gdy webhook Chatwoot dostarczy `message_created` BEZ assignee — fan-out
+ * notify do wszystkich osób mających dostęp do skrzynki.
+ *
+ * Endpoint: GET /api/v1/accounts/{aid}/inboxes/{iid}/agents — zwraca pełne
+ * obiekty user z email. Wymaga user-level api_access_token (nie platform).
+ *
+ * Cache 5 min — agent membership w inboxie rzadko się zmienia.
+ */
+export async function getChatwootInboxAgentEmails(
+  inboxId: number,
+): Promise<string[]> {
+  const cached = inboxAgentsCache.get(inboxId);
+  if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
+    return cached.agents
+      .map((a) => a.email)
+      .filter((e): e is string => typeof e === "string" && e.length > 0);
+  }
+
+  const baseUrl = (process.env.CHATWOOT_URL ?? "").replace(/\/$/, "");
+  const accountId = process.env.CHATWOOT_ACCOUNT_ID;
+  const apiToken =
+    process.env.CHATWOOT_API_ACCESS_TOKEN ?? process.env.CHATWOOT_PLATFORM_TOKEN;
+  if (!baseUrl || !accountId || !apiToken) {
+    logger.warn("chatwoot account API not configured for inbox agents");
+    return [];
+  }
+
+  try {
+    const res = await fetch(
+      `${baseUrl}/api/v1/accounts/${accountId}/inboxes/${inboxId}/agents`,
+      {
+        headers: {
+          api_access_token: apiToken,
+          Accept: "application/json",
+        },
+        signal: AbortSignal.timeout(5_000),
+      },
+    );
+    if (!res.ok) {
+      logger.warn("chatwoot inbox agents fetch failed", {
+        status: res.status,
+        inboxId,
+      });
+      inboxAgentsCache.set(inboxId, { agents: [], fetchedAt: Date.now() });
+      return [];
+    }
+    const data = (await res.json()) as ChatwootInboxAgent[];
+    inboxAgentsCache.set(inboxId, { agents: data, fetchedAt: Date.now() });
+    return data
+      .map((a) => a.email)
+      .filter((e): e is string => typeof e === "string" && e.length > 0);
+  } catch (err) {
+    logger.warn("chatwoot inbox agents lookup error", {
+      inboxId,
+      err: err instanceof Error ? err.message : String(err),
+    });
+    return [];
   }
 }

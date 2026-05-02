@@ -330,10 +330,8 @@ export function NotificationBell() {
                       <p className="text-xs text-[var(--text-main)]/80 leading-relaxed">
                         {item.body}
                       </p>
-                      <div className="text-[10px] text-[var(--text-muted)] mt-1 font-mono">
+                      <div className="text-[10px] text-[var(--text-muted)] mt-1">
                         <RelativeTime date={item.created_at} />
-                        {" · "}
-                        {item.event_key}
                       </div>
                     </div>
                   </li>

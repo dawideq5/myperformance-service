@@ -24,18 +24,16 @@ import {
 import { BindingDetails } from "./BindingEventsPanel";
 
 /** Klasyfikacja statusu certyfikatu — używana do badge i filtra. */
-type CertStatus = "active" | "no-location" | "expired" | "revoked";
+type CertStatus = "active" | "expired" | "revoked";
 
 function classify(c: IssuedCertificate): CertStatus {
   if (c.revokedAt) return "revoked";
   if (new Date(c.notAfter) < new Date()) return "expired";
-  if (!c.locationId) return "no-location";
   return "active";
 }
 
 const STATUS_LABEL: Record<CertStatus, string> = {
   active: "autoryzowany",
-  "no-location": "bez lokalizacji",
   expired: "wygasły",
   revoked: "unieważniony",
 };
@@ -106,7 +104,6 @@ export function CertListPanel({
     const c: Record<CertStatus | "all", number> = {
       all: certs.length,
       active: 0,
-      "no-location": 0,
       expired: 0,
       revoked: 0,
     };
@@ -189,7 +186,6 @@ export function CertListPanel({
                 [
                   ["all", "Wszystkie"],
                   ["active", STATUS_LABEL.active],
-                  ["no-location", STATUS_LABEL["no-location"]],
                   ["expired", STATUS_LABEL.expired],
                   ["revoked", STATUS_LABEL.revoked],
                 ] as Array<[typeof filter, string]>
@@ -356,7 +352,6 @@ function DeviceCard({
   const days = daysLeft(cert.notAfter);
   const isExpired = !cert.revokedAt && days < 0;
   const isRevoked = !!cert.revokedAt;
-  const hasNoLocation = !cert.locationId;
 
   const flashClass =
     flashKind === "denied" ? "ring-1 ring-red-400/50"
@@ -387,8 +382,6 @@ function DeviceCard({
             <Badge tone="danger">unieważniony</Badge>
           ) : isExpired ? (
             <Badge tone="danger">wygasły</Badge>
-          ) : hasNoLocation ? (
-            <Badge tone="warning">bez lokalizacji</Badge>
           ) : (
             <Badge tone="success">aktywny</Badge>
           )}
