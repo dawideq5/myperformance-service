@@ -48,22 +48,35 @@ export function PricelistAdminClient({
     [repairTypes],
   );
 
-  // Lista kategorii do filtrów + edytora — pochodzi z unikalnych
-  // mp_repair_types.category + kategorie pojawiające się w istniejących
-  // pozycjach cennika (na wypadek pozycji sierot bez powiązanego
-  // repair_type). Posortowane alfabetycznie. Bez hardcoded enum.
+  // Lista kategorii = lista typów napraw (1:1) — admin wymaga DOKŁADNIE tej
+  // listy z mp_repair_types (Ekspertyza, Wymiana wyświetlacza, Wymiana
+  // baterii, …). Sortowanie po sort_order z mp_repair_types (już posortowane
+  // przez API), fallback na surowy pricelist.category dla pozycji sierot.
   const allCategories = useMemo(() => {
-    const set = new Set<string>();
-    for (const rt of repairTypes) if (rt.category?.trim()) set.add(rt.category.trim());
-    for (const it of initialItems) if (it.category?.trim()) set.add(it.category.trim());
-    return Array.from(set).sort((a, b) => a.localeCompare(b, "pl"));
+    const ordered: string[] = [];
+    const seen = new Set<string>();
+    for (const rt of repairTypes) {
+      if (!seen.has(rt.label)) {
+        ordered.push(rt.label);
+        seen.add(rt.label);
+      }
+    }
+    for (const it of initialItems) {
+      const fallback = it.category?.trim();
+      if (fallback && !seen.has(fallback)) {
+        ordered.push(fallback);
+        seen.add(fallback);
+      }
+    }
+    return ordered;
   }, [repairTypes, initialItems]);
 
-  /** Etykieta kategorii dla item — preferuje category z mp_repair_types po
-   * code pricelist (gdy match), fallback na surową wartość pricelist.category. */
+  /** Etykieta kategorii dla item — label repair_type po code (1:1 mapping).
+   * Fallback: surowa wartość pricelist.category dla pozycji bez powiązanego
+   * repair_type. */
   const categoryFor = useCallback(
     (it: { code: string; category: string }): string => {
-      return repairTypeByCode.get(it.code)?.category ?? it.category ?? "Inne";
+      return repairTypeByCode.get(it.code)?.label ?? it.category ?? "Inne";
     },
     [repairTypeByCode],
   );

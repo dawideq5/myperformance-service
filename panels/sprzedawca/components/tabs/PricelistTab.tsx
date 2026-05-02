@@ -16,7 +16,9 @@ interface PricelistItem {
 
 interface RepairType {
   code: string;
+  label: string;
   category: string;
+  sortOrder?: number;
 }
 
 export function PricelistTab() {
@@ -46,21 +48,36 @@ export function PricelistTab() {
     })();
   }, []);
 
-  // Mapowanie code → category z mp_repair_types. Pricelist item dziedziczy
-  // kategorię z powiązanego repair_type po code (fallback na item.category).
+  // Lista kategorii = lista typów napraw (1:1 z mp_repair_types). Każda
+  // pozycja cennika należy do dokładnie 1 typu naprawy po code.
   const repairTypeByCode = useMemo(
     () => new Map(repairTypes.map((t) => [t.code, t])),
     [repairTypes],
   );
   const categoryFor = (it: PricelistItem) =>
-    repairTypeByCode.get(it.code)?.category ?? it.category ?? "Inne";
+    repairTypeByCode.get(it.code)?.label ?? it.category ?? "Inne";
 
   const categories = useMemo(() => {
-    const set = new Set<string>();
-    for (const i of items) set.add(categoryFor(i));
-    return Array.from(set).sort((a, b) => a.localeCompare(b, "pl"));
+    // Pełna lista typów napraw w kolejności sort_order (już posortowane przez
+    // API). Fallback na pricelist.category dla pozycji bez powiązanego typu.
+    const ordered: string[] = [];
+    const seen = new Set<string>();
+    for (const rt of repairTypes) {
+      if (!seen.has(rt.label)) {
+        ordered.push(rt.label);
+        seen.add(rt.label);
+      }
+    }
+    for (const i of items) {
+      const c = categoryFor(i);
+      if (!seen.has(c)) {
+        ordered.push(c);
+        seen.add(c);
+      }
+    }
+    return ordered;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, repairTypeByCode]);
+  }, [items, repairTypes, repairTypeByCode]);
 
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();
