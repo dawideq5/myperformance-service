@@ -1,6 +1,5 @@
 import type { ServiceStatus } from "./status-meta";
 
-export type FilterPriority = "all" | "urgent" | "sla_breached";
 export type FilterPeriod = "7d" | "30d" | "all" | "custom";
 
 export interface FilterState {
@@ -8,7 +7,6 @@ export interface FilterState {
   statuses: ServiceStatus[];
   /** Wybrane lokacje (id). Pusty zbiór = wszystkie. */
   locations: string[];
-  priority: FilterPriority;
   period: FilterPeriod;
   /** Tylko gdy period === "custom". ISO date (YYYY-MM-DD). */
   customFrom?: string | null;
@@ -20,7 +18,6 @@ export interface FilterState {
 export const DEFAULT_FILTERS: FilterState = {
   statuses: [],
   locations: [],
-  priority: "all",
   period: "30d",
   customFrom: null,
   customTo: null,
@@ -31,7 +28,6 @@ export function isFilterActive(filters: FilterState): boolean {
   return (
     filters.statuses.length > 0 ||
     filters.locations.length > 0 ||
-    filters.priority !== "all" ||
     filters.period !== "30d" ||
     filters.search.trim().length > 0
   );

@@ -12,7 +12,6 @@ import {
   DEFAULT_FILTERS,
   isFilterActive,
   type FilterPeriod,
-  type FilterPriority,
   type FilterState,
 } from "@/lib/serwisant/filters";
 
@@ -30,12 +29,6 @@ interface SidebarFiltersProps {
   /** Override do mobilnego widoku — bez sticky. */
   variant?: "desktop" | "mobile";
 }
-
-const PRIORITY_OPTIONS: { id: FilterPriority; label: string }[] = [
-  { id: "all", label: "Wszystkie" },
-  { id: "urgent", label: "Pilne" },
-  { id: "sla_breached", label: "SLA przekroczone" },
-];
 
 const PERIOD_OPTIONS: { id: FilterPeriod; label: string }[] = [
   { id: "7d", label: "7 dni" },
@@ -254,38 +247,6 @@ export function SidebarFilters({
           </ul>
         </section>
       )}
-
-      {/* Priorytet */}
-      <section>
-        <h3
-          className="text-[11px] uppercase font-semibold mb-2 tracking-wider"
-          style={{ color: "var(--text-muted)" }}
-        >
-          Priorytet
-        </h3>
-        <div className="space-y-0.5">
-          {PRIORITY_OPTIONS.map((opt) => (
-            <label
-              key={opt.id}
-              className="flex items-center gap-2 px-1.5 py-1 rounded cursor-pointer hover:bg-white/[0.04]"
-            >
-              <input
-                type="radio"
-                name="filter-priority"
-                className="accent-[var(--accent)]"
-                checked={filters.priority === opt.id}
-                onChange={() => update({ priority: opt.id })}
-              />
-              <span
-                className="text-sm"
-                style={{ color: "var(--text-main)" }}
-              >
-                {opt.label}
-              </span>
-            </label>
-          ))}
-        </div>
-      </section>
 
       {/* Okres */}
       <section>

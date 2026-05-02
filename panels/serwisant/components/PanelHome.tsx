@@ -490,12 +490,6 @@ function ServicesView({
         const sLoc = s.locationId ?? s.serviceLocationId ?? null;
         if (!sLoc || !filters.locations.includes(sLoc)) return false;
       }
-      if (filters.priority === "sla_breached") {
-        const due = s.promisedAt ? new Date(s.promisedAt).getTime() : null;
-        if (!due || due > Date.now()) return false;
-      }
-      // priority === "urgent" — wymaga pola priority na backendzie; gdy
-      // nie ma, traktujemy jako brak filtra (no-op) zamiast zwracać 0.
       if (filters.period === "7d" || filters.period === "30d") {
         if (!s.createdAt) return false;
         const days = filters.period === "7d" ? 7 : 30;
