@@ -14,6 +14,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { BrandPicker, BRANDS } from "../intake/BrandPicker";
+import { PhoneModelPicker } from "../intake/PhoneModelPicker";
 import { ImeiField } from "../intake/ImeiField";
 import { ColorPicker, NAMED_COLORS } from "../intake/ColorPicker";
 import { LockSection } from "../intake/LockSection";
@@ -650,14 +651,44 @@ export function AddServiceTab({
           onContinue={editingServiceId ? undefined : () => continueToNext("device")}
         >
           <div className="space-y-4">
-            <BrandPicker value={brand} onChange={setBrand} />
-            <Input
-              icon={<Smartphone className="w-4 h-4" />}
-              label="Model"
-              value={model}
-              onChange={setModel}
-              placeholder="iPhone 15 Pro, Galaxy S24, Redmi Note 13…"
+            <PhoneModelPicker
+              value={null}
+              onChange={(_slug, label) => {
+                if (!label) {
+                  setBrand("");
+                  setModel("");
+                  return;
+                }
+                const parts = label.split(" ");
+                setBrand(parts[0] ?? "");
+                setModel(parts.slice(1).join(" "));
+              }}
+              placeholder={
+                brand && model
+                  ? `${brand} ${model} — kliknij aby zmienić`
+                  : "Wpisz markę i model — np. iPhone 13 Pro Max"
+              }
             />
+            {brand && model && (
+              <p className="text-xs text-[var(--text-muted)]">
+                Wybrane: <span className="font-medium text-[var(--text-main)]">{brand} {model}</span>
+              </p>
+            )}
+            <details className="text-xs">
+              <summary className="cursor-pointer text-[var(--text-muted)]">
+                Modelu nie ma na liście — wpisz ręcznie (legacy)
+              </summary>
+              <div className="space-y-2 mt-2">
+                <BrandPicker value={brand} onChange={setBrand} />
+                <Input
+                  icon={<Smartphone className="w-4 h-4" />}
+                  label="Model"
+                  value={model}
+                  onChange={setModel}
+                  placeholder="iPhone 15 Pro, Galaxy S24…"
+                />
+              </div>
+            </details>
             <ImeiField value={imei} onChange={setImei} />
             <ColorPicker value={color} onChange={setColor} />
           </div>
