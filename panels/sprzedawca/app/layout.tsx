@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Providers } from "./providers";
-import { UnifiedTopBar } from "@/components/UnifiedTopBar";
 
 export const metadata: Metadata = {
   title: "Panel Sprzedawcy — MyPerformance",
@@ -14,11 +13,7 @@ export default function RootLayout({
   return (
     <html lang="pl">
       <body>
-        <Providers>
-          {/* TopBar globalny — logo (link do dashboardu), search, bell, user. */}
-          <UnifiedTopBar title="Panel sprzedawcy" />
-          {children}
-        </Providers>
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

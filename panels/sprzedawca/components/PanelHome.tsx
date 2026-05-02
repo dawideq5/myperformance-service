@@ -16,9 +16,11 @@ import { signOut } from "next-auth/react";
 import { DASHBOARD_HOME_URL } from "@/lib/dashboard-url";
 import {
   AlertTriangle,
+  ArrowLeft,
   Briefcase,
   Building2,
   ListChecks,
+  LogOut,
   Mail,
   MapPin,
   Phone,
@@ -27,6 +29,7 @@ import {
   Shield,
   Tags,
   Truck,
+  User as UserIcon,
 } from "lucide-react";
 import { PanelLocationMap, type PanelLocation } from "./PanelLocationMap";
 import { ServicesAllTab } from "./tabs/ServicesAllTab";
@@ -217,7 +220,43 @@ export function PanelHome({
         className="min-h-screen flex flex-col"
         style={{ background: "var(--bg-main)" }}
       >
-        {/* Header globalny dostarcza UnifiedTopBar w app/layout.tsx. */}
+        <header
+          className="border-b backdrop-blur-md sticky top-0 z-10"
+          style={{
+            background: "var(--bg-header)",
+            borderColor: "var(--border-subtle)",
+          }}
+        >
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-4">
+            <a
+              href={DASHBOARD_HOME_URL}
+              className="flex items-center gap-2 font-bold tracking-tight"
+              style={{ color: "var(--text-main)" }}
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span className="hidden sm:inline">MyPerformance · Panel Sprzedawcy</span>
+              <span className="sm:hidden">Sprzedawca</span>
+            </a>
+            <div className="flex items-center gap-2">
+              {userLabel && (
+                <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg" style={{ background: "var(--bg-surface)" }}>
+                  <UserIcon className="w-4 h-4" style={{ color: "var(--accent)" }} />
+                  <span className="text-sm">{userLabel}</span>
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => signOut({ callbackUrl: "/login" })}
+                className="px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-1.5"
+                style={{ color: "var(--text-muted)" }}
+              >
+                <LogOut className="w-4 h-4" />
+                <span className="hidden sm:inline">Wyloguj</span>
+              </button>
+            </div>
+          </div>
+        </header>
+
         <main className="flex-1 mx-auto max-w-7xl w-full px-4 sm:px-6 py-6 sm:py-8 space-y-4 animate-fade-in">
           <div>
             <h1 className="text-2xl font-bold mb-1" style={{ color: "var(--text-main)" }}>
@@ -305,49 +344,78 @@ export function PanelHome({
       className="min-h-screen flex flex-col"
       style={{ background: "var(--bg-main)" }}
     >
-      {/* Sub-header z aktywnym punktem (TopBar globalny w layout.tsx). Pokazuje
-          nazwę punktu + opcjonalny "Zmień punkt" gdy >1 lokalizacja. */}
-      <div
-        className="border-b"
+      <header
+        className="border-b backdrop-blur-md sticky top-0 z-10"
         style={{
           background: "var(--bg-header)",
           borderColor: "var(--border-subtle)",
         }}
       >
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 h-12 flex items-center justify-between gap-4">
-          <div className="min-w-0 flex-1">
-            <p
-              className="font-semibold text-sm truncate"
-              style={{ color: "var(--text-main)" }}
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3 min-w-0">
+            <a
+              href={DASHBOARD_HOME_URL}
+              className="flex-shrink-0 p-2 rounded-lg"
+              style={{ color: "var(--text-muted)" }}
+              aria-label="Wróć do dashboardu"
+              title="Powrót do dashboardu"
             >
-              {selected.name}
-              {selected.warehouseCode ? (
-                <span
-                  className="ml-2 text-[10px] font-mono uppercase px-1.5 py-0.5 rounded"
-                  style={{
-                    background: "var(--bg-surface)",
-                    color: "var(--text-muted)",
-                  }}
-                >
-                  {selected.warehouseCode}
-                </span>
-              ) : null}
-            </p>
+              <ArrowLeft className="w-5 h-5" />
+            </a>
+            <div className="min-w-0">
+              <p
+                className="font-bold text-base sm:text-lg truncate"
+                style={{ color: "var(--text-main)" }}
+              >
+                {selected.name}
+              </p>
+              <p
+                className="text-[11px] sm:text-xs truncate"
+                style={{ color: "var(--text-muted)" }}
+              >
+                Panel Sprzedawcy
+                {selected.warehouseCode ? ` · ${selected.warehouseCode}` : ""}
+              </p>
+            </div>
           </div>
-          {locations.length > 1 && (
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            {locations.length > 1 && (
+              <button
+                type="button"
+                onClick={onClearSelection}
+                className="p-2 rounded-lg flex items-center gap-1.5 text-xs font-medium hidden sm:flex"
+                style={{ color: "var(--text-muted)" }}
+                title="Zmień punkt"
+              >
+                <RotateCcw className="w-4 h-4" />
+                <span>Zmień punkt</span>
+              </button>
+            )}
+            {userLabel && (
+              <div
+                className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm"
+                style={{ background: "var(--bg-surface)", color: "var(--text-main)" }}
+              >
+                <UserIcon
+                  className="w-4 h-4"
+                  style={{ color: "var(--accent)" }}
+                />
+                <span>{userLabel}</span>
+              </div>
+            )}
             <button
               type="button"
-              onClick={onClearSelection}
-              className="p-1.5 rounded-lg flex items-center gap-1.5 text-xs font-medium"
+              onClick={() => signOut({ callbackUrl: "/login" })}
+              className="p-2 rounded-lg flex items-center gap-1.5 text-xs font-medium"
               style={{ color: "var(--text-muted)" }}
-              title="Zmień punkt"
+              aria-label="Wyloguj"
             >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Zmień punkt</span>
+              <LogOut className="w-4 h-4" />
+              <span className="hidden lg:inline">Wyloguj</span>
             </button>
-          )}
+          </div>
         </div>
-      </div>
+      </header>
 
       {/* Pasek z zakładkami — 6 sekcji modułu sprzedaży */}
       <nav
