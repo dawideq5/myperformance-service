@@ -476,14 +476,10 @@ export function AddServiceTab({
         locationId,
         serviceLocationId: chosenServiceLocationId,
         type: "phone",
-        // Backend uppercase normalization — niezależnie od UI input,
-        // wszystkie tekstowe pola identyfikujące (marka/model/kolor/imię)
-        // zapisujemy DUŻYMI LITERAMI dla spójności wyszukiwania i braku
-        // chaosu typu "iPhone 13 PM" vs "IPHONE 13 PRO MAX".
-        brand: brand.trim().toUpperCase() || null,
-        model: model.trim().toUpperCase() || null,
+        brand: brand.trim() || null,
+        model: model.trim() || null,
         imei: imei.trim() || null,
-        color: color.trim().toUpperCase() || null,
+        color: color.trim() || null,
         lockType,
         lockCode: lockCode.trim() || null,
         intakeChecklist,
@@ -491,8 +487,8 @@ export function AddServiceTab({
         visualCondition: visualOnly,
         description: descriptionPayload,
         amountEstimate: amountEstimate ? Number(amountEstimate) : null,
-        customerFirstName: customerFirstName.trim().toUpperCase() || null,
-        customerLastName: customerLastName.trim().toUpperCase() || null,
+        customerFirstName: customerFirstName.trim() || null,
+        customerLastName: customerLastName.trim() || null,
         contactPhone: contactPhone.trim() || null,
         contactEmail: contactEmail.trim().toLowerCase() || null,
       };
@@ -650,21 +646,16 @@ export function AddServiceTab({
           onContinue={editingServiceId ? undefined : () => continueToNext("device")}
         >
           <div className="space-y-4">
-            <BrandPicker value={brand} onChange={(v) => setBrand(v.toUpperCase())} />
+            <BrandPicker value={brand} onChange={setBrand} />
             <Input
               icon={<Smartphone className="w-4 h-4" />}
-              label="Model (pełna nazwa)"
+              label="Model"
               value={model}
-              onChange={(v) => setModel(v.toUpperCase())}
-              placeholder="IPHONE 13 PRO MAX, GALAXY S24 ULTRA, REDMI NOTE 13 PRO"
+              onChange={setModel}
+              placeholder="iPhone 13 Pro Max, Galaxy S24 Ultra, Redmi Note 13 Pro"
             />
-            <p className="text-xs text-[var(--text-muted)] -mt-2">
-              Wpisz pełną nazwę modelu DUŻYMI LITERAMI — używaj oficjalnych
-              oznaczeń (Pro, Pro Max, Ultra, +). Przykłady:
-              IPHONE 13 PRO MAX (nie 13 PM), GALAXY S24 ULTRA (nie S24U).
-            </p>
             <ImeiField value={imei} onChange={setImei} />
-            <ColorPicker value={color} onChange={(v) => setColor(v.toUpperCase())} />
+            <ColorPicker value={color} onChange={setColor} />
           </div>
         </Section>
         </div>
@@ -769,24 +760,20 @@ export function AddServiceTab({
           onContinue={editingServiceId ? undefined : () => continueToNext("customer")}
         >
           <div className="space-y-3">
-            <p className="text-xs text-[var(--text-muted)] -mt-1">
-              Wszystkie pola DUŻYMI LITERAMI — automatycznie konwertujemy.
-              Polskie znaki zachowane.
-            </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Input
                 icon={<UserIcon className="w-4 h-4" />}
                 label="Imię klienta"
                 value={customerFirstName}
-                onChange={(v) => setCustomerFirstName(v.toUpperCase())}
-                placeholder="JAN"
+                onChange={setCustomerFirstName}
+                placeholder="Jan"
               />
               <Input
                 icon={<UserIcon className="w-4 h-4" />}
                 label="Nazwisko"
                 value={customerLastName}
-                onChange={(v) => setCustomerLastName(v.toUpperCase())}
-                placeholder="KOWALSKI"
+                onChange={setCustomerLastName}
+                placeholder="Kowalski"
               />
             </div>
             <PhoneInputWithFlags
