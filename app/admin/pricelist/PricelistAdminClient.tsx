@@ -636,7 +636,7 @@ function PricelistDialog({
           </label>
           <details className="text-xs">
             <summary className="cursor-pointer" style={{ color: "var(--text-muted)" }}>
-              Albo: szeroki wzorzec (legacy — np. "iPhone 12" pasuje do całej rodziny)
+              Albo: szeroki wzorzec (legacy — np. „iPhone 12” pasuje do całej rodziny)
             </summary>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
               <Input

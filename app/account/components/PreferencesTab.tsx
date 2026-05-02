@@ -124,14 +124,6 @@ export function PreferencesTab() {
     }
   }
 
-  function toggleAll(channel: Channel, value: boolean) {
-    if (!catalog) return;
-    const next: Record<string, boolean> = {};
-    for (const k of Object.keys(catalog)) next[k] = value;
-    if (channel === "inApp") setDraftInApp(next);
-    else setDraftEmail(next);
-  }
-
   if (loading) {
     return (
       <div className="space-y-4">
