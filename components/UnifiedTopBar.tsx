@@ -31,7 +31,6 @@ import { Button, ThemeToggle } from "@/components/ui";
 import { NotificationBell } from "@/components/NotificationBell";
 import { useAuthRedirect } from "@/hooks/useAuthRedirect";
 import { usePlatform } from "@/hooks/usePlatform";
-import { AnimatedLogoMorph } from "@/components/AnimatedLogoMorph";
 import {
   canAccessCalendar,
   canAccessChatwootAsAdmin,
@@ -55,7 +54,7 @@ import {
 import type { Session } from "next-auth";
 
 /**
- * Mapowanie pathname → nazwa widoku pokazywana w animowanym logo.
+ * Mapowanie pathname → nazwa widoku pokazywana jako subtitle pod logo.
  *
  * Sprawdzamy od najbardziej szczegółowego do najogólniejszego (longest-match
  * via sortowanie).
@@ -378,15 +377,25 @@ export function UnifiedTopBar({
       >
         {/* Lewa strona: logo + Tools + search */}
         <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+          {/* Statyczne logo brandu + subtitle z nazwą widoku — bez animacji,
+              gradient tekstu + uppercase tracking. */}
           <Link
             href="/dashboard"
-            className="text-[var(--text-main)] hover:opacity-90 transition-opacity flex-shrink-0"
+            className="flex flex-col leading-tight flex-shrink-0 hover:opacity-90 transition-opacity"
             aria-label="MyPerformance — pulpit"
           >
-            <AnimatedLogoMorph
-              primary="MyPerformance"
-              secondary={detectedView}
-            />
+            <span
+              className="font-bold text-base sm:text-lg uppercase tracking-wider bg-clip-text text-transparent select-none"
+              style={{
+                backgroundImage:
+                  "linear-gradient(90deg, #6366f1, #8b5cf6, #ec4899)",
+              }}
+            >
+              MyPerformance
+            </span>
+            <span className="text-[10px] sm:text-[11px] text-[var(--text-muted)] tracking-wide truncate max-w-[200px]">
+              {detectedView}
+            </span>
           </Link>
 
           {!minimal && isAuthed && visibleTools.length > 1 && (

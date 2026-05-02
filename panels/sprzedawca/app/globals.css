@@ -35,9 +35,3 @@ input.no-spinner[type="number"] {
   -moz-appearance: textfield;
 }
 
-/* UnifiedTopBar — animacja "spadającej litery" przy enter w morph logo. */
-@keyframes mp-letter-drop {
-  0%   { opacity: 0; transform: translateY(-16px); }
-  60%  { opacity: 1; transform: translateY(2px); }
-  100% { opacity: 1; transform: translateY(0); }
-}

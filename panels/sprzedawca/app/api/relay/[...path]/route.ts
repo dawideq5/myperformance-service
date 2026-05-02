@@ -10,14 +10,16 @@ const DASHBOARD_URL =
   "https://myperformance.pl";
 
 /**
- * Proxy z paneli do dashboard /api/panel/*. Panel-side NextAuth session
- * trzyma KC accessToken; client-side nie ma do niego dostępu, więc
- * proxyjemy server-side pod ścieżkę `${DASHBOARD_URL}/api/panel/<path>`.
+ * Proxy z paneli do dashboard /api/panel/* oraz /api/account/*. Panel-side
+ * NextAuth session trzyma KC accessToken; client-side nie ma do niego
+ * dostępu, więc proxyjemy server-side.
  *
- * Ścieżki: tylko whitelisted prefixy (services, claims, protections,
- * pricelist, transport-jobs). Każda inna → 404.
+ * Whitelist:
+ *  - prefiks `account` → `${DASHBOARD_URL}/api/account/<reszta>` (inbox, prefs)
+ *  - pozostałe        → `${DASHBOARD_URL}/api/panel/<path>`
+ * Każda inna ścieżka → 404.
  */
-const ALLOWED_PREFIXES = new Set([
+const ALLOWED_PANEL_PREFIXES = new Set([
   "services",
   "claims",
   "protections",
@@ -29,6 +31,7 @@ const ALLOWED_PREFIXES = new Set([
   "service-locations",
   "phones",
 ]);
+const ALLOWED_ACCOUNT_PREFIXES = new Set(["inbox"]);
 
 async function handle(
   req: Request,
@@ -38,9 +41,19 @@ async function handle(
   if (!path?.length) {
     return NextResponse.json({ error: "Missing path" }, { status: 400 });
   }
-  if (!ALLOWED_PREFIXES.has(path[0])) {
+  // Routing: account/* → /api/account/*, reszta → /api/panel/*.
+  let targetPath: string;
+  if (path[0] === "account") {
+    if (path.length < 2 || !ALLOWED_ACCOUNT_PREFIXES.has(path[1])) {
+      return NextResponse.json({ error: "Path not allowed" }, { status: 404 });
+    }
+    targetPath = `account/${path.slice(1).join("/")}`;
+  } else if (ALLOWED_PANEL_PREFIXES.has(path[0])) {
+    targetPath = `panel/${path.join("/")}`;
+  } else {
     return NextResponse.json({ error: "Path not allowed" }, { status: 404 });
   }
+
   const session = await getServerSession(authOptions);
   const accessToken = (session as { accessToken?: string } | null)?.accessToken;
   if (!accessToken) {
@@ -48,7 +61,7 @@ async function handle(
   }
 
   const url = new URL(req.url);
-  const targetUrl = `${DASHBOARD_URL}/api/panel/${path.join("/")}${url.search}`;
+  const targetUrl = `${DASHBOARD_URL}/api/${targetPath}${url.search}`;
   const init: RequestInit = {
     method: req.method,
     headers: {

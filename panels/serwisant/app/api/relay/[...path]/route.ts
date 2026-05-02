@@ -9,20 +9,33 @@ const DASHBOARD_URL =
   process.env.DASHBOARD_URL?.trim().replace(/\/$/, "") ??
   "https://myperformance.pl";
 
-const ALLOWED_PREFIXES = new Set([
+const ALLOWED_PANEL_PREFIXES = new Set([
   "services",
   "claims",
   "protections",
   "pricelist",
   "transport-jobs",
 ]);
+const ALLOWED_ACCOUNT_PREFIXES = new Set(["inbox"]);
 
 async function handle(
   req: Request,
   { params }: { params: Promise<{ path: string[] }> },
 ) {
   const { path } = await params;
-  if (!path?.length || !ALLOWED_PREFIXES.has(path[0])) {
+  if (!path?.length) {
+    return NextResponse.json({ error: "Missing path" }, { status: 400 });
+  }
+  // Routing: account/* → /api/account/*, reszta → /api/panel/*.
+  let targetPath: string;
+  if (path[0] === "account") {
+    if (path.length < 2 || !ALLOWED_ACCOUNT_PREFIXES.has(path[1])) {
+      return NextResponse.json({ error: "Path not allowed" }, { status: 404 });
+    }
+    targetPath = `account/${path.slice(1).join("/")}`;
+  } else if (ALLOWED_PANEL_PREFIXES.has(path[0])) {
+    targetPath = `panel/${path.join("/")}`;
+  } else {
     return NextResponse.json({ error: "Path not allowed" }, { status: 404 });
   }
   const session = await getServerSession(authOptions);
@@ -31,7 +44,7 @@ async function handle(
     return NextResponse.json({ error: "no_session" }, { status: 401 });
   }
   const url = new URL(req.url);
-  const targetUrl = `${DASHBOARD_URL}/api/panel/${path.join("/")}${url.search}`;
+  const targetUrl = `${DASHBOARD_URL}/api/${targetPath}${url.search}`;
   const init: RequestInit = {
     method: req.method,
     headers: {

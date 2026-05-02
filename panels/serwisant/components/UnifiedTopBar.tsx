@@ -14,12 +14,10 @@ import { PanelSearch } from "@/components/PanelSearch";
  * Logo prowadzi do `DASHBOARD_HOME_URL` (osobna aplikacja Next.js — używamy
  * `<a href>` zamiast `<Link>`).
  */
-const PANEL_TITLE = "Panel sprzedawcy";
+const PANEL_TITLE = "Panel serwisanta";
 
 interface UnifiedTopBarProps {
-  /** Override tytułu panelu — domyślnie "Panel sprzedawcy". */
   title?: string;
-  /** Override z server-side gdy useSession nie ma jeszcze danych. */
   fallbackUserLabel?: string;
   fallbackUserEmail?: string;
 }
@@ -52,7 +50,6 @@ export function UnifiedTopBar({
       }}
     >
       <div className="mx-auto max-w-7xl px-3 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-2 sm:gap-3">
-        {/* Lewa strona: logo (link do dashboardu) + subtitle + search */}
         <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
           <a
             href={DASHBOARD_HOME_URL}
@@ -80,7 +77,6 @@ export function UnifiedTopBar({
           {isAuthed && <PanelSearch />}
         </div>
 
-        {/* Prawa strona: bell + user + logout */}
         <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
           {isAuthed && <NotificationBell />}
 

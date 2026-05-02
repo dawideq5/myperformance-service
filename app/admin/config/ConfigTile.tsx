@@ -18,7 +18,8 @@ export type ConfigTileAccent =
   | "rose"
   | "indigo"
   | "pink"
-  | "teal";
+  | "teal"
+  | "blue";
 
 interface ConfigTileProps {
   icon: ReactNode;
@@ -37,6 +38,7 @@ const ACCENT_CLASSES: Record<ConfigTileAccent, string> = {
   indigo: "bg-indigo-500/10 text-indigo-400",
   pink: "bg-pink-500/10 text-pink-400",
   teal: "bg-teal-500/10 text-teal-400",
+  blue: "bg-blue-500/10 text-blue-400",
 };
 
 export function ConfigTile({

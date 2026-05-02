@@ -2,6 +2,7 @@
 
 import {
   Bell,
+  Mail,
   MapPin,
   Settings,
   Tags,
@@ -55,6 +56,13 @@ const TILES: TileDef[] = [
     href: "/admin/announcements",
     icon: <Bell className="w-6 h-6" />,
     accent: "rose",
+  },
+  {
+    title: "Korespondencja e-mail",
+    description: "Cały ruch mailowy + Chatwoot dla zweryfikowanych adresów",
+    href: "/admin/correspondence",
+    icon: <Mail className="w-6 h-6" />,
+    accent: "blue",
   },
 ];
 
