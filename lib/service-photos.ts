@@ -5,6 +5,7 @@ import {
   updateItem,
 } from "@/lib/directus-cms";
 import { log } from "@/lib/logger";
+import { publish } from "@/lib/sse-bus";
 
 const logger = log.child({ module: "service-photos" });
 
@@ -113,7 +114,19 @@ export async function createServicePhoto(
       size_bytes: input.sizeBytes ?? null,
       content_type: input.contentType ?? null,
     });
-    return mapRow(created);
+    const mapped = mapRow(created);
+    publish({
+      type: "photo_uploaded",
+      serviceId: input.serviceId,
+      payload: {
+        photoId: mapped.id,
+        ticketNumber: mapped.ticketNumber,
+        stage: mapped.stage,
+        url: mapped.url,
+        thumbnailUrl: mapped.thumbnailUrl,
+      },
+    });
+    return mapped;
   } catch (err) {
     logger.warn("createServicePhoto failed", {
       serviceId: input.serviceId,
@@ -172,9 +185,22 @@ export async function softDeleteServicePhoto(
 ): Promise<boolean> {
   if (!(await directusConfigured())) return false;
   try {
+    // Pre-fetch żeby dostać serviceId do publish() po soft-delete.
+    const existing = await getServicePhoto(photoId);
     await updateItem("mp_service_photos", photoId, {
       deleted_at: new Date().toISOString(),
     });
+    if (existing) {
+      publish({
+        type: "photo_deleted",
+        serviceId: existing.serviceId,
+        payload: {
+          photoId,
+          ticketNumber: existing.ticketNumber,
+          stage: existing.stage,
+        },
+      });
+    }
     return true;
   } catch (err) {
     logger.warn("softDeleteServicePhoto failed", {

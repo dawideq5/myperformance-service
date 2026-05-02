@@ -10,6 +10,7 @@ import {
   createServiceConversation,
   notifyServiceStatusChange,
 } from "@/lib/chatwoot-customer";
+import { publish } from "@/lib/sse-bus";
 
 const logger = log.child({ module: "services" });
 
@@ -974,6 +975,30 @@ export async function updateService(
     } catch (err) {
       logger.warn("Chatwoot notify failed", { err: String(err) });
     }
+    // Real-time push (Wave 19/Phase 1D) — status_changed jako odrębny event
+    // żeby klienci panelowi mogli filtrować precyzyjnie (np. board reorder
+    // bez full refetch).
+    publish({
+      type: "status_changed",
+      serviceId: id,
+      payload: {
+        ticketNumber: mapped.ticketNumber,
+        from: before.status,
+        to: input.status,
+        service: mapped,
+      },
+    });
+  } else if (Object.keys(patch).length > 1) {
+    // Zwykła edycja (poza updated_at) — emit service_updated dla detail
+    // view, żeby pola się odświeżyły bez ręcznego "Odśwież".
+    publish({
+      type: "service_updated",
+      serviceId: id,
+      payload: {
+        ticketNumber: mapped.ticketNumber,
+        service: mapped,
+      },
+    });
   }
 
   return mapped;

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
+  Eye,
   FileSignature,
   Loader2,
   Mail,
@@ -31,18 +32,48 @@ interface ApiError {
 }
 
 /**
- * 3-trybowy builder aneksu — Documenso (e-podpis), telefoniczna,
- * mailowa. Komponent jest standalone — kontroluje cały flow request →
- * response, errory pokazuje inline. Phase 3 zintegruje go z
- * `WycenaTab` (placeholder `data-todo="annex-builder"`).
+ * Wave 19/Faza 1E — uproszczony 3-trybowy builder aneksu.
  *
- * Zachowanie backendu (Phase 1 audit):
- *  - `POST /annex` z `acceptanceMethod=documenso` od razu wysyła do
- *    podpisu (auto-sign jako pracownik) — single call.
- *  - `POST /annex` z `phone`/`email` zawsze tworzy aneks w stanie
- *    `pending` → potem `POST /annexes/[annexId]/accept` żeby applyować
- *    delta i wpisać quote-history. Implementujemy 2-step.
+ * Smart defaults:
+ *  - method: documenso gdy email klienta istnieje, inaczej phone (jeśli
+ *    telefon jest), inaczej email (manual lookup po messageId).
+ *  - delta: 0,00 PLN start.
+ *  - reason chips: szybkie wstawienie typowych powodów (bateria/wyświetlacz
+ *    /dodatkowa diagnostyka). User może edytować free text.
+ *
+ * UX:
+ *  - Kompaktowy segmented control z ikonami zamiast verbose radio.
+ *  - Pokazuje tylko relevant pola dla wybranej metody.
+ *  - Preview PDF — otwiera nową kartę z `/annex/preview` (server render
+ *    on-the-fly, bez zapisu w DB).
+ *  - Inline confirmation card po sukcesie zamiast generic toast (parent
+ *    `WycenaTab` pokazuje status w liście aneksów).
+ *
+ * Real-time:
+ *  - SSE bus (`lib/sse-bus.ts`) PUBLISHES eventy `action_logged` z
+ *    payload.action `annex_created/accepted/rejected`. Front-end subscriber
+ *    `/api/events` jeszcze nie istnieje (Wave 19/Phase 1D ma backend bus,
+ *    `/api/events` endpoint i `useSseEvents` hook są TODO). Po dostarczeniu:
+ *    parent `WycenaTab` zasubskrybuje `service:${serviceId}` i automatycznie
+ *    refresh-uje listy aneksów.
+ *
+ * Backend kontrakt (Phase 1 audit):
+ *  - `POST /annex` z `acceptanceMethod=documenso` od razu wysyła do podpisu
+ *    (auto-sign jako pracownik) — single call.
+ *  - `POST /annex` z `phone`/`email` zawsze tworzy aneks w stanie `pending`
+ *    → potem `POST /annexes/[annexId]/accept` żeby applyować delta i wpisać
+ *    quote-history. Implementujemy 2-step.
  */
+
+const REASON_SUGGESTIONS = [
+  "Dodatkowa wymiana baterii",
+  "Naprawa skomplikowana niż początkowa diagnoza",
+  "Wymiana wyświetlacza zamiast samego digitizera",
+  "Wykryto zalanie — czyszczenie ultradźwiękowe",
+  "Wymiana złącza ładowania",
+  "Dodatkowa diagnostyka (czas pracy)",
+];
+
 export function AnnexBuilder({
   serviceId,
   currentAmount,
@@ -51,10 +82,14 @@ export function AnnexBuilder({
   onCreated,
   onClose,
 }: AnnexBuilderProps) {
-  const [method, setMethod] = useState<AnnexAcceptanceMethod>(
-    customerEmail ? "documenso" : "phone",
-  );
-  const [deltaInput, setDeltaInput] = useState<string>("0");
+  const initialMethod: AnnexAcceptanceMethod = customerEmail
+    ? "documenso"
+    : customerPhone
+      ? "phone"
+      : "email";
+
+  const [method, setMethod] = useState<AnnexAcceptanceMethod>(initialMethod);
+  const [deltaInput, setDeltaInput] = useState<string>("0,00");
   const [reason, setReason] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [messageId, setMessageId] = useState("");
@@ -98,8 +133,7 @@ export function AnnexBuilder({
 
   const phoneValid =
     method !== "phone" || (customerName.trim().length > 0 && note.trim().length > 0);
-  const emailValid =
-    method !== "email" || messageId.trim().length > 0;
+  const emailValid = method !== "email" || messageId.trim().length > 0;
   const documensoValid = method !== "documenso" || !!customerEmail;
 
   const canSubmit =
@@ -110,6 +144,8 @@ export function AnnexBuilder({
     documensoValid &&
     !submitting;
 
+  const canPreview = deltaValid && reasonValid;
+
   const fetchLookup = async () => {
     setLookupLoading(true);
     setLookupError(null);
@@ -119,9 +155,7 @@ export function AnnexBuilder({
       );
       const json = await res.json();
       if (!res.ok) {
-        throw new Error(
-          (json as ApiError)?.error ?? `HTTP ${res.status}`,
-        );
+        throw new Error((json as ApiError)?.error ?? `HTTP ${res.status}`);
       }
       setLookupMessages(
         Array.isArray(json?.email)
@@ -135,6 +169,20 @@ export function AnnexBuilder({
     } finally {
       setLookupLoading(false);
     }
+  };
+
+  const openPreview = () => {
+    if (!canPreview) return;
+    const params = new URLSearchParams();
+    params.set("delta", String(deltaParsed));
+    params.set("reason", reason.trim());
+    if (method === "phone" && customerName.trim()) {
+      params.set("customerName", customerName.trim());
+    }
+    const url = `/api/relay/services/${encodeURIComponent(
+      serviceId,
+    )}/annex/preview?${params.toString()}`;
+    window.open(url, "_blank", "noopener,noreferrer");
   };
 
   const submit = async () => {
@@ -168,9 +216,7 @@ export function AnnexBuilder({
         | { ok?: boolean; annex?: ServiceAnnex; error?: string; detail?: string }
         | null;
       if (!createRes.ok || !createJson?.annex) {
-        throw new Error(
-          createJson?.error ?? `HTTP ${createRes.status}`,
-        );
+        throw new Error(createJson?.error ?? `HTTP ${createRes.status}`);
       }
 
       let finalAnnex: ServiceAnnex = createJson.annex;
@@ -322,72 +368,107 @@ export function AnnexBuilder({
                   borderColor: "var(--border-subtle)",
                   color: "var(--text-main)",
                 }}
+                aria-describedby="annex-reason-help annex-reason-suggestions"
               />
+              <p
+                id="annex-reason-help"
+                className="mt-1 text-[10px]"
+                style={{ color: "var(--text-muted)" }}
+              >
+                Min. 4 znaki. Kliknij chip żeby wstawić typowy powód.
+              </p>
+              <div
+                id="annex-reason-suggestions"
+                className="mt-2 flex flex-wrap gap-1.5"
+                aria-label="Typowe powody aneksu"
+              >
+                {REASON_SUGGESTIONS.map((s) => (
+                  <button
+                    type="button"
+                    key={s}
+                    onClick={() => setReason(s)}
+                    className="px-2 py-1 rounded-md text-[10px] border transition-colors hover:bg-black/10"
+                    style={{
+                      background: "var(--bg-surface)",
+                      borderColor: "var(--border-subtle)",
+                      color: "var(--text-main)",
+                    }}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
             </label>
           </div>
 
-          {/* Method tabs */}
-          <div
-            className="rounded-xl border overflow-hidden"
-            style={{ borderColor: "var(--border-subtle)" }}
-          >
-            <div
-              className="px-3 py-2 border-b text-[11px] uppercase tracking-wider font-semibold"
-              style={{
-                borderColor: "var(--border-subtle)",
-                color: "var(--text-muted)",
-              }}
+          {/* Method segmented control */}
+          <div>
+            <span
+              id="annex-method-label"
+              className="block text-[11px] uppercase tracking-wider font-semibold mb-1.5"
+              style={{ color: "var(--text-muted)" }}
             >
               Metoda akceptacji
-            </div>
+            </span>
             <div
-              role="tablist"
-              aria-label="Metoda akceptacji aneksu"
-              className="grid grid-cols-3"
+              role="radiogroup"
+              aria-labelledby="annex-method-label"
+              className="grid grid-cols-3 gap-1 p-1 rounded-xl border"
+              style={{
+                background: "var(--bg-surface)",
+                borderColor: "var(--border-subtle)",
+              }}
             >
-              <MethodTab
-                id="documenso"
+              <SegmentedButton
                 active={method === "documenso"}
                 disabled={documensoDisabled}
-                icon={<FileSignature className="w-4 h-4" />}
-                label="Elektroniczna"
-                hint={
+                icon={<FileSignature className="w-3.5 h-3.5" />}
+                label="E-podpis"
+                title={
                   documensoDisabled
-                    ? "Wymaga emaila klienta"
-                    : "Documenso e-podpis"
+                    ? "Wymaga e-maila klienta"
+                    : `Documenso → ${customerEmail}`
                 }
                 onSelect={() => setMethod("documenso")}
               />
-              <MethodTab
-                id="phone"
+              <SegmentedButton
                 active={method === "phone"}
-                icon={<Phone className="w-4 h-4" />}
-                label="Telefoniczna"
-                hint={customerPhone ?? "Bez numeru"}
+                icon={<Phone className="w-3.5 h-3.5" />}
+                label="Telefon"
+                title={customerPhone ?? "Bez numeru"}
                 onSelect={() => setMethod("phone")}
               />
-              <MethodTab
-                id="email"
+              <SegmentedButton
                 active={method === "email"}
-                icon={<Mail className="w-4 h-4" />}
-                label="Mailowa"
-                hint={customerEmail ?? "Bez emaila"}
+                icon={<Mail className="w-3.5 h-3.5" />}
+                label="E-mail"
+                title={customerEmail ?? "Manual messageId"}
                 onSelect={() => setMethod("email")}
               />
             </div>
 
             {/* Method body */}
-            <div className="p-4 space-y-3">
+            <div
+              className="mt-2 rounded-xl border p-3 space-y-3"
+              style={{
+                background: "var(--bg-surface)",
+                borderColor: "var(--border-subtle)",
+              }}
+            >
               {method === "documenso" && (
                 <p
                   className="text-xs"
                   style={{ color: "var(--text-muted)" }}
                 >
                   Aneks zostanie wygenerowany jako PDF i wysłany do podpisu na{" "}
-                  <span className="font-mono" style={{ color: "var(--text-main)" }}>
+                  <span
+                    className="font-mono"
+                    style={{ color: "var(--text-main)" }}
+                  >
                     {customerEmail ?? "—"}
                   </span>
-                  . Klient otrzyma link Documenso w mailu.
+                  . Klient otrzyma link Documenso w mailu, a Ty natychmiast
+                  zobaczysz status w sekcji „Aneksy” gdy podpisze.
                 </p>
               )}
 
@@ -398,7 +479,8 @@ export function AnnexBuilder({
                       className="block text-xs font-medium mb-1"
                       style={{ color: "var(--text-muted)" }}
                     >
-                      Kto zaakceptował (imię i nazwisko klienta) <span style={{ color: "#ef4444" }}>*</span>
+                      Kto zaakceptował (imię i nazwisko klienta){" "}
+                      <span style={{ color: "#ef4444" }}>*</span>
                     </span>
                     <input
                       type="text"
@@ -407,7 +489,7 @@ export function AnnexBuilder({
                       placeholder="Jan Kowalski"
                       className="w-full px-3 py-2 rounded-lg border text-sm outline-none"
                       style={{
-                        background: "var(--bg-surface)",
+                        background: "var(--bg-card)",
                         borderColor: "var(--border-subtle)",
                         color: "var(--text-main)",
                       }}
@@ -418,7 +500,8 @@ export function AnnexBuilder({
                       className="block text-xs font-medium mb-1"
                       style={{ color: "var(--text-muted)" }}
                     >
-                      Kontekst rozmowy <span style={{ color: "#ef4444" }}>*</span>
+                      Kontekst rozmowy{" "}
+                      <span style={{ color: "#ef4444" }}>*</span>
                     </span>
                     <textarea
                       value={note}
@@ -427,7 +510,7 @@ export function AnnexBuilder({
                       placeholder="np. Rozmowa 12.05.2026 14:23 — klient potwierdził dodatkowy koszt baterii."
                       className="w-full px-3 py-2 rounded-lg border text-sm outline-none resize-none"
                       style={{
-                        background: "var(--bg-surface)",
+                        background: "var(--bg-card)",
                         borderColor: "var(--border-subtle)",
                         color: "var(--text-main)",
                       }}
@@ -443,7 +526,8 @@ export function AnnexBuilder({
                       className="block text-xs font-medium mb-1"
                       style={{ color: "var(--text-muted)" }}
                     >
-                      Postal Message ID <span style={{ color: "#ef4444" }}>*</span>
+                      Postal Message ID{" "}
+                      <span style={{ color: "#ef4444" }}>*</span>
                     </span>
                     <div className="flex gap-2">
                       <input
@@ -453,7 +537,7 @@ export function AnnexBuilder({
                         placeholder="np. 12345"
                         className="flex-1 px-3 py-2 rounded-lg border text-sm outline-none font-mono"
                         style={{
-                          background: "var(--bg-surface)",
+                          background: "var(--bg-card)",
                           borderColor: "var(--border-subtle)",
                           color: "var(--text-main)",
                         }}
@@ -470,10 +554,11 @@ export function AnnexBuilder({
                         }}
                         className="px-3 py-2 rounded-lg border text-xs font-medium flex items-center gap-1.5"
                         style={{
-                          background: "var(--bg-surface)",
+                          background: "var(--bg-card)",
                           borderColor: "var(--border-subtle)",
                           color: "var(--text-main)",
                         }}
+                        aria-expanded={showLookup}
                       >
                         <Search className="w-3.5 h-3.5" />
                         {showLookup ? "Ukryj" : "Pokaż wiadomości"}
@@ -485,7 +570,7 @@ export function AnnexBuilder({
                     <div
                       className="rounded-lg border p-2 max-h-48 overflow-y-auto space-y-1"
                       style={{
-                        background: "var(--bg-surface)",
+                        background: "var(--bg-card)",
                         borderColor: "var(--border-subtle)",
                       }}
                     >
@@ -499,7 +584,10 @@ export function AnnexBuilder({
                         </div>
                       )}
                       {!lookupLoading && lookupError && (
-                        <p className="text-xs p-2" style={{ color: "#ef4444" }}>
+                        <p
+                          className="text-xs p-2"
+                          style={{ color: "#ef4444" }}
+                        >
                           {lookupError}
                         </p>
                       )}
@@ -522,7 +610,10 @@ export function AnnexBuilder({
                             className="w-full text-left p-2 rounded-md text-xs hover:bg-black/20 transition-colors"
                           >
                             <div className="flex items-center justify-between gap-2">
-                              <span className="font-mono" style={{ color: "var(--text-muted)" }}>
+                              <span
+                                className="font-mono"
+                                style={{ color: "var(--text-muted)" }}
+                              >
                                 #{m.id}
                               </span>
                               <span
@@ -545,7 +636,9 @@ export function AnnexBuilder({
                               className="text-[10px]"
                               style={{ color: "var(--text-muted)" }}
                             >
-                              {new Date(m.timestamp * 1000).toLocaleString("pl-PL")}
+                              {new Date(m.timestamp * 1000).toLocaleString(
+                                "pl-PL",
+                              )}
                             </p>
                           </button>
                         ))}
@@ -566,7 +659,7 @@ export function AnnexBuilder({
                       placeholder="np. Klient odpisał potwierdzeniem 14.05.2026"
                       className="w-full px-3 py-2 rounded-lg border text-sm outline-none resize-none"
                       style={{
-                        background: "var(--bg-surface)",
+                        background: "var(--bg-card)",
                         borderColor: "var(--border-subtle)",
                         color: "var(--text-main)",
                       }}
@@ -594,82 +687,91 @@ export function AnnexBuilder({
 
         {/* Footer */}
         <div
-          className="flex items-center justify-end gap-2 px-5 py-3 border-t"
+          className="flex items-center justify-between gap-2 px-5 py-3 border-t"
           style={{ borderColor: "var(--border-subtle)" }}
         >
           <button
             type="button"
-            onClick={onClose}
-            disabled={submitting}
-            className="px-4 py-2 rounded-lg text-sm font-medium border"
+            onClick={openPreview}
+            disabled={!canPreview || submitting}
+            className="px-3 py-2 rounded-lg text-xs font-medium border flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
             style={{
               background: "var(--bg-surface)",
               borderColor: "var(--border-subtle)",
               color: "var(--text-main)",
             }}
+            title={
+              canPreview
+                ? "Otwórz podgląd PDF w nowej karcie"
+                : "Uzupełnij delta i powód, aby zobaczyć podgląd"
+            }
           >
-            Anuluj
+            <Eye className="w-3.5 h-3.5" />
+            Podgląd PDF
           </button>
-          <button
-            type="button"
-            onClick={() => void submit()}
-            disabled={!canSubmit}
-            className="px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-            style={{ background: "var(--accent)", color: "#fff" }}
-          >
-            {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
-            Stwórz aneks
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={submitting}
+              className="px-4 py-2 rounded-lg text-sm font-medium border"
+              style={{
+                background: "var(--bg-surface)",
+                borderColor: "var(--border-subtle)",
+                color: "var(--text-main)",
+              }}
+            >
+              Anuluj
+            </button>
+            <button
+              type="button"
+              onClick={() => void submit()}
+              disabled={!canSubmit}
+              className="px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{ background: "var(--accent)", color: "#fff" }}
+            >
+              {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
+              Stwórz aneks
+            </button>
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-function MethodTab({
-  id,
+function SegmentedButton({
   active,
   disabled,
   icon,
   label,
-  hint,
+  title,
   onSelect,
 }: {
-  id: string;
   active: boolean;
   disabled?: boolean;
   icon: React.ReactNode;
   label: string;
-  hint: string;
+  title: string;
   onSelect: () => void;
 }) {
   return (
     <button
       type="button"
-      role="tab"
-      aria-selected={active}
-      aria-controls={`annex-method-${id}`}
+      role="radio"
+      aria-checked={active}
+      aria-label={`${label}: ${title}`}
+      title={title}
       disabled={disabled}
       onClick={onSelect}
-      className="px-3 py-2.5 text-left flex flex-col gap-0.5 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+      className="px-2 py-1.5 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
       style={{
         background: active ? "var(--accent)" : "transparent",
         color: active ? "#fff" : "var(--text-main)",
-        borderRight: "1px solid var(--border-subtle)",
       }}
     >
-      <span className="flex items-center gap-1.5 text-xs font-semibold">
-        {icon}
-        {label}
-      </span>
-      <span
-        className="text-[10px] truncate"
-        style={{
-          color: active ? "rgba(255,255,255,0.75)" : "var(--text-muted)",
-        }}
-      >
-        {hint}
-      </span>
+      {icon}
+      {label}
     </button>
   );
 }

@@ -13,11 +13,13 @@ import {
   ChevronRight,
   ImageIcon,
   Loader2,
+  QrCode,
   Trash2,
   Upload,
   X,
 } from "lucide-react";
 import type { ServicePhoto, ServicePhotoStage } from "@/lib/serwisant/types";
+import { QrUploadModal } from "./QrUploadModal";
 
 const STAGE_LABELS: Record<ServicePhotoStage, string> = {
   intake: "Przyjęcie",
@@ -94,6 +96,9 @@ export function PhotoGallery({
 
   // Lightbox
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
+
+  // QR upload modal
+  const [qrOpen, setQrOpen] = useState(false);
 
   const fetchPhotos = useCallback(async () => {
     setLoading(true);
@@ -262,6 +267,29 @@ export function PhotoGallery({
 
   return (
     <div className="space-y-3">
+      {editable && (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => setQrOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors hover:bg-white/5"
+            style={{
+              borderColor: "var(--border-subtle)",
+              color: "var(--text-main)",
+              background: "var(--bg-surface)",
+            }}
+            aria-label="Dodaj zdjęcia przez QR (telefon)"
+            title="Wystaw QR i wgraj zdjęcia z telefonu"
+          >
+            <QrCode
+              className="h-3.5 w-3.5"
+              style={{ color: "var(--accent)" }}
+              aria-hidden="true"
+            />
+            Dodaj przez QR (telefon)
+          </button>
+        </div>
+      )}
       {editable && (
         <div
           role={pendingFile ? undefined : "button"}
@@ -499,6 +527,22 @@ export function PhotoGallery({
           onClose={closeLightbox}
           onPrev={prevLightbox}
           onNext={nextLightbox}
+        />
+      )}
+
+      {editable && (
+        <QrUploadModal
+          open={qrOpen}
+          serviceId={serviceId}
+          defaultStage={stage ?? "intake"}
+          onClose={() => {
+            setQrOpen(false);
+            // Refresh on close to pick up any uploads done via mobile.
+            void fetchPhotos();
+          }}
+          onUploadsDetected={() => {
+            onChange?.();
+          }}
         />
       )}
     </div>

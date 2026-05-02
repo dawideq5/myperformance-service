@@ -376,6 +376,9 @@ export const SERVICES_EXTRAS_SPECS: CollectionSpec[] = [
               { text: "Aneks odrzucony", value: "annex_rejected" },
               { text: "Zdjęcie dodane", value: "photo_uploaded" },
               { text: "Zdjęcie usunięte", value: "photo_deleted" },
+              { text: "Notatka dodana", value: "note_added" },
+              { text: "Notatka usunięta", value: "note_deleted" },
+              { text: "Transport zamówiony", value: "transport_requested" },
               { text: "Inne", value: "other" },
             ],
           },
@@ -892,6 +895,107 @@ export const SERVICES_EXTRAS_SPECS: CollectionSpec[] = [
         type: "timestamp",
         schema: { is_nullable: true },
         meta: { interface: "datetime", readonly: true, width: "half" },
+      },
+    ],
+  },
+
+  // === Notatki wewnętrzne (Wave 19/Phase 1D) ===
+  // Komunikacja serwisant↔sprzedawca per zlecenie (NIE widoczne dla klienta).
+  // visibility=team → widzą wszyscy z dostępem; service_only → tylko serwis.
+  // pinned=true → wyświetlane na górze listy. Soft-delete (deleted_at).
+  // Bez FK do mp_services (Directus REST nie wspiera CASCADE z UI), purge
+  // ręczny przy delete service.
+  {
+    collection: "mp_service_internal_notes",
+    meta: {
+      icon: "sticky_note_2",
+      note: "Notatki wewnętrzne pracowników na zleceniu serwisowym (nie widoczne dla klienta).",
+      display_template: "{{ticket_number}} — {{author_name}} ({{created_at}})",
+      sort_field: "-created_at",
+    },
+    fields: [
+      {
+        field: "id",
+        type: "uuid",
+        schema: { is_primary_key: true },
+        meta: { hidden: true, readonly: true, special: ["uuid"] },
+      },
+      {
+        field: "service_id",
+        type: "uuid",
+        schema: { is_nullable: false },
+        meta: { interface: "input", readonly: true, width: "half" },
+      },
+      {
+        field: "ticket_number",
+        type: "string",
+        meta: { interface: "input", readonly: true, width: "half", options: { font: "monospace" } },
+      },
+      {
+        field: "body",
+        type: "text",
+        schema: { is_nullable: false },
+        meta: { interface: "input-multiline", required: true, width: "full" },
+      },
+      {
+        field: "author_email",
+        type: "string",
+        meta: { interface: "input", readonly: true, width: "half" },
+      },
+      {
+        field: "author_name",
+        type: "string",
+        meta: { interface: "input", readonly: true, width: "half" },
+      },
+      {
+        field: "author_role",
+        type: "string",
+        schema: { default_value: "service" },
+        meta: {
+          interface: "select-dropdown",
+          width: "half",
+          options: {
+            choices: [
+              { text: "Serwis", value: "service" },
+              { text: "Sprzedaż", value: "sales" },
+              { text: "Kierowca", value: "driver" },
+              { text: "Inne", value: "other" },
+            ],
+          },
+        },
+      },
+      {
+        field: "visibility",
+        type: "string",
+        schema: { default_value: "team", is_nullable: false },
+        meta: {
+          interface: "select-dropdown",
+          width: "half",
+          options: {
+            choices: [
+              { text: "Cały zespół", value: "team" },
+              { text: "Tylko serwis", value: "service_only" },
+            ],
+          },
+        },
+      },
+      {
+        field: "pinned",
+        type: "boolean",
+        schema: { default_value: false },
+        meta: { interface: "boolean", width: "half" },
+      },
+      {
+        field: "created_at",
+        type: "timestamp",
+        schema: { default_value: "now()" },
+        meta: { interface: "datetime", readonly: true, width: "half", special: ["date-created"] },
+      },
+      {
+        field: "deleted_at",
+        type: "timestamp",
+        schema: { is_nullable: true },
+        meta: { interface: "datetime", readonly: true, width: "half", note: "Soft delete — null = aktywne." },
       },
     ],
   },

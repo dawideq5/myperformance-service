@@ -1,7 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { FileSignature, Loader2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  CheckCircle2,
+  Clock,
+  Download,
+  FileSignature,
+  Loader2,
+  RefreshCw,
+  XCircle,
+} from "lucide-react";
 import type { ServiceTicket } from "../tabs/ServicesBoard";
 import { AnnexBuilder } from "../features/AnnexBuilder";
 
@@ -26,6 +34,7 @@ interface ServiceAnnex {
   createdAt: string;
   acceptedAt: string | null;
   rejectedAt: string | null;
+  documensoDocId?: number | null;
 }
 
 interface WycenaTabProps {
@@ -51,6 +60,8 @@ const ACCEPTANCE_STATUS_LABEL: Record<string, string> = {
   expired: "Unieważniony",
 };
 
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
 export function WycenaTab({ service, onUpdate }: WycenaTabProps) {
   const [history, setHistory] = useState<QuoteHistoryEntry[]>([]);
   const [annexes, setAnnexes] = useState<ServiceAnnex[]>([]);
@@ -68,6 +79,9 @@ export function WycenaTab({ service, onUpdate }: WycenaTabProps) {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [annexBuilderOpen, setAnnexBuilderOpen] = useState(false);
+  const [resendingId, setResendingId] = useState<string | null>(null);
+  const [resendError, setResendError] = useState<string | null>(null);
+  const [resendOk, setResendOk] = useState<string | null>(null);
 
   useEffect(() => {
     setNewAmount(
@@ -101,6 +115,11 @@ export function WycenaTab({ service, onUpdate }: WycenaTabProps) {
 
   useEffect(() => {
     refresh();
+    // Wave 19/Phase 1D — TODO subscribe `/api/events?serviceId=...` (SSE)
+    // i refreshować na eventy `action_logged` z payload.action
+    // `annex_created`/`annex_accepted`/`annex_rejected`. Backend bus
+    // (`lib/sse-bus.ts`) już publishuje, ale `/api/events` endpoint i
+    // hook `useSseEvents` jeszcze nie istnieją w repo.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [service.id]);
 
@@ -153,6 +172,44 @@ export function WycenaTab({ service, onUpdate }: WycenaTabProps) {
       setError(err instanceof Error ? err.message : "Błąd sieci");
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const downloadAnnexPdf = (annexId: string) => {
+    const url = `/api/relay/services/${encodeURIComponent(
+      service.id,
+    )}/annexes/${encodeURIComponent(annexId)}/pdf`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
+
+  const resendAnnexReminder = async (annexId: string) => {
+    setResendingId(annexId);
+    setResendError(null);
+    setResendOk(null);
+    try {
+      const res = await fetch(
+        `/api/relay/services/${encodeURIComponent(
+          service.id,
+        )}/annexes/${encodeURIComponent(annexId)}/resend`,
+        { method: "POST" },
+      );
+      const json = (await res.json().catch(() => null)) as
+        | { ok?: boolean; error?: string }
+        | null;
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error ?? `HTTP ${res.status}`);
+      }
+      setResendOk(annexId);
+      setTimeout(() => setResendOk(null), 4000);
+    } catch (err) {
+      setResendError(
+        err instanceof Error
+          ? err.message
+          : "Nie udało się wysłać przypomnienia",
+      );
+      setTimeout(() => setResendError(null), 5000);
+    } finally {
+      setResendingId(null);
     }
   };
 
@@ -357,6 +414,11 @@ export function WycenaTab({ service, onUpdate }: WycenaTabProps) {
             Stwórz aneks
           </button>
         </div>
+        {resendError && (
+          <p className="text-[11px] mb-2" style={{ color: "#ef4444" }}>
+            {resendError}
+          </p>
+        )}
         {loading ? (
           <div className="flex justify-center py-4">
             <Loader2
@@ -369,45 +431,22 @@ export function WycenaTab({ service, onUpdate }: WycenaTabProps) {
             Brak aneksów do tego zlecenia.
           </p>
         ) : (
-          <ul className="space-y-1.5">
+          <ul className="space-y-2">
             {annexes.map((a) => (
-              <li
+              <AnnexCard
                 key={a.id}
-                className="p-2 rounded-lg flex items-start justify-between gap-3"
-                style={{ background: "var(--bg-surface)" }}
-              >
-                <div className="min-w-0">
-                  <p
-                    className="text-xs font-medium"
-                    style={{ color: "var(--text-main)" }}
-                  >
-                    Δ {a.deltaAmount.toFixed(2)} PLN
-                  </p>
-                  <p
-                    className="text-[11px] mt-0.5"
-                    style={{ color: "var(--text-muted)" }}
-                  >
-                    {a.reason}
-                  </p>
-                  <p
-                    className="text-[10px] mt-0.5"
-                    style={{ color: "var(--text-muted)" }}
-                  >
-                    {ACCEPTANCE_METHOD_LABEL[a.acceptanceMethod] ??
-                      a.acceptanceMethod}{" "}
-                    ·{" "}
-                    {ACCEPTANCE_STATUS_LABEL[a.acceptanceStatus] ??
-                      a.acceptanceStatus}
-                    {a.customerName ? ` · ${a.customerName}` : ""}
-                  </p>
-                </div>
-                <span
-                  className="text-[10px] font-mono whitespace-nowrap"
-                  style={{ color: "var(--text-muted)" }}
-                >
-                  {new Date(a.createdAt).toLocaleDateString("pl-PL")}
-                </span>
-              </li>
+                annex={a}
+                onDownload={() => downloadAnnexPdf(a.id)}
+                onResend={
+                  a.acceptanceMethod === "documenso" &&
+                  a.acceptanceStatus === "pending" &&
+                  Date.now() - new Date(a.createdAt).getTime() > ONE_DAY_MS
+                    ? () => void resendAnnexReminder(a.id)
+                    : undefined
+                }
+                resending={resendingId === a.id}
+                resendOk={resendOk === a.id}
+              />
             ))}
           </ul>
         )}
@@ -427,6 +466,161 @@ export function WycenaTab({ service, onUpdate }: WycenaTabProps) {
         />
       )}
     </div>
+  );
+}
+
+function AnnexCard({
+  annex,
+  onDownload,
+  onResend,
+  resending,
+  resendOk,
+}: {
+  annex: ServiceAnnex;
+  onDownload: () => void;
+  onResend?: () => void;
+  resending: boolean;
+  resendOk: boolean;
+}) {
+  const status = annex.acceptanceStatus;
+  const meta = useMemo(() => {
+    if (status === "accepted") {
+      return {
+        icon: <CheckCircle2 className="w-4 h-4" />,
+        color: "#22c55e",
+        bg: "rgba(34,197,94,0.08)",
+        border: "rgba(34,197,94,0.5)",
+        animate: false,
+      };
+    }
+    if (status === "rejected" || status === "expired") {
+      return {
+        icon: <XCircle className="w-4 h-4" />,
+        color: "#ef4444",
+        bg: "rgba(239,68,68,0.08)",
+        border: "rgba(239,68,68,0.5)",
+        animate: false,
+      };
+    }
+    return {
+      icon: <Clock className="w-4 h-4" />,
+      color: "#f59e0b",
+      bg: "rgba(245,158,11,0.08)",
+      border: "rgba(245,158,11,0.4)",
+      animate: true,
+    };
+  }, [status]);
+
+  return (
+    <li
+      className={`p-2.5 rounded-lg border ${meta.animate ? "annex-pulse" : ""}`}
+      style={{
+        background: meta.bg,
+        borderColor: meta.border,
+        borderWidth: 1,
+      }}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <span style={{ color: meta.color }}>{meta.icon}</span>
+            <span
+              className="text-xs font-semibold"
+              style={{ color: "var(--text-main)" }}
+            >
+              Δ {annex.deltaAmount.toFixed(2)} PLN
+            </span>
+            <span
+              className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded"
+              style={{
+                background: "rgba(0,0,0,0.15)",
+                color: meta.color,
+              }}
+            >
+              {ACCEPTANCE_STATUS_LABEL[status] ?? status}
+            </span>
+          </div>
+          <p
+            className="text-[11px] mt-1"
+            style={{ color: "var(--text-muted)" }}
+          >
+            {annex.reason}
+          </p>
+          <p
+            className="text-[10px] mt-0.5"
+            style={{ color: "var(--text-muted)" }}
+          >
+            {ACCEPTANCE_METHOD_LABEL[annex.acceptanceMethod] ??
+              annex.acceptanceMethod}
+            {annex.customerName ? ` · ${annex.customerName}` : ""}
+            {" · "}
+            {new Date(annex.createdAt).toLocaleString("pl-PL", {
+              day: "2-digit",
+              month: "2-digit",
+              year: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </p>
+        </div>
+        <div className="flex flex-col items-end gap-1">
+          <button
+            type="button"
+            onClick={onDownload}
+            className="px-2 py-1 rounded text-[10px] font-medium border flex items-center gap-1 transition-colors hover:bg-black/10"
+            style={{
+              background: "transparent",
+              borderColor: "var(--border-subtle)",
+              color: "var(--text-main)",
+            }}
+            title="Pobierz PDF aneksu"
+          >
+            <Download className="w-3 h-3" />
+            PDF
+          </button>
+          {onResend && (
+            <button
+              type="button"
+              onClick={onResend}
+              disabled={resending || resendOk}
+              className="px-2 py-1 rounded text-[10px] font-medium border flex items-center gap-1 transition-colors hover:bg-black/10 disabled:opacity-50"
+              style={{
+                background: "transparent",
+                borderColor: "var(--border-subtle)",
+                color: resendOk ? "#22c55e" : "var(--text-main)",
+              }}
+              title="Wyślij przypomnienie Documenso (>24h od wysłania)"
+            >
+              {resending ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <RefreshCw className="w-3 h-3" />
+              )}
+              {resendOk ? "Wysłano" : "Przypomnij"}
+            </button>
+          )}
+        </div>
+      </div>
+      <style jsx>{`
+        @keyframes annex-pulse-anim {
+          0%,
+          100% {
+            box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.45);
+          }
+          50% {
+            box-shadow: 0 0 0 6px rgba(245, 158, 11, 0);
+          }
+        }
+        .annex-pulse {
+          animation: annex-pulse-anim 2.4s ease-in-out infinite;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .annex-pulse {
+            animation: none;
+          }
+        }
+      `}</style>
+    </li>
   );
 }
 

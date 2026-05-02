@@ -6,6 +6,7 @@ import {
   updateItem,
 } from "@/lib/directus-cms";
 import { log } from "@/lib/logger";
+import { publish } from "@/lib/sse-bus";
 
 const logger = log.child({ module: "transport-jobs" });
 
@@ -203,7 +204,32 @@ export async function createTransportJob(
     created_at: now,
     updated_at: now,
   });
-  return mapRow(created);
+  const mapped = mapRow(created);
+  publish({
+    type: "transport_job_created",
+    serviceId: mapped.serviceId,
+    payload: {
+      jobId: mapped.id,
+      jobNumber: mapped.jobNumber,
+      kind: mapped.kind,
+      status: mapped.status,
+      assignedDriver: mapped.assignedDriver,
+    },
+  });
+  // User-scoped notification do kierowcy (gdy assigned).
+  if (mapped.assignedDriver) {
+    publish({
+      type: "transport_job_created",
+      serviceId: null,
+      userEmail: mapped.assignedDriver,
+      payload: {
+        jobId: mapped.id,
+        jobNumber: mapped.jobNumber,
+        kind: mapped.kind,
+      },
+    });
+  }
+  return mapped;
 }
 
 export interface UpdateTransportJobInput {
@@ -233,7 +259,20 @@ export async function updateTransportJob(
     patch.recipient_signature = input.recipientSignature;
   if (input.notes !== undefined) patch.notes = input.notes;
   const updated = await updateItem<JobRow>("mp_transport_jobs", id, patch);
-  return mapRow(updated);
+  const mapped = mapRow(updated);
+  publish({
+    type: "transport_job_updated",
+    serviceId: mapped.serviceId,
+    payload: {
+      jobId: mapped.id,
+      jobNumber: mapped.jobNumber,
+      status: mapped.status,
+      assignedDriver: mapped.assignedDriver,
+      pickedUpAt: mapped.pickedUpAt,
+      deliveredAt: mapped.deliveredAt,
+    },
+  });
+  return mapped;
 }
 
 export async function deleteTransportJob(id: string): Promise<void> {

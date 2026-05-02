@@ -1,0 +1,48 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --brand-primary: #f97316;
+  --brand-primary-strong: #ea580c;
+  --brand-text: #0f172a;
+  --brand-muted: #64748b;
+  --brand-bg: #fafaf9;
+  --brand-card: #ffffff;
+  --brand-border: #e7e5e4;
+  --brand-success: #16a34a;
+  --brand-error: #dc2626;
+}
+
+html,
+body {
+  font-family: Inter, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  background:
+    radial-gradient(circle at top, rgba(249, 115, 22, 0.08), transparent 60%),
+    var(--brand-bg);
+  color: var(--brand-text);
+  min-height: 100vh;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+/* Visually hidden helper for sr-only inputs */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

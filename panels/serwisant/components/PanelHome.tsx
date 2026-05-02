@@ -31,7 +31,7 @@ const LEGACY_VIEW_MODE_KEY = "panel-serwisant:view-mode";
 export function PanelHome({
   locations,
   userLabel,
-  userEmail: _userEmail,
+  userEmail,
 }: {
   locations: PanelLocation[];
   userLabel: string;
@@ -427,6 +427,7 @@ export function PanelHome({
           <ServicesView
             locationId={selected.id}
             availableLocations={locations}
+            userEmail={userEmail}
           />
         </div>
       </main>
@@ -441,9 +442,11 @@ export function PanelHome({
 function ServicesView({
   locationId,
   availableLocations,
+  userEmail,
 }: {
   locationId: string;
   availableLocations: PanelLocation[];
+  userEmail: string;
 }) {
   const [services, setServices] = useState<ServiceTicket[]>([]);
   const [loading, setLoading] = useState(true);
@@ -559,6 +562,7 @@ function ServicesView({
           <ServiceDetailView
             serviceId={selected.id}
             service={selected}
+            currentUserEmail={userEmail}
             onUpdate={(updated) => {
               setServices((prev) =>
                 prev.map((s) => (s.id === updated.id ? updated : s)),

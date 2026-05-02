@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { subscribeToUser } from "@/lib/sse-client";
 import {
   Loader2,
   MapPin,
@@ -147,6 +148,22 @@ export function DriverDispatch({ userEmail }: { userEmail: string }) {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Real-time SSE — user-scoped notyfikacje (transport_job_created/updated dla
+  // kierowcy gdy serwisant zamawia transport). Refetch listy żeby zobaczyć
+  // nowy job natychmiast bez F5.
+  useEffect(() => {
+    if (!userEmail) return;
+    const unsub = subscribeToUser(userEmail, (evt) => {
+      if (
+        evt.type === "transport_job_created" ||
+        evt.type === "transport_job_updated"
+      ) {
+        void refresh();
+      }
+    });
+    return unsub;
+  }, [userEmail, refresh]);
 
   const locById = useMemo(() => {
     const m = new Map<string, PanelLocation>();

@@ -11,14 +11,26 @@ import { NaprawaTab } from "./detail/NaprawaTab";
 import { WycenaTab } from "./detail/WycenaTab";
 import { KlientTab } from "./detail/KlientTab";
 import { HistoriaTab } from "./detail/HistoriaTab";
+import { CzatZespoluTab } from "./detail/CzatZespoluTab";
+import { InternalNotesPanel } from "./detail/InternalNotesPanel";
+import { subscribeToService } from "@/lib/sse-client";
 
-type TabId = "diagnoza" | "naprawa" | "wycena" | "klient" | "historia";
+type TabId =
+  | "diagnoza"
+  | "naprawa"
+  | "wycena"
+  | "klient"
+  | "czat"
+  | "notatki"
+  | "historia";
 
 const TABS: { id: TabId; label: string }[] = [
   { id: "diagnoza", label: "Diagnoza" },
   { id: "naprawa", label: "Naprawa" },
   { id: "wycena", label: "Wycena" },
   { id: "klient", label: "Klient" },
+  { id: "czat", label: "Czat zespołu" },
+  { id: "notatki", label: "Notatki" },
   { id: "historia", label: "Historia" },
 ];
 
@@ -30,6 +42,8 @@ interface ServiceDetailViewProps {
   onUpdate: (updated: ServiceTicket) => void;
   /** Gdy true, render z przyciskiem zamknięcia (tryb modal/drawer). */
   inModal?: boolean;
+  /** Email zalogowanego usera — do filtrowania uprawnień (delete/pin notatek). */
+  currentUserEmail?: string;
 }
 
 function formatRelative(iso: string | null): string {
@@ -53,6 +67,7 @@ export function ServiceDetailView({
   onClose,
   onUpdate,
   inModal = false,
+  currentUserEmail = "",
 }: ServiceDetailViewProps) {
   const [service, setService] = useState<ServiceTicket | null>(
     initialService ?? null,
@@ -114,6 +129,29 @@ export function ServiceDetailView({
       .catch(() => undefined)
       .finally(() => setLoading(false));
   };
+
+  // Real-time SSE bus (Wave 19/Phase 1D) — service-scoped events. Backend
+  // już emituje status_changed/service_updated z mapped service inline w
+  // payload, więc unikamy refetchu gdy event zawiera updated service.
+  useEffect(() => {
+    const unsub = subscribeToService(serviceId, (evt) => {
+      if (evt.type === "status_changed" || evt.type === "service_updated") {
+        const svc = (evt.payload as { service?: ServiceTicket }).service;
+        if (svc) {
+          setService(svc);
+          onUpdate(svc);
+        } else {
+          refresh();
+        }
+      }
+      // Inne typy (photo_uploaded, internal_note_added, annex_*) są
+      // konsumowane przez ich własne komponenty (NaprawaTab, InternalNotes
+      // Panel itd.) — kazdy subscribuje samodzielnie. Tutaj pozostawiamy
+      // bez action żeby uniknąć podwójnego refetchu.
+    });
+    return unsub;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serviceId]);
 
   const handleSubUpdate = (updated: ServiceTicket) => {
     setService(updated);
@@ -280,12 +318,22 @@ export function ServiceDetailView({
           <NaprawaTab
             service={service}
             onRequestStatusChange={requestStatusChange}
+            onServiceUpdated={handleSubUpdate}
           />
         )}
         {activeTab === "wycena" && (
           <WycenaTab service={service} onUpdate={handleSubUpdate} />
         )}
         {activeTab === "klient" && <KlientTab service={service} />}
+        {activeTab === "czat" && (
+          <CzatZespoluTab service={service} defaultRole="service" />
+        )}
+        {activeTab === "notatki" && (
+          <InternalNotesPanel
+            serviceId={service.id}
+            currentUserEmail={currentUserEmail}
+          />
+        )}
         {activeTab === "historia" && <HistoriaTab service={service} />}
       </div>
 

@@ -11,6 +11,9 @@ import {
   getChatwootInboxAgentEmails,
 } from "@/lib/chatwoot/agent-lookup";
 import { recordWebhookHit } from "@/lib/webhooks/health";
+import { bindInboundToService } from "@/lib/chatwoot/service-binding";
+import { claimInboundMessage } from "@/lib/chatwoot/inbound-dedup";
+import { publish } from "@/lib/sse-bus";
 
 const logger = log.child({ module: "chatwoot-webhook" });
 
@@ -32,6 +35,8 @@ interface ChatwootAssignee {
 
 interface ChatwootPayload {
   event?: string;
+  /** Top-level message id (Chatwoot v3 message_created webhook). */
+  id?: number;
   conversation?: {
     id?: number;
     status?: string;
@@ -39,13 +44,25 @@ interface ChatwootPayload {
     meta?: { assignee?: ChatwootAssignee };
     inbox?: { id?: number; name?: string };
     inbox_id?: number;
-    contact?: { name?: string; email?: string };
+    contact?: {
+      name?: string;
+      email?: string;
+      phone_number?: string;
+      identifier?: string;
+    };
+    additional_attributes?: Record<string, unknown>;
+    custom_attributes?: Record<string, unknown>;
   };
   inbox_id?: number;
   meta?: { assignee?: ChatwootAssignee };
   message_type?: string;
   content?: string;
-  sender?: { name?: string; email?: string };
+  sender?: {
+    name?: string;
+    email?: string;
+    phone_number?: string;
+    identifier?: string;
+  };
 }
 
 function extractInboxId(payload: ChatwootPayload): number | null {
@@ -199,7 +216,116 @@ export async function POST(req: Request) {
       rawContent.length > 100 ? rawContent.slice(0, 97) + "..." : rawContent;
     const senderName = payload.sender?.name ?? contactName;
 
-    const assigneeEmail = await resolveAssigneeEmail(payload);
+    // --- 1) Dedup ---
+    // Chatwoot bywa zachłanny z retry. Pierwszy claim wygrywa, kolejne hity
+    // tej samej wiadomości zwracamy jako ignored (200 OK).
+    const messageId =
+      typeof payload.id === "number" && Number.isFinite(payload.id)
+        ? payload.id
+        : null;
+    if (messageId !== null) {
+      const claimed = await claimInboundMessage({
+        messageId,
+        conversationId: conversationId ?? null,
+      });
+      if (!claimed) {
+        await recordWebhookHit("chatwoot", "ignored", "message_created", "dedup");
+        return NextResponse.json({ ok: true, ignored: "dedup" });
+      }
+    }
+
+    // --- 2) Service binding (parallel z resolveAssignee) ---
+    // Próbujemy zmapować wiadomość na otwarte zlecenie:
+    //   - SVC-RRRR-MM-NNNN w treści
+    //   - additional_attributes.ticket_number z pre-chat formularza
+    //   - email kontaktu
+    //   - telefon kontaktu (SMS inbox bez emaila)
+    const ticketHintRaw =
+      (payload.conversation?.additional_attributes?.ticket_number as
+        | string
+        | undefined) ??
+      (payload.conversation?.custom_attributes?.ticket_number as
+        | string
+        | undefined) ??
+      null;
+    const customerEmail =
+      contact?.email ?? payload.sender?.email ?? null;
+    const customerPhone =
+      contact?.phone_number ?? payload.sender?.phone_number ?? null;
+    const [assigneeEmail, binding] = await Promise.all([
+      resolveAssigneeEmail(payload),
+      bindInboundToService({
+        messageBody: rawContent,
+        customerEmail,
+        customerPhone,
+        ticketNumberHint: ticketHintRaw,
+      }),
+    ]);
+    const boundService = binding?.service ?? null;
+    const ticketSuffix = boundService
+      ? ` · #${boundService.ticketNumber}`
+      : "";
+    const sharedNotifyPayload: Record<string, unknown> = {
+      conversationId,
+      inbox: payload.conversation?.inbox?.name,
+      ...(boundService
+        ? {
+            serviceId: boundService.id,
+            ticketNumber: boundService.ticketNumber,
+            matchedBy: binding?.matchedBy,
+          }
+        : {}),
+    };
+
+    // --- 3) Service-bound fan-out ---
+    // Gdy zlecenie zidentyfikowane: powiadom przypisanego serwisanta +
+    // sprzedawcę przyjmującego (received_by). Niezależne od fan-outu agenta
+    // Chatwoota — oba kanały biegną równolegle.
+    if (boundService) {
+      const serviceTargets = new Set<string>();
+      if (boundService.assignedTechnician) {
+        serviceTargets.add(boundService.assignedTechnician.toLowerCase());
+      }
+      if (boundService.receivedBy) {
+        serviceTargets.add(boundService.receivedBy.toLowerCase());
+      }
+      const uids = await Promise.all(
+        Array.from(serviceTargets).map(getUserIdByEmail),
+      );
+      const finalUids = Array.from(
+        new Set(uids.filter((u): u is string => typeof u === "string")),
+      );
+      await Promise.allSettled(
+        finalUids.map((uid) =>
+          notifyUser(uid, "chatwoot.message.new", {
+            title: `Wiadomość od klienta${ticketSuffix}`,
+            body: `${senderName}: ${messagePreview}`,
+            severity: "info",
+            payload: sharedNotifyPayload,
+          }),
+        ),
+      );
+      // SSE push również per service — detail view subskrybuje per serviceId.
+      publish({
+        type: "chat_message_received",
+        serviceId: boundService.id,
+        userEmail: null,
+        payload: {
+          conversationId,
+          senderName,
+          preview: messagePreview,
+          inbox: payload.conversation?.inbox?.name ?? null,
+          ticketNumber: boundService.ticketNumber,
+          matchedBy: binding?.matchedBy ?? null,
+        },
+      });
+      logger.info("chatwoot service-bound notify", {
+        conv: conversationId,
+        ticket: boundService.ticketNumber,
+        targets: finalUids.length,
+        matchedBy: binding?.matchedBy,
+      });
+    }
 
     // Path A: rozmowa przypisana → notyfikuj agenta-przypisanego (chatwoot.message.new)
     if (assigneeEmail) {
@@ -207,20 +333,31 @@ export async function POST(req: Request) {
       if (!uid) {
         logger.info("chatwoot no kc user", { conversationId, email: assigneeEmail });
         await recordWebhookHit("chatwoot", "ignored", "message_created", "no-kc-user");
-        return NextResponse.json({ ok: true, ignored: "no-kc-user" });
+        return NextResponse.json({ ok: true, ignored: "no-kc-user", boundTicket: boundService?.ticketNumber ?? null });
       }
       await notifyUser(uid, "chatwoot.message.new", {
-        title: "Nowa wiadomość w Chatwoot",
+        title: `Nowa wiadomość w Chatwoot${ticketSuffix}`,
         body: `${senderName}: ${messagePreview}`,
         severity: "info",
+        payload: sharedNotifyPayload,
+      });
+      // Real-time push (Wave 19/Phase 1D) — panel detail subskrybuje per
+      // service.chatwootConversationId i wyświetla toast / refresh.
+      publish({
+        type: "chat_message_received",
+        serviceId: boundService?.id ?? null,
+        userEmail: assigneeEmail,
         payload: {
           conversationId,
-          inbox: payload.conversation?.inbox?.name,
+          senderName,
+          preview: messagePreview,
+          inbox: payload.conversation?.inbox?.name ?? null,
+          ticketNumber: boundService?.ticketNumber ?? null,
         },
       });
       logger.info("chatwoot message_created notified (assignee)", { uid, conv: conversationId });
       await recordWebhookHit("chatwoot", "ok", "message_created");
-      return NextResponse.json({ ok: true });
+      return NextResponse.json({ ok: true, boundTicket: boundService?.ticketNumber ?? null });
     }
 
     // Path B: brak assignee → fan-out do wszystkich agentów inboxa
@@ -230,33 +367,29 @@ export async function POST(req: Request) {
     if (!inboxId) {
       logger.info("chatwoot unassigned skipped — no inbox_id", { conversationId });
       await recordWebhookHit("chatwoot", "ignored", "message_created", "no-inbox-id");
-      return NextResponse.json({ ok: true, ignored: "no-inbox-id" });
+      return NextResponse.json({ ok: true, ignored: "no-inbox-id", boundTicket: boundService?.ticketNumber ?? null });
     }
     const agentEmails = await getChatwootInboxAgentEmails(inboxId);
     if (agentEmails.length === 0) {
       logger.info("chatwoot unassigned no agents", { conversationId, inboxId });
       await recordWebhookHit("chatwoot", "ignored", "message_created", "no-inbox-agents");
-      return NextResponse.json({ ok: true, ignored: "no-inbox-agents" });
+      return NextResponse.json({ ok: true, ignored: "no-inbox-agents", boundTicket: boundService?.ticketNumber ?? null });
     }
     const uids = await Promise.all(agentEmails.map(getUserIdByEmail));
     const targets = uids.filter((u): u is string => typeof u === "string");
     await Promise.allSettled(
       targets.map((uid) =>
         notifyUser(uid, "chatwoot.unread_message", {
-          title: "Nieprzypisana wiadomość w Chatwoot",
+          title: `Nieprzypisana wiadomość w Chatwoot${ticketSuffix}`,
           body: `${senderName}: ${messagePreview}`,
           severity: "info",
-          payload: {
-            conversationId,
-            inbox: payload.conversation?.inbox?.name,
-            inboxId,
-          },
+          payload: { ...sharedNotifyPayload, inboxId },
         }),
       ),
     );
     logger.info("chatwoot unassigned fanout", { conv: conversationId, count: targets.length });
     await recordWebhookHit("chatwoot", "ok", "message_created", `unassigned-fanout:${targets.length}`);
-    return NextResponse.json({ ok: true, fanout: targets.length });
+    return NextResponse.json({ ok: true, fanout: targets.length, boundTicket: boundService?.ticketNumber ?? null });
   }
 
   // --- conversation_status_changed: rozmowa rozwiązana ---

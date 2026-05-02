@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { subscribeToService } from "@/lib/sse-client";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -260,6 +261,29 @@ function ServiceDetailInner({
       window.removeEventListener("focus", onFocus);
     };
   }, [refresh]);
+
+  // Real-time SSE bus (Wave 19/Phase 1D) — uzupełnia polling instant
+  // refreshem gdy serwisant/system emituje event tego serwisu.
+  useEffect(() => {
+    const unsub = subscribeToService(serviceId, (evt) => {
+      if (
+        evt.type === "status_changed" ||
+        evt.type === "service_updated" ||
+        evt.type === "annex_created" ||
+        evt.type === "annex_accepted" ||
+        evt.type === "annex_rejected" ||
+        evt.type === "annex_completed" ||
+        evt.type === "photo_uploaded" ||
+        evt.type === "photo_deleted" ||
+        evt.type === "internal_note_added" ||
+        evt.type === "action_logged" ||
+        evt.type === "chat_message_received"
+      ) {
+        void refresh();
+      }
+    });
+    return unsub;
+  }, [serviceId, refresh]);
 
   const eDocStatus = service?.visualCondition?.documenso?.status ?? "none";
   const employeeSigningUrl =

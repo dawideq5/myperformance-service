@@ -4,6 +4,7 @@ import {
   listItems,
 } from "@/lib/directus-cms";
 import { log } from "@/lib/logger";
+import { publish } from "@/lib/sse-bus";
 
 const logger = log.child({ module: "service-actions" });
 
@@ -20,8 +21,13 @@ export type ServiceActionKind =
   | "annex_created"
   | "annex_accepted"
   | "annex_rejected"
+  | "annex_resend"
   | "photo_uploaded"
   | "photo_deleted"
+  | "note_added"
+  | "note_deleted"
+  | "transport_requested"
+  | "upload_bridge_token_issued"
   | "other";
 
 export interface ServiceAction {
@@ -80,6 +86,20 @@ export async function logServiceAction(input: {
       actor_name: input.actor?.name ?? null,
       summary: input.summary,
       payload: input.payload ?? null,
+    });
+    // Real-time push do paneli (Wave 19/Phase 1D). Best-effort — sync,
+    // try-catch wewnątrz publish() chroni przed padnięciem subscriberów.
+    publish({
+      type: "action_logged",
+      serviceId: input.serviceId,
+      payload: {
+        ticketNumber: input.ticketNumber ?? null,
+        action: input.action,
+        actorEmail: input.actor?.email ?? null,
+        actorName: input.actor?.name ?? null,
+        summary: input.summary,
+        meta: input.payload ?? null,
+      },
     });
   } catch (err) {
     logger.warn("logServiceAction failed", {

@@ -15,8 +15,12 @@ const ALLOWED_PANEL_PREFIXES = new Set([
   "protections",
   "pricelist",
   "transport-jobs",
+  "service-locations",
 ]);
 const ALLOWED_ACCOUNT_PREFIXES = new Set(["inbox"]);
+// Top-level non-panel mounts that the serwisant UI is allowed to call. Each
+// entry maps the segment 1:1 to `/api/<segment>/...` on the dashboard.
+const ALLOWED_ROOT_PREFIXES = new Set(["upload-bridge"]);
 
 async function handle(
   req: Request,
@@ -33,6 +37,9 @@ async function handle(
       return NextResponse.json({ error: "Path not allowed" }, { status: 404 });
     }
     targetPath = `account/${path.slice(1).join("/")}`;
+  } else if (ALLOWED_ROOT_PREFIXES.has(path[0])) {
+    // Mounted at /api/<segment>/... directly (not under /api/panel/).
+    targetPath = path.join("/");
   } else if (ALLOWED_PANEL_PREFIXES.has(path[0])) {
     targetPath = `panel/${path.join("/")}`;
   } else {

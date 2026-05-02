@@ -24,7 +24,12 @@ const mapTilesSrc =
   "https://*.basemaps.cartocdn.com https://*.tile.openstreetmap.org https://tile.openstreetmap.org";
 const leafletAssetsSrc = "https://unpkg.com";
 
-const scriptSrc = isDev ? "'self' 'unsafe-inline' 'unsafe-eval'" : "'self' 'unsafe-inline'";
+// 'wasm-unsafe-eval' wymagane dla Draco/WebAssembly przy ładowaniu modelu 3D
+// w podglądzie urządzenia (panel-serwisant → DiagnozaTab → Pokaż urządzenie).
+// Bez tego ładowanie GLB rzuca CSP error.
+const scriptSrc = isDev
+  ? "'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'"
+  : "'self' 'unsafe-inline' 'wasm-unsafe-eval'";
 
 const securityHeaders = [
   { key: "X-Frame-Options", value: "DENY" },
@@ -47,7 +52,10 @@ const securityHeaders = [
     key: "Content-Security-Policy",
     value: [
       "default-src 'self'",
-      `connect-src 'self'${kc}${dash}${directus} ${mapTilesSrc}`,
+      // blob: + data: wymagane przez GLTFLoader — embedded PNG textury w .glb
+      // są wyodrębniane jako blob: URL i ładowane via fetch. Bez tego CSP
+      // blokuje texture loading na ścisłych browserach (Windows Edge/Chrome).
+      `connect-src 'self' blob: data:${kc}${dash}${directus} ${mapTilesSrc}`,
       `script-src ${scriptSrc}`,
       "style-src 'self' 'unsafe-inline'",
       `img-src 'self' data: blob: ${mapTilesSrc} ${leafletAssetsSrc}${dash}${directus}`,
@@ -57,6 +65,7 @@ const securityHeaders = [
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "object-src 'none'",
+      "worker-src 'self' blob:",
     ].join("; "),
   },
   ...(!isDev
@@ -88,7 +97,26 @@ const nextConfig = {
     optimizePackageImports: ["lucide-react"],
   },
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    return [
+      { source: "/:path*", headers: securityHeaders },
+      // GLB/draco files — wymuszony binary content-type + długi cache.
+      // Bez tego niektóre browsery (Windows Edge/Chrome) nie dekodują
+      // osadzonych PNG tekstur poprawnie.
+      {
+        source: "/models/:path*.glb",
+        headers: [
+          { key: "Content-Type", value: "model/gltf-binary" },
+          { key: "Cache-Control", value: "public, max-age=31536000, immutable" },
+        ],
+      },
+      {
+        source: "/draco/:path*.wasm",
+        headers: [
+          { key: "Content-Type", value: "application/wasm" },
+          { key: "Cache-Control", value: "public, max-age=31536000, immutable" },
+        ],
+      },
+    ];
   },
 };
 module.exports = nextConfig;

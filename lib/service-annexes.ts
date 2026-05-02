@@ -5,6 +5,7 @@ import {
   updateItem,
 } from "@/lib/directus-cms";
 import { log } from "@/lib/logger";
+import { publish } from "@/lib/sse-bus";
 
 const logger = log.child({ module: "service-annexes" });
 
@@ -128,7 +129,19 @@ export async function createServiceAnnex(
       created_by_email: input.createdByEmail ?? null,
       created_by_name: input.createdByName ?? null,
     });
-    return mapRow(created);
+    const mapped = mapRow(created);
+    publish({
+      type: "annex_created",
+      serviceId: input.serviceId,
+      payload: {
+        annexId: mapped.id,
+        ticketNumber: mapped.ticketNumber,
+        deltaAmount: mapped.deltaAmount,
+        acceptanceMethod: mapped.acceptanceMethod,
+        acceptanceStatus: mapped.acceptanceStatus,
+      },
+    });
+    return mapped;
   } catch (err) {
     logger.warn("createServiceAnnex failed", {
       serviceId: input.serviceId,
@@ -223,7 +236,33 @@ export async function updateServiceAnnex(
   if (patch.rejectedAt !== undefined) dbPatch.rejected_at = patch.rejectedAt;
   try {
     const updated = await updateItem<Row>("mp_service_annexes", annexId, dbPatch);
-    return mapRow(updated);
+    const mapped = mapRow(updated);
+    // Real-time push gdy zmiana acceptanceStatus = accepted/rejected. Pomijamy
+    // updaty czysto-meta (np. messageId) żeby nie spamować.
+    if (patch.acceptanceStatus === "accepted") {
+      publish({
+        type: "annex_accepted",
+        serviceId: mapped.serviceId,
+        payload: {
+          annexId: mapped.id,
+          ticketNumber: mapped.ticketNumber,
+          deltaAmount: mapped.deltaAmount,
+          acceptedAt: mapped.acceptedAt,
+        },
+      });
+    } else if (patch.acceptanceStatus === "rejected") {
+      publish({
+        type: "annex_rejected",
+        serviceId: mapped.serviceId,
+        payload: {
+          annexId: mapped.id,
+          ticketNumber: mapped.ticketNumber,
+          deltaAmount: mapped.deltaAmount,
+          rejectedAt: mapped.rejectedAt,
+        },
+      });
+    }
+    return mapped;
   } catch (err) {
     logger.warn("updateServiceAnnex failed", { annexId, err: String(err) });
     return null;

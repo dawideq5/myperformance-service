@@ -131,11 +131,14 @@ export async function GET(
     customer: {
       firstName: service.customerFirstName ?? "",
       lastName: service.customerLastName ?? "",
+      phone: service.contactPhone ?? undefined,
+      email: service.contactEmail ?? undefined,
     },
     device: {
       brand: service.brand ?? "",
       model: service.model ?? "",
       imei: service.imei ?? "",
+      description: service.description ?? undefined,
     },
     editor: {
       name: user.name?.trim() || user.preferred_username || user.email,
@@ -263,28 +266,35 @@ export async function POST(
     }
 
     try {
+      const originalAmount =
+        typeof service.amountEstimate === "number" ? service.amountEstimate : 0;
+      const newAmount = Number((originalAmount + body.deltaAmount).toFixed(2));
+      const issuedAt = new Date().toISOString();
       const annexInput: AnnexInput = {
         ticketNumber: service.ticketNumber ?? "—",
         serviceCreatedAt: service.createdAt ?? new Date().toISOString(),
         customer: {
           firstName: service.customerFirstName ?? "",
           lastName: service.customerLastName ?? "",
+          phone: service.contactPhone ?? undefined,
+          email: service.contactEmail ?? undefined,
         },
         device: {
           brand: service.brand ?? "",
           model: service.model ?? "",
           imei: service.imei ?? "",
+          description: service.description ?? undefined,
         },
         editor: { name: editorName, email: user.email },
-        changes: [
-          {
-            field: "Kwota wyceny",
-            before: `${service.amountEstimate ?? 0} PLN`,
-            after: `${(service.amountEstimate ?? 0) + body.deltaAmount} PLN`,
-          },
-        ],
+        pricing: {
+          originalAmount,
+          deltaAmount: body.deltaAmount,
+          newAmount,
+        },
+        customerSignerName: customerName,
         summary: body.reason,
-        issuedAt: new Date().toISOString(),
+        signedAt: issuedAt,
+        issuedAt,
       };
       const pdfBuffer = await renderAnnexPdf(annexInput);
       const pdfHash = createHash("sha256").update(pdfBuffer).digest("hex");
