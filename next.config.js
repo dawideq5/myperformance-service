@@ -328,6 +328,22 @@ const nextConfig = {
           { key: "Cache-Control", value: "no-store" },
         ],
       },
+      // Override CORP dla zdjęć serwisowych — ładowane z subdomen panelowych
+      // (panelserwisanta/sprzedawcy/kierowcy.myperformance.pl). Auth przez
+      // session cookie z Domain=.myperformance.pl. Zostaw same-origin dla
+      // pozostałych endpointów żeby chronić przed XS-Leaks.
+      {
+        source: "/api/public/service-photos/:path*",
+        headers: [
+          { key: "Cross-Origin-Resource-Policy", value: "cross-origin" },
+        ],
+      },
+      {
+        source: "/api/public/photos/:path*",
+        headers: [
+          { key: "Cross-Origin-Resource-Policy", value: "cross-origin" },
+        ],
+      },
     ];
   },
 };

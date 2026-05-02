@@ -249,7 +249,7 @@ export function InternalNotesPanel({ serviceId, currentUserEmail }: Props) {
           id="note-draft"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          placeholder="Notatka widoczna tylko dla zespołu (markdown: **bold**, *italic*, [link](url))..."
+          placeholder="Wpisz notatkę…"
           rows={3}
           className="w-full px-3 py-2 rounded-lg text-sm resize-y"
           style={{

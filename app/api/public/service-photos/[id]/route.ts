@@ -153,6 +153,9 @@ export async function GET(
   // Krótszy cache niż locations — zdjęcia serwisowe mogą być usuwane przez
   // soft-delete; nie chcemy serwować z cache po DELETE.
   headers.set("cache-control", "private, max-age=300");
+  // Pozwala na ładowanie z subdomen panelowych (panelserwisanta.myperformance.pl)
+  // — autoryzacja jest cookie-based przez session NextAuth z domain=.myperformance.pl
+  headers.set("cross-origin-resource-policy", "cross-origin");
 
   return new Response(upstream.body, { status: 200, headers });
 }

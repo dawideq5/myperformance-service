@@ -134,11 +134,12 @@ export function CzatZespoluTab({
     return () => ctrl.abort();
   }, [counter, fetchMessages]);
 
-  // Auto-scroll do końca listy gdy nowa wiadomość dochodzi.
+  // Composer u góry → najnowsze tuż pod nim. Lista renderuje DESC (newest
+  // first), więc scroll-to-top na nową wiadomość zamiast scroll-to-bottom.
   useEffect(() => {
     const el = listRef.current;
     if (!el) return;
-    el.scrollTop = el.scrollHeight;
+    el.scrollTop = 0;
   }, [messages.length]);
 
   // Mark-read fire-and-forget przy każdym otwarciu / nowej wiadomości od
@@ -194,7 +195,7 @@ export function CzatZespoluTab({
       aria-label="Czat zespołu — wewnętrzna komunikacja sprzedawca-serwisant"
     >
       <div
-        className="px-4 py-3 border-b text-xs"
+        className="px-4 py-2 border-b text-xs"
         style={{
           borderColor: "var(--border-subtle)",
           color: "var(--text-muted)",
@@ -202,6 +203,63 @@ export function CzatZespoluTab({
       >
         Wewnętrzna komunikacja zespołu (klient nie widzi). Pisz {recipientLabel}.
       </div>
+
+      {/* Composer u góry — zawsze widoczny bez konieczności przewijania */}
+      <form
+        onSubmit={handleSubmit}
+        className="flex items-end gap-2 p-3 border-b"
+        style={{ borderColor: "var(--border-subtle)" }}
+      >
+        <label htmlFor="czat-zespolu-textarea" className="sr-only">
+          Treść wiadomości do zespołu
+        </label>
+        <textarea
+          id="czat-zespolu-textarea"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value.slice(0, MAX_BODY))}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              void handleSubmit(e as unknown as FormEvent);
+            }
+          }}
+          rows={2}
+          maxLength={MAX_BODY}
+          placeholder="Napisz do zespołu…"
+          className="flex-1 px-3 py-2 text-sm rounded-lg border resize-none"
+          style={{
+            background: "var(--bg-surface)",
+            borderColor: "var(--border-subtle)",
+            color: "var(--text-main)",
+          }}
+          aria-describedby="czat-zespolu-counter"
+        />
+        <div
+          id="czat-zespolu-counter"
+          className="text-[10px] mr-1 self-end mb-1"
+          style={{ color: "var(--text-muted)" }}
+          aria-live="polite"
+        >
+          {draft.length}/{MAX_BODY}
+        </div>
+        <button
+          type="submit"
+          disabled={submitting || draft.trim().length === 0}
+          className="px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-1.5 disabled:opacity-50"
+          style={{
+            background: "var(--accent)",
+            color: "#fff",
+          }}
+          aria-label="Wyślij wiadomość do zespołu"
+        >
+          {submitting ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Send className="w-4 h-4" />
+          )}
+          Wyślij
+        </button>
+      </form>
 
       <div
         ref={listRef}
@@ -223,10 +281,10 @@ export function CzatZespoluTab({
             className="text-center text-sm py-12"
             style={{ color: "var(--text-muted)" }}
           >
-            Brak wiadomości w czacie zespołu. Napisz pierwszą notatkę poniżej.
+            Brak wiadomości w czacie zespołu.
           </div>
         ) : (
-          messages.map((m) => {
+          [...messages].reverse().map((m) => {
             const isSelf = m.authorRole === viewerRole;
             const Icon = m.authorRole === "service" ? UserCog : UserRound;
             return (
@@ -292,61 +350,6 @@ export function CzatZespoluTab({
         </div>
       )}
 
-      <form
-        onSubmit={handleSubmit}
-        className="flex items-end gap-2 p-3 border-t"
-        style={{ borderColor: "var(--border-subtle)" }}
-      >
-        <label htmlFor="czat-zespolu-textarea" className="sr-only">
-          Treść wiadomości do zespołu
-        </label>
-        <textarea
-          id="czat-zespolu-textarea"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value.slice(0, MAX_BODY))}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-              e.preventDefault();
-              void handleSubmit(e as unknown as FormEvent);
-            }
-          }}
-          rows={2}
-          maxLength={MAX_BODY}
-          placeholder="Napisz do zespołu… (Cmd/Ctrl+Enter)"
-          className="flex-1 px-3 py-2 text-sm rounded-lg border resize-none"
-          style={{
-            background: "var(--bg-surface)",
-            borderColor: "var(--border-subtle)",
-            color: "var(--text-main)",
-          }}
-          aria-describedby="czat-zespolu-counter"
-        />
-        <div
-          id="czat-zespolu-counter"
-          className="text-[10px] mr-1 self-end mb-1"
-          style={{ color: "var(--text-muted)" }}
-          aria-live="polite"
-        >
-          {draft.length}/{MAX_BODY}
-        </div>
-        <button
-          type="submit"
-          disabled={submitting || draft.trim().length === 0}
-          className="px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-1.5 disabled:opacity-50"
-          style={{
-            background: "var(--accent)",
-            color: "#fff",
-          }}
-          aria-label="Wyślij wiadomość do zespołu"
-        >
-          {submitting ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <Send className="w-4 h-4" />
-          )}
-          Wyślij
-        </button>
-      </form>
     </div>
   );
 }
