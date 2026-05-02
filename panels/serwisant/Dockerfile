@@ -1,13 +1,13 @@
 FROM node:20-alpine AS deps
 WORKDIR /app
-COPY package.json package-lock.json* ./
-RUN npm ci --omit=dev --ignore-scripts || npm install --omit=dev --ignore-scripts
+COPY package.json package-lock.json* .npmrc* ./
+RUN npm ci --omit=dev --ignore-scripts --legacy-peer-deps || npm install --omit=dev --ignore-scripts --legacy-peer-deps
 
 FROM node:20-alpine AS builder
 WORKDIR /app
 ENV NODE_ENV=development
-COPY package.json package-lock.json* ./
-RUN npm ci --include=dev --ignore-scripts || npm install --include=dev --ignore-scripts
+COPY package.json package-lock.json* .npmrc* ./
+RUN npm ci --include=dev --ignore-scripts --legacy-peer-deps || npm install --include=dev --ignore-scripts --legacy-peer-deps
 COPY . .
 ENV NODE_ENV=production
 RUN npm run build
