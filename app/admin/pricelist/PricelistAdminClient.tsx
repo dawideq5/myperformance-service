@@ -27,6 +27,46 @@ import { AppHeader } from "@/components/AppHeader";
 import Link from "next/link";
 import type { PricelistItem, PricelistInput } from "@/lib/pricelist";
 import type { RepairType } from "@/lib/repair-types";
+import { PhoneModelPicker } from "@/components/PhoneModelPicker";
+
+function describeCombinable(rt: RepairType): string {
+  if (rt.combinableMode === "no") return "Nie łączy";
+  if (rt.combinableMode === "only_with") {
+    return rt.combinableWith?.length
+      ? `Tylko z: ${rt.combinableWith.join(", ")}`
+      : "Tylko z: —";
+  }
+  if (rt.combinableMode === "except") {
+    return rt.combinableWith?.length
+      ? `Łącz oprócz: ${rt.combinableWith.join(", ")}`
+      : "Łącz z każdym";
+  }
+  return "Łącz z każdym";
+}
+
+function describeSums(rt: RepairType): string {
+  if (rt.sumsMode === "no") return "Kontakt z serwisantem";
+  if (rt.sumsMode === "only_with") {
+    return rt.sumsWith?.length
+      ? `Sumuj z: ${rt.sumsWith.join(", ")}`
+      : "Sumuj cenę";
+  }
+  if (rt.sumsMode === "except") {
+    return rt.sumsWith?.length
+      ? `Sumuj oprócz: ${rt.sumsWith.join(", ")}`
+      : "Sumuj cenę";
+  }
+  return "Sumuj cenę";
+}
+
+function describeTime(rt: RepairType): string {
+  if (rt.timeMin == null && rt.timeMax == null) return "—";
+  const unit = rt.timeUnit ?? "minutes";
+  if (rt.timeMin != null && rt.timeMax != null && rt.timeMin !== rt.timeMax) {
+    return `${rt.timeMin}-${rt.timeMax} ${unit}`;
+  }
+  return `${rt.timeMin ?? rt.timeMax} ${unit}`;
+}
 
 export function PricelistAdminClient({
   initialItems,
@@ -101,8 +141,30 @@ export function PricelistAdminClient({
   const [brandFilter, setBrandFilter] = useState("");
   const [editing, setEditing] = useState<PricelistItem | null>(null);
   const [creating, setCreating] = useState(false);
+  const [prefillCode, setPrefillCode] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const toast = useToast();
+
+  // Tabela pokazuje WSZYSTKIE typy napraw (18) z ich properties + cena bazowa
+  // jeśli istnieje pricelist entry dla code (bez phone_model). Filter po
+  // search + categoryFilter ogranicza widoczne wiersze.
+  const visibleRepairTypes = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return repairTypes.filter((rt) => {
+      if (categoryFilter && rt.label !== categoryFilter) return false;
+      if (q) {
+        const hay = `${rt.code} ${rt.label} ${rt.description ?? ""}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      if (brandFilter) {
+        const matching = items.filter(
+          (i) => i.code === rt.code && (i.brand ?? "").toLowerCase().includes(brandFilter.toLowerCase()),
+        );
+        if (matching.length === 0) return false;
+      }
+      return true;
+    });
+  }, [repairTypes, items, search, categoryFilter, brandFilter]);
 
   const refresh = useCallback(async () => {
     try {
@@ -116,22 +178,6 @@ export function PricelistAdminClient({
   }, [toast]);
   void refresh;
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return items.filter((it) => {
-      if (categoryFilter && categoryFor(it) !== categoryFilter) return false;
-      if (brandFilter) {
-        const b = (it.brand ?? "").toLowerCase();
-        if (!b.includes(brandFilter.toLowerCase())) return false;
-      }
-      if (q) {
-        const hay =
-          `${it.code} ${it.name} ${it.brand ?? ""} ${it.modelPattern ?? ""} ${it.description ?? ""}`.toLowerCase();
-        if (!hay.includes(q)) return false;
-      }
-      return true;
-    });
-  }, [items, search, categoryFilter, brandFilter, categoryFor]);
 
   const stats = useMemo(() => {
     const enabled = items.filter((i) => i.enabled).length;
@@ -255,99 +301,116 @@ export function PricelistAdminClient({
                 className="text-left text-[10px] uppercase tracking-wider"
                 style={{ background: "var(--bg-surface)", color: "var(--text-muted)" }}
               >
-                <th className="px-3 py-2">Kod</th>
-                <th className="px-3 py-2">Nazwa</th>
-                <th className="px-3 py-2">Kategoria</th>
-                <th className="px-3 py-2">Marka / model</th>
-                <th className="px-3 py-2 text-right">Cena</th>
-                <th className="px-3 py-2 text-right">
-                  <Clock className="w-3 h-3 inline mr-0.5" />
-                  min
-                </th>
-                <th className="px-3 py-2 text-right">Gwar.</th>
-                <th className="px-3 py-2">Status</th>
+                <th className="px-3 py-2">Typ naprawy</th>
+                <th className="px-3 py-2">Gwarancja</th>
+                <th className="px-3 py-2">Czas</th>
+                <th className="px-3 py-2">Łączenie</th>
+                <th className="px-3 py-2">Suma</th>
+                <th className="px-3 py-2 text-right">Cena bazowa</th>
+                <th className="px-3 py-2 text-right">Per-model</th>
                 <th className="px-3 py-2"></th>
               </tr>
             </thead>
             <tbody>
-              {filtered.length === 0 ? (
+              {visibleRepairTypes.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={9}
+                    colSpan={8}
                     className="px-3 py-8 text-center text-sm"
                     style={{ color: "var(--text-muted)" }}
                   >
-                    {items.length === 0
-                      ? "Brak pozycji w cenniku — dodaj pierwszą."
-                      : "Brak pozycji pasujących do filtrów."}
+                    Brak typów napraw pasujących do filtrów.
                   </td>
                 </tr>
               ) : (
-                filtered.map((it) => (
-                  <tr
-                    key={it.id}
-                    className="border-t hover:bg-[var(--bg-surface)]/50"
-                    style={{ borderColor: "var(--border-subtle)" }}
-                  >
-                    <td className="px-3 py-2 font-mono text-xs">{it.code}</td>
-                    <td className="px-3 py-2">{it.name}</td>
-                    <td className="px-3 py-2 text-xs">
-                      {categoryFor(it)}
-                    </td>
-                    <td className="px-3 py-2 text-xs">
-                      <div>{it.brand || <span className="opacity-50">wszystkie</span>}</div>
-                      {it.modelPattern && (
+                visibleRepairTypes.map((rt) => {
+                  const itemsForType = items.filter((i) => i.code === rt.code);
+                  const baseItem = itemsForType.find(
+                    (i) => !i.phoneModelSlug && !i.brand,
+                  );
+                  const perModelCount = itemsForType.length - (baseItem ? 1 : 0);
+                  const combinable = describeCombinable(rt);
+                  const sums = describeSums(rt);
+                  const time = describeTime(rt);
+                  const warranty =
+                    rt.defaultWarrantyMonths != null
+                      ? `${rt.defaultWarrantyMonths} mc`
+                      : "brak";
+                  return (
+                    <tr
+                      key={rt.code}
+                      className="border-t hover:bg-[var(--bg-surface)]/50"
+                      style={{ borderColor: "var(--border-subtle)" }}
+                    >
+                      <td className="px-3 py-2">
+                        <div className="font-medium">{rt.label}</div>
                         <div
                           className="text-[10px] font-mono"
                           style={{ color: "var(--text-muted)" }}
                         >
-                          {it.modelPattern}
+                          {rt.code}
                         </div>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-right font-mono">
-                      {it.price.toFixed(2)}
-                    </td>
-                    <td className="px-3 py-2 text-right text-xs">
-                      {it.durationMinutes ?? "—"}
-                    </td>
-                    <td className="px-3 py-2 text-right text-xs">
-                      {it.warrantyMonths != null ? `${it.warrantyMonths} mc` : "—"}
-                    </td>
-                    <td className="px-3 py-2">
-                      {it.enabled ? (
-                        <Badge tone="success" className="text-[10px]">
-                          aktywna
-                        </Badge>
-                      ) : (
-                        <Badge tone="neutral" className="text-[10px]">
-                          ukryta
-                        </Badge>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-right whitespace-nowrap">
-                      <button
-                        type="button"
-                        onClick={() => setEditing(it)}
-                        className="p-1.5 rounded hover:bg-[var(--bg-card)]"
-                        style={{ color: "var(--text-muted)" }}
-                        aria-label="Edytuj"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onDelete(it)}
-                        className="p-1.5 rounded hover:bg-red-500/10"
-                        style={{ color: "#ef4444" }}
-                        aria-label="Usuń"
-                        disabled={busy}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </td>
-                  </tr>
-                ))
+                      </td>
+                      <td className="px-3 py-2 text-xs">{warranty}</td>
+                      <td className="px-3 py-2 text-xs">{time}</td>
+                      <td className="px-3 py-2 text-xs">{combinable}</td>
+                      <td className="px-3 py-2 text-xs">{sums}</td>
+                      <td className="px-3 py-2 text-right font-mono">
+                        {baseItem ? (
+                          baseItem.price.toFixed(2)
+                        ) : (
+                          <span style={{ color: "var(--text-muted)" }}>—</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-right text-xs">
+                        {perModelCount > 0 ? (
+                          <Badge tone="neutral" className="text-[10px]">
+                            {perModelCount}
+                          </Badge>
+                        ) : (
+                          <span style={{ color: "var(--text-muted)" }}>—</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-right whitespace-nowrap">
+                        {baseItem ? (
+                          <button
+                            type="button"
+                            onClick={() => setEditing(baseItem)}
+                            className="p-1.5 rounded hover:bg-[var(--bg-card)]"
+                            style={{ color: "var(--text-muted)" }}
+                            aria-label="Edytuj cenę bazową"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPrefillCode(rt.code);
+                              setCreating(true);
+                            }}
+                            className="px-2 py-1 rounded text-[10px] uppercase tracking-wide bg-[var(--accent)]/10 text-[var(--accent)] hover:bg-[var(--accent)]/20"
+                          >
+                            <Plus className="w-3 h-3 inline mr-0.5" />
+                            Cena
+                          </button>
+                        )}
+                        {baseItem && (
+                          <button
+                            type="button"
+                            onClick={() => onDelete(baseItem)}
+                            className="p-1.5 rounded hover:bg-red-500/10"
+                            style={{ color: "#ef4444" }}
+                            aria-label="Usuń cenę bazową"
+                            disabled={busy}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -422,6 +485,9 @@ function PricelistDialog({
   const [price, setPrice] = useState(item?.price?.toString() ?? "0");
   const [brand, setBrand] = useState(item?.brand ?? "");
   const [modelPattern, setModelPattern] = useState(item?.modelPattern ?? "");
+  const [phoneModelSlug, setPhoneModelSlug] = useState<string | null>(
+    item?.phoneModelSlug ?? null,
+  );
   const [description, setDescription] = useState(item?.description ?? "");
   const [warrantyMonths, setWarrantyMonths] = useState(
     item?.warrantyMonths?.toString() ?? "3",
@@ -445,6 +511,7 @@ function PricelistDialog({
       price: Number(price),
       brand: brand.trim() || null,
       modelPattern: modelPattern.trim() || null,
+      phoneModelSlug,
       description: description.trim() || null,
       warrantyMonths: warrantyMonths ? Number(warrantyMonths) : null,
       durationMinutes: durationMinutes ? Number(durationMinutes) : null,
@@ -546,23 +613,46 @@ function PricelistDialog({
             Targetowanie urządzenia (opcjonalne)
           </p>
           <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-            Puste = pozycja stosowana dla wszystkich. Brand+model_pattern
-            zawężają do konkretnych urządzeń.
+            Puste = cena bazowa (wszystkie modele). Wybór konkretnego modelu
+            tworzy pozycję per-model (priorytet nad bazową).
           </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Input
-              label="Marka"
-              value={brand}
-              onChange={(e) => setBrand(e.target.value)}
-              placeholder="Apple, Samsung, Xiaomi…"
+          <label className="block">
+            <span className="block text-xs font-medium mb-1.5" style={{ color: "var(--text-muted)" }}>
+              Konkretny model telefonu (z bazy mp_phone_models)
+            </span>
+            <PhoneModelPicker
+              value={phoneModelSlug}
+              onChange={(slug, label) => {
+                setPhoneModelSlug(slug);
+                // Auto-fill brand+model fields gdy wybrano konkretny model
+                if (label) {
+                  const parts = label.split(" ");
+                  setBrand(parts[0] ?? "");
+                  setModelPattern(parts.slice(1).join(" "));
+                }
+              }}
+              placeholder="Wpisz markę i model — np. Apple iPhone 13 Pro Max"
             />
-            <Input
-              label="Model (substring)"
-              value={modelPattern}
-              onChange={(e) => setModelPattern(e.target.value)}
-              placeholder="iPhone 12, Galaxy S, Redmi…"
-            />
-          </div>
+          </label>
+          <details className="text-xs">
+            <summary className="cursor-pointer" style={{ color: "var(--text-muted)" }}>
+              Albo: szeroki wzorzec (legacy — np. "iPhone 12" pasuje do całej rodziny)
+            </summary>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
+              <Input
+                label="Marka"
+                value={brand}
+                onChange={(e) => setBrand(e.target.value)}
+                placeholder="Apple, Samsung, Xiaomi…"
+              />
+              <Input
+                label="Model (substring)"
+                value={modelPattern}
+                onChange={(e) => setModelPattern(e.target.value)}
+                placeholder="iPhone 12, Galaxy S, Redmi…"
+              />
+            </div>
+          </details>
         </div>
         <Textarea
           label="Opis"
