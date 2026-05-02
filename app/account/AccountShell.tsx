@@ -8,6 +8,7 @@ import {
   AlertCircle,
   ArrowLeft,
   History,
+  Mail,
   Plug,
   Settings,
   Shield,
@@ -30,6 +31,7 @@ import { SecurityTab } from "@/app/account/components/SecurityTab";
 import { SessionsTab } from "@/app/account/components/SessionsTab";
 import { IntegrationsTab } from "@/app/account/components/IntegrationsTab";
 import { PreferencesTab } from "@/app/account/components/PreferencesTab";
+import { CorrespondenceTab } from "@/app/account/components/CorrespondenceTab";
 
 import { useAccount } from "./AccountProvider";
 import type { AccountTabId } from "./types";
@@ -39,6 +41,7 @@ const TAB_IDS: readonly AccountTabId[] = [
   "security",
   "sessions",
   "integrations",
+  "correspondence",
   "preferences",
 ];
 
@@ -201,6 +204,11 @@ export function AccountShell() {
       ) : undefined,
     },
     {
+      id: "correspondence",
+      label: "Korespondencja",
+      icon: <Mail className="w-5 h-5" />,
+    },
+    {
       id: "preferences",
       label: "Preferencje",
       icon: <Settings className="w-5 h-5" />,
@@ -238,6 +246,10 @@ export function AccountShell() {
 
           <TabPanel tabId="integrations" active={safeActiveTab === "integrations"}>
             <IntegrationsTab />
+          </TabPanel>
+
+          <TabPanel tabId="correspondence" active={safeActiveTab === "correspondence"}>
+            <CorrespondenceTab />
           </TabPanel>
 
           <TabPanel tabId="preferences" active={safeActiveTab === "preferences"}>

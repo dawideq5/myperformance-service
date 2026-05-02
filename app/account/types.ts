@@ -96,4 +96,5 @@ export type AccountTabId =
   | "security"
   | "sessions"
   | "integrations"
-  | "preferences";
+  | "preferences"
+  | "correspondence";
