@@ -114,18 +114,66 @@ async function sendSignedReceiptToCustomer(
  * używały HMAC `X-Documenso-Signature` — pozostawiamy fallback).
  */
 
+interface DocumensoRecipient {
+  email?: string;
+  name?: string;
+  signedAt?: string | null;
+}
+
 interface DocumensoPayload {
   event?: string;
   payload?: {
-    id?: string;
+    id?: string | number;
     title?: string;
     documentId?: string;
+    User?: { email?: string };
+    user?: { email?: string };
+    Recipient?: DocumensoRecipient[];
+    recipients?: DocumensoRecipient[];
     document?: {
       id?: string | number;
       title?: string;
       User?: { email?: string };
-      Recipient?: Array<{ email?: string; name?: string; signedAt?: string | null }>;
+      user?: { email?: string };
+      Recipient?: DocumensoRecipient[];
+      recipients?: DocumensoRecipient[];
     };
+  };
+}
+
+/**
+ * Documenso v3 wysyła recipients pod różnymi ścieżkami zależnie od event
+ * type i wersji: top-level (payload.payload.Recipient) lub nested
+ * (payload.payload.document.Recipient). Plus istnieje lowercase alias
+ * `recipients`. Spróbuj wszystkich.
+ */
+function extractRecipients(payload: DocumensoPayload): DocumensoRecipient[] {
+  const candidates = [
+    payload.payload?.Recipient,
+    payload.payload?.recipients,
+    payload.payload?.document?.Recipient,
+    payload.payload?.document?.recipients,
+  ];
+  for (const c of candidates) {
+    if (Array.isArray(c) && c.length > 0) return c;
+  }
+  return [];
+}
+
+function extractDocumentInfo(payload: DocumensoPayload): {
+  id: string | number | undefined;
+  title: string | undefined;
+  ownerEmail: string | undefined;
+} {
+  const inner = payload.payload?.document;
+  return {
+    id: inner?.id ?? payload.payload?.id,
+    title: inner?.title ?? payload.payload?.title,
+    ownerEmail:
+      inner?.User?.email ??
+      inner?.user?.email ??
+      payload.payload?.User?.email ??
+      payload.payload?.user?.email,
   };
 }
 
@@ -194,27 +242,44 @@ export async function POST(req: Request) {
   }
 
   const event = payload.event ?? "";
+  const docInfo = extractDocumentInfo(payload);
   const doc = payload.payload?.document ?? payload.payload;
-  const docTitle = doc && "title" in doc ? doc.title : payload.payload?.title;
-  const recipients = (payload.payload?.document?.Recipient ?? []).filter(
-    (r): r is { email: string; name?: string; signedAt?: string | null } => !!r?.email,
+  const docTitle = docInfo.title;
+  const recipients = extractRecipients(payload).filter(
+    (r): r is { email: string; name?: string; signedAt?: string | null } =>
+      typeof r?.email === "string" && r.email.length > 0,
   );
 
   // 1) Prośba o podpis — wysłana do każdego recipienta
   if (event === "document.sent" || event === "DOCUMENT_SENT") {
+    let notified = 0;
     for (const r of recipients) {
       const uid = await getUserIdByEmail(r.email);
-      if (!uid) continue;
+      if (!uid) {
+        logger.info("documenso recipient skipped — no kc user", { email: r.email });
+        continue;
+      }
       await notifyUser(uid, "documents.signature.requested", {
         title: "Prośba o podpis dokumentu",
         body: `${docTitle ?? "Dokument"} czeka na Twój podpis.`,
         severity: "info",
-        payload: { documentId: doc?.id, title: docTitle },
+        payload: { documentId: docInfo.id, title: docTitle },
         forceEmail: true,
       });
+      notified++;
     }
-    await recordWebhookHit("documenso", "ok", event, "requested");
-    return NextResponse.json({ ok: true, action: "requested", count: recipients.length });
+    logger.info("documenso DOCUMENT_SENT processed", {
+      docId: docInfo.id,
+      total: recipients.length,
+      notified,
+    });
+    await recordWebhookHit("documenso", "ok", event, `requested:${notified}/${recipients.length}`);
+    return NextResponse.json({
+      ok: true,
+      action: "requested",
+      total: recipients.length,
+      notified,
+    });
   }
 
   // 1b) Pojedynczy recipient podpisał (intermediate w sequential signing).
@@ -271,7 +336,7 @@ export async function POST(req: Request) {
   // + zapisz status "signed" w mp_services (visual_condition.documenso.status)
   // + pobierz podpisany PDF i zapisz w signed-receipts MinIO.
   if (event === "document.completed" || event === "DOCUMENT_COMPLETED" || event === "document.signed" || event === "DOCUMENT_SIGNED") {
-    const ownerEmail = payload.payload?.document?.User?.email;
+    const ownerEmail = docInfo.ownerEmail;
     if (ownerEmail) {
       const uid = await getUserIdByEmail(ownerEmail);
       if (uid) {
@@ -279,7 +344,7 @@ export async function POST(req: Request) {
           title: "Dokument podpisany",
           body: `${docTitle ?? "Dokument"} został w pełni podpisany przez wszystkie strony.`,
           severity: "success",
-          payload: { documentId: doc?.id, title: docTitle },
+          payload: { documentId: docInfo.id, title: docTitle },
         });
       }
     }
