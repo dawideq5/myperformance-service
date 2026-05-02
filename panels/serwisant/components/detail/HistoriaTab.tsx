@@ -52,6 +52,99 @@ const ACTION_ICONS: Record<string, React.ComponentType<{ className?: string }>> 
   other: Activity,
 };
 
+/**
+ * Humanizuje summary akcji do języka naturalnego — zamiast "received → diagnosing"
+ * wyświetla "Przyjęte → W diagnostyce", zamiast "Δ +150 PLN" → "z 280 PLN do 380 PLN".
+ */
+function humanizeSummary(
+  action: string,
+  summary: string,
+  payload: Record<string, unknown> | null | undefined,
+): string {
+  if (action === "status_change" && payload) {
+    const from = typeof payload.from === "string" ? payload.from : null;
+    const to = typeof payload.to === "string" ? payload.to : null;
+    if (from && to) {
+      const fromLabel = getStatusMeta(from).label;
+      const toLabel = getStatusMeta(to).label;
+      return `Status: ${fromLabel} → ${toLabel}`;
+    }
+  }
+  if (action === "quote_changed" && payload) {
+    const oldA = typeof payload.oldAmount === "number" ? payload.oldAmount : null;
+    const newA = typeof payload.newAmount === "number" ? payload.newAmount : null;
+    if (oldA != null && newA != null) {
+      return `Zmiana wyceny z ${oldA.toFixed(2)} PLN na ${newA.toFixed(2)} PLN`;
+    }
+  }
+  if ((action === "annex_created" || action === "annex_accepted") && payload) {
+    const oldA = typeof payload.previousAmount === "number" ? payload.previousAmount : null;
+    const newA = typeof payload.newAmount === "number" ? payload.newAmount : null;
+    const verb = action === "annex_created" ? "Utworzono aneks" : "Klient zaakceptował aneks";
+    if (oldA != null && newA != null) {
+      return `${verb} — wycena z ${oldA.toFixed(2)} na ${newA.toFixed(2)} PLN`;
+    }
+    return verb;
+  }
+  if (action === "annex_rejected") return "Klient odrzucił aneks";
+  if (action === "transport_requested" && payload) {
+    const dest =
+      typeof payload.destinationName === "string"
+        ? payload.destinationName
+        : typeof payload.targetLocationId === "string"
+          ? payload.targetLocationId
+          : "innego serwisu";
+    const reason = typeof payload.reason === "string" ? payload.reason : "";
+    return reason
+      ? `Wysłano zlecenie transportu do ${dest} — ${reason}`
+      : `Wysłano zlecenie transportu do ${dest}`;
+  }
+  if (action === "transport_cancelled") return "Anulowano zlecenie transportu";
+  if (action === "transport_updated") return "Zmieniono dane zlecenia transportu";
+  if (action === "photo_uploaded" && payload) {
+    const stage = typeof payload.stage === "string" ? payload.stage : null;
+    const stageLabel: Record<string, string> = {
+      intake: "przyjęcia",
+      diagnosis: "diagnozy",
+      in_repair: "naprawy",
+      before_delivery: "przed wydaniem",
+      other: "inne",
+    };
+    return stage
+      ? `Dodano zdjęcie (etap ${stageLabel[stage] ?? stage})`
+      : "Dodano zdjęcie do zlecenia";
+  }
+  if (action === "photo_deleted") return "Usunięto zdjęcie";
+  if (action === "note_added" && payload) {
+    const vis = typeof payload.visibility === "string" ? payload.visibility : null;
+    if (vis === "service_only") return "Dodano notatkę (tylko serwis)";
+    if (vis === "sales_only") return "Dodano notatkę (tylko sprzedaż)";
+    return "Dodano notatkę zespołową";
+  }
+  if (action === "note_deleted") return "Usunięto notatkę";
+  if (action === "component_added" && payload) {
+    const name = typeof payload.name === "string" ? payload.name : "";
+    return name ? `Dodano komponent: ${name}` : "Dodano komponent do wyceny";
+  }
+  if (action === "component_updated") return "Zaktualizowano komponent";
+  if (action === "component_deleted") return "Usunięto komponent";
+  if (action === "part_ordered") return "Zamówiono część";
+  if (action === "part_received") return "Otrzymano część";
+  if (action === "customer_data_updated") return "Zaktualizowano dane klienta";
+  if (action === "device_condition_updated") return "Zaktualizowano stan techniczny urządzenia";
+  if (action === "damage_marker_added") return "Dodano marker uszkodzenia";
+  if (action === "damage_marker_removed") return "Usunięto marker uszkodzenia";
+  if (action === "damage_marker_updated") return "Edytowano marker uszkodzenia";
+  if (action === "customer_message_sent" && payload) {
+    const channel = typeof payload.channel === "string" ? payload.channel : "";
+    const ch: Record<string, string> = { email: "e-mail", sms: "SMS", chatwoot: "czat" };
+    return `Wysłano wiadomość do klienta (${ch[channel] ?? channel})`;
+  }
+  if (action === "upload_bridge_token_issued") return "Wysłano kod QR do uploadu zdjęć";
+  // Fallback do oryginalnego summary jeśli mamy, inaczej raw action
+  return summary || action;
+}
+
 function formatRelative(iso: string): string {
   const ts = new Date(iso).getTime();
   if (Number.isNaN(ts)) return "";
@@ -163,7 +256,7 @@ export function HistoriaTab({ service }: HistoriaTabProps) {
                 className="text-sm"
                 style={{ color: "var(--text-main)" }}
               >
-                {a.summary || a.action}
+                {humanizeSummary(a.action, a.summary, a.payload)}
               </p>
               <p
                 className="text-[11px] mt-0.5"

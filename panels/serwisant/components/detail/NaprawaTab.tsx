@@ -346,28 +346,18 @@ export function NaprawaTab({
                 #{activeTransport.jobNumber}
               </span>
               {activeTransport.trackingLink &&
-              ["in_transit", "delivered"].includes(activeTransport.status) ? (
-                <a
-                  href={activeTransport.trackingLink}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="ml-auto text-[11px] underline inline-flex items-center gap-0.5"
-                  style={{ color: "rgba(14, 165, 233, 0.9)" }}
-                >
-                  Śledź transport
-                  <ExternalLink className="w-3 h-3" aria-hidden="true" />
-                </a>
-              ) : (
-                <a
-                  href={`/api/relay/transport-jobs/${activeTransport.id}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="ml-auto text-[11px] underline"
-                  style={{ color: "var(--text-muted)" }}
-                >
-                  Szczegóły
-                </a>
-              )}
+                ["in_transit", "delivered"].includes(activeTransport.status) && (
+                  <a
+                    href={activeTransport.trackingLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="ml-auto text-[11px] underline inline-flex items-center gap-0.5"
+                    style={{ color: "rgba(14, 165, 233, 0.9)" }}
+                  >
+                    Śledź paczkę
+                    <ExternalLink className="w-3 h-3" aria-hidden="true" />
+                  </a>
+                )}
             </div>
             {activeTransport.reason && (
               <p

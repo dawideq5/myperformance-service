@@ -284,20 +284,6 @@ export function TransportModal({
                   ) zostanie zapamiętany do wznowienia.
                 </div>
               )}
-              {isEdit && (
-                <div
-                  className="text-xs rounded-lg border p-2"
-                  style={{
-                    background: "var(--bg-surface)",
-                    borderColor: "var(--border-subtle)",
-                    color: "var(--text-muted)",
-                  }}
-                >
-                  Edycja możliwa tylko dopóki kierowca nie odebrał urządzenia
-                  (status zlecenia: <span style={{ color: "var(--text-main)" }}>queued</span>).
-                </div>
-              )}
-
               {error && (
                 <div
                   role="alert"

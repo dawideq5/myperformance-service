@@ -58,9 +58,19 @@ function formatRelative(iso: string): string {
   return new Date(iso).toLocaleString("pl-PL");
 }
 
-function authorLabel(role: AuthorRole, email: string): string {
-  const ROLE_LABEL = role === "sales" ? "Sprzedawca" : "Serwisant";
-  return `${ROLE_LABEL} · ${email}`;
+/**
+ * Wyświetla tylko imię i nazwisko autora wiadomości (bez roli, bez emaila).
+ * Pełne imię z DB jeszcze nie istnieje (mp_service_internal_messages bez
+ * author_name), więc tymczasowo derive'ujemy z localpart emaila — pattern
+ * "imie.nazwisko@..." → "Imię Nazwisko". Wave 21 Faza 1D doda kolumnę.
+ */
+function authorLabel(_role: AuthorRole, email: string): string {
+  const local = (email.split("@")[0] || email).replace(/[._-]+/g, " ");
+  return local
+    .split(" ")
+    .filter(Boolean)
+    .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
+    .join(" ");
 }
 
 export function CzatZespoluTab({
