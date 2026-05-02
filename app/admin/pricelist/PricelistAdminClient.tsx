@@ -420,10 +420,15 @@ function PricelistDialog({
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
+    const normalizedCode = code.trim().toUpperCase();
     const input: PricelistInput = {
-      code: code.trim().toUpperCase(),
+      code: normalizedCode,
       name: name.trim(),
       category,
+      // Każda pozycja cennika należy do JEDNEGO repair_type. Domyślnie code
+      // pricelist === code repair_type (legacy seed). Admin może wybrać inny
+      // przez datalist `repair-type-codes` — wtedy code jest aliasowane.
+      repairTypeCode: normalizedCode,
       price: Number(price),
       brand: brand.trim() || null,
       modelPattern: modelPattern.trim() || null,

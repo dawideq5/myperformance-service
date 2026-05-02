@@ -350,11 +350,15 @@ export function checkSumsCombination(
 }
 
 /** Compute quote from repair codes + device. Łączy mp_repair_types z mp_pricelist.
- * Pricelist używa jednorazowo `code === repairType.code` (back-compat — kod
- * cennika = kod naprawy) z fallback na CLEANING_INTAKE itp. */
+ * Pricelist linkowany przez `repair_type_code` (1:1 do mp_repair_types.code);
+ * legacy fallback przez pricelist.code (gdy starsza pozycja bez FK). */
 export async function computeQuote(
   codes: string[],
-  device: { brand?: string | null; model?: string | null } = {},
+  device: {
+    brand?: string | null;
+    model?: string | null;
+    phoneModelSlug?: string | null;
+  } = {},
 ): Promise<Quote> {
   const types = await listRepairTypes({ activeOnly: true });
   const pricelist = await listPricelist({ enabledOnly: true });
@@ -365,7 +369,11 @@ export async function computeQuote(
  * endpoint który już ma listę types/pricelist w cache. */
 export function computeQuoteSync(
   codes: string[],
-  device: { brand?: string | null; model?: string | null },
+  device: {
+    brand?: string | null;
+    model?: string | null;
+    phoneModelSlug?: string | null;
+  },
   types: RepairType[],
   pricelist: PricelistItem[],
 ): Quote {
@@ -373,11 +381,16 @@ export function computeQuoteSync(
   const lines: QuoteLine[] = codes.map((code) => {
     const t = byCode.get(code);
     const matches = pricelist.filter(
-      (p) => p.code === code && matchesPricelist(p, device),
+      (p) =>
+        (p.repairTypeCode === code || p.code === code) &&
+        matchesPricelist(p, device),
     );
     matches.sort((a, b) => {
-      const ax = (a.brand ? 1 : 0) + (a.modelPattern ? 1 : 0);
-      const bx = (b.brand ? 1 : 0) + (b.modelPattern ? 1 : 0);
+      // Preferuj pozycje z dopasowanym phoneModelSlug, potem brand+model.
+      const ax =
+        (a.phoneModelSlug ? 4 : 0) + (a.brand ? 2 : 0) + (a.modelPattern ? 1 : 0);
+      const bx =
+        (b.phoneModelSlug ? 4 : 0) + (b.brand ? 2 : 0) + (b.modelPattern ? 1 : 0);
       return bx - ax;
     });
     const price = matches[0]?.price ?? null;

@@ -32,8 +32,12 @@ const wazuhOrigin = originOf(
   process.env.NEXT_PUBLIC_WAZUH_URL,
   "https://wazuh.myperformance.pl",
 );
+const chatwootOrigin = originOf(
+  process.env.NEXT_PUBLIC_CHATWOOT_BASE_URL,
+  "https://chat.myperformance.pl",
+);
 
-const externalOrigins = [keycloakOrigin, documensoOrigin, wazuhOrigin].filter(Boolean);
+const externalOrigins = [keycloakOrigin, documensoOrigin, wazuhOrigin, chatwootOrigin].filter(Boolean);
 const externalSrc = externalOrigins.length ? ` ${externalOrigins.join(" ")}` : "";
 
 const scriptSrc = isDev
@@ -57,9 +61,9 @@ const cspDirectives = [
   "default-src 'self'",
   `script-src ${scriptSrc}`,
   "style-src 'self' 'unsafe-inline'",
-  `img-src 'self' data: blob: ${osmTilesSrc} ${leafletAssetsSrc}${photosSrc}`,
+  `img-src 'self' data: blob: ${osmTilesSrc} ${leafletAssetsSrc}${photosSrc}${chatwootOrigin ? ` ${chatwootOrigin}` : ""}`,
   "font-src 'self' data:",
-  `connect-src 'self'${externalSrc} ${osmTilesSrc} ${nominatimSrc}${photosSrc}`,
+  `connect-src 'self'${externalSrc} ${osmTilesSrc} ${nominatimSrc}${photosSrc}${chatwootOrigin ? ` wss://${new URL(chatwootOrigin).host}` : ""}`,
   `frame-src 'self'${externalSrc}`,
   `form-action 'self'${keycloakOrigin ? ` ${keycloakOrigin}` : ""}`,
   "frame-ancestors 'none'",
