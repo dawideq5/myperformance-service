@@ -250,6 +250,32 @@ export async function POST(req: Request) {
       typeof r?.email === "string" && r.email.length > 0,
   );
 
+  // 0) Przypomnienie o podpisie — Documenso v3 emituje DOCUMENT_REMINDER_SENT
+  // gdy auto-reminder cron wysyła pinga do recipientów którzy jeszcze nie
+  // podpisali. Wysyłamy nasz osobny event documents.signature.reminder.
+  if (event === "DOCUMENT_REMINDER_SENT" || event === "document.reminder.sent") {
+    let notified = 0;
+    for (const r of recipients) {
+      if (r.signedAt) continue;
+      const uid = await getUserIdByEmail(r.email);
+      if (!uid) continue;
+      await notifyUser(uid, "documents.signature.reminder", {
+        title: "Przypomnienie: dokument do podpisu",
+        body: `${docTitle ?? "Dokument"} wciąż czeka na Twój podpis.`,
+        severity: "warning",
+        payload: { documentId: docInfo.id, title: docTitle },
+        forceEmail: true,
+      });
+      notified++;
+    }
+    logger.info("documenso DOCUMENT_REMINDER_SENT processed", {
+      docId: docInfo.id,
+      notified,
+    });
+    await recordWebhookHit("documenso", "ok", event, `reminder:${notified}`);
+    return NextResponse.json({ ok: true, action: "reminder", notified });
+  }
+
   // 1) Prośba o podpis — wysłana do każdego recipienta
   if (event === "document.sent" || event === "DOCUMENT_SENT") {
     let notified = 0;

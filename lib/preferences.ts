@@ -190,6 +190,15 @@ export const NOTIF_EVENTS = {
     defaultEmail: false,
     requiresArea: "documenso",
   },
+  "documents.signature.reminder": {
+    label: "Przypomnienie o podpisie dokumentu",
+    description:
+      "Otrzymałeś przypomnienie że dokument w Documenso czeka na Twój podpis.",
+    category: "apps",
+    defaultInApp: true,
+    defaultEmail: true,
+    requiresArea: "documenso",
+  },
   "moodle.course.assigned": {
     label: "Przypisano do kursu Moodle",
     description:

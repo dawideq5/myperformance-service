@@ -230,6 +230,19 @@ function buildAuthOptions(): AuthOptions {
               ...(resourceAccess[keycloakClientId]?.roles || []),
               ...(resourceAccess["realm-management"]?.roles || []),
             ];
+
+            // Imię i nazwisko z KC ID token — używane m.in. przez Chatwoot
+            // widget HMAC verification + bell-icon greeting.
+            const tp = payload as {
+              given_name?: string;
+              family_name?: string;
+              name?: string;
+              email?: string;
+            };
+            if (tp.given_name) session.user.firstName = tp.given_name;
+            if (tp.family_name) session.user.lastName = tp.family_name;
+            if (tp.name && !session.user.name) session.user.name = tp.name;
+            if (tp.email && !session.user.email) session.user.email = tp.email;
           } catch {
             session.user.roles = [];
           }
