@@ -30,7 +30,7 @@ export async function GET() {
 
     const sessions: LiveKitSession[] = await listActiveSessions();
 
-    let liveParticipants: Map<string, number> = new Map();
+    const liveParticipants: Map<string, number> = new Map();
     let liveKitReachable = false;
     try {
       const rooms = await listAllRooms();
