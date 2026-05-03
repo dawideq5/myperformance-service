@@ -42,6 +42,13 @@ interface JoinModeSelectorProps {
   signedJoinToken: string;
   appBaseUrl?: string;
   compact?: boolean;
+  /**
+   * Wave 24 — `publisher` daje canPublish=true (2-way video chat między
+   * sprzedawcą a agentem). Default `subscriber` zachowuje istniejący
+   * /konsultacja/[room] flow gdzie tylko mobile (po skanowaniu QR)
+   * publishuje.
+   */
+  publisherMode?: "publisher" | "subscriber";
 }
 
 type Mode = "browser" | "qr";
@@ -59,6 +66,7 @@ export function JoinModeSelector({
   signedJoinToken,
   appBaseUrl,
   compact = false,
+  publisherMode = "subscriber",
 }: JoinModeSelectorProps) {
   const [mode, setMode] = useState<Mode>("browser");
 
@@ -80,13 +88,13 @@ export function JoinModeSelector({
           active={mode === "browser"}
           onClick={() => setMode("browser")}
           icon={<Video className="w-3.5 h-3.5" aria-hidden="true" />}
-          label="Dołącz tutaj"
+          label={publisherMode === "publisher" ? "Połącz przy użyciu tego urządzenia" : "Dołącz tutaj"}
         />
         <ModeTab
           active={mode === "qr"}
           onClick={() => setMode("qr")}
           icon={<QrCode className="w-3.5 h-3.5" aria-hidden="true" />}
-          label="Skanuj QR"
+          label="Pokaż kod QR"
         />
       </div>
 
@@ -95,12 +103,14 @@ export function JoinModeSelector({
           roomName={roomName}
           signedJoinToken={signedJoinToken}
           compact={compact}
+          publisherMode={publisherMode}
         />
       ) : (
         <QrScanView
           roomName={roomName}
           signedJoinToken={signedJoinToken}
           appBaseUrl={appBaseUrl}
+          publisherMode={publisherMode}
         />
       )}
     </div>
@@ -146,10 +156,12 @@ function SubscriberView({
   roomName: _roomName,
   signedJoinToken,
   compact,
+  publisherMode,
 }: {
   roomName: string;
   signedJoinToken: string;
   compact: boolean;
+  publisherMode: "publisher" | "subscriber";
 }) {
   type Phase =
     | { kind: "idle" }
@@ -176,8 +188,10 @@ function SubscriberView({
   const join = useCallback(async () => {
     setPhase({ kind: "loading" });
     try {
+      const modeParam =
+        publisherMode === "publisher" ? "&mode=publisher" : "";
       const r = await fetch(
-        `/api/livekit/join-token?token=${encodeURIComponent(signedJoinToken)}`,
+        `/api/livekit/join-token?token=${encodeURIComponent(signedJoinToken)}${modeParam}`,
         { cache: "no-store" },
       );
       const body = (await r.json()) as JoinResponse;
@@ -199,7 +213,7 @@ function SubscriberView({
             : "Nie udało się dołączyć.",
       });
     }
-  }, [signedJoinToken]);
+  }, [signedJoinToken, publisherMode]);
 
   // Connect when phase moves to "connecting".
   useEffect(() => {
@@ -229,6 +243,19 @@ function SubscriberView({
 
         await room.connect(phase.livekitUrl, phase.accessToken);
         if (cancelled) return;
+
+        // Wave 24 — w trybie publisher publikujemy lokalną kamerę + mic.
+        // Jeśli przeglądarka odmówi getUserMedia, zostawiamy room jako
+        // subscriber-only zamiast wywalać cały connect.
+        if (publisherMode === "publisher") {
+          try {
+            await room.localParticipant.enableCameraAndMicrophone();
+          } catch (err) {
+            // eslint-disable-next-line no-console
+            console.warn("camera/mic publish failed", err);
+          }
+        }
+
         setPhase({ kind: "active", identity: phase.identity });
 
         cleanup = () => {
@@ -253,7 +280,7 @@ function SubscriberView({
       cancelled = true;
       cleanup();
     };
-  }, [phase]);
+  }, [phase, publisherMode]);
 
   const toggleAudio = useCallback(() => {
     if (audioRef.current) {
@@ -405,17 +432,23 @@ function QrScanView({
   roomName,
   signedJoinToken,
   appBaseUrl,
+  publisherMode,
 }: {
   roomName: string;
   signedJoinToken: string;
   appBaseUrl?: string;
+  publisherMode: "publisher" | "subscriber";
 }) {
   const [dataUrl, setDataUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // QR koduje URL do /konsultacja/[room] z `?mode=publisher` żeby telefon
+  // skanujący stał się 2-way uczestnikiem (kamera tył + mic), a nie tylko
+  // viewerem. Default zachowuje starą semantykę dla legacy linków.
+  const modeParam = publisherMode === "publisher" ? "&mode=publisher" : "";
   const fullUrl =
     `${(appBaseUrl ?? "https://myperformance.pl").replace(/\/$/, "")}/konsultacja/` +
-    `${encodeURIComponent(roomName)}?token=${encodeURIComponent(signedJoinToken)}`;
+    `${encodeURIComponent(roomName)}?token=${encodeURIComponent(signedJoinToken)}${modeParam}`;
 
   useEffect(() => {
     let cancelled = false;

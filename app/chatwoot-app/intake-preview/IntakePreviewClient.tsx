@@ -46,6 +46,36 @@ interface SnapshotResponse {
   error?: string;
 }
 
+/** Wave 24 — response shape z /api/livekit/conversation-snapshot. */
+interface ConversationSnapshotResponse {
+  conversationId: number;
+  kind: "draft" | "service" | "merged" | "empty";
+  snapshot: {
+    serviceId: string | null;
+    ticketNumber: string | null;
+    status: string | null;
+    brand: string | null;
+    model: string | null;
+    imei: string | null;
+    color: string | null;
+    lockType: string | null;
+    description: string | null;
+    diagnosis: string | null;
+    amountEstimate: number | null;
+    amountFinal: number | null;
+    customerFirstName: string | null;
+    customerLastName: string | null;
+    contactPhone: string | null;
+    contactEmail: string | null;
+    receivedBy: string | null;
+    readyToSubmit: boolean;
+    updatedAt: string | null;
+    source: "draft" | "service" | "merged";
+  } | null;
+  initiateToken?: string | null;
+  error?: string;
+}
+
 interface RoomRow {
   id: string;
   roomName: string;
@@ -127,7 +157,13 @@ function formatValue(field: keyof ServiceSnapshot, value: unknown): string {
   return String(value);
 }
 
-export function IntakePreviewClient({ serviceId }: { serviceId: string }) {
+export function IntakePreviewClient({
+  serviceId,
+  conversationId,
+}: {
+  serviceId: string;
+  conversationId: number | null;
+}) {
   const [data, setData] = useState<ServiceSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -138,11 +174,20 @@ export function IntakePreviewClient({ serviceId }: { serviceId: string }) {
     Record<string, { joinToken: string; mobileUrl: string; qrDataUrl: string }>
   >({});
   const [initiating, setInitiating] = useState<boolean>(false);
+  /** Wave 24 — gdy iframe dostał tylko conversation_id, snapshot odkryje
+   *  bound serviceId po draft → service binding. Trzymamy go w state żeby
+   *  rooms polling i agent-join-token mogły z niego korzystać po fakcie. */
+  const [resolvedServiceId, setResolvedServiceId] = useState<string>(serviceId);
+  const [snapshotKind, setSnapshotKind] = useState<
+    "draft" | "service" | "merged" | "empty" | "service-only"
+  >("service-only");
   const prevDataRef = useRef<ServiceSnapshot | null>(null);
 
   useEffect(() => {
-    if (!serviceId) {
-      setError("Brak service_id w URL'u.");
+    if (!serviceId && conversationId == null) {
+      setError(
+        "Brak service_id ani conversation_id w URL'u. Skonfiguruj Dashboard App z `?conversation_id={{conversation.id}}`.",
+      );
       setLoading(false);
       return;
     }
@@ -150,36 +195,95 @@ export function IntakePreviewClient({ serviceId }: { serviceId: string }) {
     let cancelled = false;
     let timer: number | null = null;
 
-    const fetchOnce = async () => {
-      try {
-        const r = await fetch(
-          `/api/livekit/intake-snapshot?service_id=${encodeURIComponent(serviceId)}`,
-          { cache: "no-store" },
-        );
-        const body = (await r.json()) as SnapshotResponse;
-        if (!r.ok || !body.service) {
-          throw new Error(body.error ?? `HTTP ${r.status}`);
-        }
-        if (cancelled) return;
-        const next = body.service;
+    const fetchByConversation = async (): Promise<void> => {
+      const r = await fetch(
+        `/api/livekit/conversation-snapshot?conversation_id=${conversationId}`,
+        { cache: "no-store" },
+      );
+      const body = (await r.json()) as ConversationSnapshotResponse;
+      if (!r.ok) throw new Error(body.error ?? `HTTP ${r.status}`);
+      if (cancelled) return;
+      setSnapshotKind(body.kind);
+      if (body.snapshot) {
+        const s = body.snapshot;
+        const next: ServiceSnapshot = {
+          id: s.serviceId ?? "draft",
+          ticketNumber: s.ticketNumber ?? "—",
+          status: s.status ?? "draft",
+          brand: s.brand,
+          model: s.model,
+          imei: s.imei,
+          color: s.color,
+          lockType: s.lockType,
+          description: s.description,
+          diagnosis: s.diagnosis,
+          amountEstimate: s.amountEstimate,
+          amountFinal: s.amountFinal,
+          customerFirstName: s.customerFirstName,
+          customerLastName: s.customerLastName,
+          contactPhone: s.contactPhone,
+          contactEmail: s.contactEmail,
+          receivedBy: s.receivedBy,
+          chatwootConversationId: body.conversationId,
+          updatedAt: s.updatedAt,
+          createdAt: null,
+        };
+        if (s.serviceId) setResolvedServiceId(s.serviceId);
         const prev = prevDataRef.current;
         if (prev) {
           const changed: Record<string, number> = {};
           for (const k of VISIBLE_FIELDS) {
-            if (prev[k] !== next[k]) {
-              changed[k] = Date.now();
-            }
+            if (prev[k] !== next[k]) changed[k] = Date.now();
           }
           if (Object.keys(changed).length > 0) {
-            setHighlights((prev) => ({ ...prev, ...changed }));
+            setHighlights((p) => ({ ...p, ...changed }));
           }
         }
         prevDataRef.current = next;
         setData(next);
-        if (typeof body.initiateToken === "string" && body.initiateToken) {
-          setInitiateToken(body.initiateToken);
+      }
+      if (typeof body.initiateToken === "string" && body.initiateToken) {
+        setInitiateToken(body.initiateToken);
+      }
+      setError(null);
+    };
+
+    const fetchByService = async (): Promise<void> => {
+      const r = await fetch(
+        `/api/livekit/intake-snapshot?service_id=${encodeURIComponent(serviceId)}`,
+        { cache: "no-store" },
+      );
+      const body = (await r.json()) as SnapshotResponse;
+      if (!r.ok || !body.service) {
+        throw new Error(body.error ?? `HTTP ${r.status}`);
+      }
+      if (cancelled) return;
+      const next = body.service;
+      const prev = prevDataRef.current;
+      if (prev) {
+        const changed: Record<string, number> = {};
+        for (const k of VISIBLE_FIELDS) {
+          if (prev[k] !== next[k]) changed[k] = Date.now();
         }
-        setError(null);
+        if (Object.keys(changed).length > 0) {
+          setHighlights((p) => ({ ...p, ...changed }));
+        }
+      }
+      prevDataRef.current = next;
+      setData(next);
+      if (typeof body.initiateToken === "string" && body.initiateToken) {
+        setInitiateToken(body.initiateToken);
+      }
+      setError(null);
+    };
+
+    const fetchOnce = async () => {
+      try {
+        if (conversationId != null) {
+          await fetchByConversation();
+        } else {
+          await fetchByService();
+        }
       } catch (err) {
         if (cancelled) return;
         setError(
@@ -196,16 +300,22 @@ export function IntakePreviewClient({ serviceId }: { serviceId: string }) {
       cancelled = true;
       if (timer != null) window.clearInterval(timer);
     };
-  }, [serviceId]);
+  }, [serviceId, conversationId]);
 
-  // Wave 23 (overlay) — polling aktywnych pokoi konsultacji video.
+  // Wave 23 (overlay) — polling aktywnych pokoi konsultacji video. Wave 24:
+  // gdy mamy conversationId, używamy go zamiast serviceId — działa też zanim
+  // sprzedawca zapisze ticket.
   useEffect(() => {
-    if (!serviceId) return;
+    if (!resolvedServiceId && conversationId == null) return;
     let cancelled = false;
     const tick = async () => {
       try {
+        const param =
+          conversationId != null
+            ? `conversation_id=${conversationId}`
+            : `service_id=${encodeURIComponent(resolvedServiceId)}`;
         const r = await fetch(
-          `/api/livekit/rooms-for-service?service_id=${encodeURIComponent(serviceId)}`,
+          `/api/livekit/rooms-for-service?${param}`,
           { cache: "no-store" },
         );
         const body = (await r.json()) as RoomsForServiceResponse;
@@ -222,7 +332,7 @@ export function IntakePreviewClient({ serviceId }: { serviceId: string }) {
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [serviceId]);
+  }, [resolvedServiceId, conversationId]);
 
   /**
    * Wave 23 (overlay) — gdy pojawia się nowy pokój a my nie mamy jeszcze
@@ -277,10 +387,11 @@ export function IntakePreviewClient({ serviceId }: { serviceId: string }) {
     };
   }, [rooms, initiateToken, perRoomJoin]);
 
-  const conversationId =
-    typeof data?.chatwootConversationId === "number"
+  const effectiveConvId =
+    conversationId ??
+    (typeof data?.chatwootConversationId === "number"
       ? data.chatwootConversationId
-      : null;
+      : null);
 
   const initiate = useCallback(async () => {
     if (!initiateToken) {
@@ -294,7 +405,7 @@ export function IntakePreviewClient({ serviceId }: { serviceId: string }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           initiateToken,
-          conversationId,
+          conversationId: effectiveConvId,
         }),
       });
       const body = (await r.json()) as InitiateResponse;
@@ -318,7 +429,7 @@ export function IntakePreviewClient({ serviceId }: { serviceId: string }) {
     } finally {
       setInitiating(false);
     }
-  }, [initiateToken, conversationId]);
+  }, [initiateToken, effectiveConvId]);
 
   // Highlight cleanup tick — refresh every 500ms żeby fade-out działał.
   const [, forceTick] = useState(0);
@@ -354,6 +465,45 @@ export function IntakePreviewClient({ serviceId }: { serviceId: string }) {
   }
 
   if (!data) {
+    // Wave 24 — pusty draft (sprzedawca jeszcze nie napisał ani jednego pola).
+    // Pokazujemy "ready to start" UI z przyciskiem inicjacji rozmowy video,
+    // żeby agent mógł zainicjować rozmowę nawet gdy formularz jeszcze pusty.
+    if (conversationId != null) {
+      return (
+        <main className="min-h-screen p-4 bg-white text-gray-900">
+          <header className="mb-3 pb-3 border-b border-gray-200">
+            <div className="flex items-center gap-2">
+              <Radio
+                className="w-3.5 h-3.5 text-amber-500 animate-pulse"
+                aria-hidden="true"
+              />
+              <h1 className="text-sm font-semibold">
+                Oczekiwanie na sprzedawcę
+              </h1>
+            </div>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Sprzedawca jeszcze nie zaczął wypełniać formularza intake.
+            </p>
+          </header>
+          <section className="mt-4">
+            <button
+              type="button"
+              onClick={() => void initiate()}
+              disabled={initiating || !initiateToken}
+              className="w-full px-2.5 py-1.5 rounded-lg text-xs font-medium inline-flex items-center justify-center gap-1.5 disabled:opacity-50"
+              style={{ background: "#4f46e5", color: "#fff" }}
+            >
+              {initiating ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
+              ) : (
+                <Video className="w-3.5 h-3.5" aria-hidden="true" />
+              )}
+              Rozpocznij rozmowę wideo
+            </button>
+          </section>
+        </main>
+      );
+    }
     return (
       <main className="min-h-screen flex items-center justify-center text-sm text-gray-500">
         Brak danych dla service_id={serviceId}.
@@ -366,16 +516,22 @@ export function IntakePreviewClient({ serviceId }: { serviceId: string }) {
       .filter((s) => s && s.trim())
       .join(" ") || "—";
 
+  // Badge dla draft state — agent wie że ogląda live podgląd jeszcze
+  // nie zapisanego ticketu.
+  const isDraft = snapshotKind === "draft" || snapshotKind === "empty";
+
   return (
     <main className="min-h-screen p-4 bg-white text-gray-900">
       <header className="mb-3 pb-3 border-b border-gray-200">
         <div className="flex items-center gap-2">
           <Radio
-            className="w-3.5 h-3.5 text-emerald-500 animate-pulse"
+            className={`w-3.5 h-3.5 animate-pulse ${isDraft ? "text-amber-500" : "text-emerald-500"}`}
             aria-hidden="true"
           />
           <h1 className="text-sm font-semibold">
-            Konsultacja serwisowa #{data.ticketNumber}
+            {isDraft
+              ? "Wersja robocza intake (live)"
+              : `Konsultacja serwisowa #${data.ticketNumber}`}
           </h1>
         </div>
         <p className="text-xs text-gray-500 mt-0.5">
@@ -476,6 +632,7 @@ export function IntakePreviewClient({ serviceId }: { serviceId: string }) {
                       roomName={r.roomName}
                       signedJoinToken={cached.joinToken}
                       compact
+                      publisherMode="publisher"
                     />
                   ) : (
                     <div className="flex items-center gap-1.5 text-[10px] text-gray-500">

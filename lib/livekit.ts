@@ -516,25 +516,44 @@ export async function verifyJoinToken(token: string): Promise<JoinTokenClaims> {
 const CHATWOOT_INITIATE_AUDIENCE = "mp-chatwoot-initiate";
 const CHATWOOT_INITIATE_DEFAULT_TTL_SEC = 5 * 60;
 
+/**
+ * Wave 24 — token może być zakotwiczony albo na `serviceId` (istniejący
+ * service został już zapisany), albo na `conversationId` (sprzedawca jeszcze
+ * nie zapisał intake'u — Dashboard App pokazuje draft preview po
+ * conversation_id). Dokładnie jeden klucz musi być obecny.
+ */
 export interface ChatwootInitiateClaims {
-  serviceId: string;
+  serviceId: string | null;
+  conversationId: number | null;
   iat: number;
   exp: number;
   aud: "mp-chatwoot-initiate";
 }
 
 export async function signChatwootInitiateToken(opts: {
-  serviceId: string;
+  serviceId?: string;
+  conversationId?: number;
   ttlSec?: number;
 }): Promise<string> {
   const cfg = loadConfig();
-  const serviceId = opts.serviceId?.trim();
-  if (!serviceId) throw new Error("serviceId is required");
+  const serviceId = opts.serviceId?.trim() || null;
+  const conversationId =
+    typeof opts.conversationId === "number" &&
+    Number.isFinite(opts.conversationId) &&
+    opts.conversationId > 0
+      ? Math.floor(opts.conversationId)
+      : null;
+  if (!serviceId && conversationId == null) {
+    throw new Error("serviceId or conversationId is required");
+  }
   const { SignJWT } = await import("jose");
   const ttl = opts.ttlSec ?? CHATWOOT_INITIATE_DEFAULT_TTL_SEC;
   const now = Math.floor(Date.now() / 1000);
   const secret = new TextEncoder().encode(cfg.apiSecret);
-  return new SignJWT({ serviceId })
+  const claims: Record<string, string | number> = {};
+  if (serviceId) claims.serviceId = serviceId;
+  if (conversationId != null) claims.conversationId = conversationId;
+  return new SignJWT(claims)
     .setProtectedHeader({ alg: "HS256" })
     .setAudience(CHATWOOT_INITIATE_AUDIENCE)
     .setIssuedAt(now)
@@ -552,11 +571,18 @@ export async function verifyChatwootInitiateToken(
     audience: CHATWOOT_INITIATE_AUDIENCE,
     algorithms: ["HS256"],
   });
-  if (typeof payload.serviceId !== "string") {
+  const serviceId =
+    typeof payload.serviceId === "string" ? payload.serviceId : null;
+  const conversationId =
+    typeof payload.conversationId === "number"
+      ? payload.conversationId
+      : null;
+  if (!serviceId && conversationId == null) {
     throw new Error("malformed chatwoot initiate token");
   }
   return {
-    serviceId: payload.serviceId,
+    serviceId,
+    conversationId,
     iat: typeof payload.iat === "number" ? payload.iat : 0,
     exp: typeof payload.exp === "number" ? payload.exp : 0,
     aud: CHATWOOT_INITIATE_AUDIENCE,

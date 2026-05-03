@@ -18,11 +18,18 @@ export default async function KonsultacjaPage({
   searchParams,
 }: {
   params: Promise<{ room: string }>;
-  searchParams: Promise<{ token?: string }>;
+  searchParams: Promise<{ token?: string; mode?: string }>;
 }) {
   const { room } = await params;
   const sp = await searchParams;
   const token = sp.token ?? "";
+  const mode = sp.mode === "publisher" ? "publisher" : "subscriber";
 
-  return <ConsultationViewer roomName={decodeURIComponent(room)} token={token} />;
+  return (
+    <ConsultationViewer
+      roomName={decodeURIComponent(room)}
+      token={token}
+      mode={mode}
+    />
+  );
 }

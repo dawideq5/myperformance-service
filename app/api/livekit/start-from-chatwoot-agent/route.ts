@@ -119,10 +119,12 @@ export async function POST(req: Request) {
     );
   }
 
-  let claimedServiceId: string;
+  let claimedServiceId: string | null = null;
+  let claimedConversationId: number | null = null;
   try {
     const claims = await verifyChatwootInitiateToken(initiateToken);
     claimedServiceId = claims.serviceId;
+    claimedConversationId = claims.conversationId;
   } catch (err) {
     logger.info("initiate token rejected", {
       ip,
@@ -134,16 +136,34 @@ export async function POST(req: Request) {
     );
   }
 
-  // Verify service exists + extract chatwootConversationId fallback.
-  const service = await getService(claimedServiceId);
-  if (!service) {
-    return NextResponse.json(
-      { error: "Service not found" },
-      { status: 404, headers: CORS_HEADERS },
-    );
+  // Wave 24 — token może być zakotwiczony albo na serviceId (existing
+  // service) albo na conversationId (draft, brak service jeszcze). Jeśli
+  // mamy serviceId — weryfikujemy że istnieje i bierzemy z niego conv id
+  // jako fallback. Jeśli tylko conv id — przelatujemy bez service.
+  let service: Awaited<ReturnType<typeof getService>> | null = null;
+  if (claimedServiceId) {
+    service = await getService(claimedServiceId);
+    if (!service) {
+      return NextResponse.json(
+        { error: "Service not found" },
+        { status: 404, headers: CORS_HEADERS },
+      );
+    }
   }
   const effectiveConvId =
-    conversationId ?? service.chatwootConversationId ?? null;
+    conversationId ??
+    service?.chatwootConversationId ??
+    claimedConversationId ??
+    null;
+
+  if (!service && effectiveConvId == null) {
+    // Token nie miał ani serviceId ani conversationId — `verifyChatwootInitiateToken`
+    // nie powinien w ogóle takiego przepuścić, ale bezpiecznie sprawdzamy.
+    return NextResponse.json(
+      { error: "Token nie zawiera kontekstu konwersacji ani zlecenia." },
+      { status: 400, headers: CORS_HEADERS },
+    );
+  }
 
   // Namespace per-conversation żeby unique index "1 active per user"
   // nie kolidował z aktywną sesją sprzedawcy o tym samym email'u.
@@ -167,7 +187,7 @@ export async function POST(req: Request) {
       maxParticipants: 5,
       metadata: JSON.stringify({
         kind: "consultation",
-        serviceId: claimedServiceId,
+        serviceId: service?.id ?? null,
         chatwootConversationId: effectiveConvId,
         requestedBy,
         agentEmail,
@@ -181,7 +201,7 @@ export async function POST(req: Request) {
       name: "Mobile (klient)",
       metadata: JSON.stringify({
         role: "mobile-publisher",
-        serviceId: claimedServiceId,
+        serviceId: service?.id ?? null,
       }),
     });
     mobilePublisherUrl = buildMobilePublisherUrl(roomName, mobilePublisherToken);
@@ -205,6 +225,7 @@ export async function POST(req: Request) {
     logger.error("start-from-chatwoot-agent failed", {
       roomName,
       claimedServiceId,
+      claimedConversationId,
       err: err instanceof Error ? err.message : String(err),
     });
     return NextResponse.json(
@@ -216,7 +237,7 @@ export async function POST(req: Request) {
   try {
     await createSession({
       roomName,
-      serviceId: claimedServiceId,
+      serviceId: service?.id ?? null,
       chatwootConversationId: effectiveConvId,
       requestedByEmail: requestedBy,
     });
@@ -252,22 +273,24 @@ export async function POST(req: Request) {
     chatwootMessageSent = ok;
   }
 
-  void logServiceAction({
-    serviceId: claimedServiceId,
-    action: "live_view_started",
-    actor: {
-      email: requestedBy,
-      name: agentEmail
-        ? `Agent Chatwoot (${agentEmail})`
-        : "Agent Chatwoot",
-    },
-    summary: "Rozpoczęto konsultację video (z Chatwoot)",
-    payload: {
-      roomName,
-      chatwootConversationId: effectiveConvId,
-      chatwootMessageSent,
-    },
-  });
+  if (service) {
+    void logServiceAction({
+      serviceId: service.id,
+      action: "live_view_started",
+      actor: {
+        email: requestedBy,
+        name: agentEmail
+          ? `Agent Chatwoot (${agentEmail})`
+          : "Agent Chatwoot",
+      },
+      summary: "Rozpoczęto konsultację video (z Chatwoot)",
+      payload: {
+        roomName,
+        chatwootConversationId: effectiveConvId,
+        chatwootMessageSent,
+      },
+    });
+  }
 
   const expiresAt = new Date(Date.now() + 30 * 60_000).toISOString();
 

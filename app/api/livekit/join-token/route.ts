@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 
 import {
   LiveKitNotConfiguredError,
+  createBrowserPublisherToken,
   createSubscriberToken,
   getLiveKitUrl,
   verifyJoinToken,
@@ -46,6 +47,11 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url);
   const signedToken = url.searchParams.get("token")?.trim() ?? "";
+  // Wave 24 — `mode=publisher` daje canPublish=true (2-way video).
+  // Default = subscriber dla backward compat z /konsultacja/[room] page.
+  const mode = url.searchParams.get("mode")?.trim() === "publisher"
+    ? "publisher"
+    : "subscriber";
   if (!signedToken) {
     return NextResponse.json(
       { error: "Parametr `token` jest wymagany." },
@@ -70,12 +76,14 @@ export async function GET(req: Request) {
   let accessToken: string;
   let livekitUrl: string;
   try {
-    accessToken = await createSubscriberToken({
+    const issuer =
+      mode === "publisher" ? createBrowserPublisherToken : createSubscriberToken;
+    accessToken = await issuer({
       identity: claims.identity,
       roomName: claims.room,
       ttlSec: 30 * 60,
       name: claims.identity,
-      metadata: JSON.stringify({ role: "subscriber", source: "chatwoot" }),
+      metadata: JSON.stringify({ role: mode, source: "chatwoot" }),
     });
     livekitUrl = getLiveKitUrl();
   } catch (err) {
@@ -95,9 +103,10 @@ export async function GET(req: Request) {
     );
   }
 
-  logger.info("subscriber token issued via join link", {
+  logger.info("join-link access token issued", {
     roomName: claims.room,
     identity: claims.identity,
+    mode,
   });
 
   return NextResponse.json({
@@ -105,5 +114,6 @@ export async function GET(req: Request) {
     accessToken,
     roomName: claims.room,
     identity: claims.identity,
+    mode,
   });
 }

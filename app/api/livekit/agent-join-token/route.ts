@@ -96,10 +96,12 @@ export async function POST(req: Request) {
     );
   }
 
-  let claimedServiceId: string;
+  let claimedServiceId: string | null = null;
+  let claimedConversationId: number | null = null;
   try {
     const claims = await verifyChatwootInitiateToken(initiateToken);
     claimedServiceId = claims.serviceId;
+    claimedConversationId = claims.conversationId;
   } catch (err) {
     logger.info("initiate token rejected", {
       ip,
@@ -118,15 +120,28 @@ export async function POST(req: Request) {
       { status: 404, headers: CORS_HEADERS },
     );
   }
-  if (session.serviceId !== claimedServiceId) {
-    logger.warn("cross-service room access attempt", {
+  // Wave 24 — cross-context guard działa per-anchor:
+  //   * service-anchored token → session.serviceId musi się zgadzać.
+  //   * conversation-anchored token → session.chatwootConversationId
+  //     musi się zgadzać. Sprzedawca może mieć room którego serviceId
+  //     jeszcze nie istnieje (start-publisher z chatwootConversationId
+  //     bez serviceId); musimy zezwolić tu na join.
+  const matchesService =
+    claimedServiceId != null && session.serviceId === claimedServiceId;
+  const matchesConversation =
+    claimedConversationId != null &&
+    session.chatwootConversationId === claimedConversationId;
+  if (!matchesService && !matchesConversation) {
+    logger.warn("cross-context room access attempt", {
       ip,
       roomName,
       sessionServiceId: session.serviceId,
+      sessionConversationId: session.chatwootConversationId,
       claimedServiceId,
+      claimedConversationId,
     });
     return NextResponse.json(
-      { error: "Pokój nie należy do tego service'u." },
+      { error: "Pokój nie należy do tego service'u/konwersacji." },
       { status: 403, headers: CORS_HEADERS },
     );
   }
@@ -166,6 +181,7 @@ export async function POST(req: Request) {
   logger.info("agent join token issued", {
     roomName,
     serviceId: claimedServiceId,
+    conversationId: claimedConversationId,
   });
 
   return NextResponse.json(

@@ -32,6 +32,8 @@ const ALLOWED_PANEL_PREFIXES = new Set([
   // Wave 21 Faza 1A — DeviceLocationMap potrzebuje lat/lng punktów (full
   // Location object), których service-locations endpoint nie zwraca.
   "locations",
+  // Wave 24 — draft intake co-edit publish dla Chatwoot Dashboard App.
+  "intake-drafts",
 ]);
 const ALLOWED_ACCOUNT_PREFIXES = new Set(["inbox"]);
 // Wave 23 — top-level mounts mapped 1:1 to /api/<segment>/...

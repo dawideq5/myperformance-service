@@ -22,6 +22,7 @@ import {
   Smartphone,
   Sparkles,
   User as UserIcon,
+  Video,
   Wrench,
 } from "lucide-react";
 import { BrandPicker, BRANDS } from "./BrandPicker";
@@ -29,7 +30,8 @@ import { ImeiField } from "./ImeiField";
 import { ColorPicker, NAMED_COLORS } from "./ColorPicker";
 import { LockSection } from "./LockSection";
 import { PhoneInputWithFlags } from "./PhoneInputWithFlags";
-import { ConsultationVideoSection } from "./ConsultationVideoSection";
+import { VideoConsultationDialog } from "./VideoConsultationDialog";
+import { useChatwootConversation } from "../../hooks/useChatwootConversation";
 // ChecklistSection — pytania przeniesione do konfiguratora 3D (P21).
 import {
   PhoneConfigurator3D,
@@ -162,8 +164,7 @@ export function AddServiceForm({
   const [lastCreated, setLastCreated] = useState<{
     id: string;
     handover: { choice: "none" | "items"; items: string };
-    /** Wave 23 — propagowane do ConsultationVideoSection (auto-inject
-     *  link konsultacji w wiadomości Chatwoot dla tego ticketu). */
+    /** Auto-utworzona conversation Chatwoot dla klienta (notify status). */
     chatwootConversationId: number | null;
   } | null>(null);
   // Aktualne pozycje wyceny (z mp_pricelist po wybranych repair_types) —
@@ -188,6 +189,12 @@ export function AddServiceForm({
     serviceId: string;
     ticketNumber: string;
   } | null>(null);
+
+  // Wave 24 — Chatwoot conversation tracking dla przycisku "Rozmowa wideo
+  // z serwisantem". Hook nasłuchuje `chatwoot:on-message` events + cookies
+  // żeby wykryć conversationId. Przycisk jest disabled gdy null.
+  const chatwootConv = useChatwootConversation();
+  const [videoDialogOpen, setVideoDialogOpen] = useState(false);
 
   // Punkt serwisowy: lista wszystkich service-locations + auto-prefill
   // domyślnego (powiązanego z punktem sprzedaży locationId).
@@ -413,6 +420,67 @@ export function AddServiceForm({
       serviceComplete &&
       handoverComplete;
 
+  // Wave 24 — draft publishing dla Dashboard App. Debounced (1.5 s) publish
+  // stanu formularza po conversationId. Endpoint sanitizuje payload — nigdy
+  // nie wysyłamy lockCode. Skip gdy brak conversationId (cron purge zostawia
+  // stale wiersze przez 24 h, więc prywatność OK).
+  useEffect(() => {
+    if (!isSales) return;
+    const conversationId = chatwootConv.conversationId;
+    if (conversationId == null) return;
+    const id = window.setTimeout(() => {
+      void fetch(`/api/relay/intake-drafts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          conversationId,
+          locationId,
+          serviceId: editingServiceId ?? lastCreated?.id ?? null,
+          payload: {
+            brand: brand || null,
+            model: model || null,
+            imei: imei || null,
+            color: color || null,
+            lockType: lockType || null,
+            description: customDescription || null,
+            amountEstimate: amountEstimate
+              ? Number(amountEstimate.replace(",", "."))
+              : null,
+            customerFirstName: customerFirstName || null,
+            customerLastName: customerLastName || null,
+            contactPhone: contactPhone || null,
+            contactEmail: contactEmail || null,
+            repairTypes: repairTypes.length ? repairTypes : null,
+            readyToSubmit: allComplete,
+            serviceId: editingServiceId ?? lastCreated?.id ?? null,
+          },
+        }),
+      }).catch(() => {
+        // best-effort — draft to ephemeral co-edit log, nie blokujemy UX
+      });
+    }, 1500);
+    return () => window.clearTimeout(id);
+  }, [
+    isSales,
+    chatwootConv.conversationId,
+    locationId,
+    editingServiceId,
+    lastCreated?.id,
+    brand,
+    model,
+    imei,
+    color,
+    lockType,
+    customDescription,
+    amountEstimate,
+    customerFirstName,
+    customerLastName,
+    contactPhone,
+    contactEmail,
+    repairTypes,
+    allComplete,
+  ]);
+
   // Sequential gating — sekcja jest dostępna gdy wszystkie poprzednie
   // complete. W trybie edycji wszystko otwarte (user już wcześniej
   // utworzył zlecenie, może edytować dowolny fragment).
@@ -628,6 +696,24 @@ export function AddServiceForm({
         );
       } catch {
         /* localStorage may be disabled */
+      }
+      // Wave 24 — fire-and-forget bind draft → service. Bez tego user
+      // który zamknie kartę zaraz po submit zostawi draft z service_id=null,
+      // a Dashboard App pokazałby "draft" zamiast live serwisu aż do
+      // 24h purge. Nie blokujemy navigation — to best-effort.
+      if (isSales && chatwootConv.conversationId != null) {
+        void fetch(`/api/relay/intake-drafts`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            conversationId: chatwootConv.conversationId,
+            locationId,
+            serviceId,
+            payload: { serviceId, ticketNumber, readyToSubmit: true },
+          }),
+        }).catch(() => {
+          // best-effort
+        });
       }
       // Parent może przejąć kontrolę nad nawigacją (np. modal close +
       // auto-select w panelu serwisanta). Gdy onCreated zwróci `true`,
@@ -959,16 +1045,10 @@ export function AddServiceForm({
         </Section>
         </div>
 
-        {/* Wave 23 — Konsultacja video sprzedawca→Chatwoot. Tylko sales,
-            tylko gdy wypełnione minimum (klient + urządzenie). */}
-        {isSales && customerComplete && deviceComplete && (
-          <div data-section="consultation">
-            <ConsultationVideoSection
-              serviceId={editingServiceId ?? lastCreated?.id ?? null}
-              chatwootConversationId={lastCreated?.chatwootConversationId ?? null}
-            />
-          </div>
-        )}
+        {/* Wave 24 — sekcja Konsultacja video usunięta z formularza.
+            Punkt wejścia przeniesiony do przycisku "Rozmowa wideo z
+            serwisantem" w sticky footer (obok Utwórz zlecenie), aktywnego
+            tylko gdy useChatwootConversation wykrył aktywną rozmowę. */}
 
         {/* Punkt serwisowy — sales-only. Serwisant *jest* punktem serwisowym,
             backend mappuje destination automatycznie po locationId. */}
@@ -1140,6 +1220,39 @@ export function AddServiceForm({
           >
             {editingServiceId ? "Anuluj" : "Wyczyść"}
           </button>
+
+          {/* Wave 24 — przycisk obok submita. Aktywny tylko gdy hook
+              wykrył conversationId z aktywnej rozmowy Chatwoot (sprzedawca
+              musi mieć otwarty czat z serwisantem). */}
+          {isSales && (
+            <button
+              type="button"
+              onClick={() => setVideoDialogOpen(true)}
+              disabled={!chatwootConv.hasConversation || saving}
+              title={
+                !chatwootConv.hasConversation
+                  ? "Otwórz rozmowę z serwisantem w czacie aby uruchomić rozmowę wideo"
+                  : "Rozpocznij rozmowę wideo w aktualnej rozmowie Chatwoot"
+              }
+              className="px-3 py-2 rounded-xl text-sm font-medium border transition-all inline-flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{
+                background: chatwootConv.hasConversation
+                  ? "rgba(99, 102, 241, 0.12)"
+                  : "transparent",
+                borderColor: chatwootConv.hasConversation
+                  ? "rgba(99, 102, 241, 0.4)"
+                  : "var(--border-subtle)",
+                color: chatwootConv.hasConversation
+                  ? "#6366f1"
+                  : "var(--text-muted)",
+              }}
+            >
+              <Video className="w-4 h-4" aria-hidden="true" />
+              <span className="hidden sm:inline">Rozmowa wideo z serwisantem</span>
+              <span className="sm:hidden">Wideo</span>
+            </button>
+          )}
+
           <button
             type="submit"
             disabled={saving || !allComplete}
@@ -1169,6 +1282,15 @@ export function AddServiceForm({
           </button>
         </div>
       </form>
+
+      {/* Wave 24 — modal rozmowy video. Render warunkowy + wewnątrz auto-start
+          jak tylko open=true. */}
+      <VideoConsultationDialog
+        open={videoDialogOpen}
+        onClose={() => setVideoDialogOpen(false)}
+        conversationId={chatwootConv.conversationId}
+        serviceId={editingServiceId ?? lastCreated?.id ?? null}
+      />
 
       {showConfigurator && (
         <PhoneConfigurator3D

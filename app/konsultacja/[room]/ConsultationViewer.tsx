@@ -15,6 +15,11 @@ import { Loader2, Mic, MicOff, PhoneOff, Video } from "lucide-react";
 interface ConsultationViewerProps {
   roomName: string;
   token: string;
+  /**
+   * Wave 24 — `publisher` daje canPublish=true (kamera + mic z urządzenia).
+   * Default `subscriber` zachowuje stary "tylko mobile QR publishuje" flow.
+   */
+  mode?: "publisher" | "subscriber";
 }
 
 interface JoinResponse {
@@ -32,7 +37,7 @@ type Phase =
   | { kind: "ended" }
   | { kind: "error"; message: string };
 
-export function ConsultationViewer({ roomName, token }: ConsultationViewerProps) {
+export function ConsultationViewer({ roomName, token, mode = "subscriber" }: ConsultationViewerProps) {
   const [phase, setPhase] = useState<Phase>({ kind: "loading" });
   const [audioMuted, setAudioMuted] = useState(false);
   const [publisherIdentity, setPublisherIdentity] = useState<string | null>(null);
@@ -49,8 +54,9 @@ export function ConsultationViewer({ roomName, token }: ConsultationViewerProps)
     }
     void (async () => {
       try {
+        const modeParam = mode === "publisher" ? "&mode=publisher" : "";
         const r = await fetch(
-          `/api/livekit/join-token?token=${encodeURIComponent(token)}`,
+          `/api/livekit/join-token?token=${encodeURIComponent(token)}${modeParam}`,
           { cache: "no-store" },
         );
         const body = (await r.json()) as JoinResponse;
@@ -108,6 +114,16 @@ export function ConsultationViewer({ roomName, token }: ConsultationViewerProps)
 
         await room.connect(phase.livekitUrl, phase.accessToken);
         if (cancelled) return;
+
+        if (mode === "publisher") {
+          try {
+            await room.localParticipant.enableCameraAndMicrophone();
+          } catch (err) {
+            // eslint-disable-next-line no-console
+            console.warn("camera/mic publish failed", err);
+          }
+        }
+
         setPhase({ kind: "active", identity: phase.identity });
 
         cleanup = () => {
@@ -132,7 +148,7 @@ export function ConsultationViewer({ roomName, token }: ConsultationViewerProps)
       cancelled = true;
       cleanup();
     };
-  }, [phase]);
+  }, [phase, mode]);
 
   const toggleAudio = useCallback(() => {
     if (audioRef.current) {
