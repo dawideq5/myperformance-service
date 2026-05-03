@@ -1,0 +1,18 @@
+{
+  "name": "Upload Bridge — myperformance.pl",
+  "short_name": "Upload Bridge",
+  "description": "Mobilny upload zdjęć i live device view dla zleceń serwisowych",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0a0a0f",
+  "theme_color": "#0f0f16",
+  "icons": [
+    {
+      "src": "/logo.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
