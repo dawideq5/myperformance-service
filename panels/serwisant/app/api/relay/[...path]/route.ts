@@ -20,7 +20,9 @@ const ALLOWED_PANEL_PREFIXES = new Set([
 const ALLOWED_ACCOUNT_PREFIXES = new Set(["inbox", "preferences"]);
 // Top-level non-panel mounts that the serwisant UI is allowed to call. Each
 // entry maps the segment 1:1 to `/api/<segment>/...` on the dashboard.
-const ALLOWED_ROOT_PREFIXES = new Set(["upload-bridge"]);
+// Wave 22 / F16d — `livekit` mount: panel calls request-view + subscriber-token
+// for the LiveDeviceViewer modal (subscribe-only LiveKit tokens).
+const ALLOWED_ROOT_PREFIXES = new Set(["upload-bridge", "livekit"]);
 
 // Wave 21 Faza 1G — niektóre sub-route'y panelu serwisanta wymagają
 // dłuższego timeoutu bo wewnątrz wykonują integracje zewnętrzne (Documenso,
