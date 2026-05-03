@@ -15,6 +15,13 @@ const directusOrigin = (() => {
   if (!url) return null;
   try { return new URL(url).origin; } catch { return null; }
 })();
+const livekitOrigin = (() => {
+  const raw = process.env.NEXT_PUBLIC_LIVEKIT_URL?.trim() || "wss://livekit.myperformance.pl";
+  const url = raw.replace(/^wss:/, "https:").replace(/^ws:/, "http:");
+  try { return new URL(url).origin; } catch { return null; }
+})();
+const livekitWss = livekitOrigin ? ` wss://${new URL(livekitOrigin).host}` : "";
+const livekitHttps = livekitOrigin ? ` ${livekitOrigin}` : "";
 const kc = keycloakOrigin ? ` ${keycloakOrigin}` : "";
 const dash = dashboardOrigin ? ` ${dashboardOrigin}` : "";
 const directus = directusOrigin ? ` ${directusOrigin}` : "";
@@ -55,7 +62,8 @@ const securityHeaders = [
       // blob: + data: wymagane przez GLTFLoader — embedded PNG textury w .glb
       // są wyodrębniane jako blob: URL i ładowane via fetch. Bez tego CSP
       // blokuje texture loading na ścisłych browserach (Windows Edge/Chrome).
-      `connect-src 'self' blob: data:${kc}${dash}${directus} ${mapTilesSrc}`,
+      `connect-src 'self' blob: data:${kc}${dash}${directus}${livekitWss}${livekitHttps} ${mapTilesSrc}`,
+      `media-src 'self' blob:`,
       `script-src ${scriptSrc}`,
       "style-src 'self' 'unsafe-inline'",
       `img-src 'self' data: blob: ${mapTilesSrc} ${leafletAssetsSrc}${dash}${directus}`,
