@@ -13,6 +13,7 @@ export const BUSINESS_SPECS: CollectionSpec[] = [
   // zostanie zmapowane na ich identyfikator. Na razie pusty.
   {
     collection: "mp_target_groups",
+    group: "mp_folder_business",
     meta: {
       icon: "category",
       note: "Kategorie produktów/usług dla planów punktów. Każda ma progi (mp_target_thresholds).",
@@ -115,6 +116,7 @@ export const BUSINESS_SPECS: CollectionSpec[] = [
   // procent prowizji). label opcjonalny dla custom nazwy progu.
   {
     collection: "mp_target_thresholds",
+    group: "mp_folder_business",
     meta: {
       icon: "tune",
       note: "Progi liczbowe per grupa targetowa. Range [from, to] → wartość. Dowolnie wiele progów.",
@@ -207,10 +209,11 @@ export const BUSINESS_SPECS: CollectionSpec[] = [
   // Source of truth: Directus DB. Custom dashboard UI używa Directus REST.
   {
     collection: "mp_locations",
+    group: "mp_folder_panele",
     meta: {
       icon: "place",
-      note: "Punkty sprzedaży i serwisowe. Każdy ma adres + lokalizację GPS, godziny otwarcia, kontakt, plan budżetu, zdjęcia.",
-      display_template: "{{name}} ({{warehouse_code}}) — {{type}}",
+      note: "Punkty sprzedaży i serwisowe. Każdy ma adres + lokalizację GPS, godziny otwarcia, kontakt, plan budżetu, zdjęcia, brand mailowy.",
+      display_template: "{{name}} — {{type}} ({{address}})",
       sort_field: "name",
       archive_field: "enabled",
       archive_value: "false",
@@ -387,6 +390,34 @@ export const BUSINESS_SPECS: CollectionSpec[] = [
           width: "half",
           options: { label: "Wymaga transportu kurierskiego" },
           note: "TYLKO dla type=sales: zlecenia z tego punktu zawsze wymagają transportu przez kierowcę (nawet do powiązanego punktu serwisowego). Bez tego flagi transport tworzy się tylko gdy sprzedawca wybrał inny serwis niż domyślny.",
+        },
+      },
+      // Wave 22 / F1 follow-up — brand mailowy. Lokacja decyduje z którego
+      // SMTP profile + layout idą maile klienta dla zleceń z tej lokacji.
+      // null = global default (mp_branding.default_smtp_profile_slug).
+      {
+        field: "brand",
+        type: "string",
+        schema: { is_nullable: true, max_length: 32 },
+        meta: {
+          interface: "select-dropdown",
+          width: "half",
+          display: "labels",
+          display_options: {
+            showAsDot: true,
+            choices: [
+              { text: "MyPerformance", value: "myperformance", foreground: "#fff", background: "#0F172A" },
+              { text: "Zlecenie Serwisowe", value: "zlecenieserwisowe", foreground: "#fff", background: "#0EA5E9" },
+            ],
+          },
+          options: {
+            allowNone: true,
+            choices: [
+              { text: "MyPerformance", value: "myperformance" },
+              { text: "Zlecenie Serwisowe (Caseownia)", value: "zlecenieserwisowe" },
+            ],
+          },
+          note: "Brand mailowy — z którego SMTP profile + layout idą maile klienta. Puste = globalny default z mp_branding.default_smtp_profile_slug.",
         },
       },
       {
