@@ -18,6 +18,7 @@ import { getPriceLinesForService } from "@/lib/repair-types";
 import { logServiceAction } from "@/lib/service-actions";
 import { getServiceSignerEmail } from "@/lib/service-config";
 import { notifyDocumentForSigning } from "@/lib/services/notify-document";
+import { createServiceDocument } from "@/lib/service-documents";
 import { log } from "@/lib/logger";
 import { createHash } from "node:crypto";
 
@@ -249,6 +250,32 @@ export async function POST(
       if (!cur?.docId) return [] as number[];
       return [...(cur.previousDocIds ?? []), cur.docId];
     })();
+
+    // Wave 22 / F8 — persist do `mp_service_documents` żeby DocumentsLibrary
+    // (sprzedawca + serwisant) widziała potwierdzenie odbioru. Best-effort
+    // (try-catch wewnątrz createServiceDocument), brak persisted row nie
+    // psuje flow — tylko UI library nie pokaże tego dokumentu.
+    void createServiceDocument({
+      serviceId: id,
+      ticketNumber: service.ticketNumber,
+      kind: "receipt",
+      title: force
+        ? `Potwierdzenie ${service.ticketNumber} — aktualizacja`
+        : `Potwierdzenie ${service.ticketNumber}`,
+      documensoDocId: result.documentId,
+      documensoSigningUrl: employeeSigningUrl,
+      // partially_signed gdy pracownik auto-signed (klient czeka), sent
+      // gdy autoSign zawiódł (czeka na cały flow). UI library mapuje to
+      // na badge "Częściowo podpisany" / "Wysłany do podpisu".
+      status: autoSignOk ? "partially_signed" : "sent",
+      createdByEmail: user.email,
+    }).catch((err) => {
+      logger.warn("createServiceDocument(receipt) failed", {
+        serviceId: id,
+        documentId: result.documentId,
+        err: err instanceof Error ? err.message : String(err),
+      });
+    });
 
     try {
       await updateService(id, {

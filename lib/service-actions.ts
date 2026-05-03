@@ -67,6 +67,10 @@ export type ServiceActionKind =
   // `live_view_ended` emitowany przez webhook `room_finished` (F16e).
   | "live_view_started"
   | "live_view_ended"
+  // Wave 22 / F8 — unieważnienie dokumentu (potwierdzenie elektroniczne /
+  // papierowe). Wymagane: service.status === "received" i dokument NIE jest
+  // jeszcze `signed`/`paper_signed`. Admin może wymusić przez ?force=true.
+  | "document_invalidated"
   | "other";
 
 export interface ServiceAction {
