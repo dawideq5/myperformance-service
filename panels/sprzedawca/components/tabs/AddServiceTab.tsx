@@ -880,95 +880,92 @@ export function AddServiceTab({
           icon={<BoxIcon className="w-5 h-5" />}
           title="Potwierdzenie odbioru"
           subtitle="Karty pamięci, SIM, etui — zaznacz zanim oddasz urządzenie"
-          accent="#F59E0B"
+          accent="#6366f1"
           complete={handoverComplete}
           unlocked={sectionUnlocked.handover}
           open={open.handover}
           onToggle={() => toggle("handover")}
         >
-          <div className="space-y-3">
+          <div
+            className="space-y-2"
+            role="radiogroup"
+            aria-label="Potwierdzenie odbioru"
+          >
             <button
               type="button"
+              role="radio"
+              aria-checked={handoverChoice === "none"}
               onClick={() => {
                 setHandoverChoice("none");
                 setHandoverItems("");
               }}
-              className="w-full text-left rounded-xl border p-3 transition-all"
+              className="w-full text-left rounded-xl border p-3 transition-colors hover:border-[var(--accent)]/60 focus:outline-none focus-visible:border-[var(--accent)]"
               style={{
                 background:
                   handoverChoice === "none"
-                    ? "linear-gradient(135deg, rgba(34, 197, 94, 0.15), rgba(34, 197, 94, 0.04))"
-                    : "var(--bg-surface)",
+                    ? "rgba(99, 102, 241, 0.06)"
+                    : "var(--bg-card)",
                 borderColor:
                   handoverChoice === "none"
-                    ? "rgba(34, 197, 94, 0.5)"
+                    ? "var(--accent)"
                     : "var(--border-subtle)",
               }}
             >
               <p
                 className="text-sm font-semibold mb-0.5"
-                style={{
-                  color:
-                    handoverChoice === "none"
-                      ? "#22c55e"
-                      : "var(--text-main)",
-                }}
+                style={{ color: "var(--text-main)" }}
               >
-                Potwierdzam, że przyjmowane urządzenie nie posiada:
+                Bez dodatków
               </p>
               <p
                 className="text-xs"
                 style={{ color: "var(--text-muted)" }}
               >
-                Karty SIM · Karty SD · Etui
+                Urządzenie nie zawiera karty SIM, karty SD ani etui
               </p>
             </button>
 
             <button
               type="button"
+              role="radio"
+              aria-checked={handoverChoice === "items"}
               onClick={() => setHandoverChoice("items")}
-              className="w-full text-left rounded-xl border p-3 transition-all"
+              className="w-full text-left rounded-xl border p-3 transition-colors hover:border-[var(--accent)]/60 focus:outline-none focus-visible:border-[var(--accent)]"
               style={{
                 background:
                   handoverChoice === "items"
-                    ? "linear-gradient(135deg, rgba(245, 158, 11, 0.15), rgba(245, 158, 11, 0.04))"
-                    : "var(--bg-surface)",
+                    ? "rgba(99, 102, 241, 0.06)"
+                    : "var(--bg-card)",
                 borderColor:
                   handoverChoice === "items"
-                    ? "rgba(245, 158, 11, 0.5)"
+                    ? "var(--accent)"
                     : "var(--border-subtle)",
               }}
             >
               <p
-                className="text-sm font-semibold"
-                style={{
-                  color:
-                    handoverChoice === "items"
-                      ? "#F59E0B"
-                      : "var(--text-main)",
-                }}
+                className="text-sm font-semibold mb-0.5"
+                style={{ color: "var(--text-main)" }}
               >
-                Wpisz pobrane przedmioty od klienta
+                Wpisz pobrane przedmioty
+              </p>
+              <p
+                className="text-xs"
+                style={{ color: "var(--text-muted)" }}
+              >
+                Karta SIM, ładowarka, etui i inne dodatki przekazane przez klienta
               </p>
             </button>
 
             {handoverChoice === "items" && (
-              <div
-                className="rounded-xl border p-3 space-y-2 animate-fade-in"
-                style={{
-                  background: "rgba(59, 130, 246, 0.06)",
-                  borderColor: "rgba(59, 130, 246, 0.3)",
-                }}
-              >
+              <div className="pt-2 space-y-2 animate-fade-in">
                 <p
                   className="text-xs"
-                  style={{ color: "var(--text-main)", lineHeight: 1.5 }}
+                  style={{ color: "var(--text-muted)", lineHeight: 1.5 }}
                 >
-                  Pamiętaj, do przyjęcia serwisowego powinniśmy pobrać
-                  jedynie naprawiane urządzenie. Jeżeli jednak w celu
-                  realizacji naprawy (np. kopii danych) lub w innym
-                  uzasadnionym przypadku musisz pobrać od klienta
-                  dodatkowe przedmioty — wpisz je poniżej.
+                  Do przyjęcia serwisowego powinniśmy pobrać jedynie
+                  naprawiane urządzenie. Jeżeli w celu realizacji naprawy
+                  (np. kopii danych) lub z innego uzasadnionego powodu
+                  pobrałeś dodatkowe przedmioty — wpisz je poniżej.
                 </p>
                 <textarea
                   value={handoverItems}
