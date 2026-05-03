@@ -3,7 +3,10 @@ import react from "@vitejs/plugin-react";
 import { keycloakify } from "keycloakify/vite-plugin";
 
 export default defineConfig({
-  publicDir: "src/keycloak-theme/public",
+  // No public dir for the keycloak-theme build — fonts live under
+  // src/keycloak-theme/fonts/ and are referenced via `url(./fonts/...)`
+  // in styles.css so Vite resolves + hashes them as proper assets.
+  publicDir: false,
   build: {
     outDir: ".keycloak-theme-build",
     emptyOutDir: true,
