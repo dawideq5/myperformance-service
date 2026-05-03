@@ -36,8 +36,15 @@ const chatwootOrigin = originOf(
   process.env.NEXT_PUBLIC_CHATWOOT_BASE_URL,
   "https://chat.myperformance.pl",
 );
+const livekitOrigin = originOf(
+  process.env.NEXT_PUBLIC_LIVEKIT_URL?.replace(/^wss:/, "https:"),
+  "https://livekit.myperformance.pl",
+);
+const livekitWssOrigin = livekitOrigin
+  ? `wss://${new URL(livekitOrigin).host}`
+  : "";
 
-const externalOrigins = [keycloakOrigin, documensoOrigin, wazuhOrigin, chatwootOrigin].filter(Boolean);
+const externalOrigins = [keycloakOrigin, documensoOrigin, wazuhOrigin, chatwootOrigin, livekitOrigin].filter(Boolean);
 const externalSrc = externalOrigins.length ? ` ${externalOrigins.join(" ")}` : "";
 
 // Chatwoot SDK ładuje skrypt z chat.myperformance.pl/packs/js/sdk.js +
@@ -68,7 +75,7 @@ const cspDirectives = [
   `style-src 'self' 'unsafe-inline'${chatwootScriptSrc}`,
   `img-src 'self' data: blob: ${osmTilesSrc} ${leafletAssetsSrc}${photosSrc}${chatwootOrigin ? ` ${chatwootOrigin}` : ""}`,
   "font-src 'self' data:",
-  `connect-src 'self'${externalSrc} ${osmTilesSrc} ${nominatimSrc}${photosSrc}${chatwootOrigin ? ` wss://${new URL(chatwootOrigin).host}` : ""}`,
+  `connect-src 'self'${externalSrc} ${osmTilesSrc} ${nominatimSrc}${photosSrc}${chatwootOrigin ? ` wss://${new URL(chatwootOrigin).host}` : ""}${livekitWssOrigin ? ` ${livekitWssOrigin}` : ""}`,
   `frame-src 'self'${externalSrc}`,
   `form-action 'self'${keycloakOrigin ? ` ${keycloakOrigin}` : ""}`,
   "frame-ancestors 'none'",
