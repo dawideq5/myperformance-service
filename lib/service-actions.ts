@@ -62,6 +62,11 @@ export type ServiceActionKind =
   // Wave 21 / Faza 1D — ręczna notatka o kontakcie z klientem (telefon /
   // osobiście / inne) zarejestrowana z panelu serwisanta.
   | "customer_contact_recorded"
+  // Wave 22 / F16 — live device view (LiveKit). Room utworzony przez
+  // serwisanta + token publishera dla mobile (sprzedawca skanuje QR);
+  // `live_view_ended` emitowany przez webhook `room_finished` (F16e).
+  | "live_view_started"
+  | "live_view_ended"
   | "other";
 
 export interface ServiceAction {
