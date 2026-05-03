@@ -26,6 +26,7 @@ import { subscribeToService, subscribeToUser } from "@/lib/sse-client";
 import { ViewSettingsModal, type TabSpec } from "./ViewSettingsModal";
 import { useServiceDetailPrefs } from "./useServiceDetailPrefs";
 import { PanelUserProvider, usePanelUser } from "./PanelUserContext";
+import { RequestLiveViewButton } from "./RequestLiveViewButton";
 
 type TabId =
   | "diagnoza"
@@ -398,6 +399,13 @@ function ServiceDetailViewInner({
           )}
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
+          {/* Wave 22 / F16d — live device view (LiveKit subscribe-only).
+              Otwiera modal z QR (waiting) → live stream (active). */}
+          <RequestLiveViewButton
+            serviceId={service.id}
+            ticketNumber={service.ticketNumber ?? null}
+            variant="ghost"
+          />
           <button
             type="button"
             onClick={() => requestStatusChange(undefined)}
