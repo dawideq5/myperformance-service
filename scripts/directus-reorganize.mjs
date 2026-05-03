@@ -30,8 +30,9 @@
  *   DIRECTUS_ADMIN_TOKEN=<static admin token>
  *
  * Z --env staging|prod skrypt wczyta `.env.<env>` z głównego katalogu projektu
- * (cd $(git rev-parse --show-toplevel)) jeśli istnieje. To NIE zapisuje envów
- * do procesów dziecięcych — jedynie chmod-le konfigurację Directusa.
+ * (resolve(__dirname, "..") → root inner Next.js, gdzie żyje package.json)
+ * jeśli istnieje. To NIE zapisuje envów do procesów dziecięcych — jedynie
+ * chmod-le konfigurację Directusa.
  */
 
 import { readFileSync, existsSync } from "node:fs";
@@ -105,7 +106,9 @@ const FOLDERS = [
   { slug: "mp_folder_panele", label: "Panele", icon: "view_list", note: "Lokalizacje, panele cert-gated, widoki publiczne." },
   { slug: "mp_folder_serwis", label: "Serwis", icon: "build", note: "Zlecenia, reklamacje, części, transport, dokumenty." },
   { slug: "mp_folder_business", label: "Biznes", icon: "trending_up", note: "Grupy targetowe, progi, cennik." },
-  { slug: "mp_folder_akademia", label: "Akademia / Knowledge", icon: "school", note: "Mirror Moodle / Outline (read-only). Folder przygotowany pod przyszłe mirror-y." },
+  // mp_folder_akademia (Moodle/Outline mirror) — UNUSED; brak kolekcji
+  // przypisanych. Pominięty świadomie żeby nie tworzyć permanentnie pustego
+  // folderu w nawigacji. Dodaj gdy pojawi się pierwszy mirror.
   { slug: "mp_folder_system", label: "System", icon: "settings", note: "Audit logs, certyfikaty, blokady IP, infra mirrors." },
 ];
 
@@ -343,7 +346,15 @@ async function reconcileCollection(spec) {
 async function ensureBrandField() {
   const probe = await api(`/fields/mp_locations/brand`);
   if (probe.ok) {
-    console.log(`[field] mp_locations.brand exists — reconciling meta`);
+    // Compare meta.options.choices + schema.is_nullable + interface — PATCH
+    // tylko gdy diff. To utrzymuje zero-diff na re-run (manifestowane w runbook).
+    const cur = probe.body?.data ?? {};
+    const drift = brandFieldDrift(cur, BRAND_FIELD);
+    if (drift.length === 0) {
+      console.log(`[field] mp_locations.brand OK`);
+      return;
+    }
+    console.log(`[field] mp_locations.brand drift: ${drift.join(", ")}`);
     if (DRY_RUN) return;
     const patch = await api(`/fields/mp_locations/brand`, {
       method: "PATCH",
@@ -352,6 +363,7 @@ async function ensureBrandField() {
     if (!patch.ok) {
       throw new Error(`field PATCH brand: ${patch.status} ${JSON.stringify(patch.body)}`);
     }
+    console.log(`[field] mp_locations.brand updated`);
     return;
   }
   if (probe.status !== 403 && probe.status !== 404) {
@@ -367,6 +379,27 @@ async function ensureBrandField() {
     throw new Error(`field create brand: ${create.status} ${JSON.stringify(create.body)}`);
   }
   console.log(`[field] mp_locations.brand created`);
+}
+
+/**
+ * Wykrywa drift między bieżącym polem `brand` w Directusie a oczekiwaną
+ * konfiguracją (BRAND_FIELD). Sprawdza: interface, is_nullable, choices.
+ * Zwraca listę kluczy, które się różnią — pusta lista = zero-diff.
+ */
+function brandFieldDrift(cur, want) {
+  const drift = [];
+  const curMeta = cur.meta ?? {};
+  const wantMeta = want.meta;
+  if (curMeta.interface !== wantMeta.interface) drift.push("interface");
+  const curSchema = cur.schema ?? {};
+  const wantSchema = want.schema;
+  if ((curSchema.is_nullable ?? true) !== (wantSchema.is_nullable ?? true)) {
+    drift.push("is_nullable");
+  }
+  const curChoices = JSON.stringify(curMeta.options?.choices ?? []);
+  const wantChoices = JSON.stringify(wantMeta.options?.choices ?? []);
+  if (curChoices !== wantChoices) drift.push("options.choices");
+  return drift;
 }
 
 // ---------------------------------------------------------------------------

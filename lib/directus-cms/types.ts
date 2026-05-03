@@ -76,12 +76,9 @@ export const COLLECTION_FOLDERS = [
     icon: "trending_up",
     note: "Grupy targetowe, progi, cennik.",
   },
-  {
-    slug: "mp_folder_akademia",
-    label: "Akademia / Knowledge",
-    icon: "school",
-    note: "Mirror Moodle / Outline (read-only).",
-  },
+  // Akademia / Knowledge (mp_folder_akademia) celowo pominięta — brak
+  // kolekcji w SoT (Moodle/Outline są zewnętrznymi appami, mirror nieistnieje).
+  // Dodaj gdy pojawi się pierwszy Moodle/Outline mirror collection.
   {
     slug: "mp_folder_system",
     label: "System",
