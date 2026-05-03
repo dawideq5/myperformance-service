@@ -29,7 +29,7 @@ import {
 
 import { AppFooter } from "@/components/AppFooter";
 import { AppHeader } from "@/components/AppHeader";
-import { Card, OnboardingCard, PageShell } from "@/components/ui";
+import { Card, PageShell } from "@/components/ui";
 import { AccountProvider, useAccount } from "@/app/account/AccountProvider";
 import { KadromierzWorkWidget } from "./components/KadromierzWorkWidget";
 import { useAuthRedirect } from "@/hooks/useAuthRedirect";
@@ -162,25 +162,10 @@ function TileGrid({
   return (
     <div className="space-y-4">
       {announcementsSlot}
-      <OnboardingCard
-        storageKey="dashboard-welcome"
-        title="Witaj w MyPerformance"
-      >
-        Tutaj zobaczysz tylko aplikacje, do których masz dostęp. Klikaj kafelki
-        żeby uruchomić apkę z auto-loginem przez SSO. Wciśnij{" "}
-        <kbd className="px-1 py-0.5 text-[10px] rounded bg-[var(--bg-surface)] border border-[var(--border-subtle)]">
-          ⌘K
-        </kbd>{" "}
-        żeby otworzyć paletę poleceń, lub odwiedź{" "}
-        <Link href="/account?tab=preferences" className="underline">
-          Preferencje
-        </Link>{" "}
-        i uruchom interaktywny przewodnik.
-      </OnboardingCard>
       {showKadromierz && kadromierzConnected && <KadromierzWorkWidget />}
       <div
         data-tour="tile-grid"
-        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
+        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mp-stagger"
       >
         {showCalendar && (
           <Tile
@@ -516,10 +501,11 @@ function Tile({
     <div
       data-tour-tile={tourId}
       className={cn(
-        "group relative rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-5 transition-all",
+        "group relative rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-5",
+        "transition-[transform,border-color,box-shadow] duration-200 ease-out",
         disabled
           ? "opacity-60"
-          : "hover:border-[var(--accent)]/40 hover:shadow-lg hover:-translate-y-0.5",
+          : "hover:border-[var(--accent-border)] hover:-translate-y-0.5 hover:shadow-[var(--shadow-card)]",
       )}
     >
       <button

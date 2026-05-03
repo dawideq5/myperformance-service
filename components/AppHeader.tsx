@@ -23,7 +23,9 @@ export interface AppHeaderProps {
 
 export function AppHeader({
   userLabel,
-  userSubLabel,
+  // userSubLabel celowo nieużywane — email pominięty w awatarze
+  // dla minimalistycznego wyglądu. Prop zachowany dla kompatybilności z callerami.
+  userSubLabel: _userSubLabel,
   showAccountLink = true,
   backHref,
   title,
@@ -108,21 +110,14 @@ export function AppHeader({
           <span data-tour="bell">
             <NotificationBell />
           </span>
-          {(userLabel || userSubLabel) && (
+          {userLabel && (
             <div className="hidden sm:flex items-center gap-3 pr-4 border-r border-[var(--border-subtle)]">
               <div className="w-9 h-9 rounded-full bg-[var(--accent)]/10 flex items-center justify-center flex-shrink-0">
                 <UserIcon className="w-5 h-5 text-[var(--accent)]" aria-hidden="true" />
               </div>
-              <div className="text-right leading-tight">
-                {userLabel && (
-                  <p className="text-sm font-medium text-[var(--text-main)]">
-                    {userLabel}
-                  </p>
-                )}
-                {userSubLabel && (
-                  <p className="text-xs text-[var(--text-muted)]">{userSubLabel}</p>
-                )}
-              </div>
+              <p className="text-sm font-medium text-[var(--text-main)] leading-tight">
+                {userLabel}
+              </p>
             </div>
           )}
           {showAccountLink && (

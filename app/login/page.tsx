@@ -4,7 +4,7 @@ import { Suspense, useCallback, useState } from "react";
 import { signIn } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 import { ArrowRight } from "lucide-react";
-import { Alert, Button } from "@/components/ui";
+import { Alert, Button, ThemeToggle } from "@/components/ui";
 
 const ERROR_MESSAGES: Record<string, string> = {
   OAuthSignin: "Nie udało się rozpocząć logowania. Spróbuj ponownie.",
@@ -44,45 +44,34 @@ function LoginContent() {
   const errorMessage = resolveErrorMessage(errorCode);
 
   return (
-    <div className="w-full max-w-md px-6">
-      <div className="flex flex-col items-center text-center">
-        <div className="mb-10">
-          <h1 className="text-3xl font-black tracking-tight text-[var(--text-main)]">
+    <div className="w-full max-w-sm px-6">
+      <div className="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-3xl p-8 shadow-[var(--shadow-card)]">
+        <div className="text-center mb-8">
+          <h1 className="text-2xl font-black tracking-tight text-[var(--text-main)]">
             MyPerformance
           </h1>
-          <div className="h-1 w-8 bg-[var(--accent)] mx-auto rounded-full mt-3" />
-        </div>
-
-        <div className="w-full bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-3xl p-8 shadow-xl shadow-black/5">
-          <h2 className="text-xl font-bold text-[var(--text-main)]">
-            Witaj z powrotem
-          </h2>
-          <p className="text-sm text-[var(--text-muted)] mt-1 mb-6">
-            Zaloguj się przez MyPerformance ID
+          <p className="text-sm text-[var(--text-muted)] mt-2">
+            Zaloguj się, aby przejść do swoich aplikacji
           </p>
-
-          {errorMessage && (
-            <div className="mb-6">
-              <Alert tone="error" title="Błąd autoryzacji">
-                {errorMessage}
-              </Alert>
-            </div>
-          )}
-
-          <Button
-            onClick={handleLogin}
-            loading={submitting}
-            fullWidth
-            size="lg"
-            rightIcon={<ArrowRight className="w-4 h-4" aria-hidden="true" />}
-          >
-            Kontynuuj
-          </Button>
         </div>
 
-        <p className="mt-10 text-[10px] uppercase tracking-[0.2em] font-bold text-[var(--text-muted)] opacity-60">
-          Identity Management
-        </p>
+        {errorMessage && (
+          <div className="mb-6">
+            <Alert tone="error" title="Błąd autoryzacji">
+              {errorMessage}
+            </Alert>
+          </div>
+        )}
+
+        <Button
+          onClick={handleLogin}
+          loading={submitting}
+          fullWidth
+          size="lg"
+          rightIcon={<ArrowRight className="w-4 h-4" aria-hidden="true" />}
+        >
+          {submitting ? "Logowanie…" : "Zaloguj się"}
+        </Button>
       </div>
     </div>
   );
@@ -101,7 +90,10 @@ function LoginFallback() {
 
 export default function LoginPage() {
   return (
-    <div className="min-h-screen bg-[var(--bg-main)] flex items-center justify-center transition-colors duration-500">
+    <div className="min-h-screen bg-[var(--bg-main)] flex items-center justify-center relative">
+      <div className="absolute top-4 right-4 z-10">
+        <ThemeToggle />
+      </div>
       <Suspense fallback={<LoginFallback />}>
         <LoginContent />
       </Suspense>

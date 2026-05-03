@@ -4,7 +4,8 @@
 
 :root,
 html,
-html.dark {
+html.dark,
+html[data-theme="dark"] {
   --bg-main: #0a0a0f;
   --bg-card: #12121a;
   --bg-header: #0f0f16;
@@ -13,7 +14,47 @@ html.dark {
   --text-main: #f1f1f4;
   --text-muted: #6b6b7b;
   --accent: #6366f1;
+  --accent-soft: rgba(99, 102, 241, 0.12);
+  --accent-border: rgba(99, 102, 241, 0.35);
+  --skeleton-base: #1a1a25;
+  --skeleton-shimmer: rgba(255, 255, 255, 0.06);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.25);
   color-scheme: dark;
+}
+
+html.light,
+html[data-theme="light"] {
+  --bg-main: #f7f7f9;
+  --bg-card: #ffffff;
+  --bg-header: #ffffff;
+  --bg-surface: #f0f0f4;
+  --border-subtle: #e4e4eb;
+  --text-main: #0f0f17;
+  --text-muted: #6b6b7b;
+  --accent: #6366f1;
+  --accent-soft: rgba(99, 102, 241, 0.10);
+  --accent-border: rgba(99, 102, 241, 0.45);
+  --skeleton-base: #ececf2;
+  --skeleton-shimmer: rgba(0, 0, 0, 0.04);
+  --shadow-card: 0 1px 2px rgba(15, 15, 23, 0.04), 0 8px 24px rgba(15, 15, 23, 0.06);
+  color-scheme: light;
+}
+
+/* Crossfade root tylko — żeby nie spowalniać Button/Tile hoverów (150-200ms).
+   Theme toggle i tak używa View Transitions API dla efektu okrągłego reveala;
+   ten transition jest fallbackiem dla przeglądarek bez VT API i dla iframe/SSR
+   pierwszego renderu po zmianie z system theme. */
+html, body {
+  transition:
+    background-color 320ms cubic-bezier(0.4, 0, 0.2, 1),
+    color 320ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Bootstrap class — set on <html> from inline script przed pierwszym paintem,
+   usuwana po 1 frame. Zapobiega flashowi podczas inicjalnego ładowania. */
+html.no-theme-transition,
+html.no-theme-transition * {
+  transition: none !important;
 }
 
 /* Print-friendly views — raporty admin powinny ładnie się drukować
@@ -171,4 +212,109 @@ body {
 .leaflet-tooltip-pane,
 .leaflet-popup-pane {
   z-index: 2 !important;
+}
+
+/* ── Skeleton shimmer ─────────────────────────────────────────────────
+   Diagonalny shimmer + chasing pulse-bar. Theme-aware przez tokeny. */
+@keyframes mp-shimmer {
+  from { background-position: -200% 0; }
+  to   { background-position: 200% 0; }
+}
+
+@keyframes mp-pulsebar {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(200%); }
+}
+
+.mp-skeleton {
+  background:
+    linear-gradient(
+      100deg,
+      transparent 30%,
+      var(--skeleton-shimmer) 50%,
+      transparent 70%
+    ),
+    var(--skeleton-base);
+  background-size: 200% 100%, 100% 100%;
+  background-repeat: no-repeat;
+  animation: mp-shimmer 1.6s ease-in-out infinite;
+  border-radius: 8px;
+}
+
+.mp-skeleton--bar {
+  position: relative;
+  overflow: hidden;
+  background: var(--skeleton-base);
+  border-radius: 8px;
+}
+.mp-skeleton--bar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--accent) 30%, transparent),
+    transparent
+  );
+  animation: mp-pulsebar 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mp-skeleton,
+  .mp-skeleton--bar::after {
+    animation: none;
+  }
+}
+
+/* ── Stagger entrance ────────────────────────────────────────────────
+   Elementy pojawiają się kaskadowo z lekkim slide-up.
+   Aplikujemy na rodzicu, dzieci dziedziczą delay przez nth-child. */
+@keyframes mp-fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.mp-stagger > * {
+  animation: mp-fade-up 360ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+.mp-stagger > *:nth-child(1)  { animation-delay:  20ms; }
+.mp-stagger > *:nth-child(2)  { animation-delay:  60ms; }
+.mp-stagger > *:nth-child(3)  { animation-delay: 100ms; }
+.mp-stagger > *:nth-child(4)  { animation-delay: 140ms; }
+.mp-stagger > *:nth-child(5)  { animation-delay: 180ms; }
+.mp-stagger > *:nth-child(6)  { animation-delay: 220ms; }
+.mp-stagger > *:nth-child(7)  { animation-delay: 260ms; }
+.mp-stagger > *:nth-child(8)  { animation-delay: 300ms; }
+.mp-stagger > *:nth-child(9)  { animation-delay: 340ms; }
+.mp-stagger > *:nth-child(10) { animation-delay: 380ms; }
+.mp-stagger > *:nth-child(11) { animation-delay: 420ms; }
+.mp-stagger > *:nth-child(12) { animation-delay: 460ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  .mp-stagger > * { animation: none; }
+}
+
+/* ── View Transitions API: theme circular reveal ─────────────────────
+   ThemeToggle wywołuje document.startViewTransition() i ustawia CSS vars
+   --mp-reveal-x, --mp-reveal-y na pozycji kliknięcia. Nowy motyw rozlewa
+   się okręgiem z punktu klika. */
+@keyframes mp-reveal-clip {
+  from {
+    clip-path: circle(0% at var(--mp-reveal-x, 50%) var(--mp-reveal-y, 50%));
+  }
+  to {
+    clip-path: circle(150% at var(--mp-reveal-x, 50%) var(--mp-reveal-y, 50%));
+  }
+}
+
+::view-transition-old(root) {
+  animation: none;
+}
+::view-transition-new(root) {
+  animation: mp-reveal-clip 520ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-new(root) { animation: none; }
 }
