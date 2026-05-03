@@ -15,7 +15,6 @@ const preloadPhoneModel = () => {
 import { signOut } from "next-auth/react";
 import { DASHBOARD_HOME_URL } from "@/lib/dashboard-url";
 import {
-  AlertTriangle,
   ArrowLeft,
   Briefcase,
   Building2,
@@ -26,31 +25,24 @@ import {
   Phone,
   PlusCircle,
   RotateCcw,
-  Shield,
   Tags,
-  Truck,
   User as UserIcon,
 } from "lucide-react";
 import { PanelLocationMap, type PanelLocation } from "./PanelLocationMap";
 import { ServicesAllTab } from "./tabs/ServicesAllTab";
 import { AddServiceTab } from "./tabs/AddServiceTab";
-import { ProtectionTab } from "./tabs/ProtectionTab";
-import { ClaimsTab } from "./tabs/ClaimsTab";
 import { PricelistTab } from "./tabs/PricelistTab";
-import { DeliveryTab } from "./tabs/DeliveryTab";
 import { ToastProvider } from "./ToastProvider";
 import { SignatureSetup } from "./SignatureSetup";
 
 const STORAGE_KEY = "panel-sprzedawca:selected-location";
 const TAB_STORAGE_KEY = "panel-sprzedawca:active-tab";
 
-type SprzedawcaTab =
-  | "services-all"
-  | "services-add"
-  | "protection"
-  | "claims"
-  | "delivery"
-  | "pricelist";
+// Wave 22 / F6: Pakiet ochronny / Reklamacje / Dostawa zostały tymczasowo
+// usunięte z TABS — features do przebudowy w przyszłej fazie. Komponenty
+// (ProtectionTab/ClaimsTab/DeliveryTab) nadal istnieją w drzewie jako kod
+// referencyjny i nie są montowane do czasu odświeżonego designu.
+type SprzedawcaTab = "services-all" | "services-add" | "pricelist";
 
 const TABS: {
   id: SprzedawcaTab;
@@ -59,9 +51,6 @@ const TABS: {
 }[] = [
   { id: "services-add", label: "Dodaj serwis", icon: <PlusCircle className="w-4 h-4" /> },
   { id: "services-all", label: "Wszystkie serwisy", icon: <ListChecks className="w-4 h-4" /> },
-  { id: "protection", label: "Pakiet ochronny", icon: <Shield className="w-4 h-4" /> },
-  { id: "claims", label: "Reklamacje", icon: <AlertTriangle className="w-4 h-4" /> },
-  { id: "delivery", label: "Dostawa", icon: <Truck className="w-4 h-4" /> },
   { id: "pricelist", label: "Cennik", icon: <Tags className="w-4 h-4" /> },
 ];
 
@@ -417,7 +406,8 @@ export function PanelHome({
         </div>
       </header>
 
-      {/* Pasek z zakładkami — 6 sekcji modułu sprzedaży */}
+      {/* Pasek z zakładkami — sekcje modułu sprzedaży (Wave 22/F6: Dostawa /
+          Pakiet / Reklamacje czasowo usunięte do refaktoryzacji) */}
       <nav
         className="border-b sticky top-14 sm:top-16 z-[5] backdrop-blur-md"
         style={{
@@ -542,9 +532,6 @@ export function PanelHome({
             }}
           />
         )}
-        {activeTab === "protection" && <ProtectionTab locationId={selected.id} />}
-        {activeTab === "claims" && <ClaimsTab locationId={selected.id} />}
-        {activeTab === "delivery" && <DeliveryTab />}
         {activeTab === "pricelist" && <PricelistTab />}
       </main>
     </div>

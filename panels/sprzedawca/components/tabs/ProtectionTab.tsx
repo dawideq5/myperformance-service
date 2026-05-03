@@ -1,3 +1,8 @@
+// TODO: F6 - feature do przebudowy w Wave 22+
+// Komponent zachowany jako referencja; obecnie nie jest montowany w PanelHome
+// (TABS array). User: "Na tą chwilę usuń logikę i zawartość dla pakietu
+// ochronnego oraz reklamacji. Napiszemy ją później." Logika i struktura
+// pozostają do wglądu przy ponownym projekcie.
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
