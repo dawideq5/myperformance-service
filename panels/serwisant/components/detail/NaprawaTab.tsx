@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import {
-  ExternalLink,
   Loader2,
   Pencil,
   Truck,
@@ -20,6 +19,12 @@ import {
   type TransportJobForEdit,
 } from "../TransportModal";
 import { ReleaseDeviceModal } from "../ReleaseDeviceModal";
+import {
+  TransportDetailsDrawer,
+  type TransportJobDetail,
+  type TransportLocationLookup,
+} from "../TransportDetailsDrawer";
+import { TransportTilesList } from "../TransportTilesList";
 
 interface ServiceAction {
   id: string;
@@ -57,14 +62,6 @@ interface TransportJobSummary {
   trackingLink: string | null;
 }
 
-const TRANSPORT_STATUS_LABELS: Record<string, string> = {
-  queued: "W kolejce",
-  assigned: "Przypisany kierowca",
-  in_transit: "W transporcie",
-  delivered: "Dostarczone",
-  cancelled: "Anulowano",
-};
-
 export function NaprawaTab({
   service,
   onRequestStatusChange,
@@ -80,6 +77,9 @@ export function NaprawaTab({
   const [serviceLocations, setServiceLocations] = useState<
     TransportLocationOption[]
   >([]);
+  const [locationsLookup, setLocationsLookup] = useState<
+    Record<string, TransportLocationLookup>
+  >({});
   const [locationsLoading, setLocationsLoading] = useState(false);
   const [transportModalMode, setTransportModalMode] = useState<
     "create" | "edit" | null
@@ -87,6 +87,10 @@ export function NaprawaTab({
   const [activeTransport, setActiveTransport] = useState<TransportJobSummary | null>(
     null,
   );
+  // Wave 22 / F10 — pełna historia transportów dla zlecenia (queued/assigned/
+  // in_transit/delivered/cancelled). Każdy klikalny → drawer ze szczegółami.
+  const [allTransports, setAllTransports] = useState<TransportJobDetail[]>([]);
+  const [drawerJob, setDrawerJob] = useState<TransportJobDetail | null>(null);
   const [cancellingTransport, setCancellingTransport] = useState(false);
   const [transportError, setTransportError] = useState<string | null>(null);
   const [transportRefreshTick, setTransportRefreshTick] = useState(0);
@@ -115,6 +119,8 @@ export function NaprawaTab({
 
   // Lista wszystkich punktów serwisowych do TransportModal — pobieramy raz
   // przy mount, lokalnie filtrujemy bieżącą lokalizację w samym modalu.
+  // Wave 22 / F10 — dodatkowo budujemy `locationsLookup` (id → name+address+
+  // lat/lng) dla TransportTilesList i TransportDetailsDrawer.
   useEffect(() => {
     let cancelled = false;
     setLocationsLoading(true);
@@ -123,13 +129,34 @@ export function NaprawaTab({
       .then(
         (j: {
           services?: Array<{ id: string; name: string }>;
+          lookup?: Array<{
+            id: string;
+            name: string;
+            address: string | null;
+            lat?: number | null;
+            lng?: number | null;
+          }>;
         }) => {
           if (cancelled) return;
           setServiceLocations(j?.services ?? []);
+          const map: Record<string, TransportLocationLookup> = {};
+          for (const l of j?.lookup ?? []) {
+            map[l.id] = {
+              id: l.id,
+              name: l.name,
+              address: l.address ?? null,
+              lat: l.lat ?? null,
+              lng: l.lng ?? null,
+            };
+          }
+          setLocationsLookup(map);
         },
       )
       .catch(() => {
-        if (!cancelled) setServiceLocations([]);
+        if (!cancelled) {
+          setServiceLocations([]);
+          setLocationsLookup({});
+        }
       })
       .finally(() => {
         if (!cancelled) setLocationsLoading(false);
@@ -139,57 +166,64 @@ export function NaprawaTab({
     };
   }, []);
 
-  // Aktywny transport dla tego zlecenia — pokazujemy chip + blokujemy
-  // ponowne wystawienie z UI (backend i tak waliduje).
+  // Wave 22 / F10 — pełna lista transportów dla zlecenia (wszystkie statusy).
+  // Aktywny transport (queued/assigned/in_transit) wciąż używamy do chipu +
+  // blokowania ponownego wystawienia. Lista pełna idzie do TransportTilesList.
   useEffect(() => {
     let cancelled = false;
-    interface TransportJobRow {
-      id: string;
-      status: string;
-      destinationLocationId: string | null;
-      jobNumber: string;
-      createdAt: string | null;
-      reason: string | null;
-      notes: string | null;
-      trackingLink: string | null;
-    }
     fetch(
-      `/api/relay/transport-jobs?serviceId=${encodeURIComponent(service.id)}&status=queued,assigned,in_transit&limit=5`,
+      `/api/relay/transport-jobs?serviceId=${encodeURIComponent(service.id)}&limit=50`,
     )
       .then((r) => r.json())
-      .then((j: { jobs?: TransportJobRow[] }) => {
+      .then((j: { jobs?: TransportJobDetail[] }) => {
         if (cancelled) return;
-        const job =
-          j?.jobs?.find((row) =>
+        const jobs = Array.isArray(j?.jobs) ? j.jobs : [];
+        setAllTransports(jobs);
+        const active =
+          jobs.find((row) =>
             ["queued", "assigned", "in_transit"].includes(row.status),
           ) ?? null;
-        if (!job) {
+        if (!active) {
           setActiveTransport(null);
           return;
         }
         const dest = serviceLocations.find(
-          (l) => l.id === job.destinationLocationId,
+          (l) => l.id === active.destinationLocationId,
         );
         setActiveTransport({
-          id: job.id,
-          status: job.status,
-          destinationLocationId: job.destinationLocationId,
+          id: active.id,
+          status: active.status,
+          destinationLocationId: active.destinationLocationId,
           destinationName: dest?.name ?? null,
-          jobNumber: job.jobNumber,
-          createdAt: job.createdAt,
-          reason: job.reason ?? null,
-          notes: job.notes ?? null,
-          trackingLink: job.trackingLink ?? null,
+          jobNumber: active.jobNumber,
+          createdAt: active.createdAt,
+          reason: active.reason ?? null,
+          notes: active.notes ?? null,
+          trackingLink: active.trackingLink ?? null,
         });
       })
       .catch(() => {
-        if (!cancelled) setActiveTransport(null);
+        if (!cancelled) {
+          setAllTransports([]);
+          setActiveTransport(null);
+        }
       });
     return () => {
       cancelled = true;
     };
     // realtimeVersion bumpowane przez parenta na transport_job_* eventy.
   }, [service.id, serviceLocations, transportRefreshTick, realtimeVersion]);
+
+  // Wave 22 / F10 — gdy drawer pokazuje stary snapshot joba, refresh-ujemy go
+  // z najnowszej listy `allTransports` po każdym SSE bump'ie. Zapobiega temu
+  // że user widzi nieaktualny status/timeline po push'u kierowcy.
+  useEffect(() => {
+    if (!drawerJob) return;
+    const fresh = allTransports.find((j) => j.id === drawerJob.id);
+    if (fresh && fresh !== drawerJob) {
+      setDrawerJob(fresh);
+    }
+  }, [allTransports, drawerJob]);
 
   const cancelTransport = async () => {
     if (!activeTransport) return;
@@ -337,59 +371,26 @@ export function NaprawaTab({
         </div>
       </Section>
 
-      <Section title="Transport między serwisami">
-        {activeTransport ? (
+      {/* Wave 22 / F10 — Lokalizacja urządzenia (transport tab).
+          Pokazuje listę wszystkich transportów (queued/assigned/in_transit/
+          delivered/cancelled) jako klikalne kafelki — klik otwiera drawer
+          ze szczegółami (status, czas, kierowca, podpis odbiorcy). Pod
+          listą: akcje na aktywnym transporcie + przycisk wystawienia. */}
+      <Section title="Lokalizacja urządzenia">
+        {allTransports.length > 0 && (
+          <div className="mb-3">
+            <TransportTilesList
+              jobs={allTransports}
+              locationsById={locationsLookup}
+              onSelect={setDrawerJob}
+            />
+          </div>
+        )}
+
+        {activeTransport && (
           <div className="space-y-2">
-            <div
-              className="flex flex-wrap items-center gap-2 p-2 rounded-lg border"
-              style={{
-                background: "rgba(14, 165, 233, 0.08)",
-                borderColor: "rgba(14, 165, 233, 0.4)",
-                color: "var(--text-main)",
-              }}
-            >
-              <Truck
-                className="w-4 h-4"
-                style={{ color: "rgba(14, 165, 233, 0.9)" }}
-                aria-hidden="true"
-              />
-              <span className="text-xs font-semibold">
-                {TRANSPORT_STATUS_LABELS[activeTransport.status] ??
-                  activeTransport.status}
-                {activeTransport.destinationName
-                  ? ` do ${activeTransport.destinationName}`
-                  : ""}
-              </span>
-              <span
-                className="text-[11px] font-mono"
-                style={{ color: "var(--text-muted)" }}
-              >
-                #{activeTransport.jobNumber}
-              </span>
-              {activeTransport.trackingLink &&
-                ["in_transit", "delivered"].includes(activeTransport.status) && (
-                  <a
-                    href={activeTransport.trackingLink}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="ml-auto text-[11px] underline inline-flex items-center gap-0.5"
-                    style={{ color: "rgba(14, 165, 233, 0.9)" }}
-                  >
-                    Śledź paczkę
-                    <ExternalLink className="w-3 h-3" aria-hidden="true" />
-                  </a>
-                )}
-            </div>
-            {activeTransport.reason && (
-              <p
-                className="text-[11px]"
-                style={{ color: "var(--text-muted)" }}
-              >
-                Powód: {activeTransport.reason}
-              </p>
-            )}
             {/* Edycja/anulowanie tylko gdy queued/assigned (przed pickup'em).
-                W in_transit/delivered chip jest read-only (kierowca już ma
+                W in_transit/delivered drawer jest read-only (kierowca już ma
                 trasę u siebie). */}
             {["queued", "assigned"].includes(activeTransport.status) && (
               <div className="flex flex-wrap gap-1.5">
@@ -406,7 +407,7 @@ export function NaprawaTab({
                     aria-label="Edytuj zlecenie transportu"
                   >
                     <Pencil className="w-3 h-3" aria-hidden="true" />
-                    Edytuj transport
+                    Edytuj aktywny transport
                   </button>
                 )}
                 <button
@@ -429,7 +430,7 @@ export function NaprawaTab({
                   ) : (
                     <XCircle className="w-3 h-3" aria-hidden="true" />
                   )}
-                  Anuluj transport
+                  Anuluj aktywny transport
                 </button>
               </div>
             )}
@@ -443,13 +444,17 @@ export function NaprawaTab({
               </p>
             )}
           </div>
-        ) : (
+        )}
+
+        {!activeTransport && (
           <div className="space-y-2">
-            <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-              Przekieruj naprawę do innego punktu serwisowego — system utworzy
-              zlecenie dla kierowcy i wstrzyma bieżącą naprawę do czasu
-              odbioru.
-            </p>
+            {allTransports.length === 0 && (
+              <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                Przekieruj naprawę do innego punktu serwisowego — system
+                utworzy zlecenie dla kierowcy i wstrzyma bieżącą naprawę do
+                czasu odbioru.
+              </p>
+            )}
             <button
               type="button"
               onClick={() => setTransportModalMode("create")}
@@ -591,6 +596,18 @@ export function NaprawaTab({
           setReleaseModalOpen(false);
         }}
       />
+
+      {/* Wave 22 / F10 — read-only drawer ze szczegółami transportu. SSE
+          refresh jest realizowany przez parent (ServiceDetailView bumpuje
+          realtimeVersion) → useEffect re-fetch'uje allTransports → drawerJob
+          jest synchronizowany przez efekt `[allTransports, drawerJob]`. */}
+      {drawerJob && (
+        <TransportDetailsDrawer
+          job={drawerJob}
+          locationsById={locationsLookup}
+          onClose={() => setDrawerJob(null)}
+        />
+      )}
     </div>
   );
 }

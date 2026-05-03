@@ -1,0 +1,355 @@
+/* ─────────────────────────────────────────────────────────────────────
+   MyPerformance Design System — Colors & Type
+   Two themes — dark (default) + light. Theme is set via `data-theme`
+   on <html> ("dark" | "light"); also responds to `.dark` for parity
+   with the production codebase. The CSS variables crossfade smoothly
+   thanks to the global `transition` block below.
+   ───────────────────────────────────────────────────────────────────── */
+
+@font-face {
+  font-family: "Roboto";
+  src: url("./fonts/Roboto-Regular.ttf") format("truetype");
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "Roboto";
+  src: url("./fonts/Roboto-Bold.ttf") format("truetype");
+  font-weight: 700; font-style: normal; font-display: swap;
+}
+
+/* ── Constants shared by both themes ─────────────────────────────────── */
+:root {
+  /* Brand accent — single source of truth, theme-invariant */
+  --accent:        #6366f1;
+  --accent-hover:  #5558e8;
+  --accent-soft:   color-mix(in srgb, var(--accent) 10%, transparent);
+  --accent-ring:   color-mix(in srgb, var(--accent) 30%, transparent);
+  --accent-border: color-mix(in srgb, var(--accent) 20%, transparent);
+  --accent-hover-border: color-mix(in srgb, var(--accent) 40%, transparent);
+  --accent-foreground: #ffffff;
+
+  /* Semantic tones — same hex in both themes; backgrounds use
+     color-mix to derive theme-aware tints (works in dark + light). */
+  --success: #16a34a;
+  --warning: #d97706;
+  --danger:  #dc2626;
+  --info:    #2563eb;
+
+  /* Per-app tile palette — fixed across themes */
+  --tile-blue:    #3b82f6;
+  --tile-orange:  #f97316;
+  --tile-sky:     #0ea5e9;
+  --tile-rose:    #f43f5e;
+  --tile-lime:    #84cc16;
+  --tile-amber:   #f59e0b;
+  --tile-violet:  #8b5cf6;
+  --tile-emerald: #10b981;
+  --tile-purple:  #a855f7;
+  --tile-pink:    #ec4899;
+  --tile-teal:    #14b8a6;
+  --tile-indigo:  #6366f1;
+
+  /* Type */
+  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --font-keycloak-theme: "Roboto", system-ui, sans-serif;
+
+  --fs-3xl: 30px;
+  --fs-xl:  20px;
+  --fs-lg:  18px;
+  --fs-base:16px;
+  --fs-sm:  14px;
+  --fs-xs:  12px;
+  --fs-2xs: 10px;
+
+  --fw-regular: 400; --fw-medium: 500; --fw-semibold: 600; --fw-bold: 700; --fw-black: 900;
+  --lh-tight: 1.15; --lh-snug: 1.3; --lh-normal: 1.5; --lh-relaxed: 1.65;
+  --tracking-tight: -0.01em; --tracking-normal: 0; --tracking-eyebrow: 0.2em;
+
+  --radius-sm: 6px; --radius-md: 8px; --radius-lg: 12px;
+  --radius-xl: 16px; --radius-2xl: 24px; --radius-pill: 9999px;
+
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px;
+  --space-5:20px; --space-6:24px; --space-8:32px; --space-10:40px; --space-12:48px;
+
+  --ease-out:    cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-fast: 150ms;
+  --dur-base: 250ms;
+  --dur-slow: 350ms;
+  --dur-theme: 700ms; /* theme crossfade duration — slower, more cinematic */
+}
+
+/* ── Dark theme (default) ─────────────────────────────────────────── */
+:root,
+:root[data-theme="dark"],
+html.dark {
+  color-scheme: dark;
+
+  --bg-main:       #0a0a0f;
+  --bg-card:       #12121a;
+  --bg-header:     #0f0f16;
+  --bg-surface:    #14141d;
+  --bg-elevated:   #1a1a26;        /* dropdowns, popovers */
+  --bg-overlay:    rgba(0,0,0,0.65);
+  --bg-skeleton:   #1c1c28;
+  --bg-skeleton-shimmer: #26263a;
+
+  --border-subtle: #1e1e2e;
+  --border-strong: #2a2a3d;
+
+  --text-main:     #f1f1f4;
+  --text-muted:    #8b8b9b;        /* slightly lifted from prod for AA on /10 tints */
+  --text-faint:    #6b6b7b;
+
+  /* Soft tints — derived from the brand-invariant hexes via color-mix
+     so dark and light themes don't both need bespoke RGBA literals. */
+  --success-soft: color-mix(in srgb, var(--success) 14%, transparent);
+  --success-border: color-mix(in srgb, var(--success) 24%, transparent);
+  --warning-soft: color-mix(in srgb, var(--warning) 14%, transparent);
+  --warning-border: color-mix(in srgb, var(--warning) 24%, transparent);
+  --danger-soft:  color-mix(in srgb, var(--danger) 14%, transparent);
+  --danger-border: color-mix(in srgb, var(--danger) 26%, transparent);
+  --info-soft:    color-mix(in srgb, var(--info) 14%, transparent);
+  --info-border:  color-mix(in srgb, var(--info) 26%, transparent);
+
+  --shadow-sm:  0 1px 2px 0 rgba(0,0,0,0.40);
+  --shadow-md:  0 4px 12px -2px rgba(0,0,0,0.50);
+  --shadow-lg:  0 12px 24px -8px rgba(0,0,0,0.60);
+  --shadow-xl:  0 20px 40px -12px rgba(0,0,0,0.70);
+  --shadow-glow: 0 0 0 4px color-mix(in srgb, var(--accent) 18%, transparent);
+
+  /* Login backdrop — radial indigo on near-black */
+  --login-bg: radial-gradient(ellipse at 50% 30%,
+                color-mix(in srgb, var(--accent) 22%, transparent) 0%,
+                transparent 55%),
+              radial-gradient(ellipse at 80% 100%,
+                color-mix(in srgb, #a855f7 18%, transparent) 0%,
+                transparent 55%),
+              var(--bg-main);
+  --login-grid-color: color-mix(in srgb, var(--text-main) 4%, transparent);
+}
+
+/* ── Light theme ──────────────────────────────────────────────────── */
+:root[data-theme="light"],
+html.light {
+  color-scheme: light;
+
+  --bg-main:       #f7f7f9;        /* not pure white — easier on the eyes */
+  --bg-card:       #ffffff;
+  --bg-header:     #ffffff;
+  --bg-surface:    #f1f1f4;
+  --bg-elevated:   #ffffff;
+  --bg-overlay:    rgba(15, 15, 22, 0.45);
+  --bg-skeleton:   #e9e9ee;
+  --bg-skeleton-shimmer: #f5f5f8;
+
+  --border-subtle: #e5e5ea;
+  --border-strong: #d1d1d8;
+
+  --text-main:     #0f0f16;
+  --text-muted:    #5b5b6b;
+  --text-faint:    #8b8b9b;
+
+  --success-soft: color-mix(in srgb, var(--success) 12%, white);
+  --success-border: color-mix(in srgb, var(--success) 30%, white);
+  --warning-soft: color-mix(in srgb, var(--warning) 12%, white);
+  --warning-border: color-mix(in srgb, var(--warning) 32%, white);
+  --danger-soft:  color-mix(in srgb, var(--danger) 10%, white);
+  --danger-border: color-mix(in srgb, var(--danger) 30%, white);
+  --info-soft:    color-mix(in srgb, var(--info) 10%, white);
+  --info-border:  color-mix(in srgb, var(--info) 28%, white);
+
+  --shadow-sm:  0 1px 2px 0 rgba(15,15,22,0.06);
+  --shadow-md:  0 4px 12px -2px rgba(15,15,22,0.10);
+  --shadow-lg:  0 16px 32px -12px rgba(15,15,22,0.18);
+  --shadow-xl:  0 24px 48px -16px rgba(15,15,22,0.22);
+  --shadow-glow: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent);
+
+  --login-bg: radial-gradient(ellipse at 50% 30%,
+                color-mix(in srgb, var(--accent) 14%, transparent) 0%,
+                transparent 55%),
+              radial-gradient(ellipse at 80% 100%,
+                color-mix(in srgb, #a855f7 12%, transparent) 0%,
+                transparent 55%),
+              var(--bg-main);
+  --login-grid-color: color-mix(in srgb, var(--text-main) 5%, transparent);
+}
+
+/* Themed accent-soft override per theme — light needs a lighter tint
+   so text-on-tint stays readable. */
+:root[data-theme="light"],
+html.light {
+  --accent-soft:   color-mix(in srgb, var(--accent) 12%, white);
+  --accent-border: color-mix(in srgb, var(--accent) 28%, white);
+  --accent-hover-border: color-mix(in srgb, var(--accent) 50%, white);
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   Smooth theme crossfade. Applied universally except where the user
+   explicitly opts out (.no-theme-transition during page bootstrap so
+   the initial paint isn't animated). View Transitions API gets a
+   circular reveal in app code; this CSS fallback handles UA's that
+   don't support it.
+   ───────────────────────────────────────────────────────────────────── */
+*,
+*::before,
+*::after {
+  transition:
+    background-color   var(--dur-theme) var(--ease-smooth),
+    border-color       var(--dur-theme) var(--ease-smooth),
+    color              var(--dur-theme) var(--ease-smooth),
+    fill               var(--dur-theme) var(--ease-smooth),
+    stroke             var(--dur-theme) var(--ease-smooth),
+    box-shadow         var(--dur-theme) var(--ease-smooth);
+}
+.no-theme-transition,
+.no-theme-transition *,
+.no-theme-transition *::before,
+.no-theme-transition *::after {
+  transition: none !important;
+}
+
+/* Component-level transitions (transform, opacity, etc.) shouldn't be
+   stomped by the global one. Components add their own where needed. */
+
+/* Accessibility — honour reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+/* ── Element styles ──────────────────────────────────────────────── */
+body {
+  margin: 0;
+  background: var(--bg-main);
+  color: var(--text-main);
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1 { font-size: var(--fs-3xl); font-weight: var(--fw-black); letter-spacing: var(--tracking-tight);
+     line-height: var(--lh-tight); color: var(--text-main); margin: 0; }
+h2 { font-size: var(--fs-xl); font-weight: var(--fw-bold); line-height: var(--lh-tight);
+     color: var(--text-main); margin: 0; }
+h3 { font-size: var(--fs-lg); font-weight: var(--fw-semibold); line-height: var(--lh-snug);
+     color: var(--text-main); margin: 0; }
+
+p { font-size: var(--fs-sm); color: var(--text-muted); line-height: var(--lh-normal); margin: 0; }
+small, .p-meta { font-size: var(--fs-xs); color: var(--text-muted); }
+.eyebrow {
+  font-size: var(--fs-2xs); font-weight: var(--fw-bold);
+  text-transform: uppercase; letter-spacing: var(--tracking-eyebrow);
+  color: var(--text-muted); opacity: 0.7;
+}
+label { display: block; font-size: var(--fs-sm); font-weight: var(--fw-medium); color: var(--text-muted); }
+
+code, kbd, pre, .mono { font-family: var(--font-mono); font-size: var(--fs-2xs); }
+kbd {
+  padding: 2px 6px; background: var(--bg-surface);
+  border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);
+  color: var(--text-muted); font-weight: var(--fw-medium);
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; text-underline-offset: 4px; }
+
+hr { border: 0; border-top: 1px solid var(--border-subtle); }
+::selection { background: var(--accent); color: var(--accent-foreground); }
+
+/* ── Reusable animations & skeletons ─────────────────────────────── */
+
+/* Shimmer — used in skeletons. The gradient sweeps left → right. */
+@keyframes mp-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.mp-skeleton {
+  position: relative;
+  background: linear-gradient(
+    100deg,
+    var(--bg-skeleton) 30%,
+    var(--bg-skeleton-shimmer) 50%,
+    var(--bg-skeleton) 70%
+  );
+  background-size: 200% 100%;
+  animation: mp-shimmer 1.6s linear infinite;
+  border-radius: var(--radius-sm);
+  color: transparent;
+  user-select: none;
+  pointer-events: none;
+}
+
+/* Pulse-bar — secondary skeleton variant. Two short bars chase each
+   other inside a track; gives a "loading is alive" feel. */
+@keyframes mp-pulsebar {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+.mp-skeleton--bar {
+  position: relative; overflow: hidden;
+  background: var(--bg-skeleton);
+  border-radius: var(--radius-pill);
+}
+.mp-skeleton--bar::after {
+  content: "";
+  position: absolute; inset: 0;
+  width: 25%;
+  background: linear-gradient(90deg, transparent, var(--accent-soft), transparent);
+  animation: mp-pulsebar 1.6s var(--ease-smooth) infinite;
+}
+
+/* Page-level entrance: fade + 8px lift, staggered via animation-delay */
+@keyframes mp-fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.mp-enter { animation: mp-fade-up var(--dur-slow) var(--ease-out) both; }
+.mp-stagger > *:nth-child(1) { animation-delay: 30ms; }
+.mp-stagger > *:nth-child(2) { animation-delay: 60ms; }
+.mp-stagger > *:nth-child(3) { animation-delay: 90ms; }
+.mp-stagger > *:nth-child(4) { animation-delay: 120ms; }
+.mp-stagger > *:nth-child(5) { animation-delay: 150ms; }
+.mp-stagger > *:nth-child(6) { animation-delay: 180ms; }
+.mp-stagger > *:nth-child(7) { animation-delay: 210ms; }
+.mp-stagger > *:nth-child(8) { animation-delay: 240ms; }
+.mp-stagger > *:nth-child(9) { animation-delay: 270ms; }
+.mp-stagger > *:nth-child(10){ animation-delay: 300ms; }
+.mp-stagger > *:nth-child(11){ animation-delay: 330ms; }
+.mp-stagger > *:nth-child(12){ animation-delay: 360ms; }
+
+/* Scale-in for modals & palette */
+@keyframes mp-scale-in {
+  from { opacity: 0; transform: scale(0.96) translateY(6px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+/* View Transitions — used by the theme switch in the live kit. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+::view-transition-new(root) {
+  animation: mp-reveal-clip 900ms var(--ease-smooth) both;
+}
+::view-transition-old(root) {
+  animation: mp-fade-out 320ms var(--ease-smooth) both;
+}
+@keyframes mp-reveal-clip {
+  from { clip-path: circle(0% at var(--mp-cx, 50%) var(--mp-cy, 50%)); }
+  to   { clip-path: circle(150% at var(--mp-cx, 50%) var(--mp-cy, 50%)); }
+}
+@keyframes mp-fade-out {
+  to { opacity: 0; }
+}

@@ -4,23 +4,31 @@
  * Kanały:
  *   - `email`: Postal sendMail z profilem `zlecenieserwisowe` (sender
  *     `caseownia@zlecenieserwisowe.pl`), branding 1:1 z notify-annex.
- *   - `sms`:  Chatwoot service inbox (`sendServiceMessage`) — Twilio SMS
- *     inbox podpięty pod Chatwoota. Wymaga aktywnej `chatwootConversationId`
- *     na zleceniu.
+ *   - `sms`:  Chatwoot Twilio SMS inbox (`CHATWOOT_SMS_INBOX_ID`) — find-or-
+ *     create contact po phone, find-or-create conversation w SMS inboxie,
+ *     post outgoing → Twilio fire SMS. Wave 22 / F13 fix: wcześniej
+ *     `sendServiceMessage` postował do konwersacji w service inboxie
+ *     (Channel::Email/WebWidget) i Twilio NIE odpalał — SMS nigdy nie szedł.
  *   - `paper`: no-op — kod tylko w PDF receipt (odpowiedzialność Faza 1H).
  *
  * Helper non-throwing: error jednego kanału nie blokuje POST intake.
  * Wzór 1:1 z `notify-annex.ts` (Wave 20).
  */
 import { sendMail } from "@/lib/smtp";
-import { sendServiceMessage } from "@/lib/chatwoot-customer";
+import { sendCustomerSms } from "@/lib/chatwoot-customer";
 import { applyLayout } from "@/lib/email/render";
 import {
   ensureDefaultLayout,
   getDefaultLayout,
+  getLayoutBySlug,
 } from "@/lib/email/db/layouts";
 import { getBranding } from "@/lib/email/db";
-import { getOptionalEnv } from "@/lib/env";
+import {
+  resolveBrandFromService,
+  senderForBrand,
+  layoutSlugForBrand,
+  type EmailBrand,
+} from "@/lib/services/brand";
 import { log } from "@/lib/logger";
 
 const logger = log.child({ module: "notify-release-code" });
@@ -107,23 +115,38 @@ function renderEmailContent(input: NotifyReleaseCodeInput): {
   return { subject, contentHtml, contentText };
 }
 
-async function buildLayoutedHtml(contentHtml: string): Promise<string> {
-  // Best-effort layout — DEFAULT_LAYOUT_HTML (Caseownia czarny header).
-  // Wzór 1:1 z notify-annex.ts.
+async function buildLayoutedHtml(
+  contentHtml: string,
+  brand: EmailBrand,
+): Promise<string> {
+  // Wave 22 / F1 — layout per brand.
   try {
     await ensureDefaultLayout();
-    const def = await getDefaultLayout();
-    if (def?.html) {
+    const layout =
+      (await getLayoutBySlug(layoutSlugForBrand(brand)).catch(() => null)) ??
+      (await getDefaultLayout());
+    if (layout?.html) {
       const branding = await getBranding().catch(() => null);
-      const html = applyLayout(def.html, contentHtml);
+      const sender = senderForBrand(brand);
+      const fallbackBrandName =
+        brand === "myperformance" ? "MyPerformance" : sender.fromName;
+      const fallbackBrandUrl =
+        brand === "myperformance"
+          ? "https://myperformance.pl"
+          : "https://zlecenieserwisowe.pl";
+      const fallbackSupport =
+        brand === "myperformance"
+          ? "kontakt@myperformance.pl"
+          : "biuro@caseownia.com";
+      const html = applyLayout(layout.html, contentHtml);
       return html
         .replace(
           /\{\{\s*brand\.name\s*\}\}/g,
-          escapeHtml(branding?.brandName ?? "Serwis telefonów by Caseownia"),
+          escapeHtml(branding?.brandName ?? fallbackBrandName),
         )
         .replace(
           /\{\{\s*brand\.url\s*\}\}/g,
-          escapeHtml(branding?.brandUrl ?? "https://zlecenieserwisowe.pl"),
+          escapeHtml(branding?.brandUrl ?? fallbackBrandUrl),
         )
         .replace(
           /\{\{\s*brand\.logoUrl\s*\}\}/g,
@@ -131,7 +154,7 @@ async function buildLayoutedHtml(contentHtml: string): Promise<string> {
         )
         .replace(
           /\{\{\s*brand\.supportEmail\s*\}\}/g,
-          escapeHtml(branding?.supportEmail ?? "biuro@caseownia.com"),
+          escapeHtml(branding?.supportEmail ?? fallbackSupport),
         )
         .replace(/\{\{\s*subject\s*\}\}/g, "")
         .replace(/\{\{\s*content\s*\}\}/g, contentHtml);
@@ -153,13 +176,9 @@ async function deliverEmail(
   }
   try {
     const { subject, contentHtml, contentText } = renderEmailContent(input);
-    const html = await buildLayoutedHtml(contentHtml);
-    const fromAddress =
-      getOptionalEnv("CONFIRMATION_EMAIL_FROM", "").trim() ||
-      "caseownia@zlecenieserwisowe.pl";
-    const fromName =
-      getOptionalEnv("CONFIRMATION_EMAIL_FROM_NAME", "").trim() ||
-      "Serwis Telefonów by Caseownia";
+    const brand = await resolveBrandFromService(service.id);
+    const html = await buildLayoutedHtml(contentHtml, brand);
+    const { fromAddress, fromName } = senderForBrand(brand);
     await sendMail({
       to: service.contactEmail,
       subject,
@@ -168,11 +187,12 @@ async function deliverEmail(
       fromName,
       fromAddress,
       replyTo: fromAddress,
-      profileSlug: "zlecenieserwisowe",
+      profileSlug: brand,
     });
     logger.info("notify-release-code.email_sent", {
       serviceId: service.id,
       ticketNumber: service.ticketNumber,
+      brand,
     });
     return { ok: true, channel: "email" };
   } catch (err) {
@@ -194,26 +214,51 @@ async function deliverSms(
   input: NotifyReleaseCodeInput,
 ): Promise<NotifyReleaseCodeResult> {
   const { service } = input;
-  if (!service.chatwootConversationId) {
-    return {
-      ok: false,
-      channel: "sms",
-      error: "no_chatwoot_conversation",
-    };
-  }
   if (!service.contactPhone) {
     return { ok: false, channel: "sms", error: "no_phone" };
   }
   try {
     const body = buildSmsBody(input);
-    const ok = await sendServiceMessage(service.chatwootConversationId, body);
-    if (!ok) {
-      return { ok: false, channel: "sms", error: "chatwoot_send_failed" };
+    const customerName =
+      [service.customerFirstName, service.customerLastName]
+        .filter(Boolean)
+        .join(" ")
+        .trim() || "Klient";
+    const result = await sendCustomerSms({
+      phone: service.contactPhone,
+      customerName,
+      body,
+      ticketNumber: service.ticketNumber,
+      serviceId: service.id,
+      customerEmail: service.contactEmail,
+    });
+    // Wave 22 / F13 — pełen audit log: status code z Chatwoot, conversation
+    // id, message id, contact id, inbox id, error tag/detail.
+    if (!result.ok) {
+      logger.warn("notify-release-code.sms_failed", {
+        serviceId: service.id,
+        ticketNumber: service.ticketNumber,
+        inboxId: result.inboxId,
+        contactId: result.contactId,
+        conversationId: result.conversationId,
+        status: result.status,
+        error: result.error,
+        detail: result.detail,
+      });
+      return {
+        ok: false,
+        channel: "sms",
+        error: result.error ?? "chatwoot_send_failed",
+      };
     }
     logger.info("notify-release-code.sms_sent", {
       serviceId: service.id,
       ticketNumber: service.ticketNumber,
-      conversationId: service.chatwootConversationId,
+      inboxId: result.inboxId,
+      conversationId: result.conversationId,
+      messageId: result.messageId,
+      contactId: result.contactId,
+      status: result.status,
     });
     return { ok: true, channel: "sms" };
   } catch (err) {

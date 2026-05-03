@@ -125,6 +125,11 @@ export async function POST(req: Request) {
   </body></html>`;
 
   try {
+    // Wave 22 / F1: customer-portal authentication — bez serviceId nie da
+    // się rozsądzić brandu. Zostaje `zlecenieserwisowe` (tylko klienci serwisu
+    // korzystają z customer-portal). Follow-up: wprowadzić brand context
+    // przez subpath (`/serwisowe/auth` vs `/myperformance/auth`) gdy
+    // myperformance dorobi własny customer-portal flow.
     await sendMail({
       to: email,
       subject,

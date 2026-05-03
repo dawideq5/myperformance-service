@@ -13,7 +13,8 @@ export type WebhookSource =
   | "documenso"
   | "keycloak"
   | "backup"
-  | "wazuh";
+  | "wazuh"
+  | "livekit";
 
 export type WebhookOutcome = "ok" | "auth_failed" | "ignored" | "error";
 
@@ -84,6 +85,9 @@ const SECRET_ENV: Record<WebhookSource, string> = {
   keycloak: "KEYCLOAK_WEBHOOK_SECRET",
   backup: "BACKUP_WEBHOOK_SECRET",
   wazuh: "WAZUH_WEBHOOK_SECRET",
+  // LiveKit auth header is signed with `LIVEKIT_API_SECRET` (not a separate
+  // webhook secret) — see WebhookReceiver in livekit-server-sdk.
+  livekit: "LIVEKIT_API_SECRET",
 };
 
 export async function getWebhookHealth(

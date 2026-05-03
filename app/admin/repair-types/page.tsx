@@ -15,5 +15,11 @@ export default async function RepairTypesAdminPage() {
 
   const types = await listRepairTypes();
 
-  return <RepairTypesAdminClient initialTypes={types} />;
+  return (
+    <RepairTypesAdminClient
+      initialTypes={types}
+      userLabel={session.user?.name ?? session.user?.email ?? undefined}
+      userEmail={session.user?.email ?? undefined}
+    />
+  );
 }

@@ -67,15 +67,17 @@ interface Props {
   viewerRole?: ViewerRole;
 }
 
-const VISIBILITY_OPTIONS: {
+interface VisibilityOption {
   value: Visibility;
   label: string;
   icon: typeof Users;
   description: string;
-}[] = [
+}
+
+const ALL_VISIBILITY_OPTIONS: VisibilityOption[] = [
   {
     value: "team",
-    label: "Wszyscy",
+    label: "Wszyscy (sprzedawcy + serwisanci)",
     icon: Users,
     description: "Cały zespół (sprzedaż i serwis)",
   },
@@ -92,6 +94,28 @@ const VISIBILITY_OPTIONS: {
     description: "Widoczna tylko dla działu sprzedaży",
   },
 ];
+
+/**
+ * Wave 22 / F9 — pokazujemy tylko widoczność adekwatną do roli widza:
+ *   - service → "Wszyscy" + "Tylko serwisanci" (NIGDY "Tylko sprzedawcy")
+ *   - sales   → "Wszyscy" + "Tylko sprzedawcy"
+ *   - admin   → wszystkie 3 (back-office może przeglądać/notować na rzecz
+ *                obu działów)
+ *
+ * Backend (`internal-notes/route.ts`) ma analogiczny check w POST — to UI
+ * filter to ergonomia, nie security.
+ */
+function visibilityOptionsForRole(role: ViewerRole): VisibilityOption[] {
+  if (role === "admin") return ALL_VISIBILITY_OPTIONS;
+  if (role === "sales") {
+    return ALL_VISIBILITY_OPTIONS.filter(
+      (o) => o.value === "team" || o.value === "sales_only",
+    );
+  }
+  return ALL_VISIBILITY_OPTIONS.filter(
+    (o) => o.value === "team" || o.value === "service_only",
+  );
+}
 
 const VISIBILITY_LABEL: Record<Visibility, string> = {
   team: "Wszyscy",
@@ -194,6 +218,20 @@ export function TeamCommunicationTab({
   const [submitError, setSubmitError] = useState<string | null>(null);
   // Defaultowo "team" — najczęstszy przypadek.
   const [visibility, setVisibility] = useState<Visibility>("team");
+  // Wave 22 / F9 — opcje widoczności filtrowane per rola (serwisant nie widzi
+  // "tylko sprzedawcy" itd.). Memoize żeby radio nie re-renderowało
+  // z każdym tickiem.
+  const visibilityOptions = useMemo(
+    () => visibilityOptionsForRole(viewerRole),
+    [viewerRole],
+  );
+  // Jeśli rola się zmieni, a obecna `visibility` nie jest już dozwolona
+  // (np. user przełączył panel) — clamp do "team".
+  useEffect(() => {
+    if (!visibilityOptions.some((o) => o.value === visibility)) {
+      setVisibility("team");
+    }
+  }, [visibilityOptions, visibility]);
   const [pinNew, setPinNew] = useState(false);
   const recentlyAddedIds = useRef<Set<string>>(new Set());
 
@@ -369,7 +407,7 @@ export function TeamCommunicationTab({
             aria-label="Wybierz dla kogo widoczny będzie wpis"
             className="flex flex-wrap gap-1.5"
           >
-            {VISIBILITY_OPTIONS.map((opt) => {
+            {visibilityOptions.map((opt) => {
               const Icon = opt.icon;
               const checked = visibility === opt.value;
               return (

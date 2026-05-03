@@ -18,6 +18,7 @@ const SOURCES: readonly WebhookSource[] = [
   "keycloak",
   "backup",
   "wazuh",
+  "livekit",
 ];
 
 interface Ctx {

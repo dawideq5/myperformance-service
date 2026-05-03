@@ -36,6 +36,10 @@ import { logServiceAction } from "@/lib/service-actions";
 import { publish } from "@/lib/sse-bus";
 import { sendMail } from "@/lib/smtp";
 import {
+  resolveBrandFromService,
+  senderForBrand,
+} from "@/lib/services/brand";
+import {
   applyLayout,
   markdownToHtml,
   renderVars,
@@ -261,12 +265,18 @@ async function sendEmail(args: {
   const withContent = applyLayout(rawLayoutHtml, renderedBodyHtml);
   const finalCtx = { ...ctx, subject: renderedSubject };
   const html = renderVars(withContent, finalCtx);
+  // Wave 22 / F1 — brand resolved per service location.
+  const brand = await resolveBrandFromService(args.service.id);
+  const { fromAddress, fromName } = senderForBrand(brand);
   return await sendMail({
     to: args.to,
     subject: renderedSubject,
     html,
     text: renderedBodyText,
-    profileSlug: "myperformance",
+    fromName,
+    fromAddress,
+    replyTo: fromAddress,
+    profileSlug: brand,
   });
 }
 

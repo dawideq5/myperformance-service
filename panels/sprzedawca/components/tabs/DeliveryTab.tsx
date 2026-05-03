@@ -1,3 +1,7 @@
+// TODO: F6 - feature do przebudowy w Wave 22+
+// Komponent zachowany jako referencja; obecnie nie jest montowany w PanelHome
+// (TABS array). Po przemyśleniu UX/flow użytkownik wróci do pełnej implementacji
+// modułu Dostawa. Nie usuwamy aby nie zgubić logiki API/struktury.
 "use client";
 
 import { useEffect, useState } from "react";

@@ -6,19 +6,29 @@ import {
   CheckCircle2,
   FileText,
   Image as ImageIcon,
+  Key,
   Loader2,
+  MessageSquare,
   PenLine,
   Receipt,
   RefreshCw,
   Send,
   ShieldOff,
+  Truck,
+  Upload,
   XCircle,
 } from "lucide-react";
 import type { ServiceTicket } from "../tabs/ServicesBoard";
 import {
   TONE_BORDER_CLASS,
+  getStatusLabel,
   getStatusMeta,
-} from "@/lib/serwisant/status-meta";
+} from "@/lib/services/status-meta";
+import {
+  formatActor,
+  formatEventTimestamp,
+  humanizeAction,
+} from "@/lib/services/event-humanizer";
 
 interface ServiceAction {
   id: string;
@@ -34,12 +44,19 @@ interface HistoriaTabProps {
   service: ServiceTicket;
 }
 
+/**
+ * Wave 22 / F7 — ikony per action_type. Zostaje w komponencie (a nie w
+ * `lib/services/event-humanizer.ts`) bo `event-humanizer.ts` jest pure
+ * (no react / no lucide imports), używany też w testach Vitest.
+ */
 const ACTION_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   status_change: RefreshCw,
   quote_changed: Receipt,
   annex_created: FileText,
   annex_accepted: CheckCircle2,
   annex_rejected: XCircle,
+  annex_resend: Send,
+  annex_expired: XCircle,
   annex_issued: FileText,
   photo_uploaded: ImageIcon,
   photo_deleted: ImageIcon,
@@ -49,120 +66,20 @@ const ACTION_ICONS: Record<string, React.ComponentType<{ className?: string }>> 
   resend_electronic: Send,
   client_signed: CheckCircle2,
   client_rejected: ShieldOff,
+  transport_requested: Truck,
+  transport_updated: Truck,
+  transport_cancelled: Truck,
+  release_code_generated: Key,
+  release_code_sent: Key,
+  release_code_resent: Key,
+  release_code_failed: ShieldOff,
+  release_completed: CheckCircle2,
+  upload_bridge_token_issued: Upload,
+  document_invalidated: ShieldOff,
+  customer_message_sent: MessageSquare,
+  customer_contact_recorded: MessageSquare,
   other: Activity,
 };
-
-/**
- * Humanizuje summary akcji do języka naturalnego — zamiast "received → diagnosing"
- * wyświetla "Przyjęte → W diagnostyce", zamiast "Δ +150 PLN" → "z 280 PLN do 380 PLN".
- */
-function humanizeSummary(
-  action: string,
-  summary: string,
-  payload: Record<string, unknown> | null | undefined,
-): string {
-  if (action === "status_change" && payload) {
-    const from = typeof payload.from === "string" ? payload.from : null;
-    const to = typeof payload.to === "string" ? payload.to : null;
-    if (from && to) {
-      const fromLabel = getStatusMeta(from).label;
-      const toLabel = getStatusMeta(to).label;
-      return `Status: ${fromLabel} → ${toLabel}`;
-    }
-  }
-  if (action === "quote_changed" && payload) {
-    const oldA = typeof payload.oldAmount === "number" ? payload.oldAmount : null;
-    const newA = typeof payload.newAmount === "number" ? payload.newAmount : null;
-    if (oldA != null && newA != null) {
-      return `Zmiana wyceny z ${oldA.toFixed(2)} PLN na ${newA.toFixed(2)} PLN`;
-    }
-  }
-  if ((action === "annex_created" || action === "annex_accepted") && payload) {
-    const oldA = typeof payload.previousAmount === "number" ? payload.previousAmount : null;
-    const newA = typeof payload.newAmount === "number" ? payload.newAmount : null;
-    const verb = action === "annex_created" ? "Utworzono aneks" : "Klient zaakceptował aneks";
-    if (oldA != null && newA != null) {
-      return `${verb} — wycena z ${oldA.toFixed(2)} na ${newA.toFixed(2)} PLN`;
-    }
-    return verb;
-  }
-  if (action === "annex_rejected") return "Klient odrzucił aneks";
-  if (action === "transport_requested" && payload) {
-    const dest =
-      typeof payload.destinationName === "string"
-        ? payload.destinationName
-        : typeof payload.targetLocationId === "string"
-          ? payload.targetLocationId
-          : "innego serwisu";
-    const reason = typeof payload.reason === "string" ? payload.reason : "";
-    return reason
-      ? `Wysłano zlecenie transportu do ${dest} — ${reason}`
-      : `Wysłano zlecenie transportu do ${dest}`;
-  }
-  if (action === "transport_cancelled") return "Anulowano zlecenie transportu";
-  if (action === "transport_updated") return "Zmieniono dane zlecenia transportu";
-  if (action === "photo_uploaded" && payload) {
-    const stage = typeof payload.stage === "string" ? payload.stage : null;
-    const stageLabel: Record<string, string> = {
-      intake: "przyjęcia",
-      diagnosis: "diagnozy",
-      in_repair: "naprawy",
-      before_delivery: "przed wydaniem",
-      other: "inne",
-    };
-    return stage
-      ? `Dodano zdjęcie (etap ${stageLabel[stage] ?? stage})`
-      : "Dodano zdjęcie do zlecenia";
-  }
-  if (action === "photo_deleted") return "Usunięto zdjęcie";
-  if (action === "note_added" && payload) {
-    const vis = typeof payload.visibility === "string" ? payload.visibility : null;
-    if (vis === "service_only") return "Dodano notatkę (tylko serwis)";
-    if (vis === "sales_only") return "Dodano notatkę (tylko sprzedaż)";
-    return "Dodano notatkę zespołową";
-  }
-  if (action === "note_deleted") return "Usunięto notatkę";
-  if (action === "component_added" && payload) {
-    const name = typeof payload.name === "string" ? payload.name : "";
-    return name ? `Dodano komponent: ${name}` : "Dodano komponent do wyceny";
-  }
-  if (action === "component_updated") return "Zaktualizowano komponent";
-  if (action === "component_deleted") return "Usunięto komponent";
-  if (action === "part_ordered") return "Zamówiono część";
-  if (action === "part_received") return "Otrzymano część";
-  if (action === "customer_data_updated") return "Zaktualizowano dane klienta";
-  if (action === "device_condition_updated") return "Zaktualizowano stan techniczny urządzenia";
-  if (action === "damage_marker_added") return "Dodano marker uszkodzenia";
-  if (action === "damage_marker_removed") return "Usunięto marker uszkodzenia";
-  if (action === "damage_marker_updated") return "Edytowano marker uszkodzenia";
-  if (action === "customer_message_sent" && payload) {
-    const channel = typeof payload.channel === "string" ? payload.channel : "";
-    const ch: Record<string, string> = { email: "e-mail", sms: "SMS", chatwoot: "czat" };
-    return `Wysłano wiadomość do klienta (${ch[channel] ?? channel})`;
-  }
-  if (action === "upload_bridge_token_issued") return "Wysłano kod QR do uploadu zdjęć";
-  // Fallback do oryginalnego summary jeśli mamy, inaczej raw action
-  return summary || action;
-}
-
-function formatRelative(iso: string): string {
-  const ts = new Date(iso).getTime();
-  if (Number.isNaN(ts)) return "";
-  const diff = Date.now() - ts;
-  const sec = Math.round(diff / 1000);
-  if (sec < 60) return "przed chwilą";
-  const min = Math.round(sec / 60);
-  if (min < 60) return `${min} min temu`;
-  const hr = Math.round(min / 60);
-  if (hr < 24) return `${hr} godz. temu`;
-  const day = Math.round(hr / 24);
-  if (day < 7) return `${day} d. temu`;
-  return new Date(iso).toLocaleDateString("pl-PL", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
-}
 
 export function HistoriaTab({ service }: HistoriaTabProps) {
   const [actions, setActions] = useState<ServiceAction[]>([]);
@@ -233,6 +150,18 @@ export function HistoriaTab({ service }: HistoriaTabProps) {
           ? TONE_BORDER_CLASS[meta.tone]
           : "border-l-slate-600";
 
+        const humanized = humanizeAction(
+          a.action,
+          a.payload,
+          a.summary,
+          getStatusLabel,
+        );
+        const author = formatActor({
+          actorName: a.actorName,
+          actorEmail: a.actorEmail,
+        });
+        const ts = formatEventTimestamp(a.createdAt);
+
         return (
           <div
             key={a.id}
@@ -253,30 +182,28 @@ export function HistoriaTab({ service }: HistoriaTabProps) {
             </div>
             <div className="flex-1 min-w-0">
               <p
-                className="text-sm"
+                className="text-sm font-medium"
                 style={{ color: "var(--text-main)" }}
               >
-                {humanizeSummary(a.action, a.summary, a.payload)}
+                {humanized.label}
               </p>
+              {humanized.description ? (
+                <p
+                  className="text-sm mt-0.5"
+                  style={{ color: "var(--text-main)", opacity: 0.85 }}
+                >
+                  {humanized.description}
+                </p>
+              ) : null}
               <p
-                className="text-[11px] mt-0.5"
+                className="text-[11px] mt-1"
                 style={{ color: "var(--text-muted)" }}
               >
-                {a.actorName ?? a.actorEmail ?? "System"} ·{" "}
-                {formatRelative(a.createdAt)}
+                {ts}
+                {ts ? " · " : ""}
+                {author}
               </p>
             </div>
-            <span
-              className="text-[10px] font-mono whitespace-nowrap"
-              style={{ color: "var(--text-muted)" }}
-            >
-              {new Date(a.createdAt).toLocaleString("pl-PL", {
-                day: "2-digit",
-                month: "2-digit",
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
-            </span>
           </div>
         );
       })}

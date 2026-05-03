@@ -16,6 +16,8 @@ Reference docker-compose files and Docker build contexts for every self-hosted s
 | [`network-segmentation.md`](./network-segmentation.md) | Design doc — 4 trust zones (auth/data/admin/public) + Coolify rolling migration plan. Compose'y mają `# TODO: migrate to <zone>` komentarze. | Reference only (design); migration TBD. |
 | [`backup/`](./backup/README.md) | Daily DB + filesystem backup (8 baz + Coolify data + Traefik certs). 23:00 lokalnie + 23:30 off-site sync na OVH Object Storage S3 (rclone). | Cron na VPS host (nie kontener). |
 | [`queue-worker/docker-compose.yml`](./queue-worker/README.md) | Standalone IAM queue worker (BullMQ subscriber) — odciążenie `lib/permissions/queue.ts` od dashboardu. | Coolify Service (osobny od dashboardu). |
+| [`livekit/docker-compose.yml`](./livekit/README.md) | LiveKit self-hosted WebRTC SFU dla live device view (Wave 22 / F16). Subdomena `livekit.myperformance.pl`. Signaling :7880, TCP fallback :7881, media UDP 50000-60000. | Coolify Service. |
+| [`coturn/docker-compose.yml`](./coturn/README.md) | TURN/STUN server (NAT traversal dla LiveKit). Subdomena `turn.myperformance.pl`. `network_mode: host`, porty 3478/5349 + relay 49160-49200/udp. | Coolify Service. |
 
 ## Enterprise conventions
 

@@ -11,6 +11,29 @@ const dashboardOrigin = (() => {
 })();
 const dash = dashboardOrigin ? ` ${dashboardOrigin}` : "";
 
+/**
+ * LiveKit signaling endpoint (wss://). Klient WebRTC publishera (F16c)
+ * łączy się przez WebSocket — `connect-src` musi zawierać ten origin,
+ * inaczej `room.connect()` zostanie zablokowany przez CSP w prod.
+ * Mirroruje wzorzec `DASHBOARD_URL` powyżej. `NEXT_PUBLIC_LIVEKIT_URL`
+ * jest też czytany przez kod kliencki — przy buildzie inlinowany.
+ */
+const livekitOrigin = (() => {
+  const url = process.env.NEXT_PUBLIC_LIVEKIT_URL?.trim();
+  if (!url) return null;
+  try {
+    // wss://livekit.myperformance.pl → https://livekit.myperformance.pl
+    // CSP nie zna `wss:` jako oddzielnego scheme tu — `https` origin pokrywa
+    // wss na tym samym hoście (https-mode origin matching).
+    const u = new URL(url);
+    const httpProto = u.protocol === "wss:" ? "https:" : u.protocol === "ws:" ? "http:" : u.protocol;
+    return `${httpProto}//${u.host}`;
+  } catch {
+    return null;
+  }
+})();
+const lk = livekitOrigin ? ` ${livekitOrigin}` : "";
+
 const scriptSrc = isDev
   ? "'self' 'unsafe-inline' 'unsafe-eval'"
   : "'self' 'unsafe-inline'";
@@ -22,17 +45,20 @@ const securityHeaders = [
   { key: "X-DNS-Prefetch-Control", value: "off" },
   {
     key: "Permissions-Policy",
-    value: ["camera=(self)", "microphone=()", "geolocation=()", "payment=()", "usb=()"].join(", "),
+    // Mikrofon dopuszczony dla `self` (live device view, F16c). Bez tego
+    // `getUserMedia({audio: true})` failuje nawet po zgodzie usera.
+    value: ["camera=(self)", "microphone=(self)", "geolocation=()", "payment=()", "usb=()"].join(", "),
   },
   {
     key: "Content-Security-Policy",
     value: [
       "default-src 'self'",
-      `connect-src 'self'${dash}`,
+      `connect-src 'self'${dash}${lk}`,
       `script-src ${scriptSrc}`,
       "style-src 'self' 'unsafe-inline'",
       `img-src 'self' data: blob:${dash}`,
       "font-src 'self' data:",
+      "media-src 'self' blob:",
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "object-src 'none'",

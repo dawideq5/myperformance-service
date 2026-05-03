@@ -5,6 +5,7 @@ export const metadata: Metadata = {
   title: "Upload zdjęć — myperformance.pl",
   description: "Mobilny upload zdjęć do zlecenia serwisowego",
   robots: { index: false, follow: false },
+  manifest: "/manifest.json",
 };
 
 export const viewport: Viewport = {

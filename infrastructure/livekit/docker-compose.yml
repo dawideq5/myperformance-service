@@ -1,0 +1,105 @@
+# livekit.myperformance.pl — LiveKit Server (self-hosted WebRTC SFU)
+#
+# Cel (Wave 22 / F16): live device view — sprzedawca-mobile streamuje
+# z aparatu telefonu przez upload-bridge PWA, serwisant ogląda subskrybując
+# room w panel/serwisanta. Token issuer i SDK są w F16b (lib/livekit.ts);
+# tu jest tylko infra: signaling + media + REST API.
+#
+# Architektura:
+#   - signaling/REST: wss://livekit.myperformance.pl  (Traefik TLS, port 7880)
+#   - media (UDP):    livekit.myperformance.pl:50000-60000/udp  (host port-range)
+#   - TURN:           obsługiwany przez sąsiedni serwis coturn
+#                     (infrastructure/coturn/docker-compose.yml)
+#
+# TODO (network-segmentation §3): migrate
+#   livekit → mp_auth + mp_data_livekit (jeśli wprowadzimy room state DB)
+# Patrz infrastructure/network-segmentation.md
+#
+# Deployment: Coolify Service. SERVICE_FQDN_LIVEKIT_7880 wyznacza Traefik
+# routing dla signaling/REST, ale media UDP NIE idą przez Traefika —
+# są bindowane bezpośrednio na host (mode: host).
+#
+# DNS prerequisite (OVH):
+#   A  livekit.myperformance.pl  → <VPS public IP>
+#   A  turn.myperformance.pl     → <VPS public IP>   (dla coturn)
+#
+# Patrz README.md w tym katalogu (deploy runbook + smoke test).
+
+services:
+  livekit:
+    image: 'livekit/livekit-server:v1.8'
+    restart: unless-stopped
+    command: ['--config', '/etc/livekit.yaml']
+    environment:
+      # Coolify auto-generuje labels Traefika dla portu 7880 (HTTPS + websocket
+      # są obsługiwane przez Traefik out-of-the-box; LiveKit upgrade'uje na WS
+      # na ścieżce /rtc).
+      - 'SERVICE_FQDN_LIVEKIT_7880=livekit.myperformance.pl'
+
+      # API keys — LiveKit czyta z env LIVEKIT_KEYS (mapowane na YAML klucz
+      # `keys:`). Format: "<key>: <secret>" (jeden lub wiele oddzielonych
+      # nową linią). Token issuer w lib/livekit.ts (F16b) używa tej samej
+      # pary do podpisu JWT (HS256).
+      #
+      # UWAGA: LiveKit NIE substituuje ${VAR} w YAML keys, więc trzymamy
+      # parę poza livekit.yaml. Compose interpoluje ${LIVEKIT_API_KEY}
+      # / ${LIVEKIT_API_SECRET} — to działa rock-solid.
+      - 'LIVEKIT_KEYS=${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}'
+
+      # External IP override — LiveKit mapuje LIVEKIT_RTC_NODE_IP → rtc.node_ip.
+      # Pusta wartość = fallback do `use_external_ip: true` z livekit.yaml
+      # (auto-detect przez STUN Google'a).
+      - 'LIVEKIT_RTC_NODE_IP=${LIVEKIT_NODE_IP:-}'
+
+      # coturn credentials — odczytywane przez lib/livekit.ts (F16b) i
+      # wkładane do access tokena jako `turn_servers` w roomConfig. LiveKit
+      # server sam ich nie używa (built-in TURN wyłączony w livekit.yaml),
+      # ale propagujemy je tu dla audytu i ewentualnego skryptu pomocniczego.
+      - 'LIVEKIT_TURN_DOMAIN=${LIVEKIT_TURN_DOMAIN:-turn.myperformance.pl}'
+      - 'LIVEKIT_TURN_USER=${LIVEKIT_TURN_USER}'
+      - 'LIVEKIT_TURN_PASSWORD=${LIVEKIT_TURN_PASSWORD}'
+
+    # Plik konfiguracyjny — trzymany w repo, NIE w wolumenie. Bind-mount
+    # via path `./livekit.yaml` wymaga, żeby plik był obok compose'a na
+    # VPS-ie (Coolify klonuje `infrastructure/livekit/` do working dir).
+    volumes:
+      - './livekit.yaml:/etc/livekit.yaml:ro'
+
+    # Networking: bridge + explicit port mapping (NIE network_mode: host).
+    # Plus: czysta integracja z Coolify/Traefik via SERVICE_FQDN. Minus:
+    # ~40k portów UDP forwardowane przez docker-proxy (delay <0.5ms,
+    # akceptowalny dla naszej skali ~50 concurrent participants).
+    # Reference: https://docs.livekit.io/realtime/self-hosting/deployment/
+    expose:
+      # 7880 — Traefik publikuje przez SERVICE_FQDN; expose dla introspekcji
+      # docker network'u (np. healthcheck z innego kontenera).
+      - '7880'
+    ports:
+      # 7881/tcp = TCP fallback dla klientów za restrykcyjnym firewallem
+      # (gdy UDP zablokowane). Bezpośrednio na host (bez Traefika).
+      - '7881:7881'
+      # Media UDP range — MUSI pokrywać się z `rtc.port_range_start/end`
+      # w livekit.yaml (50000-60000).
+      - '50000-60000:50000-60000/udp'
+
+    healthcheck:
+      # LiveKit eksponuje /healthz na porcie 7880.
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:7880/ >/dev/null 2>&1 || exit 1']
+      interval: 15s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
+
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: "2G"
+        reservations:
+          cpus: "0.5"
+          memory: "512M"
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+        window: 120s

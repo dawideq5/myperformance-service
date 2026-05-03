@@ -13,13 +13,17 @@ const logger = log.child({ module: "service-internal-chat" });
  *
  * Schema:
  *   mp_service_internal_messages
- *     id           uuid PK
- *     service_id   uuid (FK logiczne na mp_services.id; brak ON DELETE
- *                  bo Directus nie zarządza)
- *     body         text (max 4 KiB egzekwowane w app)
- *     author_email text (KC email; do RBAC + display)
- *     author_role  text (sales|service)
- *     created_at   timestamptz default now()
+ *     id                   uuid PK
+ *     service_id           uuid (FK logiczne na mp_services.id; brak ON DELETE
+ *                          bo Directus nie zarządza)
+ *     body                 text (max 4 KiB egzekwowane w app)
+ *     author_email         text (KC email; do RBAC + display)
+ *     author_role          text (sales|service)
+ *     author_name          text NULL — Wave 22/F9 cached display name
+ *                          (firstName lastName z KC profile w momencie zapisu)
+ *     author_first_name    text NULL — Wave 22/F9
+ *     author_last_name     text NULL — Wave 22/F9
+ *     created_at           timestamptz default now()
  *     read_by_recipient_at timestamptz NULL
  */
 
@@ -31,6 +35,9 @@ export interface InternalMessage {
   body: string;
   authorEmail: string;
   authorRole: AuthorRole;
+  authorName: string | null;
+  authorFirstName: string | null;
+  authorLastName: string | null;
   createdAt: string;
   readByRecipientAt: string | null;
 }
@@ -41,6 +48,9 @@ interface Row {
   body: string;
   author_email: string;
   author_role: AuthorRole;
+  author_name: string | null;
+  author_first_name: string | null;
+  author_last_name: string | null;
   created_at: string;
   read_by_recipient_at: string | null;
 }
@@ -59,6 +69,15 @@ async function ensureSchema(): Promise<void> {
         created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
         read_by_recipient_at   TIMESTAMPTZ
       );
+      -- Wave 22 / F9 — cache imienia/nazwiska autora (z KC profile w czasie
+      -- zapisu) żeby UI nie musiał derive'ować z email local-part. Stare wpisy
+      -- zostają z NULL (display fallback do email local-part w UI).
+      ALTER TABLE mp_service_internal_messages
+        ADD COLUMN IF NOT EXISTS author_name TEXT;
+      ALTER TABLE mp_service_internal_messages
+        ADD COLUMN IF NOT EXISTS author_first_name TEXT;
+      ALTER TABLE mp_service_internal_messages
+        ADD COLUMN IF NOT EXISTS author_last_name TEXT;
       CREATE INDEX IF NOT EXISTS mp_svc_internal_msgs_svc_idx
         ON mp_service_internal_messages (service_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS mp_svc_internal_msgs_unread_idx
@@ -76,6 +95,9 @@ function mapRow(r: Row): InternalMessage {
     body: r.body,
     authorEmail: r.author_email,
     authorRole: r.author_role,
+    authorName: r.author_name ?? null,
+    authorFirstName: r.author_first_name ?? null,
+    authorLastName: r.author_last_name ?? null,
     createdAt:
       typeof r.created_at === "string"
         ? r.created_at
@@ -99,6 +121,7 @@ export async function listInternalMessages(
     const r = await withClient((c) =>
       c.query<Row>(
         `SELECT id, service_id, body, author_email, author_role,
+                author_name, author_first_name, author_last_name,
                 created_at, read_by_recipient_at
            FROM mp_service_internal_messages
           WHERE service_id = $1
@@ -122,19 +145,41 @@ export async function createInternalMessage(args: {
   body: string;
   authorEmail: string;
   authorRole: AuthorRole;
+  authorFirstName?: string | null;
+  authorLastName?: string | null;
+  authorName?: string | null;
 }): Promise<InternalMessage | null> {
   await ensureSchema();
   const body = args.body.trim().slice(0, 4096);
   if (!body) return null;
+  // Wave 22 / F9 — cache full display name w bazie. Czytamy z parametrów
+  // (caller wyciąga z `PanelUser.firstName/lastName`); fallback do null gdy
+  // brak — UI ma własny fallback (email local-part dla legacy rekordów).
+  const firstName = args.authorFirstName?.trim() || null;
+  const lastName = args.authorLastName?.trim() || null;
+  const composedName =
+    args.authorName?.trim() ||
+    [firstName, lastName].filter(Boolean).join(" ").trim() ||
+    null;
   try {
     const r = await withClient((c) =>
       c.query<Row>(
         `INSERT INTO mp_service_internal_messages
-           (service_id, body, author_email, author_role)
-         VALUES ($1, $2, $3, $4)
+           (service_id, body, author_email, author_role,
+            author_name, author_first_name, author_last_name)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
          RETURNING id, service_id, body, author_email, author_role,
+                   author_name, author_first_name, author_last_name,
                    created_at, read_by_recipient_at`,
-        [args.serviceId, body, args.authorEmail, args.authorRole],
+        [
+          args.serviceId,
+          body,
+          args.authorEmail,
+          args.authorRole,
+          composedName,
+          firstName,
+          lastName,
+        ],
       ),
     );
     const row = r.rows[0];

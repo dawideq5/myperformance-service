@@ -164,11 +164,24 @@ export async function POST(
   const authorRole: AuthorRole =
     requestedRole ?? determineAuthorRole(service, user.email);
 
+  // Wave 22 / F9 — cache imienia i nazwiska autora z KC profile (panel-auth
+  // pulluje given_name/family_name z access tokenu/userinfo). Pozwala UI
+  // wyświetlać "Imię Nazwisko" zamiast pochodnej z email local-part.
+  const authorFirstName = user.firstName?.trim() || null;
+  const authorLastName = user.lastName?.trim() || null;
+  const authorFullName =
+    [authorFirstName, authorLastName].filter(Boolean).join(" ").trim() ||
+    user.name?.trim() ||
+    null;
+
   const created = await createInternalMessage({
     serviceId: id,
     body: text,
     authorEmail: user.email,
     authorRole,
+    authorFirstName,
+    authorLastName,
+    authorName: authorFullName,
   });
   if (!created) {
     return NextResponse.json(

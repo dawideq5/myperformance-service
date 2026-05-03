@@ -166,6 +166,19 @@ export async function ensureDefaultLayout(): Promise<void> {
        ON CONFLICT (slug) DO NOTHING`,
       [DEFAULT_LAYOUT_HTML],
     );
+    // Wave 22 / F1: jawny alias `myperformance` slug → DEFAULT_LAYOUT_HTML.
+    // Brand resolver woła `getLayoutBySlug(brand)` więc wymaga slugu = brand.
+    // Upsert (refresh body), is_default=FALSE (default = "default").
+    await c.query(
+      `INSERT INTO mp_email_layouts (slug, name, description, html, is_default)
+       VALUES ('myperformance', 'MyPerformance', 'Layout dla wiadomości MyPerformance — czarny header, brand wordmark, jasna treść. Spójny z dashboard design system.', $1, FALSE)
+       ON CONFLICT (slug) DO UPDATE SET
+         name = EXCLUDED.name,
+         description = EXCLUDED.description,
+         html = EXCLUDED.html,
+         updated_at = now()`,
+      [DEFAULT_LAYOUT_HTML],
+    );
     // Wave 21 Faza 1F: upsert (NIE DO NOTHING) zlecenieserwisowe — odświeża
     // body przy każdym deployu, żeby produkcja dostała nowy branding bez
     // ręcznych migracji. Caller zachowuje is_default = FALSE (single-default

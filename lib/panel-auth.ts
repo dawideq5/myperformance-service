@@ -11,6 +11,14 @@ export interface PanelUser {
   preferred_username?: string | null;
   name?: string | null;
   /**
+   * Wave 22 / F9 — imię i nazwisko z KC profile (claims `given_name` /
+   * `family_name`). Czytane z access-token JWT (KC realm wystawia te claims
+   * przy `profile` scope) i fallbackowo z userinfo. Używane przez
+   * internal-chat endpointy do display w UI zamiast email local-part.
+   */
+  firstName?: string | null;
+  lastName?: string | null;
+  /**
    * KC user UUID (claim `sub`) — stable per user identifier. Używane przez
    * mp_user_preferences/notify endpoints żeby panel-side i dashboard-side
    * pisały do tej samej kolumny `user_id`.
@@ -46,6 +54,8 @@ export async function getPanelUserFromRequest(
     email?: string;
     preferred_username?: string;
     name?: string;
+    given_name?: string;
+    family_name?: string;
   } | null = null;
   try {
     const issuer = keycloak.getIssuer();
@@ -62,11 +72,19 @@ export async function getPanelUserFromRequest(
 
   if (!userinfo?.email) return null;
 
+  const claims = extractProfileClaimsFromToken(accessToken);
+  const firstName =
+    (userinfo.given_name?.trim() || null) ?? (claims.given_name ?? null);
+  const lastName =
+    (userinfo.family_name?.trim() || null) ?? (claims.family_name ?? null);
+
   const locations = await getActiveLocationsForUser({ email: userinfo.email });
   return {
     email: userinfo.email,
     preferred_username: userinfo.preferred_username ?? null,
     name: userinfo.name ?? null,
+    firstName,
+    lastName,
     sub: userinfo.sub ?? null,
     locationIds: locations.map((l) => l.id),
     realmRoles: extractRealmRolesFromToken(accessToken),
@@ -92,6 +110,36 @@ function extractRealmRolesFromToken(accessToken: string): string[] {
       : [];
   } catch {
     return [];
+  }
+}
+
+/**
+ * Wave 22 / F9 — imię (given_name) + nazwisko (family_name) z KC access-token
+ * JWT. KC realm wystawia te claims przy scope `profile` (default mapper
+ * w wszystkich client scopes). Bez weryfikacji podpisu z tego samego powodu
+ * co `extractRealmRolesFromToken`. Brak claim → null (caller fallbackuje na
+ * userinfo lub email local-part).
+ */
+function extractProfileClaimsFromToken(
+  accessToken: string,
+): { given_name: string | null; family_name: string | null } {
+  try {
+    const parts = accessToken.split(".");
+    if (parts.length !== 3) return { given_name: null, family_name: null };
+    const payload = JSON.parse(
+      Buffer.from(parts[1], "base64url").toString("utf-8"),
+    ) as { given_name?: unknown; family_name?: unknown };
+    const given =
+      typeof payload?.given_name === "string"
+        ? payload.given_name.trim() || null
+        : null;
+    const family =
+      typeof payload?.family_name === "string"
+        ? payload.family_name.trim() || null
+        : null;
+    return { given_name: given, family_name: family };
+  } catch {
+    return { given_name: null, family_name: null };
   }
 }
 

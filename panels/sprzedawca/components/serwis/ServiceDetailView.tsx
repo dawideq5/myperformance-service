@@ -6,7 +6,6 @@ import {
   ArrowLeft,
   Box,
   CheckCircle2,
-  Download,
   FileText,
   Files,
   Mail,
@@ -28,8 +27,15 @@ import { sendElectronicReceipt } from "../../lib/receipt";
 import { StatusBadge } from "@/components/StatusBadge";
 import { DeviceLocationMap } from "@/components/serwis/DeviceLocationMap";
 import { CzatZespoluPanel } from "@/components/serwis/CzatZespoluPanel";
+import { DocumentsLibraryPanel } from "@/components/serwis/DocumentsLibraryPanel";
 import { PhoneConfigurator3D } from "@/components/intake/PhoneConfigurator3D";
 import type { DamageMarker } from "@/components/intake/PhoneConfigurator3D";
+import {
+  formatActor,
+  formatEventTimestamp,
+  humanizeAction,
+} from "@/lib/services/event-humanizer";
+import { getStatusLabel } from "@/lib/services/status-meta";
 
 interface ServiceDetail {
   id: string;
@@ -81,24 +87,6 @@ interface ServiceDetail {
   };
 }
 
-interface ServiceAnnex {
-  id: string;
-  serviceId: string;
-  ticketNumber: string | null;
-  deltaAmount: number;
-  reason: string;
-  acceptanceMethod: string;
-  acceptanceStatus: string;
-  documensoDocId: number | null;
-  documensoSigningUrl: string | null;
-  customerName: string | null;
-  note: string | null;
-  pdfHash: string | null;
-  createdAt: string;
-  acceptedAt: string | null;
-  rejectedAt: string | null;
-}
-
 const DOCUMENSO_STATUS_PHRASES: Record<
   string,
   { label: string; color: string; description: string }
@@ -145,7 +133,9 @@ interface ServiceActionEntry {
   action: string;
   summary: string;
   actorName: string | null;
+  actorEmail?: string | null;
   createdAt: string;
+  payload?: Record<string, unknown> | null;
 }
 
 interface MailMessage {
@@ -171,6 +161,47 @@ export function ServiceDetailView({
   );
 }
 
+// Wave 22 / F8 — pre-flight guard payload z `/api/relay/services/[id]/can-invalidate`.
+interface InvalidateGuardState {
+  kind: "electronic" | "paper";
+  allowed: boolean;
+  canForce: boolean;
+  reason: string | null;
+  code:
+    | "ok"
+    | "service_in_progress"
+    | "client_signed"
+    | "paper_signed"
+    | "no_document";
+}
+
+async function fetchInvalidateGuards(serviceId: string): Promise<{
+  electronic: InvalidateGuardState | null;
+  paper: InvalidateGuardState | null;
+}> {
+  const fetchOne = async (
+    kind: "electronic" | "paper",
+  ): Promise<InvalidateGuardState | null> => {
+    try {
+      const r = await fetch(
+        `/api/relay/services/${serviceId}/can-invalidate?kind=${kind}`,
+      );
+      if (!r.ok) return null;
+      const j = (await r.json().catch(() => null)) as
+        | InvalidateGuardState
+        | null;
+      return j;
+    } catch {
+      return null;
+    }
+  };
+  const [electronic, paper] = await Promise.all([
+    fetchOne("electronic"),
+    fetchOne("paper"),
+  ]);
+  return { electronic, paper };
+}
+
 function ServiceDetailInner({
   serviceId,
   initialAction,
@@ -183,7 +214,6 @@ function ServiceDetailInner({
   const [revisions, setRevisions] = useState<Revision[]>([]);
   const [actions, setActions] = useState<ServiceActionEntry[]>([]);
   const [mailMessages, setMailMessages] = useState<MailMessage[]>([]);
-  const [annexes, setAnnexes] = useState<ServiceAnnex[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -193,24 +223,31 @@ function ServiceDetailInner({
   // Bumpowane przy SSE transport_job_* żeby DeviceLocationMap zrobił
   // re-fetch transport-jobs/locations bez full page refresh.
   const [mapRefreshKey, setMapRefreshKey] = useState(0);
+  // Wave 22 / F8 — pre-flight guard dla unieważniania dokumentów. Backend
+  // jest source-of-truth (w endpointach POST jest re-check); UI tylko
+  // odpowiednio prezentuje przycisk (hide / disabled+tooltip / force).
+  const [canInvalidateElectronic, setCanInvalidateElectronic] = useState<
+    InvalidateGuardState | null
+  >(null);
+  const [canInvalidatePaper, setCanInvalidatePaper] = useState<
+    InvalidateGuardState | null
+  >(null);
 
   const refresh = useCallback(async () => {
     setError(null);
     try {
-      const [r1, r2, r3, r4, r5] = await Promise.all([
+      // Wave 22 / F8 — annexy są teraz częścią unified DocumentsLibraryPanel
+      // (fetch w komponencie). Tu pobieramy tylko service core + history.
+      const [r1, r2, r3, r4] = await Promise.all([
         fetch(`/api/relay/services/${serviceId}`),
         fetch(`/api/relay/services/${serviceId}/revisions`),
         fetch(`/api/relay/services/${serviceId}/actions`),
         fetch(`/api/relay/services/${serviceId}/mail-history`),
-        fetch(`/api/relay/services/${serviceId}/annexes`),
       ]);
       const j1 = await r1.json();
       const j2 = await r2.json();
       const j3 = await r3.json().catch(() => ({ actions: [] }));
       const j4 = await r4.json().catch(() => ({ messages: [] }));
-      const j5 = (await r5.json().catch(() => ({ annexes: [] }))) as {
-        annexes?: ServiceAnnex[];
-      };
       if (!r1.ok) throw new Error(j1?.error ?? `HTTP ${r1.status}`);
       const fetched = (j1.service ?? j1.data?.service) as ServiceDetail;
       // Handover z sessionStorage — przeniesiony z AddServiceTab po
@@ -236,7 +273,12 @@ function ServiceDetailInner({
       setRevisions((j2.revisions ?? []) as Revision[]);
       setActions((j3.actions ?? []) as ServiceActionEntry[]);
       setMailMessages((j4.messages ?? []) as MailMessage[]);
-      setAnnexes(Array.isArray(j5.annexes) ? j5.annexes : []);
+      // Wave 22 / F8 — re-fetch can-invalidate guards po każdym refresh
+      // żeby UI natychmiast zareagował na status_change / paper-signed.
+      void fetchInvalidateGuards(serviceId).then((g) => {
+        setCanInvalidateElectronic(g.electronic);
+        setCanInvalidatePaper(g.paper);
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Błąd pobierania");
     } finally {
@@ -329,6 +371,87 @@ function ServiceDetailInner({
     });
     return unsub;
   }, [serviceId, refresh]);
+
+  // Wave22 / F14 — Chatwoot service context.
+  //
+  // Gdy sprzedawca otwiera widok zlecenia, pushujemy ID + ticket
+  // number do Chatwoot widget jako custom attributes. Serwisant
+  // odbierający chat ma instant context "co aktualnie ogląda".
+  //
+  // Uwaga: setCustomAttributes na website SDK ustawia atrybuty na
+  // poziomie KONTAKTU (sprzedawcy), nie konwersacji. Między
+  // sesjami atrybuty są nadpisywane — to akceptowalne, bo zawsze
+  // chcemy wiedzieć "co teraz ogląda". Jeśli SDK wystawia
+  // setConversationCustomAttributes (Chatwoot v3+), preferujemy je
+  // — wtedy atrybuty żyją razem z konkretnym threadem.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!service?.id) return;
+
+    const attrs: Record<string, string | number | boolean | null> = {
+      service_id: service.id,
+      ticket_number: service.ticketNumber,
+      service_status: service.status,
+      brand: service.brand ?? "",
+      model: service.model ?? "",
+      customer_email: service.contactEmail ?? "",
+      location_id: service.locationId ?? "",
+      service_location_id: service.serviceLocationId ?? "",
+    };
+
+    const apply = () => {
+      const cw = window.$chatwoot;
+      if (!cw) return;
+      try {
+        // Preferujemy conversation-level (Chatwoot v3+) jeśli dostępne.
+        if (typeof cw.setConversationCustomAttributes === "function") {
+          cw.setConversationCustomAttributes(attrs);
+        } else {
+          cw.setCustomAttributes(attrs);
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+
+    let readyHandler: (() => void) | null = null;
+    if (window.$chatwoot?.hasLoaded) {
+      apply();
+    } else {
+      readyHandler = () => apply();
+      window.addEventListener("chatwoot:ready", readyHandler, { once: true });
+    }
+
+    return () => {
+      if (readyHandler) {
+        window.removeEventListener("chatwoot:ready", readyHandler);
+      }
+      const cw = window.$chatwoot;
+      if (!cw) return;
+      try {
+        // Wyczyść atrybuty po opuszczeniu widoku zlecenia — żeby
+        // serwisant nie widział kontekstu starego ticketa przy nowej
+        // konwersacji bez kontekstu.
+        const keys = Object.keys(attrs);
+        if (typeof cw.deleteConversationCustomAttribute === "function") {
+          for (const k of keys) cw.deleteConversationCustomAttribute(k);
+        } else {
+          for (const k of keys) cw.deleteCustomAttribute(k);
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+  }, [
+    service?.id,
+    service?.ticketNumber,
+    service?.status,
+    service?.brand,
+    service?.model,
+    service?.contactEmail,
+    service?.locationId,
+    service?.serviceLocationId,
+  ]);
 
   const eDocStatus = service?.visualCondition?.documenso?.status ?? "none";
   const employeeSigningUrl =
@@ -638,6 +761,8 @@ function ServiceDetailInner({
             onResend={() => void handleEmail(true)}
             onInvalidateElectronic={() => void handleInvalidate()}
             onInvalidatePaper={() => void handleInvalidatePaper()}
+            canInvalidateElectronic={canInvalidateElectronic}
+            canInvalidatePaper={canInvalidatePaper}
             signedPdfUrl={signedPdfUrl}
             paperSigned={!!service.visualCondition?.paperSigned}
             paperSignedAt={service.visualCondition?.paperSigned?.signedAt}
@@ -750,13 +875,14 @@ function ServiceDetailInner({
             />
           </Card>
 
-          {/* Wave 21 Faza 1A — Dokumenty zlecenia (aneksy MVP; receipt +
-           *  handover są pokazywane w sekcji Documenso obok). Faza 1B
-           *  rozszerzy o pełną tabelę mp_service_documents. */}
-          <DocumentsCard
-            serviceId={service.id}
-            annexes={annexes}
-          />
+          {/* Wave 22 / F8 — Pełna biblioteka dokumentów zlecenia (mirror
+           *  panelu serwisanta). Pokazuje WSZYSTKIE dokumenty (receipt,
+           *  annex, handover, release_code, warranty) z `mp_service_documents`,
+           *  z akcjami pobierania (oryginał / podpisany). Replaces
+           *  legacy DocumentsCard (annex-only). */}
+          <Card icon={<Files className="w-4 h-4" />} title="Dokumenty zlecenia">
+            <DocumentsLibraryPanel serviceId={service.id} />
+          </Card>
         </section>
 
         {/* PRAWA — historia, status documenso */}
@@ -849,112 +975,9 @@ function Device3DCard({
   );
 }
 
-const ANNEX_STATUS_LABELS: Record<
-  string,
-  { label: string; color: string }
-> = {
-  pending: { label: "Oczekuje", color: "#F59E0B" },
-  sent: { label: "Wysłany", color: "#06B6D4" },
-  accepted: { label: "Zaakceptowany", color: "#22C55E" },
-  rejected: { label: "Odrzucony", color: "#EF4444" },
-  expired: { label: "Wygasły", color: "#64748B" },
-  completed: { label: "Zakończony", color: "#22C55E" },
-};
-
-function DocumentsCard({
-  serviceId,
-  annexes,
-}: {
-  serviceId: string;
-  annexes: ServiceAnnex[];
-}) {
-  return (
-    <Card icon={<Files className="w-4 h-4" />} title="Dokumenty zlecenia">
-      {annexes.length === 0 ? (
-        <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-          Brak aneksów. Dokumenty potwierdzenia odbioru widoczne są w panelu
-          po prawej.
-        </p>
-      ) : (
-        <ul className="space-y-2">
-          {annexes.map((a) => {
-            const meta = ANNEX_STATUS_LABELS[a.acceptanceStatus] ?? {
-              label: a.acceptanceStatus,
-              color: "#64748b",
-            };
-            const pdfUrl = `/api/relay/services/${encodeURIComponent(serviceId)}/annexes/${encodeURIComponent(a.id)}/pdf`;
-            return (
-              <li
-                key={a.id}
-                className="rounded-lg border p-3 flex items-start gap-3"
-                style={{
-                  background: "var(--bg-surface)",
-                  borderColor: "var(--border-subtle)",
-                }}
-              >
-                <FileText
-                  className="w-4 h-4 mt-0.5 flex-shrink-0"
-                  style={{ color: "var(--text-muted)" }}
-                  aria-hidden="true"
-                />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span
-                      className="text-sm font-semibold"
-                      style={{ color: "var(--text-main)" }}
-                    >
-                      Aneks {a.deltaAmount >= 0 ? "+" : ""}
-                      {a.deltaAmount.toFixed(2)} PLN
-                    </span>
-                    <span
-                      className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full"
-                      style={{
-                        background: meta.color + "22",
-                        color: meta.color,
-                      }}
-                    >
-                      {meta.label}
-                    </span>
-                  </div>
-                  {a.reason && (
-                    <p
-                      className="text-xs mt-1 truncate"
-                      style={{ color: "var(--text-muted)" }}
-                      title={a.reason}
-                    >
-                      {a.reason}
-                    </p>
-                  )}
-                  <p
-                    className="text-[10px] mt-1"
-                    style={{ color: "var(--text-muted)" }}
-                  >
-                    {new Date(a.createdAt).toLocaleString("pl-PL")}
-                  </p>
-                </div>
-                <a
-                  href={pdfUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-2.5 py-1.5 rounded-lg border text-xs font-medium flex items-center gap-1.5 flex-shrink-0 hover:opacity-80 transition-opacity"
-                  style={{
-                    background: "var(--bg-card)",
-                    borderColor: "var(--border-subtle)",
-                    color: "var(--text-main)",
-                  }}
-                  aria-label="Pobierz PDF aneksu"
-                >
-                  <Download className="w-3.5 h-3.5" aria-hidden="true" />
-                  PDF
-                </a>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </Card>
-  );
-}
+// Wave 22 / F8 — legacy ANNEX_STATUS_LABELS + DocumentsCard (annex-only)
+// usunięte. Pełna lista dokumentów żyje teraz w `DocumentsLibraryPanel`
+// (mirror panelu serwisanta, fetch z `/api/relay/services/[id]/documents`).
 
 
 /** Karta z aktualnym stanem podpisu Documenso + akcje (otwórz signing,
@@ -1072,6 +1095,8 @@ function ActionsCard({
   onResend,
   onInvalidateElectronic,
   onInvalidatePaper,
+  canInvalidateElectronic,
+  canInvalidatePaper,
   signedPdfUrl,
   paperSigned,
   paperSignedAt,
@@ -1085,6 +1110,11 @@ function ActionsCard({
   onResend: () => void;
   onInvalidateElectronic: () => void;
   onInvalidatePaper: () => void;
+  /** Wave 22 / F8 — backend pre-flight guard. `null` = jeszcze nie pobrane
+   *  (nie pokazuj przycisku); `allowed=true` = pokaż; `allowed=false` =
+   *  ukryj (lub jeśli `code !== "no_document"`, pokaż disabled+tooltip). */
+  canInvalidateElectronic: InvalidateGuardState | null;
+  canInvalidatePaper: InvalidateGuardState | null;
   signedPdfUrl?: string;
   paperSigned?: boolean;
   paperSignedAt?: string;
@@ -1165,13 +1195,12 @@ function ActionsCard({
               disabled={busy}
               color="#22c55e"
             />
-            <ActionButton
-              icon={<AlertCircle className="w-4 h-4" />}
+            <InvalidateButton
               label="Unieważnij dokument"
-              hint="Anuluj wersję papierową — wróć do wyboru"
+              defaultHint="Anuluj wersję papierową — wróć do wyboru"
+              guard={canInvalidatePaper}
+              busy={busy}
               onClick={onInvalidatePaper}
-              disabled={busy}
-              color="#ef4444"
             />
           </>
         )}
@@ -1189,13 +1218,12 @@ function ActionsCard({
               disabled={busy || !signedPdfUrl}
               color="#22c55e"
             />
-            <ActionButton
-              icon={<AlertCircle className="w-4 h-4" />}
+            <InvalidateButton
               label="Unieważnij podpisany dokument w wersji papierowej"
-              hint="Wróć do wyboru wersji"
+              defaultHint="Wróć do wyboru wersji"
+              guard={canInvalidatePaper}
+              busy={busy}
               onClick={onInvalidatePaper}
-              disabled={busy}
-              color="#ef4444"
             />
             {paperSignedAt && (
               <div
@@ -1236,13 +1264,12 @@ function ActionsCard({
               disabled={!hasEmail || busy}
               color="#f59e0b"
             />
-            <ActionButton
-              icon={<AlertCircle className="w-4 h-4" />}
+            <InvalidateButton
               label="Unieważnij dokument elektroniczny"
-              hint="Anuluj — wróć do wyboru wersji"
+              defaultHint="Anuluj — wróć do wyboru wersji"
+              guard={canInvalidateElectronic}
+              busy={busy}
               onClick={onInvalidateElectronic}
-              disabled={busy}
-              color="#ef4444"
             />
           </>
         )}
@@ -1260,18 +1287,55 @@ function ActionsCard({
               disabled={busy || !signedPdfUrl}
               color="#22c55e"
             />
-            <ActionButton
-              icon={<AlertCircle className="w-4 h-4" />}
+            <InvalidateButton
               label="Unieważnij podpisany dokument"
-              hint="Anuluj — wróć do wyboru wersji"
+              defaultHint="Anuluj — wróć do wyboru wersji"
+              guard={canInvalidateElectronic}
+              busy={busy}
               onClick={onInvalidateElectronic}
-              disabled={busy}
-              color="#ef4444"
             />
           </>
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Wave 22 / F8 — przycisk unieważnienia z pre-flight guard.
+ *
+ * - `guard === null`             → nie pokazuj (jeszcze ładowanie / fetch failed)
+ * - `guard.code === "no_document"` → nie pokazuj (nie ma czego unieważniać)
+ * - `guard.allowed === true`     → pokaż enabled
+ * - `guard.allowed === false`    → pokaż disabled z tooltipem `guard.reason`
+ *   (admin może ominąć w API przez ?force=true; UI zostawia disabled żeby
+ *    nie kusić zwykłego sprzedawcy)
+ */
+function InvalidateButton({
+  label,
+  defaultHint,
+  guard,
+  busy,
+  onClick,
+}: {
+  label: string;
+  defaultHint: string;
+  guard: InvalidateGuardState | null;
+  busy: boolean;
+  onClick: () => void;
+}) {
+  if (!guard) return null;
+  if (guard.code === "no_document") return null;
+  const blocked = !guard.allowed;
+  return (
+    <ActionButton
+      icon={<AlertCircle className="w-4 h-4" />}
+      label={label}
+      hint={blocked ? (guard.reason ?? "Nie można unieważnić") : defaultHint}
+      onClick={onClick}
+      disabled={busy || blocked}
+      color="#ef4444"
+    />
   );
 }
 
@@ -1372,15 +1436,40 @@ function DocumensoStatusCard({
   );
 }
 
-const ACTION_LABELS: Record<string, { label: string; color: string }> = {
-  employee_sign: { label: "Podpis pracownika", color: "#22c55e" },
-  print: { label: "Wydruk PDF", color: "#6366f1" },
-  send_electronic: { label: "Wysłano e-potwierdzenie", color: "#06b6d4" },
-  resend_electronic: { label: "Ponowne wysłanie", color: "#f59e0b" },
-  client_signed: { label: "Klient podpisał", color: "#22c55e" },
-  client_rejected: { label: "Klient odrzucił", color: "#ef4444" },
-  annex_issued: { label: "Aneks wystawiony", color: "#a855f7" },
-  other: { label: "Inne", color: "#64748b" },
+/**
+ * Wave 22 / F7 — paleta kropek per action_type. Treść (label/description)
+ * pochodzi z `humanizeAction` (single source of truth w
+ * `lib/services/event-humanizer.ts`); ta mapa zachowuje wyłącznie
+ * kolorystykę dotów żeby UI nie zgubił wizualnej hierarchii.
+ */
+const ACTION_DOT_COLORS: Record<string, string> = {
+  employee_sign: "#22c55e",
+  print: "#6366f1",
+  send_electronic: "#06b6d4",
+  resend_electronic: "#f59e0b",
+  client_signed: "#22c55e",
+  client_rejected: "#ef4444",
+  annex_issued: "#a855f7",
+  annex_created: "#a855f7",
+  annex_accepted: "#22c55e",
+  annex_rejected: "#ef4444",
+  annex_resend: "#f59e0b",
+  annex_expired: "#64748b",
+  status_change: "#0ea5e9",
+  quote_changed: "#a855f7",
+  release_code_generated: "#0ea5e9",
+  release_code_sent: "#06b6d4",
+  release_code_resent: "#f59e0b",
+  release_code_failed: "#ef4444",
+  release_completed: "#22c55e",
+  transport_requested: "#f59e0b",
+  transport_updated: "#0ea5e9",
+  transport_cancelled: "#64748b",
+  upload_bridge_token_issued: "#06b6d4",
+  document_invalidated: "#ef4444",
+  customer_message_sent: "#06b6d4",
+  photo_uploaded: "#22c55e",
+  photo_deleted: "#64748b",
 };
 
 function ActionsLogCard({ actions }: { actions: ServiceActionEntry[] }) {
@@ -1393,10 +1482,18 @@ function ActionsLogCard({ actions }: { actions: ServiceActionEntry[] }) {
       ) : (
         <ul className="space-y-2">
           {actions.slice(0, 20).map((a) => {
-            const meta = ACTION_LABELS[a.action] ?? {
-              label: a.action,
-              color: "#64748b",
-            };
+            const dotColor = ACTION_DOT_COLORS[a.action] ?? "#64748b";
+            const humanized = humanizeAction(
+              a.action,
+              a.payload ?? null,
+              a.summary,
+              getStatusLabel,
+            );
+            const author = formatActor({
+              actorName: a.actorName,
+              actorEmail: a.actorEmail ?? null,
+            });
+            const ts = formatEventTimestamp(a.createdAt);
             return (
               <li
                 key={a.id}
@@ -1405,23 +1502,27 @@ function ActionsLogCard({ actions }: { actions: ServiceActionEntry[] }) {
               >
                 <span
                   className="mt-1 shrink-0 w-1.5 h-1.5 rounded-full"
-                  style={{ background: meta.color }}
+                  style={{ background: dotColor }}
                 />
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold" style={{ color: meta.color }}>
-                    {meta.label}
+                  <p className="font-semibold" style={{ color: dotColor }}>
+                    {humanized.label}
                   </p>
-                  {a.summary?.trim() && (
-                    <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
-                      {a.summary}
+                  {humanized.description && (
+                    <p
+                      className="text-[11px]"
+                      style={{ color: "var(--text-muted)" }}
+                    >
+                      {humanized.description}
                     </p>
                   )}
                   <p
                     className="text-[10px] mt-0.5"
                     style={{ color: "var(--text-muted)" }}
                   >
-                    {new Date(a.createdAt).toLocaleString("pl-PL")}
-                    {a.actorName ? ` · ${a.actorName}` : ""}
+                    {ts}
+                    {ts && author ? " · " : ""}
+                    {author}
                   </p>
                 </div>
               </li>

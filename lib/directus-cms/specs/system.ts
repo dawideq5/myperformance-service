@@ -10,6 +10,7 @@ export const SYSTEM_SPECS: CollectionSpec[] = [
   // === Panele certyfikatowe (sprzedawca/serwisant/kierowca/dokumenty) ===
   {
     collection: "mp_panels_cms",
+    group: "mp_folder_panele",
     meta: {
       icon: "view_list",
       note: "Panele zewnętrzne wymagające mTLS. Edytuj label / opis — domena i required_role są ustalone przez infrastrukturę.",
@@ -139,6 +140,7 @@ export const SYSTEM_SPECS: CollectionSpec[] = [
   // collection w Directus (CREATE TABLE IF NOT EXISTS pod spodem).
   {
     collection: "mp_announcements",
+    group: "mp_folder_dashboard",
     meta: {
       icon: "campaign",
       note: "Banery / komunikaty systemowe wyświetlane na dashboardzie. is_active=true → widoczne (w oknie active_from..active_until).",

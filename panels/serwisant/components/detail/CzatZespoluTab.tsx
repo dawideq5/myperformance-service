@@ -19,6 +19,10 @@ interface InternalMessage {
   body: string;
   authorEmail: string;
   authorRole: AuthorRole;
+  /** Wave 22 / F9 — nullable bo legacy rekordy nie mają pełnego imienia. */
+  authorName?: string | null;
+  authorFirstName?: string | null;
+  authorLastName?: string | null;
   createdAt: string;
   readByRecipientAt: string | null;
 }
@@ -60,11 +64,27 @@ function formatRelative(iso: string): string {
 
 /**
  * Wyświetla tylko imię i nazwisko autora wiadomości (bez roli, bez emaila).
- * Pełne imię z DB jeszcze nie istnieje (mp_service_internal_messages bez
- * author_name), więc tymczasowo derive'ujemy z localpart emaila — pattern
- * "imie.nazwisko@..." → "Imię Nazwisko". Wave 21 Faza 1D doda kolumnę.
+ *
+ * Wave 22 / F9 — kolejność źródeł:
+ *   1. `firstName` + `lastName` z DB (cache KC profile w momencie zapisu)
+ *   2. `authorName` — pre-skomponowany fallback z DB (legacy rekordy mogły
+ *      go nie mieć)
+ *   3. `email` local-part — last resort dla rekordów sprzed migracji.
+ *      Pattern "imie.nazwisko@..." → "Imię Nazwisko".
  */
-function authorLabel(_role: AuthorRole, email: string): string {
+function authorLabel(
+  _role: AuthorRole,
+  email: string,
+  firstName?: string | null,
+  lastName?: string | null,
+  authorName?: string | null,
+): string {
+  const composed = [firstName, lastName]
+    .map((s) => s?.trim())
+    .filter((s): s is string => !!s && s.length > 0)
+    .join(" ");
+  if (composed) return composed;
+  if (authorName && authorName.trim()) return authorName.trim();
   const local = (email.split("@")[0] || email).replace(/[._-]+/g, " ");
   return local
     .split(" ")
@@ -335,9 +355,22 @@ export function CzatZespoluTab({
                   <p
                     className="text-[10px] mt-1 px-1"
                     style={{ color: "var(--text-muted)" }}
-                    title={authorLabel(m.authorRole, m.authorEmail)}
+                    title={authorLabel(
+                      m.authorRole,
+                      m.authorEmail,
+                      m.authorFirstName,
+                      m.authorLastName,
+                      m.authorName,
+                    )}
                   >
-                    {authorLabel(m.authorRole, m.authorEmail)} ·{" "}
+                    {authorLabel(
+                      m.authorRole,
+                      m.authorEmail,
+                      m.authorFirstName,
+                      m.authorLastName,
+                      m.authorName,
+                    )}{" "}
+                    ·{" "}
                     {formatRelative(m.createdAt)}
                   </p>
                 </div>
