@@ -15,9 +15,22 @@ const directusOrigin = (() => {
   if (!url) return null;
   try { return new URL(url).origin; } catch { return null; }
 })();
+const chatwootOrigin = (() => {
+  const url = process.env.NEXT_PUBLIC_CHATWOOT_BASE_URL?.trim() || "https://chat.myperformance.pl";
+  try { return new URL(url).origin; } catch { return null; }
+})();
+const livekitOrigin = (() => {
+  const raw = process.env.NEXT_PUBLIC_LIVEKIT_URL?.trim() || "wss://livekit.myperformance.pl";
+  const u = raw.replace(/^wss:/, "https:").replace(/^ws:/, "http:");
+  try { return new URL(u).origin; } catch { return null; }
+})();
 const kc = keycloakOrigin ? ` ${keycloakOrigin}` : "";
 const dash = dashboardOrigin ? ` ${dashboardOrigin}` : "";
 const directus = directusOrigin ? ` ${directusOrigin}` : "";
+const chatwoot = chatwootOrigin ? ` ${chatwootOrigin}` : "";
+const chatwootWss = chatwootOrigin ? ` wss://${new URL(chatwootOrigin).host}` : "";
+const livekit = livekitOrigin ? ` ${livekitOrigin}` : "";
+const livekitWss = livekitOrigin ? ` wss://${new URL(livekitOrigin).host}` : "";
 // Mapy: CartoDB Dark Matter (ciemny motyw) + OSM (fallback) + unpkg
 // (Leaflet marker icons). Bez tych wpisów panele NIE WYŚWIETLAJĄ MAP.
 const mapTilesSrc =
@@ -27,9 +40,12 @@ const leafletAssetsSrc = "https://unpkg.com";
 // 'wasm-unsafe-eval' wymagane dla Draco/WebAssembly przy ładowaniu modelu 3D
 // w konfiguratorze stanu wizualnego (panel-sprzedawca → Dodaj serwis →
 // Stan wizualny → 3D walkthrough). Bez tego ładowanie GLB rzuca CSP error.
+// Wave 22 / F14: chatwootOrigin dodany do script-src bo ChatwootWidget
+// dynamicznie wstrzykuje <script src="https://chat.myperformance.pl/packs/js/sdk.js">.
+// Bez tego browser blokuje SDK i panel rzuca client-side exception.
 const scriptSrc = isDev
-  ? "'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'"
-  : "'self' 'unsafe-inline' 'wasm-unsafe-eval'";
+  ? `'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'${chatwoot}`
+  : `'self' 'unsafe-inline' 'wasm-unsafe-eval'${chatwoot}`;
 
 const securityHeaders = [
   { key: "X-Frame-Options", value: "DENY" },
@@ -55,12 +71,13 @@ const securityHeaders = [
       // blob: wymagane przez GLTFLoader — embedded PNG textury w .glb są
       // wyodrębniane jako blob: URL i ładowane via fetch. Bez tego CSP
       // blokuje texture loading na ścisłych browserach (Windows Edge/Chrome).
-      `connect-src 'self' blob: data:${kc}${dash}${directus} ${mapTilesSrc}`,
+      `connect-src 'self' blob: data:${kc}${dash}${directus}${chatwoot}${chatwootWss}${livekit}${livekitWss} ${mapTilesSrc}`,
       `script-src ${scriptSrc}`,
-      "style-src 'self' 'unsafe-inline'",
-      `img-src 'self' data: blob: ${mapTilesSrc} ${leafletAssetsSrc}${dash}${directus}`,
+      `style-src 'self' 'unsafe-inline'${chatwoot}`,
+      `img-src 'self' data: blob: ${mapTilesSrc} ${leafletAssetsSrc}${dash}${directus}${chatwoot}`,
       "font-src 'self' data:",
-      `frame-src 'self'${kc}`,
+      "media-src 'self' blob:",
+      `frame-src 'self'${kc}${chatwoot}`,
       `form-action 'self'${kc}`,
       "frame-ancestors 'none'",
       "base-uri 'self'",
