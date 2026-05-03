@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Providers } from "./providers";
+import { ChatwootWidget } from "@/components/ChatwootWidget";
 
 export const metadata: Metadata = {
   title: "Panel Sprzedawcy — MyPerformance",
@@ -13,7 +14,13 @@ export default function RootLayout({
   return (
     <html lang="pl">
       <body>
-        <Providers>{children}</Providers>
+        <Providers>
+          {children}
+          {/* Wave22 / F14 — floating Chatwoot widget. Sam komponent
+              gateuje mount po useSession() === "authenticated", więc
+              /login + /forbidden zostają czyste. */}
+          <ChatwootWidget />
+        </Providers>
       </body>
     </html>
   );

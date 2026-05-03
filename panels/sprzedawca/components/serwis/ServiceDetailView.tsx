@@ -330,6 +330,87 @@ function ServiceDetailInner({
     return unsub;
   }, [serviceId, refresh]);
 
+  // Wave22 / F14 — Chatwoot service context.
+  //
+  // Gdy sprzedawca otwiera widok zlecenia, pushujemy ID + ticket
+  // number do Chatwoot widget jako custom attributes. Serwisant
+  // odbierający chat ma instant context "co aktualnie ogląda".
+  //
+  // Uwaga: setCustomAttributes na website SDK ustawia atrybuty na
+  // poziomie KONTAKTU (sprzedawcy), nie konwersacji. Między
+  // sesjami atrybuty są nadpisywane — to akceptowalne, bo zawsze
+  // chcemy wiedzieć "co teraz ogląda". Jeśli SDK wystawia
+  // setConversationCustomAttributes (Chatwoot v3+), preferujemy je
+  // — wtedy atrybuty żyją razem z konkretnym threadem.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!service?.id) return;
+
+    const attrs: Record<string, string | number | boolean | null> = {
+      service_id: service.id,
+      ticket_number: service.ticketNumber,
+      service_status: service.status,
+      brand: service.brand ?? "",
+      model: service.model ?? "",
+      customer_email: service.contactEmail ?? "",
+      location_id: service.locationId ?? "",
+      service_location_id: service.serviceLocationId ?? "",
+    };
+
+    const apply = () => {
+      const cw = window.$chatwoot;
+      if (!cw) return;
+      try {
+        // Preferujemy conversation-level (Chatwoot v3+) jeśli dostępne.
+        if (typeof cw.setConversationCustomAttributes === "function") {
+          cw.setConversationCustomAttributes(attrs);
+        } else {
+          cw.setCustomAttributes(attrs);
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+
+    let readyHandler: (() => void) | null = null;
+    if (window.$chatwoot?.hasLoaded) {
+      apply();
+    } else {
+      readyHandler = () => apply();
+      window.addEventListener("chatwoot:ready", readyHandler, { once: true });
+    }
+
+    return () => {
+      if (readyHandler) {
+        window.removeEventListener("chatwoot:ready", readyHandler);
+      }
+      const cw = window.$chatwoot;
+      if (!cw) return;
+      try {
+        // Wyczyść atrybuty po opuszczeniu widoku zlecenia — żeby
+        // serwisant nie widział kontekstu starego ticketa przy nowej
+        // konwersacji bez kontekstu.
+        const keys = Object.keys(attrs);
+        if (typeof cw.deleteConversationCustomAttribute === "function") {
+          for (const k of keys) cw.deleteConversationCustomAttribute(k);
+        } else {
+          for (const k of keys) cw.deleteCustomAttribute(k);
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+  }, [
+    service?.id,
+    service?.ticketNumber,
+    service?.status,
+    service?.brand,
+    service?.model,
+    service?.contactEmail,
+    service?.locationId,
+    service?.serviceLocationId,
+  ]);
+
   const eDocStatus = service?.visualCondition?.documenso?.status ?? "none";
   const employeeSigningUrl =
     service?.visualCondition?.documenso?.employeeSigningUrl;
