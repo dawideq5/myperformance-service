@@ -28,7 +28,7 @@ function pushScript(
  * only consume from `queryScript` for non-DDL queries.
  */
 function isSchemaQuery(sql: string): boolean {
-  return /CREATE TABLE|CREATE INDEX|CREATE UNIQUE INDEX/i.test(sql);
+  return /CREATE TABLE|CREATE INDEX|CREATE UNIQUE INDEX|ALTER TABLE/i.test(sql);
 }
 
 vi.mock("@/lib/db", () => ({
@@ -88,6 +88,7 @@ describe("createSession", () => {
         expect(call.values).toEqual([
           "mp-service-svc1-abc",
           "svc1",
+          null,
           "tech@mp.pl",
         ]);
         return {
