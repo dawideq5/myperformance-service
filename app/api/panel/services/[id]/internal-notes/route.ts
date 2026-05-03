@@ -40,6 +40,28 @@ const ALLOWED_VISIBILITY: InternalNoteVisibility[] = [
 ];
 
 /**
+ * Wave 22 / F9 — RBAC dla zapisu visibility:
+ *   - service → może wybrać `team` lub `service_only` (NIGDY `sales_only`)
+ *   - sales   → może wybrać `team` lub `sales_only` (NIGDY `service_only`)
+ *   - admin   → bez ograniczeń (zachowanie back-office'u)
+ *
+ * Cel: serwisant nie powinien móc zapisać notatki "tylko sprzedawcy"
+ * (i odwrotnie) — to bezsensowne z UX i wycieka informacje do drugiego działu.
+ * Filter dzieje się też w UI (warstwa kosmetyczna), ale serwer jest source
+ * of truth.
+ */
+function visibilityAllowedForRole(
+  visibility: InternalNoteVisibility,
+  viewerRole: InternalNoteViewerRole,
+): boolean {
+  if (viewerRole === "admin") return true;
+  if (visibility === "team") return true;
+  if (viewerRole === "service") return visibility === "service_only";
+  if (viewerRole === "sales") return visibility === "sales_only";
+  return false;
+}
+
+/**
  * Heurystyka roli widza na podstawie realm roles z KC. Priorytet:
  *   1. `service_admin` / `admin` → admin (widzi wszystko)
  *   2. `serwisant` → service
@@ -187,13 +209,23 @@ export async function POST(
       { status: 400, headers: PANEL_CORS_HEADERS },
     );
   }
-  const visibility: InternalNoteVisibility =
+  const requestedVisibility: InternalNoteVisibility =
     body?.visibility && ALLOWED_VISIBILITY.includes(body.visibility)
       ? body.visibility
       : "team";
 
+  // Wave 22 / F9 — `authorName` z KC profile (firstName + lastName) zamiast
+  // surowego `user.name` które dla kont bez wypełnionego profilu zwraca
+  // username (np. "Dawidtychy5"). Fallback: email local-part.
+  const fullName = [user.firstName, user.lastName]
+    .filter((s): s is string => !!s && s.trim().length > 0)
+    .join(" ")
+    .trim();
   const authorName =
-    user.name?.trim() || user.preferred_username || user.email;
+    fullName ||
+    user.name?.trim() ||
+    user.preferred_username ||
+    user.email;
 
   // Wave 21 — domyślny `authorRole` z heurystyki KC roles. Klient może
   // nadpisać (panel sprzedawcy → "sales").
@@ -202,6 +234,20 @@ export async function POST(
     user.realmRoles,
     url.searchParams.get("role"),
   );
+
+  // Wave 22 / F9 — odrzucamy visibility nieadekwatne do roli (serwisant nie
+  // może zapisać `sales_only` itd.). UI też filtruje — to defense in depth.
+  if (!visibilityAllowedForRole(requestedVisibility, viewerRole)) {
+    return NextResponse.json(
+      {
+        error:
+          "Wybrana widoczność jest niedostępna dla Twojej roli. Wybierz „Wszyscy” lub widoczność dla swojego działu.",
+      },
+      { status: 400, headers: PANEL_CORS_HEADERS },
+    );
+  }
+  const visibility = requestedVisibility;
+
   const inferredAuthorRole: InternalNoteAuthorRole =
     body?.authorRole ??
     (viewerRole === "sales" ? "sales" : "service");
