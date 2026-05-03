@@ -177,6 +177,10 @@ const ROLE_GUARDS: RoleGuard[] = [
   { path: "/api/admin/infrastructure", anyOf: areaRoles("infrastructure") },
   { path: "/api/admin/security", anyOf: areaRoles("infrastructure") },
   { path: "/api/admin/wazuh", anyOf: areaRoles("infrastructure") },
+  // Wave 23 — LiveKit oversight (active rooms, force-end). Gated by
+  // `infrastructure_admin` (same realm-admin tier as VPS/Wazuh).
+  { path: "/admin/livekit", anyOf: areaRoles("infrastructure") },
+  { path: "/api/admin/livekit", anyOf: areaRoles("infrastructure") },
   // Email panel
   { path: "/admin/email", anyOf: areaRoles("email-admin") },
   { path: "/api/admin/email", anyOf: areaRoles("email-admin") },
