@@ -36,7 +36,11 @@ export type SsePushEventType =
   | "transport_job_updated"
   | "component_added"
   | "component_updated"
-  | "component_deleted";
+  | "component_deleted"
+  // Wave 22 / F15 — real-time intake co-edit.
+  | "service.field_changed"
+  | "service.editor_heartbeat"
+  | "service.editor_disconnected";
 
 export interface SsePushEvent {
   id: string;
@@ -70,6 +74,9 @@ const TYPES: SsePushEventType[] = [
   "component_added",
   "component_updated",
   "component_deleted",
+  "service.field_changed",
+  "service.editor_heartbeat",
+  "service.editor_disconnected",
 ];
 
 function openEventStream(

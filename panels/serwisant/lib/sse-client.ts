@@ -42,7 +42,11 @@ export type SsePushEventType =
   // Wave 21 / Faza 1B — biblioteka dokumentów per zlecenie.
   | "document_created"
   | "document_updated"
-  | "document_deleted";
+  | "document_deleted"
+  // Wave 22 / F15 — real-time intake co-edit.
+  | "service.field_changed"
+  | "service.editor_heartbeat"
+  | "service.editor_disconnected";
 
 export interface SsePushEvent {
   id: string;
@@ -80,6 +84,9 @@ const TYPES: SsePushEventType[] = [
   "document_created",
   "document_updated",
   "document_deleted",
+  "service.field_changed",
+  "service.editor_heartbeat",
+  "service.editor_disconnected",
 ];
 
 function openEventStream(

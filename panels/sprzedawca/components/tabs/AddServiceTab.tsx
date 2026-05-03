@@ -36,6 +36,7 @@ import {
   sendElectronicReceipt,
 } from "../../lib/receipt";
 import { useToast } from "../ToastProvider";
+import { useFieldPublisher } from "../../hooks/useFieldPublisher";
 
 export function AddServiceTab({
   locationId,
@@ -96,6 +97,62 @@ export function AddServiceTab({
   const [priceLines, setPriceLines] = useState<PriceLine[]>([]);
   const { types: repairTypeCatalog } = useRepairTypes();
   const toast = useToast();
+  // Wave 22 / F15 — real-time co-edit: publish field changes (debounced 500ms)
+  // i heartbeat (10s) gdy edytujemy istniejące zlecenie. Dla nowego intake'u
+  // (brak editingServiceId) hook jest no-op — serviceId nie istnieje aż do
+  // pierwszego POST /services.
+  const { publishField } = useFieldPublisher(editingServiceId ?? null);
+  // Helpers — set state + publish field change. Identyczna sygnatura
+  // (string|callback) jak natywny setter useState żeby drop-in passować
+  // do existujących komponentów. Wartość po publish jest "current" (po
+  // ewaluacji callback), nie raw input.
+  const makePub =
+    <T,>(setter: (v: T) => void, current: T, field: string) =>
+    (next: T | ((prev: T) => T)): void => {
+      const resolved =
+        typeof next === "function"
+          ? (next as (prev: T) => T)(current)
+          : next;
+      setter(resolved);
+      publishField(field, resolved);
+    };
+  const setBrandPub = makePub(setBrand, brand, "brand");
+  const setModelPub = makePub(setModel, model, "model");
+  const setImeiPub = makePub(setImei, imei, "imei");
+  const setColorPub = makePub(setColor, color, "color");
+  const setLockTypePub = makePub(setLockType, lockType, "lockType");
+  const setLockCodePub = makePub(setLockCode, lockCode, "lockCode");
+  const setRepairTypesPub = makePub<string[]>(
+    setRepairTypes,
+    repairTypes,
+    "repairTypes",
+  );
+  const setCustomDescriptionPub = makePub(
+    setCustomDescription,
+    customDescription,
+    "customDescription",
+  );
+  const setAmountEstimatePub = makePub(
+    setAmountEstimate,
+    amountEstimate,
+    "amountEstimate",
+  );
+  const setCustomerFirstNamePub = makePub(
+    setCustomerFirstName,
+    customerFirstName,
+    "customerFirstName",
+  );
+  const setCustomerLastNamePub = makePub(
+    setCustomerLastName,
+    customerLastName,
+    "customerLastName",
+  );
+  const setContactPhonePub = makePub(setContactPhone, contactPhone, "contactPhone");
+  const setContactEmailPub = makePub(setContactEmail, contactEmail, "contactEmail");
+  const setVisualConditionPub = (state: VisualConditionState): void => {
+    setVisualCondition(state);
+    publishField("visualCondition", state);
+  };
   // Dialog "Wystawić aneks?" pokazywany po edycji która zmieniła pole
   // significant (kwota wyceny, diagnoza, gwarancja). Decyzja: pobierz PDF
   // (przyciski drukuj/wyślij), albo pomiń.
@@ -656,16 +713,16 @@ export function AddServiceTab({
           onContinue={editingServiceId ? undefined : () => continueToNext("device")}
         >
           <div className="space-y-4">
-            <BrandPicker value={brand} onChange={setBrand} />
+            <BrandPicker value={brand} onChange={setBrandPub} />
             <Input
               icon={<Smartphone className="w-4 h-4" />}
               label="Model"
               value={model}
-              onChange={setModel}
+              onChange={setModelPub}
               placeholder="iPhone 13 Pro Max, Galaxy S24 Ultra, Redmi Note 13 Pro"
             />
-            <ImeiField value={imei} onChange={setImei} />
-            <ColorPicker value={color} onChange={setColor} />
+            <ImeiField value={imei} onChange={setImeiPub} />
+            <ColorPicker value={color} onChange={setColorPub} />
           </div>
         </Section>
         </div>
@@ -693,8 +750,8 @@ export function AddServiceTab({
           <LockSection
             lockType={lockType}
             lockCode={lockCode}
-            onChangeType={setLockType}
-            onChangeCode={setLockCode}
+            onChangeType={setLockTypePub}
+            onChangeCode={setLockCodePub}
           />
         </Section>
         </div>
@@ -739,19 +796,19 @@ export function AddServiceTab({
             <DescriptionPicker
               selected={repairTypes}
               customDescription={customDescription}
-              onChange={setRepairTypes}
-              onChangeCustom={setCustomDescription}
+              onChange={setRepairTypesPub}
+              onChangeCustom={setCustomDescriptionPub}
             />
             <QuotePreview
               brand={brand}
               model={model}
               repairTypes={repairTypes}
-              onApplyTotal={(t) => setAmountEstimate(t.toFixed(2))}
+              onApplyTotal={(t) => setAmountEstimatePub(t.toFixed(2))}
               onLines={setPriceLines}
             />
             <EstimateBlock
               amountEstimate={amountEstimate}
-              onChangeEstimate={setAmountEstimate}
+              onChangeEstimate={setAmountEstimatePub}
             />
           </div>
         </Section>
@@ -775,27 +832,27 @@ export function AddServiceTab({
                 icon={<UserIcon className="w-4 h-4" />}
                 label="Imię klienta"
                 value={customerFirstName}
-                onChange={setCustomerFirstName}
+                onChange={setCustomerFirstNamePub}
                 placeholder="Jan"
               />
               <Input
                 icon={<UserIcon className="w-4 h-4" />}
                 label="Nazwisko"
                 value={customerLastName}
-                onChange={setCustomerLastName}
+                onChange={setCustomerLastNamePub}
                 placeholder="Kowalski"
               />
             </div>
             <PhoneInputWithFlags
               value={contactPhone}
-              onChange={setContactPhone}
+              onChange={setContactPhonePub}
             />
             <div>
               <Input
                 icon={<UserIcon className="w-4 h-4" />}
                 label="Email (zalecany)"
                 value={contactEmail}
-                onChange={emailLocked ? () => {} : setContactEmail}
+                onChange={emailLocked ? () => {} : setContactEmailPub}
                 type="email"
                 placeholder="adres@example.pl"
                 disabled={emailLocked}
@@ -1050,17 +1107,16 @@ export function AddServiceTab({
           brandColorHex={brandColorHex}
           priceLines={priceLines}
           cleaningSelected={repairTypes.includes("CLEANING")}
-          onToggleCleaning={() =>
-            setRepairTypes((prev) =>
-              prev.includes("CLEANING")
-                ? prev.filter((c) => c !== "CLEANING")
-                : [...prev, "CLEANING"],
-            )
-          }
+          onToggleCleaning={() => {
+            const next = repairTypes.includes("CLEANING")
+              ? repairTypes.filter((c) => c !== "CLEANING")
+              : [...repairTypes, "CLEANING"];
+            setRepairTypesPub(next);
+          }}
           initial={visualCondition}
           onCancel={() => setShowConfigurator(false)}
           onComplete={(state) => {
-            setVisualCondition(state);
+            setVisualConditionPub(state);
             setVisualCompleted(true);
             setShowConfigurator(false);
           }}
