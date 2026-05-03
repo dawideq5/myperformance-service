@@ -158,12 +158,61 @@ function formatValue(field: keyof ServiceSnapshot, value: unknown): string {
 }
 
 export function IntakePreviewClient({
-  serviceId,
-  conversationId,
+  serviceId: serviceIdFromQuery,
+  conversationId: conversationIdFromQuery,
 }: {
   serviceId: string;
   conversationId: number | null;
 }) {
+  // Wave 24 — Chatwoot Dashboard App nie robi template substitution w URL.
+  // Iframe ładuje się z literalnymi `{{conversation.id}}` (więc query parsing
+  // daje nulle), a kontekst przychodzi przez `postMessage({event:"appContext",
+  // data:{conversation, contact, currentAgent}})` z parent window. Trzymamy
+  // query-parsed wartości jako fallback (np. dla deep linków/testów),
+  // ale głównym źródłem prawdy są wartości z postMessage.
+  const [conversationId, setConversationId] = useState<number | null>(
+    conversationIdFromQuery,
+  );
+  const [serviceId, setServiceId] = useState<string>(serviceIdFromQuery);
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent): void => {
+      // Chatwoot postMessage payload jest JSON-stringified.
+      let parsed: unknown;
+      try {
+        parsed =
+          typeof event.data === "string" ? JSON.parse(event.data) : event.data;
+      } catch {
+        return;
+      }
+      if (!parsed || typeof parsed !== "object") return;
+      const p = parsed as { event?: unknown; data?: unknown };
+      if (p.event !== "appContext") return;
+      const ctx = p.data as
+        | {
+            conversation?: { id?: unknown; custom_attributes?: { service_id?: unknown } };
+          }
+        | undefined;
+      const convId = ctx?.conversation?.id;
+      if (typeof convId === "number" && convId > 0) {
+        setConversationId(convId);
+      }
+      const customSvc = ctx?.conversation?.custom_attributes?.service_id;
+      if (typeof customSvc === "string" && customSvc.trim()) {
+        setServiceId(customSvc.trim());
+      }
+    };
+    window.addEventListener("message", onMessage);
+    // Sygnalizujemy parent window że jesteśmy gotowi — Frame.vue słucha
+    // 'chatwoot-dashboard-app:fetch-info' i odpowiada appContextem.
+    try {
+      window.parent.postMessage("chatwoot-dashboard-app:fetch-info", "*");
+    } catch {
+      // standalone load (no parent) — query-string fallback i tak działa
+    }
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
+
   const [data, setData] = useState<ServiceSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -185,11 +234,16 @@ export function IntakePreviewClient({
 
   useEffect(() => {
     if (!serviceId && conversationId == null) {
-      setError(
-        "Brak service_id ani conversation_id w URL'u. Skonfiguruj Dashboard App z `?conversation_id={{conversation.id}}`.",
-      );
-      setLoading(false);
-      return;
+      // Czekamy na postMessage z parent (Chatwoot Frame.vue) — nie
+      // wyświetlamy błędu od razu. Jeśli po 5s nadal brak kontekstu,
+      // odpalamy komunikat (np. iframe załadowany standalone).
+      const id = window.setTimeout(() => {
+        setError(
+          "Brak kontekstu konwersacji. Otwórz tę aplikację z poziomu rozmowy w Chatwoocie.",
+        );
+        setLoading(false);
+      }, 5000);
+      return () => window.clearTimeout(id);
     }
 
     let cancelled = false;

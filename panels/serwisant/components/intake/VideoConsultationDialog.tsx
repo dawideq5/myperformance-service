@@ -93,11 +93,22 @@ export function VideoConsultationDialog({
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("device");
+  // React StrictMode + szybkie otwarcia modal wielokrotnie odpalają
+  // ten effect zanim setPhase z poprzedniego cyklu się propaguje. Bez
+  // tego ref'u rate-limit (6/min) trafia user który tylko raz kliknął.
+  const startInFlightRef = useRef(false);
+
+  // Reset gdy modal się zamknie — kolejne otwarcie odpali nowy start.
+  useEffect(() => {
+    if (!open) startInFlightRef.current = false;
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
     if (phase.kind !== "idle") return;
     if (conversationId == null) return;
+    if (startInFlightRef.current) return;
+    startInFlightRef.current = true;
 
     let cancelled = false;
     setPhase({ kind: "starting" });

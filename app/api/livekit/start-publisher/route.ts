@@ -80,8 +80,8 @@ export async function POST(req: Request) {
   }
 
   const rl = rateLimit(`livekit-start-publisher:${user.email}`, {
-    capacity: 6,
-    refillPerSec: 6 / 60,
+    capacity: 15,
+    refillPerSec: 15 / 60,
   });
   if (!rl.allowed) {
     return NextResponse.json(

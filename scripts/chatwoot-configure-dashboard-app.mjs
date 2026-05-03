@@ -38,7 +38,7 @@
  *   CHATWOOT_PLATFORM_TOKEN   Platform token (admin)
  *   CHATWOOT_ACCOUNT_ID       np. 1
  *   APP_BASE_URL?             default https://myperformance.pl
- *   DASHBOARD_APP_TITLE?      default "Intake live preview"
+ *   DASHBOARD_APP_TITLE?      default "Widok przyjęcia serwisowego"
  *   INBOX_NAME?               default "Przyjęcie serwisowe" (do logu informacyjnego)
  *
  * Optional:
@@ -64,20 +64,18 @@ const APP_BASE_URL = (process.env.APP_BASE_URL?.trim() || "https://myperformance
   "",
 );
 const DASHBOARD_APP_TITLE =
-  process.env.DASHBOARD_APP_TITLE?.trim() || "Intake live preview";
+  process.env.DASHBOARD_APP_TITLE?.trim() || "Widok przyjęcia serwisowego";
 const INBOX_NAME = process.env.INBOX_NAME?.trim() || "Przyjęcie serwisowe";
 const DRY_RUN = process.env.DRY_RUN === "1";
 
 /**
- * URL z dwoma parametrami: conversation_id (zawsze) + service_id (gdy
- * custom attribute set). Jeśli service_id custom attr nie istnieje,
- * Chatwoot przekazuje literalnie placeholder text — frontend filtruje
- * stringi z "{{".
+ * Statyczny URL — Chatwoot Dashboard Apps NIE robią template substitution
+ * w URL (Frame.vue ładuje iframe.src dosłownie). Kontekst (conversation,
+ * contact, currentAgent) jest przekazywany przez `postMessage({event:
+ * "appContext", data:...})` z parent window do iframe po @load. Frontend
+ * (IntakePreviewClient) ma listener `window.message`.
  */
-const FRAME_URL =
-  `${APP_BASE_URL}/chatwoot-app/intake-preview` +
-  `?conversation_id={{conversation.id}}` +
-  `&service_id={{conversation.custom_attributes.service_id}}`;
+const FRAME_URL = `${APP_BASE_URL}/chatwoot-app/intake-preview`;
 
 const PAYLOAD = {
   title: DASHBOARD_APP_TITLE,
