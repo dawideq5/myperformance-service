@@ -156,8 +156,8 @@ export function getAnchorsForAnnex(): SignatureAnchor[] {
 /**
  * Anchors dla protokołu wydania urządzenia (handover).
  *
- * Wave 21 nie generuje jeszcze osobnego PDF wydania (kod wydania jest
- * krótkim potwierdzeniem). Zwracamy układ zbliżony do receipt-pdf.
+ * Pełna sekcja podpisów: pracownik wydający + klient odbierający, oboje z
+ * datami. Lewa kolumna = pracownik, prawa = klient.
  */
 export function getAnchorsForHandover(): SignatureAnchor[] {
   const SIG_TOP_Y = 580;
@@ -171,6 +171,15 @@ export function getAnchorsForHandover(): SignatureAnchor[] {
       width: SIG_W,
       height: SIG_HEIGHT,
       kind: "signature",
+    },
+    {
+      role: "employee",
+      page: 0,
+      x: M,
+      y: SIG_TOP_Y + SIG_HEIGHT + 16,
+      width: SIG_W * 0.5,
+      height: 14,
+      kind: "date",
     },
     {
       role: "customer",
@@ -193,6 +202,88 @@ export function getAnchorsForHandover(): SignatureAnchor[] {
   ];
 }
 
+/**
+ * Anchors dla potwierdzenia kodu wydania (release_code).
+ *
+ * Krótki dokument 1-stronicowy: kod 6-cyfrowy + identyfikacja klienta +
+ * miejsce na podpis odbiorcy (klient) i wydającego (pracownik). Sekcja
+ * podpisów wyżej niż receipt (mniej treści powyżej).
+ */
+export function getAnchorsForReleaseCode(): SignatureAnchor[] {
+  const SIG_TOP_Y = 520;
+  const SIG_HEIGHT = 34;
+  return [
+    {
+      role: "employee",
+      page: 0,
+      x: M,
+      y: SIG_TOP_Y,
+      width: SIG_W,
+      height: SIG_HEIGHT,
+      kind: "signature",
+    },
+    {
+      role: "employee",
+      page: 0,
+      x: M,
+      y: SIG_TOP_Y + SIG_HEIGHT + 16,
+      width: SIG_W * 0.5,
+      height: 14,
+      kind: "date",
+    },
+    {
+      role: "customer",
+      page: 0,
+      x: M + SIG_W + 24,
+      y: SIG_TOP_Y,
+      width: SIG_W,
+      height: SIG_HEIGHT,
+      kind: "signature",
+    },
+    {
+      role: "customer",
+      page: 0,
+      x: M + SIG_W + 24,
+      y: SIG_TOP_Y + SIG_HEIGHT + 16,
+      width: SIG_W * 0.5,
+      height: 14,
+      kind: "date",
+    },
+  ];
+}
+
+/**
+ * Anchors dla karty gwarancyjnej (warranty).
+ *
+ * Karta gwarancyjna ma sekcję podpisów na samym dole (po regulaminie
+ * gwarancji). Tylko 1 podpis pracownika (klient nie podpisuje karty —
+ * tylko odbiera). Pole TEXT na numer gwarancji + DATE + SIGNATURE.
+ */
+export function getAnchorsForWarranty(): SignatureAnchor[] {
+  const SIG_TOP_Y = 700;
+  const SIG_HEIGHT = 34;
+  return [
+    {
+      role: "employee",
+      page: 0,
+      x: M,
+      y: SIG_TOP_Y,
+      width: SIG_W,
+      height: SIG_HEIGHT,
+      kind: "signature",
+    },
+    {
+      role: "employee",
+      page: 0,
+      x: M,
+      y: SIG_TOP_Y + SIG_HEIGHT + 16,
+      width: SIG_W * 0.5,
+      height: 14,
+      kind: "date",
+    },
+  ];
+}
+
 /** Skrócony lookup po `kind` z `mp_service_documents`. */
 export function getAnchorsForKind(
   kind: "receipt" | "annex" | "handover" | "release_code" | "warranty" | "other",
@@ -203,8 +294,11 @@ export function getAnchorsForKind(
     case "annex":
       return getAnchorsForAnnex();
     case "handover":
-    case "release_code":
       return getAnchorsForHandover();
+    case "release_code":
+      return getAnchorsForReleaseCode();
+    case "warranty":
+      return getAnchorsForWarranty();
     default:
       return [];
   }
