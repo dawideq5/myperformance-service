@@ -6,9 +6,13 @@
  * fan-outuje:
  *   - email do `service.contactEmail` (gdy podany) z załączonym PDF aneksu
  *     i krótkim CTA (link do Documenso gdy `documensoSigningUrl`),
- *   - SMS przez Chatwoot — wykorzystujemy istniejące `chatwootConversationId`
- *     na zleceniu (Twilio SMS inbox jest podpięty pod Chatwoot, więc message
- *     wysyłana w outgoing kierunku trafia do klienta jako SMS).
+ *   - SMS przez Chatwoot Twilio inbox (`CHATWOOT_SMS_INBOX_ID`).
+ *     Wave 22 / F13 fix: wcześniej posyłaliśmy `sendServiceMessage` do
+ *     konwersacji `service.chatwootConversationId`, ale ta konwersacja jest
+ *     w service inboxie (Channel::Email/WebWidget) — Twilio fires SMS
+ *     wyłącznie z konwersacji w inboxie typu Channel::TwilioSms, więc
+ *     SMS nigdy nie szedł. Teraz `sendCustomerSms` find-or-create
+ *     konwersację w SMS inboxie po phone i posta outgoing → real Twilio.
  *
  * Helper jest non-throwing — błąd jednego kanału nie blokuje drugiego ani
  * nie psuje response z parent route. Zwraca bool flags per channel.
@@ -17,7 +21,7 @@
  * MyPerformance), zgodnie z konwencją signed-receipt webhook handlerów.
  */
 import { sendMail } from "@/lib/smtp";
-import { sendServiceMessage } from "@/lib/chatwoot-customer";
+import { sendCustomerSms } from "@/lib/chatwoot-customer";
 import { applyLayout } from "@/lib/email/render";
 import {
   ensureDefaultLayout,
@@ -298,23 +302,49 @@ async function deliverSms(input: NotifyAnnexInput): Promise<{
   error?: string;
 }> {
   const { service, annex } = input;
-  if (!service.chatwootConversationId) {
-    return { ok: false, error: "no_chatwoot_conversation" };
-  }
   if (!service.contactPhone) {
     return { ok: false, error: "no_phone" };
   }
   try {
     const body = buildSmsBody(input);
-    const ok = await sendServiceMessage(service.chatwootConversationId, body);
-    if (!ok) {
-      return { ok: false, error: "chatwoot_send_failed" };
+    const customerName =
+      [service.customerFirstName, service.customerLastName]
+        .filter(Boolean)
+        .join(" ")
+        .trim() || "Klient";
+    const result = await sendCustomerSms({
+      phone: service.contactPhone,
+      customerName,
+      body,
+      ticketNumber: service.ticketNumber,
+      serviceId: service.id,
+      customerEmail: service.contactEmail,
+    });
+    // Wave 22 / F13 — full audit log: status, conversationId, messageId,
+    // contactId, inboxId, error tag, detail (max 200 chars Chatwoot body).
+    if (!result.ok) {
+      logger.warn("notify-annex.sms_failed", {
+        serviceId: service.id,
+        annexId: annex.id,
+        ticketNumber: service.ticketNumber,
+        inboxId: result.inboxId,
+        contactId: result.contactId,
+        conversationId: result.conversationId,
+        status: result.status,
+        error: result.error,
+        detail: result.detail,
+      });
+      return { ok: false, error: result.error ?? "chatwoot_send_failed" };
     }
     logger.info("notify-annex.sms_sent", {
       serviceId: service.id,
       ticketNumber: service.ticketNumber,
       annexId: annex.id,
-      conversationId: service.chatwootConversationId,
+      inboxId: result.inboxId,
+      conversationId: result.conversationId,
+      messageId: result.messageId,
+      contactId: result.contactId,
+      status: result.status,
     });
     return { ok: true };
   } catch (err) {
