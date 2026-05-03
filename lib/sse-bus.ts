@@ -62,7 +62,15 @@ export type SseEventType =
   | "release_code_sent"
   // Wave 21 / Faza 1D — notatka o kontakcie z klientem (off-channel,
   // telefon / osobiście) dodana przez pracownika.
-  | "customer_contact_recorded";
+  | "customer_contact_recorded"
+  // Wave 22 / F15 — real-time intake co-edit. Sprzedawca edytuje formularz
+  // przyjęcia, serwisant podgląda live (read-only). Eventy:
+  //   field_changed — pojedyncze pole zmienione (debounced 500ms client-side)
+  //   editor_heartbeat — every 10s, drives "kto edytuje teraz" indicator
+  //   editor_disconnected — explicit teardown lub server-side timeout (30s)
+  | "service.field_changed"
+  | "service.editor_heartbeat"
+  | "service.editor_disconnected";
 
 export interface SseEvent {
   /** Random UUID — używane przez klientów do dedup. */

@@ -30,6 +30,7 @@ export const dynamic = "force-dynamic";
 import { keycloak } from "@/lib/keycloak";
 import { log } from "@/lib/logger";
 import { subscribe, type SseEvent } from "@/lib/sse-bus";
+import { getActiveEditors } from "@/lib/editor-presence";
 
 const logger = log.child({ module: "api-events" });
 
@@ -162,6 +163,36 @@ export async function GET(req: Request): Promise<Response> {
 
       // Initial comment — flush headerów u proxy.
       sendChunk(`: connected ts=${Date.now()}\n\n`);
+
+      // State replay (Wave 22 / F15) — gdy klient subskrybuje konkretnego
+      // service'a, wysyłamy snapshot aktualnych editorów (editor-presence
+      // cache) jako syntetyczne `service.editor_heartbeat` eventy. Dzięki
+      // temu serwisant otwierający Live Preview w trakcie edycji od razu
+      // widzi "kto edytuje teraz" bez czekania 10s na następny heartbeat.
+      if (filter.serviceId) {
+        const editors = getActiveEditors(filter.serviceId);
+        for (const ed of editors) {
+          const replayEvent = {
+            id: `replay-${ed.byUserId}-${ed.lastSeen}`,
+            type: "service.editor_heartbeat" as const,
+            serviceId: ed.serviceId,
+            userEmail: null,
+            payload: {
+              byUserId: ed.byUserId,
+              byUserEmail: ed.byUserEmail,
+              byUserName: ed.byUserName,
+              byUserRole: ed.byUserRole,
+              isNew: false,
+              replay: true,
+              lastSeen: ed.lastSeen,
+            },
+            ts: new Date(ed.lastSeen).toISOString(),
+          };
+          sendChunk(
+            `id: ${replayEvent.id}\nevent: ${replayEvent.type}\ndata: ${JSON.stringify(replayEvent)}\n\n`,
+          );
+        }
+      }
 
       try {
         unsub = subscribe((event) => {
