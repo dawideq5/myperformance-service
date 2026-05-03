@@ -78,6 +78,16 @@ describe("humanizeAction", () => {
     expect(r.description).toBe("Wycena z 280.00 PLN do 380.00 PLN");
   });
 
+  it("release_code_failed preferuje payload.attemptsLeft nad summary", () => {
+    const r = humanizeAction(
+      "release_code_failed",
+      { reason: "invalid_code", attemptsLeft: 2 },
+      "Niepoprawny kod wydania (pozostało prób: 99).", // payload wygrywa
+    );
+    expect(r.label).toBe("Niepoprawny kod wydania");
+    expect(r.description).toBe("Pozostało prób: 2");
+  });
+
   it("release_code_failed wyciąga attemptsLeft z summary", () => {
     const r = humanizeAction(
       "release_code_failed",

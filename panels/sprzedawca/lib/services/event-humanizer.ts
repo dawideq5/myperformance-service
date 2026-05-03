@@ -340,9 +340,14 @@ export function humanizeAction(
     }
 
     case "release_code_failed": {
-      // Payload przeważnie zawiera tylko `{ reason }`; `attemptsLeft` jest
-      // wpleciony w summary przez serwer — wyciągamy go regexem.
-      const attemptsLeft = extractAttemptsLeftFromSummary(safeSummary);
+      // Preferujemy `payload.attemptsLeft` (kontrakt strukturalny). Obecny
+      // serwer (`app/api/panel/services/[id]/release/route.ts`) nie ustawia
+      // tego pola — dlatego fallback parsuje summary regexem ("pozostało
+      // prób: N"). Gdy ktoś w przyszłości doda `attemptsLeft` do payload
+      // — dostaniemy go bez zmiany humanizera.
+      const attemptsLeft =
+        pickNumber(payload, "attemptsLeft") ??
+        extractAttemptsLeftFromSummary(safeSummary);
       const channel = pickString(payload, "channel");
       const channelLabel = channel
         ? RELEASE_CHANNEL_LABEL[channel] ?? channel
