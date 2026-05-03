@@ -21,10 +21,16 @@ import { sendServiceMessage } from "@/lib/chatwoot-customer";
 import { applyLayout } from "@/lib/email/render";
 import {
   ensureDefaultLayout,
+  getDefaultLayout,
   getLayoutBySlug,
 } from "@/lib/email/db/layouts";
 import { getBranding } from "@/lib/email/db";
-import { getOptionalEnv } from "@/lib/env";
+import {
+  resolveBrandFromService,
+  senderForBrand,
+  layoutSlugForBrand,
+  type EmailBrand,
+} from "@/lib/services/brand";
 import { log } from "@/lib/logger";
 import type { ServiceAnnex } from "@/lib/service-annexes";
 
@@ -156,31 +162,48 @@ ${ctaSection}
   return { subject, contentHtml, contentText };
 }
 
-async function buildLayoutedHtml(contentHtml: string): Promise<string> {
-  // Wave 21 Faza 1F: jawny lookup po slug-u "zlecenieserwisowe" (NIE
-  // getDefaultLayout() — bo default = MyPerformance, którego nie chcemy
-  // wysyłać klientom serwisu). Fallback: prosty wrapper bez branding gdy
-  // DB niedostępne.
+async function buildLayoutedHtml(
+  contentHtml: string,
+  brand: EmailBrand,
+): Promise<string> {
+  // Wave 22 / F1: layout per brand. Najpierw layout o slug = brand,
+  // fallback do default layout (mp_email_layouts default), ostatecznie
+  // prosty wrapper bez DB.
   try {
     await ensureDefaultLayout();
-    const layout = await getLayoutBySlug("zlecenieserwisowe");
+    const layout =
+      (await getLayoutBySlug(layoutSlugForBrand(brand)).catch(() => null)) ??
+      (await getDefaultLayout());
     if (layout?.html) {
       const branding = await getBranding().catch(() => null);
-      const portalUrl =
-        branding?.brandUrl?.trim() || "https://zlecenieserwisowe.pl";
+      const sender = senderForBrand(brand);
+      const fallbackBrandName =
+        brand === "myperformance" ? "MyPerformance" : sender.fromName;
+      const fallbackBrandUrl =
+        brand === "myperformance"
+          ? "https://myperformance.pl"
+          : "https://zlecenieserwisowe.pl";
+      const fallbackSupport =
+        brand === "myperformance"
+          ? "kontakt@myperformance.pl"
+          : "caseownia@zlecenieserwisowe.pl";
+      const portalUrl = branding?.brandUrl?.trim() || fallbackBrandUrl;
       const logoUrl =
-        branding?.brandLogoUrl?.trim() || `${portalUrl}/logo-serwis.png`;
+        branding?.brandLogoUrl?.trim() ||
+        (brand === "myperformance"
+          ? `${portalUrl}/logo-myperformance.png`
+          : `${portalUrl}/logo-serwis.png`);
       const html = applyLayout(layout.html, contentHtml);
       return html
         .replace(
           /\{\{\s*brand\.name\s*\}\}/g,
-          escapeHtml("Serwis telefonów by Caseownia"),
+          escapeHtml(branding?.brandName ?? fallbackBrandName),
         )
         .replace(/\{\{\s*brand\.url\s*\}\}/g, escapeHtml(portalUrl))
         .replace(/\{\{\s*brand\.logoUrl\s*\}\}/g, escapeHtml(logoUrl))
         .replace(
           /\{\{\s*brand\.supportEmail\s*\}\}/g,
-          escapeHtml("caseownia@zlecenieserwisowe.pl"),
+          escapeHtml(branding?.supportEmail ?? fallbackSupport),
         )
         .replace(
           /\{\{\s*now\.year\s*\}\}/g,
@@ -189,7 +212,10 @@ async function buildLayoutedHtml(contentHtml: string): Promise<string> {
         .replace(/\{\{\s*subject\s*\}\}/g, "");
     }
   } catch (err) {
-    logger.warn("notify-annex.layout_lookup_failed", { err: String(err) });
+    logger.warn("notify-annex.layout_lookup_failed", {
+      brand,
+      err: String(err),
+    });
   }
   return `<!DOCTYPE html><html><body style="font-family:Inter,system-ui,sans-serif;background:#f5f5f5;padding:24px;"><div style="max-width:600px;margin:0 auto;background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:32px;">${contentHtml}</div></body></html>`;
 }
@@ -204,13 +230,9 @@ async function deliverEmail(input: NotifyAnnexInput): Promise<{
   }
   try {
     const { subject, contentHtml, contentText } = renderEmailContent(input);
-    const html = await buildLayoutedHtml(contentHtml);
-    const fromAddress =
-      getOptionalEnv("CONFIRMATION_EMAIL_FROM", "").trim() ||
-      "caseownia@zlecenieserwisowe.pl";
-    const fromName =
-      getOptionalEnv("CONFIRMATION_EMAIL_FROM_NAME", "").trim() ||
-      "Serwis Telefonów by Caseownia";
+    const brand = await resolveBrandFromService(service.id);
+    const html = await buildLayoutedHtml(contentHtml, brand);
+    const { fromAddress, fromName } = senderForBrand(brand);
     await sendMail({
       to: service.contactEmail,
       subject,
@@ -219,7 +241,7 @@ async function deliverEmail(input: NotifyAnnexInput): Promise<{
       fromName,
       fromAddress,
       replyTo: fromAddress,
-      profileSlug: "zlecenieserwisowe",
+      profileSlug: brand,
       attachments: [
         {
           filename: `Aneks-${service.ticketNumber}.pdf`,
@@ -232,6 +254,7 @@ async function deliverEmail(input: NotifyAnnexInput): Promise<{
       serviceId: service.id,
       ticketNumber: service.ticketNumber,
       annexId: annex.id,
+      brand,
     });
     return { ok: true };
   } catch (err) {

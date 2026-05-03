@@ -17,6 +17,7 @@ import {
 import { getPriceLinesForService } from "@/lib/repair-types";
 import { logServiceAction } from "@/lib/service-actions";
 import { getServiceSignerEmail } from "@/lib/service-config";
+import { notifyDocumentForSigning } from "@/lib/services/notify-document";
 import { log } from "@/lib/logger";
 import { createHash } from "node:crypto";
 
@@ -188,6 +189,12 @@ export async function POST(
         : `Potwierdzenie ${service.ticketNumber}`,
       pdfBuffer: rendered.buffer,
       sendEmail: false,
+      // Wave 22 / F1 — Documenso NIE wysyła własnych maili. Po
+      // autoSignAsEmployee odpalamy `notifyDocumentForSigning` z brandowanym
+      // emailem klienta (Postal + brand z lokacji zlecenia). To FIX główny
+      // bug usera: wcześniej Documenso wysyłał klientowi zaproszenie po
+      // SEQUENTIAL signing pomijając nasz brand pipeline.
+      disableEmails: true,
       message: force
         ? "Aktualizacja potwierdzenia odbioru urządzenia po edycji warunków. Prosimy o podpis."
         : "Prosimy o podpisanie potwierdzenia odbioru urządzenia.",
@@ -271,6 +278,35 @@ export async function POST(
       logger.warn("documenso status persist failed", {
         serviceId: id,
         err: e instanceof Error ? e.message : String(e),
+      });
+    }
+
+    // Wave 22 / F1 — wyślij brandowane zaproszenie do podpisu klientowi.
+    // Customer = signingOrder=2, więc index 1. Documenso z `disableEmails:true`
+    // nie wysyła własnych maili, więc to MY musimy poprosić o podpis.
+    const customerSigningUrl: string | null =
+      result.signingUrls[1]?.url ?? null;
+    if (customerSigningUrl && service.contactEmail) {
+      void notifyDocumentForSigning({
+        service: {
+          id,
+          ticketNumber: service.ticketNumber,
+          contactEmail: service.contactEmail,
+          customerFirstName: service.customerFirstName,
+          customerLastName: service.customerLastName,
+        },
+        document: {
+          id: String(result.documentId),
+          kind: "receipt",
+          title: `Potwierdzenie ${service.ticketNumber}`,
+        },
+        signingUrl: customerSigningUrl,
+      }).catch((err) => {
+        logger.warn("notifyDocumentForSigning failed", {
+          serviceId: id,
+          docId: result.documentId,
+          err: err instanceof Error ? err.message : String(err),
+        });
       });
     }
 

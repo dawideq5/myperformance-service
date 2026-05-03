@@ -11,6 +11,11 @@ const logger = log.child({ module: "locations" });
 
 export type LocationType = "sales" | "service";
 
+/** Brand mailowy dla zleceń pochodzących z tej lokacji. Określa SMTP
+ * profile, layout i sender display dla wszystkich powiadomień klienta.
+ * `null` = użyj globalnego defaultu (mp_branding.default_smtp_profile_slug). */
+export type LocationBrand = "myperformance" | "zlecenieserwisowe";
+
 export interface LocationHours {
   /** Format "HH-HH" lub null gdy zamknięte. */
   mon?: string | null;
@@ -47,6 +52,10 @@ export interface Location {
    * serwisowego (bez tego flagą tworzymy transport job tylko gdy
    * sprzedawca wybrał inny serwis). */
   requiresTransport: boolean;
+  /** Brand mailowy — z którego SMTP profile + layout idą maile klienta.
+   * `null` = użyj globalnego defaultu (mp_branding.default_smtp_profile_slug).
+   * Wave 22 / F1 — dodane dla brand routingu maili. */
+  brand: LocationBrand | null;
   enabled: boolean;
   createdAt: string | null;
   updatedAt: string | null;
@@ -69,6 +78,7 @@ interface DirectusLocationRow {
   service_id?: string | null;
   sales_ids?: string[] | string | null;
   requires_transport?: boolean | null;
+  brand?: string | null;
   enabled?: boolean;
   created_at?: string | null;
   updated_at?: string | null;
@@ -105,6 +115,10 @@ function mapRow(r: DirectusLocationRow): Location {
     serviceId: r.service_id ?? null,
     salesIds: parseJson<string[]>(r.sales_ids, []),
     requiresTransport: r.requires_transport === true,
+    brand:
+      r.brand === "myperformance" || r.brand === "zlecenieserwisowe"
+        ? (r.brand as LocationBrand)
+        : null,
     enabled: r.enabled !== false,
     createdAt: r.created_at ?? null,
     updatedAt: r.updated_at ?? null,
@@ -198,6 +212,8 @@ export interface LocationInput {
   serviceId?: string | null;
   salesIds?: string[];
   requiresTransport?: boolean;
+  /** Wave 22 / F1 — brand mailowy. `null` = global default. */
+  brand?: LocationBrand | null;
   enabled?: boolean;
 }
 
@@ -219,6 +235,7 @@ function inputToDirectus(input: LocationInput): Record<string, unknown> {
     sales_ids: input.type === "service" ? (input.salesIds ?? []) : [],
     requires_transport:
       input.type === "sales" ? (input.requiresTransport ?? false) : false,
+    brand: input.brand ?? null,
     enabled: input.enabled !== false,
     updated_at: new Date().toISOString(),
   };
@@ -264,6 +281,7 @@ export async function updateLocation(
   if (input.salesIds !== undefined) patch.sales_ids = input.salesIds;
   if (input.requiresTransport !== undefined)
     patch.requires_transport = input.requiresTransport;
+  if (input.brand !== undefined) patch.brand = input.brand ?? null;
   if (input.enabled !== undefined) patch.enabled = input.enabled;
 
   const updated = await updateItem<DirectusLocationRow>(

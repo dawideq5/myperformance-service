@@ -24,9 +24,15 @@ import { applyLayout } from "@/lib/email/render";
 import {
   ensureDefaultLayout,
   getDefaultLayout,
+  getLayoutBySlug,
 } from "@/lib/email/db/layouts";
 import { getBranding } from "@/lib/email/db";
-import { getOptionalEnv } from "@/lib/env";
+import {
+  resolveBrandFromService,
+  senderForBrand,
+  layoutSlugForBrand,
+  type EmailBrand,
+} from "@/lib/services/brand";
 import { log } from "@/lib/logger";
 import type { ServiceDocument } from "@/lib/service-documents";
 
@@ -44,22 +50,42 @@ function escapeHtml(s: string): string {
     .replace(/'/g, "&#39;");
 }
 
-/** Rozwija content w default layout (czarny header Caseownia + footer). */
-async function buildLayoutedHtml(contentHtml: string): Promise<string> {
+/** Rozwija content w layout per brand (czarny header z brand wordmarkiem +
+ * footer). Najpierw próbuje layout o slug = brand; gdy nie istnieje fallback
+ * do default layout (DEFAULT_LAYOUT_HTML z `mp_email_layouts`).
+ *
+ * Wave 22 / F1 — przyjmuje brand parameter, przedtem hardcoded "zlecenieserwisowe". */
+async function buildLayoutedHtml(
+  contentHtml: string,
+  brand: EmailBrand,
+): Promise<string> {
   try {
     await ensureDefaultLayout();
-    const def = await getDefaultLayout();
-    if (def?.html) {
+    const layout =
+      (await getLayoutBySlug(layoutSlugForBrand(brand)).catch(() => null)) ??
+      (await getDefaultLayout());
+    if (layout?.html) {
       const branding = await getBranding().catch(() => null);
-      const html = applyLayout(def.html, contentHtml);
+      const sender = senderForBrand(brand);
+      const html = applyLayout(layout.html, contentHtml);
+      const fallbackBrandName =
+        brand === "myperformance" ? "MyPerformance" : sender.fromName;
+      const fallbackBrandUrl =
+        brand === "myperformance"
+          ? "https://myperformance.pl"
+          : "https://zlecenieserwisowe.pl";
+      const fallbackSupport =
+        brand === "myperformance"
+          ? "kontakt@myperformance.pl"
+          : "biuro@caseownia.com";
       return html
         .replace(
           /\{\{\s*brand\.name\s*\}\}/g,
-          escapeHtml(branding?.brandName ?? "Serwis telefonów by Caseownia"),
+          escapeHtml(branding?.brandName ?? fallbackBrandName),
         )
         .replace(
           /\{\{\s*brand\.url\s*\}\}/g,
-          escapeHtml(branding?.brandUrl ?? "https://zlecenieserwisowe.pl"),
+          escapeHtml(branding?.brandUrl ?? fallbackBrandUrl),
         )
         .replace(
           /\{\{\s*brand\.logoUrl\s*\}\}/g,
@@ -67,25 +93,18 @@ async function buildLayoutedHtml(contentHtml: string): Promise<string> {
         )
         .replace(
           /\{\{\s*brand\.supportEmail\s*\}\}/g,
-          escapeHtml(branding?.supportEmail ?? "biuro@caseownia.com"),
+          escapeHtml(branding?.supportEmail ?? fallbackSupport),
         )
         .replace(/\{\{\s*subject\s*\}\}/g, "")
         .replace(/\{\{\s*content\s*\}\}/g, contentHtml);
     }
   } catch (err) {
-    logger.warn("notify-document.layout_lookup_failed", { err: String(err) });
+    logger.warn("notify-document.layout_lookup_failed", {
+      brand,
+      err: String(err),
+    });
   }
   return `<!DOCTYPE html><html><body style="font-family:system-ui,sans-serif;background:#f4f4f5;padding:24px;"><div style="max-width:600px;margin:0 auto;background:#fff;padding:32px;border-radius:8px;">${contentHtml}</div></body></html>`;
-}
-
-function caseowniaSender(): { fromAddress: string; fromName: string } {
-  const fromAddress =
-    getOptionalEnv("CONFIRMATION_EMAIL_FROM", "").trim() ||
-    "caseownia@zlecenieserwisowe.pl";
-  const fromName =
-    getOptionalEnv("CONFIRMATION_EMAIL_FROM_NAME", "").trim() ||
-    "Serwis Telefonów by Caseownia";
-  return { fromAddress, fromName };
 }
 
 export interface NotifyDocumentForSigningInput {
@@ -157,8 +176,9 @@ export async function notifyDocumentForSigning(
       "Serwis telefonów by Caseownia",
     ].join("\n");
 
-    const html = await buildLayoutedHtml(contentHtml);
-    const { fromAddress, fromName } = caseowniaSender();
+    const brand = await resolveBrandFromService(service.id);
+    const html = await buildLayoutedHtml(contentHtml, brand);
+    const { fromAddress, fromName } = senderForBrand(brand);
     await sendMail({
       to: service.contactEmail,
       subject,
@@ -167,7 +187,7 @@ export async function notifyDocumentForSigning(
       fromName,
       fromAddress,
       replyTo: fromAddress,
-      profileSlug: "zlecenieserwisowe",
+      profileSlug: brand,
       ...(pdfBuffer
         ? {
             attachments: [
@@ -184,6 +204,7 @@ export async function notifyDocumentForSigning(
       serviceId: service.id,
       documentId: document.id,
       kind: document.kind,
+      brand,
     });
     return { ok: true };
   } catch (err) {
@@ -251,8 +272,9 @@ export async function notifyReceiptSigned(
       "Serwis Telefonów by Caseownia",
     ].join("\n");
 
-    const html = await buildLayoutedHtml(contentHtml);
-    const { fromAddress, fromName } = caseowniaSender();
+    const brand = await resolveBrandFromService(service.id);
+    const html = await buildLayoutedHtml(contentHtml, brand);
+    const { fromAddress, fromName } = senderForBrand(brand);
     await sendMail({
       to: service.contactEmail,
       subject,
@@ -261,7 +283,7 @@ export async function notifyReceiptSigned(
       fromName,
       fromAddress,
       replyTo: fromAddress,
-      profileSlug: "zlecenieserwisowe",
+      profileSlug: brand,
       ...(pdfBuffer
         ? {
             attachments: [
@@ -277,6 +299,7 @@ export async function notifyReceiptSigned(
     logger.info("notify-document.receipt_signed_sent", {
       serviceId: service.id,
       documentId: document.id,
+      brand,
     });
     return { ok: true };
   } catch (err) {

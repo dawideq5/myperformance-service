@@ -138,6 +138,11 @@ export async function POST(
       title: `Potwierdzenie ${service.ticketNumber} (papierowe)`,
       pdfBuffer: rendered.buffer,
       sendEmail: false,
+      // Wave 22 / F1 — Documenso nie wysyła automatycznych maili. Tylko
+      // pracownik podpisuje (klient sygnuje na wydruku) — dlatego nie
+      // robimy custom invitation. Wyłącza również ewentualne `documentCompleted`
+      // owner-notification wracające z Documenso na adres ownera dokumentu.
+      disableEmails: true,
       message:
         "Wewnętrzny dokument — podpis pracownika do druku. Klient podpisuje na wydruku.",
       signers: [

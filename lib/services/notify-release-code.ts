@@ -18,9 +18,15 @@ import { applyLayout } from "@/lib/email/render";
 import {
   ensureDefaultLayout,
   getDefaultLayout,
+  getLayoutBySlug,
 } from "@/lib/email/db/layouts";
 import { getBranding } from "@/lib/email/db";
-import { getOptionalEnv } from "@/lib/env";
+import {
+  resolveBrandFromService,
+  senderForBrand,
+  layoutSlugForBrand,
+  type EmailBrand,
+} from "@/lib/services/brand";
 import { log } from "@/lib/logger";
 
 const logger = log.child({ module: "notify-release-code" });
@@ -107,23 +113,38 @@ function renderEmailContent(input: NotifyReleaseCodeInput): {
   return { subject, contentHtml, contentText };
 }
 
-async function buildLayoutedHtml(contentHtml: string): Promise<string> {
-  // Best-effort layout — DEFAULT_LAYOUT_HTML (Caseownia czarny header).
-  // Wzór 1:1 z notify-annex.ts.
+async function buildLayoutedHtml(
+  contentHtml: string,
+  brand: EmailBrand,
+): Promise<string> {
+  // Wave 22 / F1 — layout per brand.
   try {
     await ensureDefaultLayout();
-    const def = await getDefaultLayout();
-    if (def?.html) {
+    const layout =
+      (await getLayoutBySlug(layoutSlugForBrand(brand)).catch(() => null)) ??
+      (await getDefaultLayout());
+    if (layout?.html) {
       const branding = await getBranding().catch(() => null);
-      const html = applyLayout(def.html, contentHtml);
+      const sender = senderForBrand(brand);
+      const fallbackBrandName =
+        brand === "myperformance" ? "MyPerformance" : sender.fromName;
+      const fallbackBrandUrl =
+        brand === "myperformance"
+          ? "https://myperformance.pl"
+          : "https://zlecenieserwisowe.pl";
+      const fallbackSupport =
+        brand === "myperformance"
+          ? "kontakt@myperformance.pl"
+          : "biuro@caseownia.com";
+      const html = applyLayout(layout.html, contentHtml);
       return html
         .replace(
           /\{\{\s*brand\.name\s*\}\}/g,
-          escapeHtml(branding?.brandName ?? "Serwis telefonów by Caseownia"),
+          escapeHtml(branding?.brandName ?? fallbackBrandName),
         )
         .replace(
           /\{\{\s*brand\.url\s*\}\}/g,
-          escapeHtml(branding?.brandUrl ?? "https://zlecenieserwisowe.pl"),
+          escapeHtml(branding?.brandUrl ?? fallbackBrandUrl),
         )
         .replace(
           /\{\{\s*brand\.logoUrl\s*\}\}/g,
@@ -131,7 +152,7 @@ async function buildLayoutedHtml(contentHtml: string): Promise<string> {
         )
         .replace(
           /\{\{\s*brand\.supportEmail\s*\}\}/g,
-          escapeHtml(branding?.supportEmail ?? "biuro@caseownia.com"),
+          escapeHtml(branding?.supportEmail ?? fallbackSupport),
         )
         .replace(/\{\{\s*subject\s*\}\}/g, "")
         .replace(/\{\{\s*content\s*\}\}/g, contentHtml);
@@ -153,13 +174,9 @@ async function deliverEmail(
   }
   try {
     const { subject, contentHtml, contentText } = renderEmailContent(input);
-    const html = await buildLayoutedHtml(contentHtml);
-    const fromAddress =
-      getOptionalEnv("CONFIRMATION_EMAIL_FROM", "").trim() ||
-      "caseownia@zlecenieserwisowe.pl";
-    const fromName =
-      getOptionalEnv("CONFIRMATION_EMAIL_FROM_NAME", "").trim() ||
-      "Serwis Telefonów by Caseownia";
+    const brand = await resolveBrandFromService(service.id);
+    const html = await buildLayoutedHtml(contentHtml, brand);
+    const { fromAddress, fromName } = senderForBrand(brand);
     await sendMail({
       to: service.contactEmail,
       subject,
@@ -168,11 +185,12 @@ async function deliverEmail(
       fromName,
       fromAddress,
       replyTo: fromAddress,
-      profileSlug: "zlecenieserwisowe",
+      profileSlug: brand,
     });
     logger.info("notify-release-code.email_sent", {
       serviceId: service.id,
       ticketNumber: service.ticketNumber,
+      brand,
     });
     return { ok: true, channel: "email" };
   } catch (err) {
