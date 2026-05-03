@@ -30,6 +30,12 @@ import { DeviceLocationMap } from "@/components/serwis/DeviceLocationMap";
 import { CzatZespoluPanel } from "@/components/serwis/CzatZespoluPanel";
 import { PhoneConfigurator3D } from "@/components/intake/PhoneConfigurator3D";
 import type { DamageMarker } from "@/components/intake/PhoneConfigurator3D";
+import {
+  formatActor,
+  formatEventTimestamp,
+  humanizeAction,
+} from "@/lib/services/event-humanizer";
+import { getStatusLabel } from "@/lib/services/status-meta";
 
 interface ServiceDetail {
   id: string;
@@ -145,7 +151,9 @@ interface ServiceActionEntry {
   action: string;
   summary: string;
   actorName: string | null;
+  actorEmail?: string | null;
   createdAt: string;
+  payload?: Record<string, unknown> | null;
 }
 
 interface MailMessage {
@@ -1372,15 +1380,40 @@ function DocumensoStatusCard({
   );
 }
 
-const ACTION_LABELS: Record<string, { label: string; color: string }> = {
-  employee_sign: { label: "Podpis pracownika", color: "#22c55e" },
-  print: { label: "Wydruk PDF", color: "#6366f1" },
-  send_electronic: { label: "Wysłano e-potwierdzenie", color: "#06b6d4" },
-  resend_electronic: { label: "Ponowne wysłanie", color: "#f59e0b" },
-  client_signed: { label: "Klient podpisał", color: "#22c55e" },
-  client_rejected: { label: "Klient odrzucił", color: "#ef4444" },
-  annex_issued: { label: "Aneks wystawiony", color: "#a855f7" },
-  other: { label: "Inne", color: "#64748b" },
+/**
+ * Wave 22 / F7 — paleta kropek per action_type. Treść (label/description)
+ * pochodzi z `humanizeAction` (single source of truth w
+ * `lib/services/event-humanizer.ts`); ta mapa zachowuje wyłącznie
+ * kolorystykę dotów żeby UI nie zgubił wizualnej hierarchii.
+ */
+const ACTION_DOT_COLORS: Record<string, string> = {
+  employee_sign: "#22c55e",
+  print: "#6366f1",
+  send_electronic: "#06b6d4",
+  resend_electronic: "#f59e0b",
+  client_signed: "#22c55e",
+  client_rejected: "#ef4444",
+  annex_issued: "#a855f7",
+  annex_created: "#a855f7",
+  annex_accepted: "#22c55e",
+  annex_rejected: "#ef4444",
+  annex_resend: "#f59e0b",
+  annex_expired: "#64748b",
+  status_change: "#0ea5e9",
+  quote_changed: "#a855f7",
+  release_code_generated: "#0ea5e9",
+  release_code_sent: "#06b6d4",
+  release_code_resent: "#f59e0b",
+  release_code_failed: "#ef4444",
+  release_completed: "#22c55e",
+  transport_requested: "#f59e0b",
+  transport_updated: "#0ea5e9",
+  transport_cancelled: "#64748b",
+  upload_bridge_token_issued: "#06b6d4",
+  document_invalidated: "#ef4444",
+  customer_message_sent: "#06b6d4",
+  photo_uploaded: "#22c55e",
+  photo_deleted: "#64748b",
 };
 
 function ActionsLogCard({ actions }: { actions: ServiceActionEntry[] }) {
@@ -1393,10 +1426,18 @@ function ActionsLogCard({ actions }: { actions: ServiceActionEntry[] }) {
       ) : (
         <ul className="space-y-2">
           {actions.slice(0, 20).map((a) => {
-            const meta = ACTION_LABELS[a.action] ?? {
-              label: a.action,
-              color: "#64748b",
-            };
+            const dotColor = ACTION_DOT_COLORS[a.action] ?? "#64748b";
+            const humanized = humanizeAction(
+              a.action,
+              a.payload ?? null,
+              a.summary,
+              getStatusLabel,
+            );
+            const author = formatActor({
+              actorName: a.actorName,
+              actorEmail: a.actorEmail ?? null,
+            });
+            const ts = formatEventTimestamp(a.createdAt);
             return (
               <li
                 key={a.id}
@@ -1405,23 +1446,27 @@ function ActionsLogCard({ actions }: { actions: ServiceActionEntry[] }) {
               >
                 <span
                   className="mt-1 shrink-0 w-1.5 h-1.5 rounded-full"
-                  style={{ background: meta.color }}
+                  style={{ background: dotColor }}
                 />
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold" style={{ color: meta.color }}>
-                    {meta.label}
+                  <p className="font-semibold" style={{ color: dotColor }}>
+                    {humanized.label}
                   </p>
-                  {a.summary?.trim() && (
-                    <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
-                      {a.summary}
+                  {humanized.description && (
+                    <p
+                      className="text-[11px]"
+                      style={{ color: "var(--text-muted)" }}
+                    >
+                      {humanized.description}
                     </p>
                   )}
                   <p
                     className="text-[10px] mt-0.5"
                     style={{ color: "var(--text-muted)" }}
                   >
-                    {new Date(a.createdAt).toLocaleString("pl-PL")}
-                    {a.actorName ? ` · ${a.actorName}` : ""}
+                    {ts}
+                    {ts && author ? " · " : ""}
+                    {author}
                   </p>
                 </div>
               </li>
