@@ -36,50 +36,49 @@ services:
       # na ścieżce /rtc).
       - 'SERVICE_FQDN_LIVEKIT_7880=livekit.myperformance.pl'
 
-      # API key/secret — wstrzykiwane do livekit.yaml przez ${LIVEKIT_API_KEY}
-      # / ${LIVEKIT_API_SECRET}. Token issuer w lib/livekit.ts używa tej
-      # samej pary do podpisu access tokenów (HS256).
-      - 'LIVEKIT_API_KEY=${LIVEKIT_API_KEY}'
-      - 'LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}'
+      # API keys — LiveKit czyta z env LIVEKIT_KEYS (mapowane na YAML klucz
+      # `keys:`). Format: "<key>: <secret>" (jeden lub wiele oddzielonych
+      # nową linią). Token issuer w lib/livekit.ts (F16b) używa tej samej
+      # pary do podpisu JWT (HS256).
+      #
+      # UWAGA: LiveKit NIE substituuje ${VAR} w YAML keys, więc trzymamy
+      # parę poza livekit.yaml. Compose interpoluje ${LIVEKIT_API_KEY}
+      # / ${LIVEKIT_API_SECRET} — to działa rock-solid.
+      - 'LIVEKIT_KEYS=${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}'
 
-      # External coturn — credentials wstrzykiwane do livekit.yaml.
-      # Patrz infrastructure/coturn/turnserver.conf.
+      # External IP override — LiveKit mapuje LIVEKIT_RTC_NODE_IP → rtc.node_ip.
+      # Pusta wartość = fallback do `use_external_ip: true` z livekit.yaml
+      # (auto-detect przez STUN Google'a).
+      - 'LIVEKIT_RTC_NODE_IP=${LIVEKIT_NODE_IP:-}'
+
+      # coturn credentials — odczytywane przez lib/livekit.ts (F16b) i
+      # wkładane do access tokena jako `turn_servers` w roomConfig. LiveKit
+      # server sam ich nie używa (built-in TURN wyłączony w livekit.yaml),
+      # ale propagujemy je tu dla audytu i ewentualnego skryptu pomocniczego.
       - 'LIVEKIT_TURN_DOMAIN=${LIVEKIT_TURN_DOMAIN:-turn.myperformance.pl}'
       - 'LIVEKIT_TURN_USER=${LIVEKIT_TURN_USER}'
       - 'LIVEKIT_TURN_PASSWORD=${LIVEKIT_TURN_PASSWORD}'
 
-      # External IP użyty w SDP do peer connection candidates. Bez tego
-      # klienci dostaną adres docker bridge'a (172.x.x.x) zamiast publicznego.
-      # Coolify nie ma magic env z host IP — trzeba wpisać ręcznie w
-      # Coolify env-vars albo zostawić auto-detect (LiveKit potrafi via STUN).
-      - 'LIVEKIT_NODE_IP=${LIVEKIT_NODE_IP:-}'
-
-    # Plik konfiguracyjny — trzymany w repo, NIE w wolumenie. Coolify
-    # commituje całe drzewo infrastructure/ do swojej kopii compose'a.
+    # Plik konfiguracyjny — trzymany w repo, NIE w wolumenie. Bind-mount
+    # via path `./livekit.yaml` wymaga, żeby plik był obok compose'a na
+    # VPS-ie (Coolify klonuje `infrastructure/livekit/` do working dir).
     volumes:
       - './livekit.yaml:/etc/livekit.yaml:ro'
 
-    # Media UDP musi być bindowane bezpośrednio na host — Traefik nie obsługuje
-    # UDP relay, a NAT-owanie tysięcy portów przez bridge jest zabójcze dla
-    # wydajności. `network_mode: host` to standard dla LiveKit production
-    # deployments (https://docs.livekit.io/realtime/self-hosting/deployment/).
-    #
-    # UWAGA: w trybie host LiveKit słucha 7880 bezpośrednio na hoście —
-    # Traefik MUSI mieć dedykowany router pointing at 127.0.0.1:7880 (Coolify
-    # robi to automatycznie z SERVICE_FQDN, ale w network_mode: host trzeba
-    # użyć dynamicznej konfiguracji Traefika lub własnych labels).
-    #
-    # ALTERNATYWA dla małych deployów (do ~50 jednoczesnych uczestników):
-    # użyć bridge networking + explicit port mapping z range 50000-60000/udp.
-    # Wybieramy alternatywę dla uproszczenia integracji z Coolify/Traefikiem.
+    # Networking: bridge + explicit port mapping (NIE network_mode: host).
+    # Plus: czysta integracja z Coolify/Traefik via SERVICE_FQDN. Minus:
+    # ~40k portów UDP forwardowane przez docker-proxy (delay <0.5ms,
+    # akceptowalny dla naszej skali ~50 concurrent participants).
+    # Reference: https://docs.livekit.io/realtime/self-hosting/deployment/
     expose:
+      # 7880 — Traefik publikuje przez SERVICE_FQDN; expose dla introspekcji
+      # docker network'u (np. healthcheck z innego kontenera).
       - '7880'
-      - '7881'
     ports:
-      # 7881/tcp = TCP fallback dla klientów za restrykcyjnym firewall'em
-      # (gdy UDP zablokowane). Wystawiamy bezpośrednio (bez Traefika).
+      # 7881/tcp = TCP fallback dla klientów za restrykcyjnym firewallem
+      # (gdy UDP zablokowane). Bezpośrednio na host (bez Traefika).
       - '7881:7881'
-      # Media UDP range — musi pokrywać się z `rtc.port_range_start/end`
+      # Media UDP range — MUSI pokrywać się z `rtc.port_range_start/end`
       # w livekit.yaml (50000-60000).
       - '50000-60000:50000-60000/udp'
 

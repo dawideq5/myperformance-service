@@ -27,15 +27,18 @@ rtc:
 
   # Public IP wstawiany w ICE candidates. Bez tego klienci próbują
   # łączyć się do docker bridge IP (nie działa).
-  # `auto` = LiveKit pyta STUN-a Google'a; lepiej ustawić ręcznie.
+  # `use_external_ip: true` = LiveKit auto-detekuje przez STUN Google'a.
+  # Override ręczny: ustaw env LIVEKIT_RTC_NODE_IP=<vps_public_ip>
+  # (LiveKit mapuje LIVEKIT_RTC_NODE_IP → rtc.node_ip automatycznie).
   use_external_ip: true
-  # node_ip: ${LIVEKIT_NODE_IP}   # uncomment gdy potrzebny override
 
 # === API keys ===
-# UWAGA: produkcja powinna trzymać tę parę poza plikiem (przez env).
-# LiveKit przyjmuje keys jako mapę key:secret.
-keys:
-  ${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}
+# CELOWO POMINIĘTE w tym pliku. LiveKit nie podstawia ${VAR} w YAML keys
+# (substitution działa tylko w wartościach, w sekcjach v1.5+). Zamiast tego
+# używamy env-vara LIVEKIT_KEYS="APIxxx: secretxxx" (compose interpoluje
+# go z ${LIVEKIT_API_KEY}/${LIVEKIT_API_SECRET}). Patrz docker-compose.yml.
+#
+# Reference: https://docs.livekit.io/realtime/self-hosting/deployment/#env-vars
 
 # === TURN server (zewnętrzny coturn) ===
 # LiveKit nie hostuje własnego TURN-a w tej konfiguracji — używa coturna

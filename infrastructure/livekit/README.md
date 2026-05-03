@@ -66,6 +66,17 @@ TTL: 300 (krótki przy pierwszym deployu, na czas zmian; potem 3600).
 > `lib/livekit.ts` (F16b) używa ich do podpisu access tokenów. Patrz
 > `.env.example` w repo.
 
+### Env mapping na YAML config
+
+LiveKit czyta env-vary z prefiksem `LIVEKIT_*` i mapuje je na ścieżki w
+`livekit.yaml` (dot-notation w nazwie env-vara, np. `LIVEKIT_RTC_NODE_IP`
+→ `rtc.node_ip`). W naszym compose używamy:
+
+| Env var | YAML path | Powód użycia env zamiast YAML |
+| --- | --- | --- |
+| `LIVEKIT_KEYS` | `keys` | LiveKit NIE substituuje `${VAR}` w YAML keys (substitution działa tylko w wartościach skalarnych). Format: `"<key>: <secret>"`. Compose interpoluje z `${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}`. |
+| `LIVEKIT_RTC_NODE_IP` | `rtc.node_ip` | Override `use_external_ip`. Pusty = STUN auto-detect. |
+
 ## Generowanie kluczy
 
 LiveKit nie ma własnego generatora w obrazie — używamy openssl/uuidgen:
