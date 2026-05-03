@@ -18,6 +18,7 @@ interface ChatwootConfig {
   platformToken: string;
   accountId: number;
   serviceInboxId: number | null;
+  smsInboxId: number | null;
 }
 
 function getConfig(): ChatwootConfig | null {
@@ -29,11 +30,14 @@ function getConfig(): ChatwootConfig | null {
   if (!Number.isFinite(accountId)) return null;
   const inboxRaw = getOptionalEnv("CHATWOOT_SERVICE_INBOX_ID").trim();
   const serviceInboxId = inboxRaw ? Number(inboxRaw) : null;
+  const smsInboxRaw = getOptionalEnv("CHATWOOT_SMS_INBOX_ID").trim();
+  const smsInboxId = smsInboxRaw ? Number(smsInboxRaw) : null;
   return {
     baseUrl,
     platformToken,
     accountId,
     serviceInboxId: Number.isFinite(serviceInboxId) ? serviceInboxId : null,
+    smsInboxId: Number.isFinite(smsInboxId) ? smsInboxId : null,
   };
 }
 
@@ -366,4 +370,326 @@ export async function notifyServiceStatusChange(args: {
   if (!template) return false;
   const msg = `${template}\n\nZgłoszenie: ${args.ticketNumber}`;
   return sendServiceMessage(args.conversationId, msg);
+}
+
+// ---------------------------------------------------------------------
+// SMS via Chatwoot Twilio inbox (Wave 22 / F13)
+//
+// `chatwootConversationId` na zleceniu odnosi się do konwersacji w
+// service inbox (Channel::Email / Channel::Api / Channel::WebWidget).
+// Posting message do tej konwersacji NIE wyzwala Twilio. Twilio fires
+// SMS tylko z konwersacji w inboxie typu Channel::TwilioSms.
+//
+// `sendCustomerSms` znajduje/tworzy contact po phone, znajduje/tworzy
+// **konwersację w SMS inboxie** (`CHATWOOT_SMS_INBOX_ID`), potem posta
+// outgoing message — ten path realnie wysyła SMS przez Twilio.
+// ---------------------------------------------------------------------
+
+export interface SendCustomerSmsArgs {
+  /** E.164 lub normalizowalny numer (Twilio i tak waliduje). */
+  phone: string;
+  /** Nazwa kontaktu — używane przy create. */
+  customerName: string;
+  /** Treść wiadomości — bez polskich znaków, max ~459 (3 SMS). */
+  body: string;
+  /**
+   * Numer zgłoszenia — łapiemy do `additional_attributes` żeby agent
+   * widząc rozmowę wiedział o jakim zleceniu jest mowa.
+   */
+  ticketNumber?: string;
+  /**
+   * Korelacja z naszą bazą — wkładamy do `additional_attributes` przy
+   * tworzeniu konwersacji oraz `source_id`.
+   */
+  serviceId?: string;
+  /**
+   * Email opcjonalnie — tylko gdy tworzymy nowy contact (lookup po phone
+   * jest priorytetem dla SMS).
+   */
+  customerEmail?: string | null;
+}
+
+export interface SendCustomerSmsResult {
+  ok: boolean;
+  /** Chatwoot conversation id (SMS inbox). */
+  conversationId: number | null;
+  /** Chatwoot message id zwrócony przez POST .../messages. */
+  messageId: number | null;
+  /** Chatwoot contact id (find-or-create). */
+  contactId: number | null;
+  /** SMS inbox id użyty do wysyłki (z env). */
+  inboxId: number | null;
+  /** HTTP status code z ostatniego call do Chatwoot. */
+  status: number | null;
+  /** Tagi błędów dla metryk: no_config / no_inbox / no_phone / contact_failed / conversation_failed / message_failed / error. */
+  error?:
+    | "no_config"
+    | "no_inbox"
+    | "no_phone"
+    | "contact_failed"
+    | "conversation_failed"
+    | "message_failed"
+    | "error";
+  /** Detail z body Chatwoota gdy error (max 200 znaków). */
+  detail?: string;
+}
+
+interface ConversationRow {
+  id: number;
+  inbox_id?: number;
+  status?: string;
+}
+
+async function findExistingSmsConversation(
+  cfg: ChatwootConfig,
+  contactId: number,
+  inboxId: number,
+): Promise<number | null> {
+  try {
+    const r = await chatwootFetch(
+      cfg,
+      `/api/v1/accounts/${cfg.accountId}/contacts/${contactId}/conversations`,
+    );
+    if (!r.ok) return null;
+    const data = (await r.json()) as
+      | { payload?: ConversationRow[] }
+      | ConversationRow[];
+    const rows = Array.isArray(data) ? data : (data.payload ?? []);
+    // Preferujemy open conversation w SMS inboxie. Fallback: dowolna
+    // (open/pending) w SMS inboxie (Chatwoot reopenuje przy kolejnej msg).
+    const inSmsInbox = rows.filter((c) => c.inbox_id === inboxId);
+    const open = inSmsInbox.find(
+      (c) => c.status === "open" || c.status === "pending",
+    );
+    return open?.id ?? inSmsInbox[0]?.id ?? null;
+  } catch (err) {
+    logger.warn("sms.find_conversation_failed", {
+      err: String(err),
+      contactId,
+      inboxId,
+    });
+    return null;
+  }
+}
+
+async function createSmsConversation(
+  cfg: ChatwootConfig,
+  args: {
+    contactId: number;
+    inboxId: number;
+    body: string;
+    ticketNumber?: string;
+    serviceId?: string;
+  },
+): Promise<{ id: number | null; status: number; detail?: string }> {
+  try {
+    const r = await chatwootFetch(
+      cfg,
+      `/api/v1/accounts/${cfg.accountId}/conversations`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          source_id: args.serviceId
+            ? `mp-svc-${args.serviceId}-${Date.now()}`
+            : `mp-sms-${Date.now()}`,
+          inbox_id: args.inboxId,
+          contact_id: args.contactId,
+          status: "open",
+          message: { content: args.body, message_type: "outgoing" },
+          additional_attributes: {
+            ticket_number: args.ticketNumber,
+            service_id: args.serviceId,
+            source: "mp-services-sms",
+          },
+        }),
+      },
+    );
+    const text = await r.text().catch(() => "");
+    if (!r.ok) {
+      return {
+        id: null,
+        status: r.status,
+        detail: text.slice(0, 200),
+      };
+    }
+    let parsed: { id?: number } = {};
+    try {
+      parsed = text ? (JSON.parse(text) as { id?: number }) : {};
+    } catch {
+      /* ignore */
+    }
+    return { id: parsed?.id ?? null, status: r.status };
+  } catch (err) {
+    return {
+      id: null,
+      status: 0,
+      detail: String(err).slice(0, 200),
+    };
+  }
+}
+
+async function postOutgoingMessage(
+  cfg: ChatwootConfig,
+  conversationId: number,
+  body: string,
+): Promise<{ id: number | null; status: number; detail?: string }> {
+  try {
+    const r = await chatwootFetch(
+      cfg,
+      `/api/v1/accounts/${cfg.accountId}/conversations/${conversationId}/messages`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          content: body,
+          message_type: "outgoing",
+        }),
+      },
+    );
+    const text = await r.text().catch(() => "");
+    if (!r.ok) {
+      return { id: null, status: r.status, detail: text.slice(0, 200) };
+    }
+    let parsed: { id?: number } = {};
+    try {
+      parsed = text ? (JSON.parse(text) as { id?: number }) : {};
+    } catch {
+      /* ignore */
+    }
+    return { id: parsed?.id ?? null, status: r.status };
+  } catch (err) {
+    return { id: null, status: 0, detail: String(err).slice(0, 200) };
+  }
+}
+
+/**
+ * Wysyła SMS do klienta przez Chatwoot Twilio inbox.
+ *
+ * Pipeline:
+ *   1. Find-or-create contact po `phone`.
+ *   2. Find-or-create conversation w SMS inboxie dla tego contactu.
+ *   3. POST outgoing message → Chatwoot przekazuje do Twilio →
+ *      Twilio wysyła SMS na phone z numeru SMS inboxa.
+ *
+ * Zwraca rich result do logowania (status, conversationId, messageId,
+ * contactId, inboxId, error tag, detail).
+ *
+ * Non-throwing — błędy zwracane jako `{ ok: false, error: ... }`.
+ */
+export async function sendCustomerSms(
+  args: SendCustomerSmsArgs,
+): Promise<SendCustomerSmsResult> {
+  const cfg = getConfig();
+  if (!cfg) {
+    return {
+      ok: false,
+      conversationId: null,
+      messageId: null,
+      contactId: null,
+      inboxId: null,
+      status: null,
+      error: "no_config",
+    };
+  }
+  if (!cfg.smsInboxId) {
+    return {
+      ok: false,
+      conversationId: null,
+      messageId: null,
+      contactId: null,
+      inboxId: null,
+      status: null,
+      error: "no_inbox",
+      detail: "CHATWOOT_SMS_INBOX_ID not set",
+    };
+  }
+  const phone = args.phone.trim();
+  if (!phone) {
+    return {
+      ok: false,
+      conversationId: null,
+      messageId: null,
+      contactId: null,
+      inboxId: cfg.smsInboxId,
+      status: null,
+      error: "no_phone",
+    };
+  }
+
+  const contactId = await findOrCreateContact(cfg, {
+    name: args.customerName,
+    phone,
+    email: args.customerEmail ?? null,
+  });
+  if (!contactId) {
+    return {
+      ok: false,
+      conversationId: null,
+      messageId: null,
+      contactId: null,
+      inboxId: cfg.smsInboxId,
+      status: null,
+      error: "contact_failed",
+    };
+  }
+
+  // Reuse existing SMS-inbox conversation for this contact gdy dostępny;
+  // Twilio i tak fires na message-create, więc nie musi to być new conv.
+  const conversationId = await findExistingSmsConversation(
+    cfg,
+    contactId,
+    cfg.smsInboxId,
+  );
+
+  if (!conversationId) {
+    const created = await createSmsConversation(cfg, {
+      contactId,
+      inboxId: cfg.smsInboxId,
+      body: args.body,
+      ticketNumber: args.ticketNumber,
+      serviceId: args.serviceId,
+    });
+    if (!created.id) {
+      return {
+        ok: false,
+        conversationId: null,
+        messageId: null,
+        contactId,
+        inboxId: cfg.smsInboxId,
+        status: created.status,
+        error: "conversation_failed",
+        detail: created.detail,
+      };
+    }
+    // Pierwszy message wszedł w body POST /conversations — wystarczy.
+    return {
+      ok: true,
+      conversationId: created.id,
+      messageId: null,
+      contactId,
+      inboxId: cfg.smsInboxId,
+      status: created.status,
+    };
+  }
+
+  const msg = await postOutgoingMessage(cfg, conversationId, args.body);
+  if (!msg.id) {
+    return {
+      ok: false,
+      conversationId,
+      messageId: null,
+      contactId,
+      inboxId: cfg.smsInboxId,
+      status: msg.status,
+      error: "message_failed",
+      detail: msg.detail,
+    };
+  }
+  return {
+    ok: true,
+    conversationId,
+    messageId: msg.id,
+    contactId,
+    inboxId: cfg.smsInboxId,
+    status: msg.status,
+  };
 }

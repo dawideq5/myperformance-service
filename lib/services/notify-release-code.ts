@@ -4,16 +4,18 @@
  * Kanały:
  *   - `email`: Postal sendMail z profilem `zlecenieserwisowe` (sender
  *     `caseownia@zlecenieserwisowe.pl`), branding 1:1 z notify-annex.
- *   - `sms`:  Chatwoot service inbox (`sendServiceMessage`) — Twilio SMS
- *     inbox podpięty pod Chatwoota. Wymaga aktywnej `chatwootConversationId`
- *     na zleceniu.
+ *   - `sms`:  Chatwoot Twilio SMS inbox (`CHATWOOT_SMS_INBOX_ID`) — find-or-
+ *     create contact po phone, find-or-create conversation w SMS inboxie,
+ *     post outgoing → Twilio fire SMS. Wave 22 / F13 fix: wcześniej
+ *     `sendServiceMessage` postował do konwersacji w service inboxie
+ *     (Channel::Email/WebWidget) i Twilio NIE odpalał — SMS nigdy nie szedł.
  *   - `paper`: no-op — kod tylko w PDF receipt (odpowiedzialność Faza 1H).
  *
  * Helper non-throwing: error jednego kanału nie blokuje POST intake.
  * Wzór 1:1 z `notify-annex.ts` (Wave 20).
  */
 import { sendMail } from "@/lib/smtp";
-import { sendServiceMessage } from "@/lib/chatwoot-customer";
+import { sendCustomerSms } from "@/lib/chatwoot-customer";
 import { applyLayout } from "@/lib/email/render";
 import {
   ensureDefaultLayout,
@@ -212,26 +214,51 @@ async function deliverSms(
   input: NotifyReleaseCodeInput,
 ): Promise<NotifyReleaseCodeResult> {
   const { service } = input;
-  if (!service.chatwootConversationId) {
-    return {
-      ok: false,
-      channel: "sms",
-      error: "no_chatwoot_conversation",
-    };
-  }
   if (!service.contactPhone) {
     return { ok: false, channel: "sms", error: "no_phone" };
   }
   try {
     const body = buildSmsBody(input);
-    const ok = await sendServiceMessage(service.chatwootConversationId, body);
-    if (!ok) {
-      return { ok: false, channel: "sms", error: "chatwoot_send_failed" };
+    const customerName =
+      [service.customerFirstName, service.customerLastName]
+        .filter(Boolean)
+        .join(" ")
+        .trim() || "Klient";
+    const result = await sendCustomerSms({
+      phone: service.contactPhone,
+      customerName,
+      body,
+      ticketNumber: service.ticketNumber,
+      serviceId: service.id,
+      customerEmail: service.contactEmail,
+    });
+    // Wave 22 / F13 — pełen audit log: status code z Chatwoot, conversation
+    // id, message id, contact id, inbox id, error tag/detail.
+    if (!result.ok) {
+      logger.warn("notify-release-code.sms_failed", {
+        serviceId: service.id,
+        ticketNumber: service.ticketNumber,
+        inboxId: result.inboxId,
+        contactId: result.contactId,
+        conversationId: result.conversationId,
+        status: result.status,
+        error: result.error,
+        detail: result.detail,
+      });
+      return {
+        ok: false,
+        channel: "sms",
+        error: result.error ?? "chatwoot_send_failed",
+      };
     }
     logger.info("notify-release-code.sms_sent", {
       serviceId: service.id,
       ticketNumber: service.ticketNumber,
-      conversationId: service.chatwootConversationId,
+      inboxId: result.inboxId,
+      conversationId: result.conversationId,
+      messageId: result.messageId,
+      contactId: result.contactId,
+      status: result.status,
     });
     return { ok: true, channel: "sms" };
   } catch (err) {
