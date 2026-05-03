@@ -224,6 +224,59 @@ export function IntakePreviewClient({ serviceId }: { serviceId: string }) {
     };
   }, [serviceId]);
 
+  /**
+   * Wave 23 (overlay) — gdy pojawia się nowy pokój a my nie mamy jeszcze
+   * jego joinTokena (np. sprzedawca rozpoczął konsultację, agent dopiero
+   * otworzył iframe), mintujemy go przez /api/livekit/agent-join-token.
+   * Endpoint waliduje że `roomName` należy do tego samego service_id co
+   * `initiateToken` (cross-service guard).
+   */
+  useEffect(() => {
+    if (!initiateToken || rooms.length === 0) return;
+    let cancelled = false;
+    const missing = rooms.filter(
+      (r) => r.status !== "ended" && !perRoomJoin[r.roomName],
+    );
+    void (async () => {
+      for (const room of missing) {
+        if (cancelled) break;
+        try {
+          const r = await fetch(`/api/livekit/agent-join-token`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              initiateToken,
+              roomName: room.roomName,
+            }),
+          });
+          const body = (await r.json()) as {
+            joinToken?: string;
+            error?: string;
+          };
+          if (!r.ok || !body.joinToken) {
+            // Cross-service room (403) lub ended (410) — pomijamy bez
+            // głośnego błędu, polling odświeży listę.
+            continue;
+          }
+          if (cancelled) break;
+          setPerRoomJoin((prev) => ({
+            ...prev,
+            [room.roomName]: {
+              joinToken: body.joinToken!,
+              mobileUrl: "",
+              qrDataUrl: "",
+            },
+          }));
+        } catch {
+          // best-effort; polling spróbuje ponownie
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [rooms, initiateToken, perRoomJoin]);
+
   const conversationId =
     typeof data?.chatwootConversationId === "number"
       ? data.chatwootConversationId
@@ -425,10 +478,10 @@ export function IntakePreviewClient({ serviceId }: { serviceId: string }) {
                       compact
                     />
                   ) : (
-                    <p className="text-[10px] text-gray-500">
-                      Aby dołączyć, kliknij link konsultacji w private note tej
-                      rozmowy (zostanie otwarty w nowej karcie).
-                    </p>
+                    <div className="flex items-center gap-1.5 text-[10px] text-gray-500">
+                      <Loader2 className="w-3 h-3 animate-spin" aria-hidden="true" />
+                      Generowanie tokenu dołączenia…
+                    </div>
                   )}
                 </div>
               );
