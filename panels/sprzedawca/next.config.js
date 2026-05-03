@@ -57,9 +57,14 @@ const securityHeaders = [
   {
     key: "Permissions-Policy",
     value: [
-      "camera=()",
-      "microphone=()",
+      // Wave 23 — sprzedawca rozpoczyna konsultację video w intake form
+      // (ConsultationVideoSection → createLocalTracks → getUserMedia).
+      // `=(self)` pozwala panelowi requestować zgodę usera; default `()`
+      // blokuje getUserMedia jeszcze przed promptem.
+      "camera=(self)",
+      "microphone=(self)",
       "geolocation=(self)",
+      "autoplay=(self)",
       "payment=()",
       "usb=()",
     ].join(", "),

@@ -18,7 +18,7 @@ import {
   createSession,
   listActiveSessionsByUser,
 } from "@/lib/livekit-rooms";
-import { sendServiceMessage } from "@/lib/chatwoot-customer";
+import { sendPrivateNote } from "@/lib/chatwoot-customer";
 import { log } from "@/lib/logger";
 import { PANEL_CORS_HEADERS, getPanelUserFromRequest } from "@/lib/panel-auth";
 import { rateLimit } from "@/lib/rate-limit";
@@ -235,7 +235,7 @@ export async function POST(req: Request) {
   // sprzedawca dostaje URL w response body żeby wkleić ręcznie.
   let chatwootMessageSent = false;
   if (chatwootConversationId) {
-    const ok = await sendServiceMessage(
+    const ok = await sendPrivateNote(
       chatwootConversationId,
       `🎥 Konsultacja video: ${joinUrl}\n\nLink wygasa za 30 minut. Kliknij, aby dołączyć jako uczestnik (audio + video tylko do odbioru).`,
     );

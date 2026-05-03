@@ -227,6 +227,42 @@ export async function sendServiceMessage(
   }
 }
 
+/**
+ * Wave 23 — wysyła PRIVATE NOTE w conversation (team-only, klient nie widzi).
+ * Używane do koordynacji wewnętrznej, np. wstrzyknięcie linka konsultacji
+ * video sprzedawca↔agent. Klient w widget'cie zobaczy tylko publiczne
+ * wiadomości.
+ *
+ * Chatwoot API: POST /messages z `private: true` flaguje wiadomość jako
+ * internal note — pojawia się tylko agentom w UI.
+ */
+export async function sendPrivateNote(
+  conversationId: number | null,
+  message: string,
+): Promise<boolean> {
+  if (!conversationId) return false;
+  const cfg = getConfig();
+  if (!cfg) return false;
+  try {
+    const r = await chatwootFetch(
+      cfg,
+      `/api/v1/accounts/${cfg.accountId}/conversations/${conversationId}/messages`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          content: message,
+          message_type: "outgoing",
+          private: true,
+        }),
+      },
+    );
+    return r.ok;
+  } catch (err) {
+    logger.warn("sendPrivateNote failed", { err: String(err) });
+    return false;
+  }
+}
+
 const STATUS_MESSAGES: Record<string, string> = {
   diagnosing:
     "Twoje urządzenie zostało przekazane technikowi do diagnozy. Damy znać, gdy będziemy mieli wyniki.",

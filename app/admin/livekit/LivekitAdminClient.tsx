@@ -10,19 +10,22 @@
  *   - service / chatwoot conversation links (gdy są),
  *   - liczba uczestników w LiveKit (jeśli reachable).
  *
- * Akcje: "Dołącz" (otwiera /konsultacja/{room}?token=… — admin musi
- * wygenerować joinToken przez backend lub posłużyć się "force-end"),
- * "Zakończ" (POST /api/admin/livekit/end-room).
- *
- * UWAGA — admin "Dołącz" wymaga tokenu, którego dashboard nie wystawia
- * automatycznie (admin nie jest w pokoju). MVP: pokazujemy roomName +
- * akcję "Zakończ"; "Dołącz" jest nieaktywny (TODO: dodać endpoint
- * `/api/admin/livekit/admin-join-token` wystawiający subscriber-only
- * token z identity=admin@email).
+ * Akcje per pokój:
+ *   - "Dołącz" → POST /api/admin/livekit/admin-join-token (mintuje signed
+ *     joinToken z identity="Admin (<email>)") → otwiera /konsultacja/<room>
+ *     w nowej karcie. Subscriber-only (admin nigdy nie publishuje).
+ *   - "Zakończ" → POST /api/admin/livekit/end-room (force deleteRoom).
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, Radio, Square, Video, RefreshCw } from "lucide-react";
+import {
+  ExternalLink,
+  Loader2,
+  Radio,
+  RefreshCw,
+  Square,
+  Video,
+} from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
 
 interface RoomRow {
@@ -58,6 +61,7 @@ export function LivekitAdminClient({ userLabel, userEmail }: Props) {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [endingRoom, setEndingRoom] = useState<string | null>(null);
+  const [joiningRoom, setJoiningRoom] = useState<string | null>(null);
 
   const fetchRooms = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -92,6 +96,34 @@ export function LivekitAdminClient({ userLabel, userEmail }: Props) {
       window.clearInterval(id);
     };
   }, [fetchRooms]);
+
+  const adminJoin = useCallback(
+    async (roomName: string) => {
+      setJoiningRoom(roomName);
+      try {
+        const r = await fetch("/api/admin/livekit/admin-join-token", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ roomName }),
+        });
+        const body = (await r.json()) as {
+          data?: { joinUrl: string };
+          error?: { message?: string };
+        };
+        if (!r.ok || !body.data?.joinUrl) {
+          throw new Error(body.error?.message ?? `HTTP ${r.status}`);
+        }
+        window.open(body.data.joinUrl, "_blank", "noopener,noreferrer");
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Nie udało się wygenerować linka.",
+        );
+      } finally {
+        setJoiningRoom(null);
+      }
+    },
+    [],
+  );
 
   const endRoom = useCallback(
     async (roomName: string) => {
@@ -183,7 +215,9 @@ export function LivekitAdminClient({ userLabel, userEmail }: Props) {
                 row={r}
                 liveKitReachable={liveKitReachable}
                 onEnd={() => void endRoom(r.roomName)}
+                onJoin={() => void adminJoin(r.roomName)}
                 ending={endingRoom === r.roomName}
+                joining={joiningRoom === r.roomName}
               />
             ))}
           </div>
@@ -211,12 +245,16 @@ function RoomCard({
   row,
   liveKitReachable,
   onEnd,
+  onJoin,
   ending,
+  joining,
 }: {
   row: RoomRow;
   liveKitReachable: boolean;
   onEnd: () => void;
+  onJoin: () => void;
   ending: boolean;
+  joining: boolean;
 }) {
   const since = row.startedAt ?? row.createdAt;
   const startedMs = since ? Date.parse(since) : 0;
@@ -306,23 +344,47 @@ function RoomCard({
           </dd>
         </div>
       </dl>
-      <button
-        type="button"
-        onClick={onEnd}
-        disabled={ending}
-        className="w-full px-2.5 py-1.5 rounded-lg text-xs font-medium inline-flex items-center justify-center gap-1.5 disabled:opacity-60"
-        style={{
-          background: "rgba(239, 68, 68, 0.15)",
-          color: "#ef4444",
-        }}
-      >
-        {ending ? (
-          <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
-        ) : (
-          <Square className="w-3.5 h-3.5" aria-hidden="true" />
-        )}
-        Zakończ
-      </button>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={onJoin}
+          disabled={joining || row.status !== "active"}
+          className="flex-1 px-2.5 py-1.5 rounded-lg text-xs font-medium inline-flex items-center justify-center gap-1.5 disabled:opacity-50"
+          style={{
+            background: "rgba(59, 130, 246, 0.15)",
+            color: "#3b82f6",
+          }}
+          title={
+            row.status === "active"
+              ? "Otwórz konsultację jako subscriber-only"
+              : "Pokój nie jest aktywny"
+          }
+        >
+          {joining ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
+          ) : (
+            <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
+          )}
+          Dołącz
+        </button>
+        <button
+          type="button"
+          onClick={onEnd}
+          disabled={ending}
+          className="flex-1 px-2.5 py-1.5 rounded-lg text-xs font-medium inline-flex items-center justify-center gap-1.5 disabled:opacity-60"
+          style={{
+            background: "rgba(239, 68, 68, 0.15)",
+            color: "#ef4444",
+          }}
+        >
+          {ending ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
+          ) : (
+            <Square className="w-3.5 h-3.5" aria-hidden="true" />
+          )}
+          Zakończ
+        </button>
+      </div>
     </div>
   );
 }
