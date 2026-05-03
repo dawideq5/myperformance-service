@@ -208,7 +208,7 @@ export function PricelistAdminClient({
     <PageShell>
       <AppHeader
         title="Cennik"
-        backHref="/admin/config"
+        backHref="/dashboard"
         parentHref="/admin/config"
         parentLabel="Konfiguracja"
         userLabel={userLabel}

@@ -14,9 +14,11 @@ export interface AppHeaderProps {
   userSubLabel?: string;
   showAccountLink?: boolean;
   /**
-   * Cel "smart back" — gdy nie ma sensownej historii sesji, link „Powrót"
-   * cofnie do tego URL. W obecności breadcrumbs (parentHref) najczęściej
-   * to po prostu rodzic, ale wolno ustawić niezależnie (np. `/dashboard`).
+   * Cel strzałki „Powrót". Gdy `parentHref` NIE jest ustawione, działa
+   * smart-back (router.back z historii sesji) — `backHref` jest fallbackiem.
+   * Gdy `parentHref` JEST ustawione (jawne breadcrumbs), strzałka idzie
+   * dosłownie do `backHref` (zwykle `/dashboard`) i pomija history —
+   * inaczej powstaje pętla hub ↔ sub-page.
    */
   backHref?: string;
   /** Optional section title shown next to the back link. */
@@ -24,8 +26,9 @@ export interface AppHeaderProps {
   /**
    * Element nadrzędny w hierarchii (np. `/admin/config` → "Konfiguracja").
    * Gdy podany razem z `parentLabel` i `title`, w nagłówku pojawia się
-   * breadcrumb: Dashboard / Konfiguracja / Typy napraw. Strzałka „Powrót"
-   * zostaje (smart back z historii) — breadcrumb to dodatkowa, jawna ścieżka.
+   * breadcrumb: Dashboard / Konfiguracja / Typy napraw. Aktywuje też
+   * „explicit-back": strzałka „Powrót" pomija router.back() i zawsze
+   * kieruje pod `backHref` — przewidywalne wyjście z hierarchii.
    */
   parentHref?: string;
   parentLabel?: string;
@@ -54,8 +57,17 @@ export function AppHeader({
   // z tego samego origin), router.back() zachowa kontekst (np. powrót
   // z /admin/locations/X do /admin/config). Bez historii — fallback do
   // backHref (zazwyczaj /dashboard albo logiczny rodzic).
+  //
+  // WAŻNE: gdy strona deklaruje jawną hierarchię (parentHref ustawione,
+  // czyli mamy breadcrumbs), wyłączamy router.back() — inaczej rodzi to
+  // pętlę: /admin/config (hub) → /admin/repair-types → klik Powrót →
+  // router.back() wraca do /admin/config → klik kafelka → znowu sub-page…
+  // Przy hierarchii jawnej strzałka „Powrót" musi prowadzić do `backHref`
+  // (zwykle /dashboard) — przewidywalne wyjście z drzewa, niezależne od
+  // historii nawigacji. Breadcrumbs dają granularną drogę do rodzica.
   const handleBack = (e: React.MouseEvent) => {
     if (typeof window === "undefined") return;
+    if (parentHref) return; // explicit hierarchy — Link → backHref
     const ref = document.referrer;
     const sameOriginHistory =
       ref && ref.startsWith(window.location.origin) && window.history.length > 1;
@@ -96,7 +108,10 @@ export function AppHeader({
               {title}
             </h1>
             {showBreadcrumbs && (
-              <Breadcrumbs items={crumbs} className="hidden sm:flex" />
+              // Breadcrumbs widoczne też na mobile — to jedyna jawna
+              // ścieżka do dashboard/rodzica (Home icon = /dashboard);
+              // arrow jest tylko dla rodzica/dashboardu.
+              <Breadcrumbs items={crumbs} />
             )}
           </div>
         </>

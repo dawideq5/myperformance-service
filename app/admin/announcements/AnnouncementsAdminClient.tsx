@@ -233,7 +233,7 @@ export function AnnouncementsAdminClient({
       header={
         <AppHeader
           title="Komunikaty"
-          backHref="/admin/config"
+          backHref="/dashboard"
           parentHref="/admin/config"
           parentLabel="Konfiguracja"
           userLabel={userLabel}

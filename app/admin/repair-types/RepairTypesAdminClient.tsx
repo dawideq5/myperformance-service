@@ -221,7 +221,7 @@ export function RepairTypesAdminClient({
       header={
         <AppHeader
           title="Typy napraw"
-          backHref="/admin/config"
+          backHref="/dashboard"
           parentHref="/admin/config"
           parentLabel="Konfiguracja"
           userLabel={userLabel}
