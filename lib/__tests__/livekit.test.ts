@@ -18,6 +18,7 @@ const createRoomMock = vi.fn(async (opts: { name: string }) => ({
 }));
 const listRoomsMock = vi.fn(async () => []);
 const listParticipantsMock = vi.fn(async () => []);
+const deleteRoomMock = vi.fn(async () => undefined);
 
 vi.mock("livekit-server-sdk", () => {
   class AccessToken {
@@ -32,6 +33,7 @@ vi.mock("livekit-server-sdk", () => {
     createRoom = createRoomMock;
     listRooms = listRoomsMock;
     listParticipants = listParticipantsMock;
+    deleteRoom = deleteRoomMock;
   }
   return { AccessToken, RoomServiceClient };
 });
@@ -39,11 +41,16 @@ vi.mock("livekit-server-sdk", () => {
 // Import AFTER vi.mock — module-under-test resolves the mocked SDK.
 import {
   LiveKitNotConfiguredError,
+  buildJoinUrl,
+  createBrowserPublisherToken,
   createPublisherToken,
   createRoom,
   createSubscriberToken,
+  deleteRoom,
   getRoomInfo,
   isConfigured,
+  signJoinToken,
+  verifyJoinToken,
 } from "@/lib/livekit";
 
 function setEnv(): void {
@@ -68,6 +75,7 @@ describe("lib/livekit", () => {
     createRoomMock.mockClear();
     listRoomsMock.mockClear();
     listParticipantsMock.mockClear();
+    deleteRoomMock.mockClear();
     setEnv();
     // Silence the structured logger output during tests.
     vi.spyOn(console, "log").mockImplementation(() => {});
@@ -265,5 +273,96 @@ describe("lib/livekit", () => {
         sid: "PA_test",
       });
     });
+  
+  describe("createBrowserPublisherToken (Wave 23)", () => {
+    it("grants publish AND subscribe (sprzedawca laptop camera + agent return)", async () => {
+      await createBrowserPublisherToken({
+        identity: "sales@mp.pl",
+        roomName: "mp-consultation-abc",
+      });
+      expect(lastGrant).toMatchObject({
+        roomJoin: true,
+        room: "mp-consultation-abc",
+        canPublish: true,
+        canSubscribe: true,
+        canPublishData: true,
+      });
+    });
+
+    it("throws LiveKitNotConfiguredError when env missing", async () => {
+      clearEnv();
+      await expect(
+        createBrowserPublisherToken({
+          identity: "sales@mp.pl",
+          roomName: "mp-consultation-abc",
+        }),
+      ).rejects.toBeInstanceOf(LiveKitNotConfiguredError);
+    });
   });
+
+  describe("signJoinToken / verifyJoinToken (Wave 23)", () => {
+    it("round-trips room + identity through HS256 audience-scoped JWT", async () => {
+      const token = await signJoinToken({
+        roomName: "mp-consultation-xyz",
+        identity: "Konsultant Chatwoot",
+      });
+      expect(typeof token).toBe("string");
+      expect(token.split(".").length).toBe(3);
+
+      const claims = await verifyJoinToken(token);
+      expect(claims.room).toBe("mp-consultation-xyz");
+      expect(claims.identity).toBe("Konsultant Chatwoot");
+      expect(claims.aud).toBe("mp-consultation-join");
+      expect(claims.exp).toBeGreaterThan(Math.floor(Date.now() / 1000));
+    });
+
+    it("rejects token signed with different secret", async () => {
+      const token = await signJoinToken({
+        roomName: "r",
+        identity: "i",
+      });
+      vi.stubEnv("LIVEKIT_API_SECRET", "different-secret-different-secret");
+      await expect(verifyJoinToken(token)).rejects.toThrow();
+    });
+
+    it("rejects token with mismatched audience", async () => {
+      // Manually craft a token with wrong audience using jose.
+      const { SignJWT } = await import("jose");
+      const secret = new TextEncoder().encode(
+        "supersecret-supersecret-supersecret",
+      );
+      const bad = await new SignJWT({ room: "r", identity: "i" })
+        .setProtectedHeader({ alg: "HS256" })
+        .setAudience("not-our-audience")
+        .setIssuedAt()
+        .setExpirationTime(Math.floor(Date.now() / 1000) + 600)
+        .sign(secret);
+      await expect(verifyJoinToken(bad)).rejects.toThrow();
+    });
+  });
+
+  describe("buildJoinUrl (Wave 23)", () => {
+    it("encodes room and token into /konsultacja path", () => {
+      const url = buildJoinUrl(
+        "https://myperformance.pl/",
+        "mp-consultation-abc",
+        "abc.def.ghi",
+      );
+      expect(url).toBe(
+        "https://myperformance.pl/konsultacja/mp-consultation-abc?token=abc.def.ghi",
+      );
+    });
+  });
+
+  describe("deleteRoom (Wave 23)", () => {
+    it("calls RoomServiceClient.deleteRoom with the room name", async () => {
+      await deleteRoom("mp-consultation-abc");
+      expect(deleteRoomMock).toHaveBeenCalledWith("mp-consultation-abc");
+    });
+
+    it("rejects empty room name", async () => {
+      await expect(deleteRoom("")).rejects.toThrow(/roomName is required/);
+    });
+  });
+});
 });

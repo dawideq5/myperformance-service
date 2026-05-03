@@ -1,21 +1,68 @@
 import { expect, test } from "@playwright/test";
 
 /**
- * Wave 22 / F19 — LiveKit token API smoke (F16b).
+ * Wave 23 — LiveKit endpoints (anonymous smoke).
  *
- * Bez fixture KC sesji nie zalogujemy serwisanta z poziomu Playwrighta.
- * Zamiast tego pinujemy kluczowe regresyjne kontrakty:
- *
+ * Bez fixture KC sesji nie zalogujemy sprzedawcy z poziomu Playwrighta.
+ * Pinujemy więc kontrakty:
  *   1. Endpointy są zamontowane (404 = ktoś usunął route → blocker).
- *   2. Bez sesji → 401/403 (middleware/route auth działa).
- *   3. CORS / OPTIONS preflight przechodzi (panele to oddzielne origin'y).
+ *   2. Bez sesji → 401 dla panel-auth (start-publisher, end-room) lub
+ *      400 dla join-token bez tokenu w URL (auth jest w samym URL'u).
+ *   3. Stary `/api/livekit/request-view` ZNIKNĄŁ (Wave 23 rework) — 404.
+ *   4. CORS / OPTIONS preflight przechodzi (panele cross-origin).
  *
- * Pełna semantyka tokenów (publish-only / subscribe-only / TTL / grant
- * shape) pokryta w `lib/__tests__/livekit.test.ts` (Vitest, mockowany SDK).
+ * Pełna semantyka tokenów (publish+subscribe / subscribe-only / TTL) w
+ * `lib/__tests__/livekit.test.ts` (Vitest, mockowany SDK).
  */
 
-test.describe("Wave 22 / F16 — LiveKit endpoints (anonymous smoke)", () => {
-  test("POST /api/livekit/request-view bez sesji → 401", async ({
+test.describe("Wave 23 — LiveKit endpoints (anonymous smoke)", () => {
+  test("POST /api/livekit/start-publisher bez sesji → 401", async ({
+    request,
+  }) => {
+    const res = await request.post("/api/livekit/start-publisher", {
+      data: {},
+    });
+    expect(res.status(), "panel-auth gate").toBe(401);
+  });
+
+  test("POST /api/livekit/end-room bez sesji → 401", async ({ request }) => {
+    const res = await request.post("/api/livekit/end-room", {
+      data: { roomName: "mp-consultation-abc" },
+    });
+    expect(res.status()).toBe(401);
+  });
+
+  test("GET /api/livekit/join-token bez tokenu → 400", async ({ request }) => {
+    const res = await request.get("/api/livekit/join-token");
+    expect(res.status()).toBe(400);
+  });
+
+  test("GET /api/livekit/join-token z fałszywym tokenem → 401", async ({
+    request,
+  }) => {
+    const res = await request.get(
+      "/api/livekit/join-token?token=this.is.not.a.valid.jwt",
+    );
+    expect(res.status()).toBe(401);
+  });
+
+  test("GET /api/livekit/intake-snapshot bez service_id → 400", async ({
+    request,
+  }) => {
+    const res = await request.get("/api/livekit/intake-snapshot");
+    expect(res.status()).toBe(400);
+  });
+
+  test("OPTIONS /api/livekit/start-publisher zwraca CORS headers", async ({
+    request,
+  }) => {
+    const res = await request.fetch("/api/livekit/start-publisher", {
+      method: "OPTIONS",
+    });
+    expect([204, 200]).toContain(res.status());
+  });
+
+  test("Wave 22 endpoints removed — /api/livekit/request-view → 404", async ({
     request,
   }) => {
     const res = await request.post("/api/livekit/request-view", {
@@ -23,37 +70,32 @@ test.describe("Wave 22 / F16 — LiveKit endpoints (anonymous smoke)", () => {
     });
     expect(
       res.status(),
-      "request-view bez auth musi zwrócić 401 (panel-auth gate)",
-    ).toBe(401);
+      "old request-view endpoint should be gone after Wave 23",
+    ).toBe(404);
   });
 
-  test("POST /api/livekit/request-view bez body → 401 (auth gate przed walidacją)", async ({
-    request,
-  }) => {
-    const res = await request.post("/api/livekit/request-view", {
-      data: {},
-    });
-    // Auth gate jest wcześniej niż walidacja body — broken auth = blocker.
-    expect(res.status()).toBe(401);
-  });
-
-  test("GET /api/livekit/subscriber-token bez sesji → 401", async ({
+  test("Wave 22 endpoints removed — /api/livekit/subscriber-token → 404", async ({
     request,
   }) => {
     const res = await request.get(
-      "/api/livekit/subscriber-token?room=mp-service-00000000-0000-0000-0000-000000000001-abcd",
+      "/api/livekit/subscriber-token?room=mp-service-foo-abcd",
     );
+    expect(res.status()).toBe(404);
+  });
+});
+
+test.describe("Wave 23 — admin LiveKit endpoints (anonymous smoke)", () => {
+  test("GET /api/admin/livekit/rooms bez sesji → 401", async ({ request }) => {
+    const res = await request.get("/api/admin/livekit/rooms");
     expect(res.status()).toBe(401);
   });
 
-  test("OPTIONS /api/livekit/request-view zwraca CORS headers (panel cross-origin)", async ({
+  test("POST /api/admin/livekit/end-room bez sesji → 401", async ({
     request,
   }) => {
-    const res = await request.fetch("/api/livekit/request-view", {
-      method: "OPTIONS",
+    const res = await request.post("/api/admin/livekit/end-room", {
+      data: { roomName: "mp-consultation-foo" },
     });
-    // PANEL_CORS_HEADERS musi być obecne — bez tego panele 3001-3003 nie
-    // dogonią dashboardu na 3000.
-    expect([204, 200]).toContain(res.status());
+    expect(res.status()).toBe(401);
   });
 });
