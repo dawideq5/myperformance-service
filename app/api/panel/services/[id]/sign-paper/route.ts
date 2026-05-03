@@ -16,6 +16,7 @@ import {
 import { getPriceLinesForService } from "@/lib/repair-types";
 import { logServiceAction } from "@/lib/service-actions";
 import { getServiceSignerEmail } from "@/lib/service-config";
+import { createServiceDocument } from "@/lib/service-documents";
 import { log } from "@/lib/logger";
 import { createHash } from "node:crypto";
 
@@ -177,6 +178,26 @@ export async function POST(
         { status: 502, headers: PANEL_CORS_HEADERS },
       );
     }
+
+    // Wave 22 / F8 — persist do `mp_service_documents`. Wersja papierowa:
+    // pracownik podpisał, czeka na ręczny podpis klienta (paper_pending →
+    // paper_signed po klik "Podpisano"). Status `partially_signed`
+    // odzwierciedla że pracownik podpisał (1 z 2 wymaganych podpisów).
+    void createServiceDocument({
+      serviceId: id,
+      ticketNumber: service.ticketNumber,
+      kind: "receipt",
+      title: `Potwierdzenie ${service.ticketNumber} (papierowe)`,
+      documensoDocId: result.documentId,
+      status: "partially_signed",
+      createdByEmail: user.email,
+    }).catch((err) => {
+      logger.warn("createServiceDocument(receipt-paper) failed", {
+        serviceId: id,
+        documentId: result.documentId,
+        err: err instanceof Error ? err.message : String(err),
+      });
+    });
 
     try {
       await updateService(id, {

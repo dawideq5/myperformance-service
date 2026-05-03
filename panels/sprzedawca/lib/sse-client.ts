@@ -36,7 +36,13 @@ export type SsePushEventType =
   | "transport_job_updated"
   | "component_added"
   | "component_updated"
-  | "component_deleted";
+  | "component_deleted"
+  // Wave 21 / Faza 1D — off-channel notatka o kontakcie z klientem.
+  | "customer_contact_recorded"
+  // Wave 21 / Faza 1B — biblioteka dokumentów per zlecenie.
+  | "document_created"
+  | "document_updated"
+  | "document_deleted";
 
 export interface SsePushEvent {
   id: string;
@@ -70,6 +76,10 @@ const TYPES: SsePushEventType[] = [
   "component_added",
   "component_updated",
   "component_deleted",
+  "customer_contact_recorded",
+  "document_created",
+  "document_updated",
+  "document_deleted",
 ];
 
 function openEventStream(

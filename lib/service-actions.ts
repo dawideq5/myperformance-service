@@ -62,6 +62,10 @@ export type ServiceActionKind =
   // Wave 21 / Faza 1D — ręczna notatka o kontakcie z klientem (telefon /
   // osobiście / inne) zarejestrowana z panelu serwisanta.
   | "customer_contact_recorded"
+  // Wave 22 / F8 — unieważnienie dokumentu (potwierdzenie elektroniczne /
+  // papierowe). Wymagane: service.status === "received" i dokument NIE jest
+  // jeszcze `signed`/`paper_signed`. Admin może wymusić przez ?force=true.
+  | "document_invalidated"
   | "other";
 
 export interface ServiceAction {
