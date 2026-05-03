@@ -11,8 +11,10 @@
  * 4s polling jest "almost live" w UX — można dodać SSE w follow-up.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Radio } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Loader2, Radio, Video } from "lucide-react";
+
+import { JoinModeSelector } from "@/components/livekit/JoinModeSelector";
 
 interface ServiceSnapshot {
   id: string;
@@ -39,6 +41,39 @@ interface ServiceSnapshot {
 
 interface SnapshotResponse {
   service?: ServiceSnapshot;
+  /** Wave 23 (overlay) — short-lived token żeby agent mógł zainicjować rozmowę. */
+  initiateToken?: string | null;
+  error?: string;
+}
+
+interface RoomRow {
+  id: string;
+  roomName: string;
+  serviceId: string | null;
+  chatwootConversationId: number | null;
+  requestedByEmail: string;
+  status: "waiting" | "active" | "ended";
+  createdAt: string;
+  startedAt: string | null;
+  endedAt: string | null;
+  durationSec: number | null;
+}
+
+interface RoomsForServiceResponse {
+  rooms: RoomRow[];
+  timestamp: string;
+  error?: string;
+}
+
+interface InitiateResponse {
+  roomName: string;
+  mobilePublisherUrl: string;
+  qrCodeDataUrl: string;
+  livekitUrl: string;
+  joinUrl: string;
+  joinToken: string;
+  chatwootMessageSent: boolean;
+  expiresAt: string;
   error?: string;
 }
 
@@ -97,6 +132,12 @@ export function IntakePreviewClient({ serviceId }: { serviceId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [highlights, setHighlights] = useState<Record<string, number>>({});
+  const [initiateToken, setInitiateToken] = useState<string | null>(null);
+  const [rooms, setRooms] = useState<RoomRow[]>([]);
+  const [perRoomJoin, setPerRoomJoin] = useState<
+    Record<string, { joinToken: string; mobileUrl: string; qrDataUrl: string }>
+  >({});
+  const [initiating, setInitiating] = useState<boolean>(false);
   const prevDataRef = useRef<ServiceSnapshot | null>(null);
 
   useEffect(() => {
@@ -135,6 +176,9 @@ export function IntakePreviewClient({ serviceId }: { serviceId: string }) {
         }
         prevDataRef.current = next;
         setData(next);
+        if (typeof body.initiateToken === "string" && body.initiateToken) {
+          setInitiateToken(body.initiateToken);
+        }
         setError(null);
       } catch (err) {
         if (cancelled) return;
@@ -153,6 +197,75 @@ export function IntakePreviewClient({ serviceId }: { serviceId: string }) {
       if (timer != null) window.clearInterval(timer);
     };
   }, [serviceId]);
+
+  // Wave 23 (overlay) — polling aktywnych pokoi konsultacji video.
+  useEffect(() => {
+    if (!serviceId) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const r = await fetch(
+          `/api/livekit/rooms-for-service?service_id=${encodeURIComponent(serviceId)}`,
+          { cache: "no-store" },
+        );
+        const body = (await r.json()) as RoomsForServiceResponse;
+        if (!r.ok) throw new Error(body.error ?? `HTTP ${r.status}`);
+        if (cancelled) return;
+        setRooms(body.rooms);
+      } catch {
+        // ignore — polling jest best-effort.
+      }
+    };
+    void tick();
+    const id = window.setInterval(() => void tick(), 5_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [serviceId]);
+
+  const conversationId =
+    typeof data?.chatwootConversationId === "number"
+      ? data.chatwootConversationId
+      : null;
+
+  const initiate = useCallback(async () => {
+    if (!initiateToken) {
+      setError("Brak tokenu inicjacji — odśwież iframe.");
+      return;
+    }
+    setInitiating(true);
+    try {
+      const r = await fetch(`/api/livekit/start-from-chatwoot-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          initiateToken,
+          conversationId,
+        }),
+      });
+      const body = (await r.json()) as InitiateResponse;
+      if (!r.ok) throw new Error(body.error ?? `HTTP ${r.status}`);
+      // Rejestrujemy join data w cache per-room, żeby JoinModeSelector
+      // mógł od razu pokazać UI bez ponownego fetcha.
+      setPerRoomJoin((prev) => ({
+        ...prev,
+        [body.roomName]: {
+          joinToken: body.joinToken,
+          mobileUrl: body.mobilePublisherUrl,
+          qrDataUrl: body.qrCodeDataUrl,
+        },
+      }));
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Nie udało się rozpocząć konsultacji.",
+      );
+    } finally {
+      setInitiating(false);
+    }
+  }, [initiateToken, conversationId]);
 
   // Highlight cleanup tick — refresh every 500ms żeby fade-out działał.
   const [, forceTick] = useState(0);
@@ -239,6 +352,90 @@ export function IntakePreviewClient({ serviceId }: { serviceId: string }) {
           );
         })}
       </dl>
+
+      {/* Wave 23 (overlay) — Konsultacja video */}
+      <section className="mt-4 pt-3 border-t border-gray-200">
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-xs font-semibold flex items-center gap-1.5">
+            <Video className="w-3.5 h-3.5 text-rose-500" aria-hidden="true" />
+            Konsultacja video
+          </h2>
+          <span className="text-[10px] text-gray-400">
+            {rooms.length === 0
+              ? "Brak aktywnych"
+              : `${rooms.length} aktywna${rooms.length > 1 ? "/-e" : ""}`}
+          </span>
+        </div>
+
+        {rooms.length === 0 && (
+          <button
+            type="button"
+            onClick={() => void initiate()}
+            disabled={initiating || !initiateToken}
+            className="w-full px-2.5 py-1.5 rounded-lg text-xs font-medium inline-flex items-center justify-center gap-1.5 disabled:opacity-50"
+            style={{
+              background: "#4f46e5",
+              color: "#fff",
+            }}
+          >
+            {initiating ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
+            ) : (
+              <Video className="w-3.5 h-3.5" aria-hidden="true" />
+            )}
+            Rozpocznij konsultację
+          </button>
+        )}
+
+        {rooms.length > 0 && (
+          <div className="space-y-2">
+            {rooms.map((r) => {
+              const cached = perRoomJoin[r.roomName];
+              return (
+                <div
+                  key={r.id}
+                  className="rounded-lg p-2 text-[11px]"
+                  style={{
+                    background: "rgba(0,0,0,0.03)",
+                    border: "1px solid rgba(0,0,0,0.08)",
+                  }}
+                >
+                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                    <span className="font-mono text-[10px] truncate">
+                      {r.roomName}
+                    </span>
+                    <span
+                      className="px-1.5 py-0.5 rounded text-[9px] uppercase tracking-wider"
+                      style={{
+                        background:
+                          r.status === "active"
+                            ? "rgba(16, 185, 129, 0.15)"
+                            : "rgba(245, 158, 11, 0.15)",
+                        color:
+                          r.status === "active" ? "#10b981" : "#f59e0b",
+                      }}
+                    >
+                      {r.status === "active" ? "TRWA" : "OCZEKUJE"}
+                    </span>
+                  </div>
+                  {cached ? (
+                    <JoinModeSelector
+                      roomName={r.roomName}
+                      signedJoinToken={cached.joinToken}
+                      compact
+                    />
+                  ) : (
+                    <p className="text-[10px] text-gray-500">
+                      Aby dołączyć, kliknij link konsultacji w private note tej
+                      rozmowy (zostanie otwarty w nowej karcie).
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
 
       <footer className="mt-4 pt-3 border-t border-gray-200">
         <p className="text-[10px] text-gray-400 text-center">

@@ -19,7 +19,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
-  ExternalLink,
+  ChevronDown,
+  ChevronUp,
   Loader2,
   Radio,
   RefreshCw,
@@ -27,6 +28,7 @@ import {
   Video,
 } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
+import { JoinModeSelector } from "@/components/livekit/JoinModeSelector";
 
 interface RoomRow {
   id: string;
@@ -62,6 +64,10 @@ export function LivekitAdminClient({ userLabel, userEmail }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [endingRoom, setEndingRoom] = useState<string | null>(null);
   const [joiningRoom, setJoiningRoom] = useState<string | null>(null);
+  /** Per-room joinToken cache (room → signed JWT). Mintujemy on demand. */
+  const [joinTokens, setJoinTokens] = useState<Record<string, string>>({});
+  /** Set roomNames z otwartym inline JoinModeSelector. */
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const fetchRooms = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -97,8 +103,24 @@ export function LivekitAdminClient({ userLabel, userEmail }: Props) {
     };
   }, [fetchRooms]);
 
-  const adminJoin = useCallback(
+  /**
+   * Toggle inline JoinModeSelector for a room. On first open mintujemy
+   * signed joinToken (Wave 23 overlay — admin-join-token zwraca też raw
+   * token). Cache w `joinTokens` żeby kolejne toggle nie regenerowały.
+   */
+  const toggleExpand = useCallback(
     async (roomName: string) => {
+      const wasOpen = expanded.has(roomName);
+      const next = new Set(expanded);
+      if (wasOpen) {
+        next.delete(roomName);
+        setExpanded(next);
+        return;
+      }
+      // Open — fetch joinToken if not cached.
+      next.add(roomName);
+      setExpanded(next);
+      if (joinTokens[roomName]) return;
       setJoiningRoom(roomName);
       try {
         const r = await fetch("/api/admin/livekit/admin-join-token", {
@@ -107,22 +129,42 @@ export function LivekitAdminClient({ userLabel, userEmail }: Props) {
           body: JSON.stringify({ roomName }),
         });
         const body = (await r.json()) as {
-          data?: { joinUrl: string };
+          data?: { joinUrl: string; joinToken?: string };
           error?: { message?: string };
         };
         if (!r.ok || !body.data?.joinUrl) {
           throw new Error(body.error?.message ?? `HTTP ${r.status}`);
         }
-        window.open(body.data.joinUrl, "_blank", "noopener,noreferrer");
+        // Wyciągnij signed token z URL'a (?token=...) jeśli backend nie
+        // udostępnia go bezpośrednio.
+        const tokenFromUrl = (() => {
+          if (body.data.joinToken) return body.data.joinToken;
+          try {
+            const u = new URL(body.data.joinUrl);
+            return u.searchParams.get("token") ?? "";
+          } catch {
+            return "";
+          }
+        })();
+        if (!tokenFromUrl) {
+          throw new Error("Brak tokenu w odpowiedzi serwera.");
+        }
+        setJoinTokens((prev) => ({ ...prev, [roomName]: tokenFromUrl }));
       } catch (err) {
+        // Close expand on failure.
+        const closed = new Set(expanded);
+        closed.delete(roomName);
+        setExpanded(closed);
         setError(
-          err instanceof Error ? err.message : "Nie udało się wygenerować linka.",
+          err instanceof Error
+            ? err.message
+            : "Nie udało się wygenerować linka.",
         );
       } finally {
         setJoiningRoom(null);
       }
     },
-    [],
+    [expanded, joinTokens],
   );
 
   const endRoom = useCallback(
@@ -215,9 +257,11 @@ export function LivekitAdminClient({ userLabel, userEmail }: Props) {
                 row={r}
                 liveKitReachable={liveKitReachable}
                 onEnd={() => void endRoom(r.roomName)}
-                onJoin={() => void adminJoin(r.roomName)}
+                onToggleJoin={() => void toggleExpand(r.roomName)}
                 ending={endingRoom === r.roomName}
                 joining={joiningRoom === r.roomName}
+                expanded={expanded.has(r.roomName)}
+                joinToken={joinTokens[r.roomName] ?? null}
               />
             ))}
           </div>
@@ -245,16 +289,20 @@ function RoomCard({
   row,
   liveKitReachable,
   onEnd,
-  onJoin,
+  onToggleJoin,
   ending,
   joining,
+  expanded,
+  joinToken,
 }: {
   row: RoomRow;
   liveKitReachable: boolean;
   onEnd: () => void;
-  onJoin: () => void;
+  onToggleJoin: () => void;
   ending: boolean;
   joining: boolean;
+  expanded: boolean;
+  joinToken: string | null;
 }) {
   const since = row.startedAt ?? row.createdAt;
   const startedMs = since ? Date.parse(since) : 0;
@@ -347,25 +395,23 @@ function RoomCard({
       <div className="flex items-center gap-2">
         <button
           type="button"
-          onClick={onJoin}
-          disabled={joining || row.status !== "active"}
+          onClick={onToggleJoin}
+          disabled={joining}
           className="flex-1 px-2.5 py-1.5 rounded-lg text-xs font-medium inline-flex items-center justify-center gap-1.5 disabled:opacity-50"
           style={{
             background: "rgba(59, 130, 246, 0.15)",
             color: "#3b82f6",
           }}
-          title={
-            row.status === "active"
-              ? "Otwórz konsultację jako subscriber-only"
-              : "Pokój nie jest aktywny"
-          }
+          title="Pokaż opcje dołączenia (tutaj / QR)"
         >
           {joining ? (
             <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
+          ) : expanded ? (
+            <ChevronUp className="w-3.5 h-3.5" aria-hidden="true" />
           ) : (
-            <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
+            <ChevronDown className="w-3.5 h-3.5" aria-hidden="true" />
           )}
-          Dołącz
+          {expanded ? "Schowaj" : "Dołącz"}
         </button>
         <button
           type="button"
@@ -385,6 +431,15 @@ function RoomCard({
           Zakończ
         </button>
       </div>
+      {expanded && joinToken && (
+        <div className="mt-3">
+          <JoinModeSelector
+            roomName={row.roomName}
+            signedJoinToken={joinToken}
+            compact
+          />
+        </div>
+      )}
     </div>
   );
 }

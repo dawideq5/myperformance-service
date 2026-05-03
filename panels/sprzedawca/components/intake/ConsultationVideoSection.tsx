@@ -1,38 +1,68 @@
 "use client";
 
 /**
- * Wave 23 — ConsultationVideoSection
+ * Wave 23 (overlay) — ConsultationVideoSection (QR-only)
  *
- * Sekcja w intake formularzu sprzedawcy. Pozwala rozpocząć konsultację
- * video z agentem Chatwoot (browser camera + microphone). Po starcie:
- *   - POST /api/relay/livekit/start-publisher → backend tworzy LiveKit
- *     room, wystawia publisher token + signed join URL, wstrzykuje link
- *     w Chatwoot conversation (jeśli `chatwootConversationId` jest znany).
- *   - Otwiera lokalny preview kamery (livekit-client SDK, dynamic import).
- *   - Pokazuje badge "Trwa konsultacja" + przycisk "Zakończ".
- *   - "Zakończ" → POST /api/relay/livekit/end-room → backend wywołuje
- *     LiveKit deleteRoom → webhook room_finished aktualizuje status sesji.
+ * Sekcja w intake formularzu sprzedawcy. Pozwala wygenerować QR code,
+ * który po zeskanowaniu przez TELEFON klienta (lub sprzedawcy) podłącza
+ * mobile publisher PWA jako publishera w LiveKit roomie.
+ *
+ * Browser camera laptopa NIE jest używana — flow przesunięty na mobilny
+ * publisher (apps/upload-bridge/livestream).
+ *
+ * Flow:
+ *   1. Klik "Rozpocznij konsultację" → POST /api/relay/livekit/start-publisher
+ *      (z serviceId/conversationId).
+ *   2. Backend: tworzy LiveKit room, mintuje mobile publisher token,
+ *      buduje URL do upload-bridge PWA, generuje QR data URL, podpisuje
+ *      join token, wstrzykuje PRIVATE NOTE do Chatwoot conversation.
+ *   3. UI: QR code 256px + tekstowy URL + status badge.
+ *   4. Polling co 5 s `/api/livekit/room-status?room=X&token=joinToken`:
+ *      - "waiting" → "⏳ Oczekuje na zeskanowanie kodu"
+ *      - "active"  → "🟢 Połączono"
+ *      - "ended"   → "Konsultacja zakończona"
+ *   5. Zakończ → POST /api/relay/livekit/end-room.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, Video, VideoOff, Copy, CheckCircle2 } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import {
+  CheckCircle2,
+  Copy,
+  Loader2,
+  QrCode,
+  Radio,
+  Video,
+  VideoOff,
+} from "lucide-react";
 
 interface ConsultationVideoSectionProps {
   /** Optional — gdy formularz dotyczy istniejącego ticketu (edit mode). */
   serviceId?: string | null;
-  /** Optional — Chatwoot conversation id powiązany z klientem. Gdy podany,
-   *  link konsultacyjny zostanie wysłany jako wiadomość w tej rozmowie. */
+  /** Optional — Chatwoot conversation id powiązany z klientem. */
   chatwootConversationId?: number | null;
 }
 
 interface StartResponse {
   roomName: string;
-  publisherToken: string;
+  mobilePublisherUrl: string;
+  qrCodeDataUrl: string;
   livekitUrl: string;
   joinUrl: string;
   joinToken: string;
   chatwootMessageSent: boolean;
   expiresAt: string;
+  error?: string;
+}
+
+interface RoomStatusResponse {
+  roomName: string;
+  status: "waiting" | "active" | "ended" | "unknown";
+  publisherConnected: boolean;
+  participantCount: number;
+  liveKitReachable: boolean;
+  startedAt: string | null;
+  createdAt: string | null;
+  endedAt: string | null;
   error?: string;
 }
 
@@ -42,15 +72,21 @@ type Phase =
   | {
       kind: "active";
       roomName: string;
+      mobilePublisherUrl: string;
+      qrCodeDataUrl: string;
       joinUrl: string;
+      joinToken: string;
       chatwootMessageSent: boolean;
       startedAtMs: number;
+      liveStatus: "waiting" | "active" | "ended" | "unknown";
     }
   | {
       kind: "ended";
       roomName: string;
       durationSec: number;
     };
+
+const STATUS_POLL_MS = 5_000;
 
 export function ConsultationVideoSection({
   serviceId,
@@ -59,46 +95,48 @@ export function ConsultationVideoSection({
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  // LiveKit Room instance — kept in ref so cleanup runs on unmount.
-  const roomRef = useRef<unknown | null>(null);
-  // Local tracks to release on close.
-  const tracksCleanupRef = useRef<Array<() => void>>([]);
 
+  // Ephemeral error auto-dismiss.
   useEffect(() => {
     if (!error) return;
     const id = window.setTimeout(() => setError(null), 6_000);
     return () => window.clearTimeout(id);
   }, [error]);
 
-  const cleanupRoom = useCallback(async () => {
-    for (const fn of tracksCleanupRef.current) {
-      try {
-        fn();
-      } catch {
-        // best-effort
-      }
-    }
-    tracksCleanupRef.current = [];
-    if (roomRef.current) {
-      const room = roomRef.current as { disconnect?: () => Promise<void> };
-      try {
-        await room.disconnect?.();
-      } catch {
-        // ignore
-      }
-      roomRef.current = null;
-    }
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
-  }, []);
-
+  // Status polling — runs only when phase=active.
   useEffect(() => {
-    return () => {
-      void cleanupRoom();
+    if (phase.kind !== "active") return;
+    const roomName = phase.roomName;
+    const joinToken = phase.joinToken;
+    let cancelled = false;
+
+    const tick = async () => {
+      try {
+        const r = await fetch(
+          `/api/relay/livekit/room-status?room=${encodeURIComponent(roomName)}&token=${encodeURIComponent(joinToken)}`,
+          { cache: "no-store" },
+        );
+        const body = (await r.json()) as RoomStatusResponse;
+        if (!r.ok) throw new Error(body.error ?? `HTTP ${r.status}`);
+        if (cancelled) return;
+        // Update only liveStatus pole — pozostała część jest niezmienna.
+        setPhase((prev) =>
+          prev.kind === "active" && prev.roomName === roomName
+            ? { ...prev, liveStatus: body.status }
+            : prev,
+        );
+      } catch {
+        // ignore — polling jest best-effort, nie blokujemy UX.
+      }
     };
-  }, [cleanupRoom]);
+
+    void tick();
+    const id = window.setInterval(() => void tick(), STATUS_POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [phase]);
 
   const startConsultation = useCallback(async () => {
     if (phase.kind === "starting" || phase.kind === "active") return;
@@ -122,53 +160,18 @@ export function ConsultationVideoSection({
         throw new Error(body.error ?? `HTTP ${r.status}`);
       }
 
-      // Dynamic import — livekit-client jest ~100KB, ładujemy tylko gdy
-      // sprzedawca faktycznie odpala konsultację.
-      const lk = await import("livekit-client");
-      const room = new lk.Room({
-        adaptiveStream: true,
-        dynacast: true,
-      });
-      roomRef.current = room;
-      await room.connect(body.livekitUrl, body.publisherToken);
-
-      // Włącz kamerę + mikrofon — użytkownik zobaczy prompt na zezwolenie.
-      const localTracks = await lk.createLocalTracks({
-        audio: true,
-        video: { resolution: lk.VideoPresets.h540.resolution },
-      });
-
-      for (const t of localTracks) {
-        await room.localParticipant.publishTrack(t);
-        tracksCleanupRef.current.push(() => {
-          try {
-            t.stop();
-          } catch {
-            // ignore
-          }
-        });
-        // Lokalny preview — attach video track do <video> elementu.
-        if (t.kind === lk.Track.Kind.Video && videoRef.current) {
-          t.attach(videoRef.current);
-          tracksCleanupRef.current.push(() => {
-            try {
-              t.detach(videoRef.current as HTMLMediaElement);
-            } catch {
-              // ignore
-            }
-          });
-        }
-      }
-
       setPhase({
         kind: "active",
         roomName: body.roomName,
+        mobilePublisherUrl: body.mobilePublisherUrl,
+        qrCodeDataUrl: body.qrCodeDataUrl,
         joinUrl: body.joinUrl,
+        joinToken: body.joinToken,
         chatwootMessageSent: body.chatwootMessageSent,
         startedAtMs: Date.now(),
+        liveStatus: "waiting",
       });
     } catch (err) {
-      await cleanupRoom();
       setError(
         err instanceof Error
           ? err.message
@@ -176,7 +179,7 @@ export function ConsultationVideoSection({
       );
       setPhase({ kind: "idle" });
     }
-  }, [phase.kind, serviceId, chatwootConversationId, cleanupRoom]);
+  }, [phase.kind, serviceId, chatwootConversationId]);
 
   const endConsultation = useCallback(async () => {
     if (phase.kind !== "active") return;
@@ -189,17 +192,18 @@ export function ConsultationVideoSection({
         body: JSON.stringify({ roomName }),
       });
     } catch {
-      // ignore — webhook will eventually fire room_finished from the
-      // 30-min idle timeout if the explicit delete fails.
+      // ignore — webhook will eventually fire room_finished from idle timeout.
     }
-    await cleanupRoom();
-    const durationSec = Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000));
+    const durationSec = Math.max(
+      0,
+      Math.floor((Date.now() - startedAtMs) / 1000),
+    );
     setPhase({ kind: "ended", roomName, durationSec });
-  }, [phase, cleanupRoom]);
+  }, [phase]);
 
-  const copyJoinUrl = useCallback(async (url: string) => {
+  const copyText = useCallback(async (text: string) => {
     try {
-      await navigator.clipboard.writeText(url);
+      await navigator.clipboard.writeText(text);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
     } catch {
@@ -229,8 +233,9 @@ export function ConsultationVideoSection({
             className="text-xs mt-1"
             style={{ color: "var(--text-muted)" }}
           >
-            Włącz kamerę i mikrofon laptopa. Link automatycznie pojawi się
-            w rozmowie z agentem Chatwoot — klik i dołącza jako uczestnik.
+            Wygeneruj kod QR — klient zeskanuje go telefonem i podłączy
+            kamerę. Link do dołączenia jako uczestnik trafia do rozmowy
+            z agentem Chatwoot.
           </p>
         </div>
       </div>
@@ -242,7 +247,7 @@ export function ConsultationVideoSection({
           className="px-3 py-2 rounded-lg text-sm font-medium inline-flex items-center gap-2"
           style={{ background: "var(--accent)", color: "#fff" }}
         >
-          <Video className="w-4 h-4" aria-hidden="true" />
+          <QrCode className="w-4 h-4" aria-hidden="true" />
           Rozpocznij konsultację
         </button>
       )}
@@ -253,39 +258,82 @@ export function ConsultationVideoSection({
           style={{ color: "var(--text-muted)" }}
         >
           <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
-          Łączenie z LiveKit…
+          Tworzenie pokoju + generowanie kodu QR…
         </div>
       )}
 
       {phase.kind === "active" && (
         <div className="space-y-3">
-          <div
-            className="rounded-xl overflow-hidden"
-            style={{ background: "#000", aspectRatio: "16 / 9" }}
-          >
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
-              className="w-full h-full object-cover"
-            />
-          </div>
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            <span
-              className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-full"
+          {/* QR + status row */}
+          <div className="flex items-start gap-4 flex-col sm:flex-row">
+            <div
+              className="rounded-xl p-3 flex-shrink-0 mx-auto sm:mx-0"
               style={{
-                background: "rgba(16, 185, 129, 0.15)",
-                color: "var(--success, #10b981)",
+                background: "#fff",
+                border: "1px solid var(--border-subtle)",
               }}
             >
-              <span
-                className="w-1.5 h-1.5 rounded-full"
-                style={{ background: "var(--success, #10b981)" }}
-                aria-hidden="true"
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={phase.qrCodeDataUrl}
+                alt="QR code do skanu telefonem"
+                width={220}
+                height={220}
+                className="block"
               />
-              Trwa konsultacja
-            </span>
+            </div>
+            <div className="flex-1 min-w-0 space-y-2">
+              <StatusBadge status={phase.liveStatus} />
+              {phase.chatwootMessageSent ? (
+                <div
+                  className="text-xs flex items-center gap-1.5"
+                  style={{ color: "var(--success, #10b981)" }}
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
+                  Link do dołączenia wysłany do rozmowy Chatwoot
+                </div>
+              ) : (
+                <p
+                  className="text-xs"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  Brak rozmowy Chatwoot dla tego zlecenia. Skopiuj link
+                  ręcznie i wklej w czacie:
+                </p>
+              )}
+              {/* Mobile publisher URL — alternatywa dla skanu QR. */}
+              <div className="space-y-1.5">
+                <p
+                  className="text-[10px] uppercase tracking-wider"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  Link do mobile publishera
+                </p>
+                <CopyableField
+                  value={phase.mobilePublisherUrl}
+                  copied={copied}
+                  onCopy={() => void copyText(phase.mobilePublisherUrl)}
+                />
+              </div>
+              {!phase.chatwootMessageSent && (
+                <div className="space-y-1.5">
+                  <p
+                    className="text-[10px] uppercase tracking-wider"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    Link dla agenta (subscriber)
+                  </p>
+                  <CopyableField
+                    value={phase.joinUrl}
+                    copied={copied}
+                    onCopy={() => void copyText(phase.joinUrl)}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end">
             <button
               type="button"
               onClick={() => void endConsultation()}
@@ -296,61 +344,9 @@ export function ConsultationVideoSection({
               }}
             >
               <VideoOff className="w-3.5 h-3.5" aria-hidden="true" />
-              Zakończ
+              Zakończ konsultację
             </button>
           </div>
-          {phase.chatwootMessageSent ? (
-            <div
-              className="text-xs flex items-center gap-1.5"
-              style={{ color: "var(--success, #10b981)" }}
-            >
-              <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
-              Link wysłany do rozmowy Chatwoot
-            </div>
-          ) : (
-            <div className="space-y-1.5">
-              <p
-                className="text-xs"
-                style={{ color: "var(--text-muted)" }}
-              >
-                Brak rozmowy Chatwoot dla tego zlecenia. Skopiuj link
-                ręcznie i wklej w czacie:
-              </p>
-              <div
-                className="flex items-center gap-1.5 text-xs p-2 rounded-lg"
-                style={{
-                  background: "rgba(0,0,0,0.05)",
-                  border: "1px solid var(--border-subtle)",
-                }}
-              >
-                <input
-                  readOnly
-                  value={phase.joinUrl}
-                  className="flex-1 bg-transparent outline-none truncate"
-                  onFocus={(e) => e.currentTarget.select()}
-                />
-                <button
-                  type="button"
-                  onClick={() => void copyJoinUrl(phase.joinUrl)}
-                  className="p-1 rounded inline-flex items-center gap-1"
-                  aria-label="Kopiuj link"
-                >
-                  {copied ? (
-                    <CheckCircle2
-                      className="w-3.5 h-3.5"
-                      style={{ color: "var(--success, #10b981)" }}
-                      aria-hidden="true"
-                    />
-                  ) : (
-                    <Copy
-                      className="w-3.5 h-3.5"
-                      aria-hidden="true"
-                    />
-                  )}
-                </button>
-              </div>
-            </div>
-          )}
         </div>
       )}
 
@@ -384,6 +380,99 @@ export function ConsultationVideoSection({
           {error}
         </div>
       )}
+    </div>
+  );
+}
+
+function StatusBadge({
+  status,
+}: {
+  status: "waiting" | "active" | "ended" | "unknown";
+}) {
+  if (status === "active") {
+    return (
+      <span
+        className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-full"
+        style={{
+          background: "rgba(16, 185, 129, 0.15)",
+          color: "var(--success, #10b981)",
+        }}
+      >
+        <Radio
+          className="w-3 h-3 animate-pulse"
+          aria-hidden="true"
+        />
+        Połączono — trwa rozmowa
+      </span>
+    );
+  }
+  if (status === "ended") {
+    return (
+      <span
+        className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-full"
+        style={{
+          background: "rgba(0, 0, 0, 0.08)",
+          color: "var(--text-muted)",
+        }}
+      >
+        Pokój zakończony
+      </span>
+    );
+  }
+  // waiting / unknown
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-full"
+      style={{
+        background: "rgba(245, 158, 11, 0.15)",
+        color: "var(--warning, #f59e0b)",
+      }}
+    >
+      <Loader2 className="w-3 h-3 animate-spin" aria-hidden="true" />
+      Oczekuje na zeskanowanie kodu
+    </span>
+  );
+}
+
+function CopyableField({
+  value,
+  copied,
+  onCopy,
+}: {
+  value: string;
+  copied: boolean;
+  onCopy: () => void;
+}) {
+  return (
+    <div
+      className="flex items-center gap-1.5 text-xs p-2 rounded-lg"
+      style={{
+        background: "rgba(0,0,0,0.05)",
+        border: "1px solid var(--border-subtle)",
+      }}
+    >
+      <input
+        readOnly
+        value={value}
+        className="flex-1 bg-transparent outline-none truncate"
+        onFocus={(e) => e.currentTarget.select()}
+      />
+      <button
+        type="button"
+        onClick={onCopy}
+        className="p-1 rounded inline-flex items-center gap-1"
+        aria-label="Kopiuj link"
+      >
+        {copied ? (
+          <CheckCircle2
+            className="w-3.5 h-3.5"
+            style={{ color: "var(--success, #10b981)" }}
+            aria-hidden="true"
+          />
+        ) : (
+          <Copy className="w-3.5 h-3.5" aria-hidden="true" />
+        )}
+      </button>
     </div>
   );
 }
