@@ -37,6 +37,10 @@ export type SsePushEventType =
   | "component_added"
   | "component_updated"
   | "component_deleted"
+  // Wave 22 / F8 — documents library SSE refresh.
+  | "document_created"
+  | "document_updated"
+  | "document_deleted"
   // Wave 22 / F15 — real-time intake co-edit.
   | "service.field_changed"
   | "service.editor_heartbeat"
@@ -74,6 +78,9 @@ const TYPES: SsePushEventType[] = [
   "component_added",
   "component_updated",
   "component_deleted",
+  "document_created",
+  "document_updated",
+  "document_deleted",
   "service.field_changed",
   "service.editor_heartbeat",
   "service.editor_disconnected",
