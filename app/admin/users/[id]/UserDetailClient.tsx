@@ -318,18 +318,17 @@ export function UserDetailClient({
 
   return (
     <PageShell
-      header={<AppHeader userLabel={callerLabel} userSubLabel={callerEmail} />}
+      header={
+        <AppHeader
+          userLabel={callerLabel}
+          userSubLabel={callerEmail}
+          title={fullName(user)}
+          backHref="/admin/users"
+          parentHref="/admin/users"
+          parentLabel="Użytkownicy"
+        />
+      }
     >
-      <div className="mb-4">
-        <Link
-          href="/admin/users"
-          className="inline-flex items-center gap-1 text-sm text-[var(--text-muted)] hover:text-[var(--text-main)]"
-        >
-          <ArrowLeft className="w-4 h-4" aria-hidden="true" />
-          Wróć do listy użytkowników
-        </Link>
-      </div>
-
       <section className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold text-[var(--text-main)]">

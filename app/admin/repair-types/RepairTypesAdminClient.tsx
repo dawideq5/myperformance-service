@@ -1,11 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
 import * as LucideIcons from "lucide-react";
 import {
   AlertCircle,
-  ArrowLeft,
   CheckCircle2,
   Edit3,
   Plus,
@@ -14,6 +12,8 @@ import {
   Wrench,
   X,
 } from "lucide-react";
+import { PageShell } from "@/components/ui";
+import { AppHeader } from "@/components/AppHeader";
 import type {
   CombinableMode,
   RepairType,
@@ -70,8 +70,12 @@ function resolveIcon(name: string): typeof Wrench {
 
 export function RepairTypesAdminClient({
   initialTypes,
+  userLabel,
+  userEmail,
 }: {
   initialTypes: RepairType[];
+  userLabel?: string;
+  userEmail?: string;
 }) {
   const [types, setTypes] = useState<RepairType[]>(initialTypes);
   const [editing, setEditing] = useState<DraftType | null>(null);
@@ -212,30 +216,37 @@ export function RepairTypesAdminClient({
   }
 
   return (
-    <div
-      className="min-h-screen p-4 sm:p-6"
-      style={{ background: "var(--bg-main)" }}
+    <PageShell
+      maxWidth="xl"
+      header={
+        <AppHeader
+          title="Typy napraw"
+          backHref="/dashboard"
+          parentHref="/admin/config"
+          parentLabel="Konfiguracja"
+          userLabel={userLabel}
+          userSubLabel={userEmail}
+        />
+      }
     >
-      <div className="max-w-6xl mx-auto space-y-4">
-        <header className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <Link
-              href="/admin/config"
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border text-xs hover:bg-[var(--bg-surface)] transition-colors"
-              style={{ borderColor: "var(--border-subtle)", color: "var(--text-muted)" }}
+      <div className="space-y-4">
+        <header className="flex items-start justify-between gap-3 flex-wrap">
+          <div className="flex items-start gap-3">
+            <div
+              className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
+              style={{ background: "rgba(245,158,11,0.12)", color: "#F59E0B" }}
             >
-              <ArrowLeft className="w-3.5 h-3.5" />
-              Powrót
-            </Link>
+              <Wrench className="w-6 h-6" />
+            </div>
             <div>
               <h1
-                className="text-2xl font-bold flex items-center gap-2"
+                className="text-xl sm:text-2xl font-bold"
                 style={{ color: "var(--text-main)" }}
               >
-                <Wrench className="w-6 h-6" /> Typy napraw
+                Katalog typów napraw
               </h1>
               <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-                Katalog rodzajów napraw — gwarancja, czas, reguły łączenia.
+                Rodzaje napraw — gwarancja, czas wykonania, reguły łączenia.
               </p>
             </div>
           </div>
@@ -317,7 +328,7 @@ export function RepairTypesAdminClient({
             ))}
         </div>
       </div>
-    </div>
+    </PageShell>
   );
 }
 
