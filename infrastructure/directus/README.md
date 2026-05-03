@@ -45,6 +45,60 @@ ssh ubuntu@57.128.249.245 \
   psql -U directus -d directus < infrastructure/directus/fix-auth-provider.sql
 ```
 
+## Reorganizacja schemy (folders + display templates + brand field)
+
+Wave 22 / F18 — `scripts/directus-reorganize.mjs` wymusza:
+- foldery nawigacji (`mp_folder_dashboard|email|panele|serwis|business|akademia|system`)
+  jako schema-less collections w Directusie,
+- `meta.group` per zarządzana kolekcja (kolekcja pojawia się pod folderem),
+- `display_template`, `archive_field`, `sort_field`, `icon` per kolekcja,
+- pole `brand` na `mp_locations` (Wave 22 / F1 follow-up — brand routing maili).
+
+Skrypt jest idempotentny — re-run na "czystym" Directusie zwraca zero diffów.
+
+### Przepływ pracy
+
+```bash
+# 1. Dry-run (pokazuje, co się zmieni — nic nie aplikuje):
+node scripts/directus-reorganize.mjs --env staging --dry-run
+
+# 2. Apply na staging:
+DIRECTUS_URL=https://cms.staging.myperformance.pl \
+DIRECTUS_ADMIN_TOKEN=<staging admin token> \
+  node scripts/directus-reorganize.mjs --env staging
+
+# 3. Re-run dry-run (powinien pokazać: same OK, brak diffów):
+node scripts/directus-reorganize.mjs --env staging --dry-run
+
+# 4. Apply na prod (po review na staging):
+DIRECTUS_URL=https://cms.myperformance.pl \
+DIRECTUS_ADMIN_TOKEN=<prod admin token> \
+  node scripts/directus-reorganize.mjs --env prod
+```
+
+### Permissions (opcjonalnie)
+
+Dodaj `--apply-permissions` aby zaimplementować role-based dostęp (editor:
+Dashboard + Email; admin: wszystko). Wymaga ról `editor` i `admin` w Directusie.
+Domyślnie pominięte — admin token i tak ma full access.
+
+### Manifest
+
+Skrypt operuje na własnym manifeście (`COLLECTIONS` array w `.mjs`), który
+JEST mirrorem `lib/directus-cms/specs/*.ts`. Jeśli zmienisz `group` /
+`display_template` / `archive_field` / `sort_field` / `icon` w specs, należy
+zaktualizować też manifest w skripcie. Specs pozostają SoT dla runtime'u
+dashboardu (`ensureCollection` w `lib/directus-cms/items.ts`); ten skrypt to
+ops-only reorg na żywej instancji Directusa.
+
+### Brand field (mp_locations)
+
+Skrypt dodaje pole `brand` (enum: `myperformance` | `zlecenieserwisowe`,
+nullable) jeśli nie istnieje. Pole konsumuje `lib/services/brand.ts`
+(`resolveBrandFromService(id)`) który decyduje który SMTP profile + layout
+emaila użyć dla danej lokacji. `null` = global default
+(`mp_branding.default_smtp_profile_slug`).
+
 ## Ukrycie formularza hasła
 
 `AUTH_DISABLE_DEFAULT=true` wyłącza endpoint, ale wbudowany formularz logowania

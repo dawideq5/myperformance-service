@@ -17,6 +17,7 @@ export const SERVICES_EXTRAS_SPECS: CollectionSpec[] = [
   // mp_pricelist linkuje przez `repair_type_code` (string FK).
   {
     collection: "mp_repair_types",
+    group: "mp_folder_business",
     meta: {
       icon: "build",
       note: "Katalog rodzajów napraw — etykiety, ikony, gwarancja, czas, reguły łączenia z innymi naprawami.",
@@ -133,6 +134,7 @@ export const SERVICES_EXTRAS_SPECS: CollectionSpec[] = [
   // Pozycje cennika edytowane przez admin /admin/config (read-only w panelach).
   {
     collection: "mp_pricelist",
+    group: "mp_folder_business",
     meta: {
       icon: "sell",
       note: "Cennik usług serwisowych i pakietów. Pozycje grupowane po category. Edytowany przez admina.",
@@ -201,6 +203,7 @@ export const SERVICES_EXTRAS_SPECS: CollectionSpec[] = [
   // service_id trzymane jako uuid + handler purge przy delete service.
   {
     collection: "mp_service_revisions",
+    group: "mp_folder_serwis",
     meta: {
       icon: "history",
       note: "Historia edycji zleceń serwisowych — kto, kiedy i jakie pola zmienił. Tylko-do-odczytu.",
@@ -284,6 +287,7 @@ export const SERVICES_EXTRAS_SPECS: CollectionSpec[] = [
   // PDF potwierdzeń. Klient podpisuje swój przez Documenso.
   {
     collection: "mp_user_signatures",
+    group: "mp_folder_system",
     meta: {
       icon: "draw",
       note: "Podpisy pracowników — embed w PDF potwierdzeń. 1 rekord per email.",
@@ -328,6 +332,7 @@ export const SERVICES_EXTRAS_SPECS: CollectionSpec[] = [
   // niezależnie od mp_service_revisions które trzyma diff edycji pól.
   {
     collection: "mp_service_actions",
+    group: "mp_folder_system",
     meta: {
       icon: "fact_check",
       note: "Audit log akcji na zleceniach serwisowych (podpis, wysyłka, druk).",
@@ -424,6 +429,7 @@ export const SERVICES_EXTRAS_SPECS: CollectionSpec[] = [
   // ETA, podpis odbioru. Powiązany m2o z mp_services (które urządzenie wozimy).
   {
     collection: "mp_transport_jobs",
+    group: "mp_folder_serwis",
     meta: {
       icon: "local_shipping",
       note: "Zlecenia transportowe między punktami (odbiór do serwisu, zwrot do klienta). Panel kierowcy zarządza tymi zleceniami.",
@@ -571,6 +577,7 @@ export const SERVICES_EXTRAS_SPECS: CollectionSpec[] = [
   // może mieć multiple part_orders. Soft delete (deleted_at).
   {
     collection: "mp_service_part_orders",
+    group: "mp_folder_serwis",
     meta: {
       icon: "inventory_2",
       note: "Zamówione części dla zleceń serwisowych w statusie 'awaiting_parts'. Każdy rekord = jedno zamówienie u dostawcy z trackingiem.",
@@ -712,6 +719,7 @@ export const SERVICES_EXTRAS_SPECS: CollectionSpec[] = [
   // Storage: Directus Files (folder "service-photos") + opcjonalny MinIO ref.
   {
     collection: "mp_service_photos",
+    group: "mp_folder_serwis",
     meta: {
       icon: "photo_library",
       note: "Zdjęcia zleceń serwisowych — przyjęcie, diagnoza, naprawa, przed wydaniem.",
@@ -832,6 +840,7 @@ export const SERVICES_EXTRAS_SPECS: CollectionSpec[] = [
   // Powiązanie z annex_id pozwala odtworzyć kto/jak zaaprobował zmianę.
   {
     collection: "mp_service_quote_history",
+    group: "mp_folder_serwis",
     meta: {
       icon: "history_toggle_off",
       note: "Historia zmian wyceny serwisu — kto, kiedy, o ile zmienił kwotę i czy istnieje aneks.",
@@ -935,6 +944,7 @@ export const SERVICES_EXTRAS_SPECS: CollectionSpec[] = [
   // lub email (manual po linku z Postal/Chatwoot).
   {
     collection: "mp_service_annexes",
+    group: "mp_folder_serwis",
     meta: {
       icon: "post_add",
       note: "Aneksy do zleceń serwisowych — zmiany ceny / zakresu wymagające akceptacji klienta.",
@@ -1090,6 +1100,7 @@ export const SERVICES_EXTRAS_SPECS: CollectionSpec[] = [
   // Soft delete (deleted_at). Bez FK do mp_services (Directus REST quirk).
   {
     collection: "mp_service_components",
+    group: "mp_folder_serwis",
     meta: {
       icon: "memory",
       note: "Komponenty (części zamienne / materiały) użyte w naprawie — koszt, VAT, faktura, kalkulacja marży.",
@@ -1282,6 +1293,7 @@ export const SERVICES_EXTRAS_SPECS: CollectionSpec[] = [
   // purge przy delete service obsługuje handler.
   {
     collection: "mp_service_documents",
+    group: "mp_folder_serwis",
     meta: {
       icon: "description",
       note: "Biblioteka dokumentów per zlecenie serwisowe — oryginał + podpisana wersja PDF, integracja z Documenso (signature anchors).",
@@ -1467,6 +1479,7 @@ export const SERVICES_EXTRAS_SPECS: CollectionSpec[] = [
   // wraz z kasacją zlecenia gdyby kiedyś wprowadzono delete service).
   {
     collection: "mp_service_release_codes",
+    group: "mp_folder_serwis",
     meta: {
       icon: "vpn_key",
       note: "Kody wydania urządzenia (6-cyfrowy). Trzymane jako hash+salt; lock po 5 błędach na 30 min.",
@@ -1600,6 +1613,7 @@ export const SERVICES_EXTRAS_SPECS: CollectionSpec[] = [
   // ręczny przy delete service.
   {
     collection: "mp_service_internal_notes",
+    group: "mp_folder_serwis",
     meta: {
       icon: "sticky_note_2",
       note: "Notatki wewnętrzne pracowników na zleceniu serwisowym (nie widoczne dla klienta).",
@@ -1702,6 +1716,7 @@ export const SERVICES_EXTRAS_SPECS: CollectionSpec[] = [
   // off-channel rozmowę.
   {
     collection: "mp_service_customer_contacts",
+    group: "mp_folder_serwis",
     meta: {
       icon: "support_agent",
       note: "Notatki o kontakcie z klientem off-channel (telefon / osobiście). Agregowane z Chatwoot/email w panelu.",

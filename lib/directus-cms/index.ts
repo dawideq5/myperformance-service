@@ -15,7 +15,13 @@
  *   - specs/*.ts      → COLLECTION_SPECS pogrupowane po domenie
  */
 
-export type { CollectionSpec, CmsAnnouncement, CmsLink } from "./types";
+export type {
+  CollectionSpec,
+  CmsAnnouncement,
+  CmsLink,
+  CollectionFolderSlug,
+} from "./types";
+export { COLLECTION_FOLDERS } from "./types";
 export {
   isConfigured,
 } from "./client";

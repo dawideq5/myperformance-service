@@ -14,10 +14,13 @@ import type { CollectionSpec } from "../types";
 export const SERVICES_CORE_SPECS: CollectionSpec[] = [
   {
     collection: "mp_services",
+    group: "mp_folder_serwis",
     meta: {
       icon: "build",
       note: "Zlecenia serwisowe — przyjęcia urządzeń. Cykl: przyjęty → diagnoza → naprawa → testy → gotowy → wydany. Klient kontaktowany przez Chatwoot.",
-      display_template: "{{brand}} {{model}} ({{imei}}) — {{status}}",
+      // {{customer_last_name}} pełni rolę "customer name" — last name istnieje
+      // jako field, joined "customer_name" jest derived na poziomie app.
+      display_template: "{{ticket_number}} — {{customer_last_name}} — {{status}}",
       sort_field: "-created_at",
       archive_field: "status",
       archive_value: "archived",
@@ -422,6 +425,7 @@ export const SERVICES_CORE_SPECS: CollectionSpec[] = [
   // === Reklamacje ===
   {
     collection: "mp_claims",
+    group: "mp_folder_serwis",
     meta: {
       icon: "report_problem",
       note: "Reklamacje klientów — produkt + paragon + opis usterki + żądanie. Powiązane z mp_locations (gdzie zgłoszono).",
@@ -533,6 +537,7 @@ export const SERVICES_CORE_SPECS: CollectionSpec[] = [
   // === Pakiet ochronny ===
   {
     collection: "mp_protections",
+    group: "mp_folder_serwis",
     meta: {
       icon: "shield",
       note: "Pakiety ochronne (szkło hartowane, gwarancja rozszerzona) sprzedane do urządzeń. Powiązane z punktem sprzedaży.",

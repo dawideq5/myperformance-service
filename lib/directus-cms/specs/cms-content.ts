@@ -12,6 +12,7 @@ export const CMS_CONTENT_SPECS: CollectionSpec[] = [
   // bezpośrednio w Directus, dashboard pull-uje przy starcie + 5min cache.
   {
     collection: "mp_links",
+    group: "mp_folder_dashboard",
     meta: {
       icon: "link",
       note: "Linki w UI: footer, sidebar, social. Edytuj swobodnie. category określa gdzie się pojawia.",
@@ -135,6 +136,7 @@ export const CMS_CONTENT_SPECS: CollectionSpec[] = [
   // === Klienckie certyfikaty mTLS — read-only mirror z issued_certificates ===
   {
     collection: "mp_certificates_cms",
+    group: "mp_folder_system",
     meta: {
       icon: "verified_user",
       note: "Certyfikaty klienckie mTLS. Mirror z lokalnej DB. Wystawienie/revoke w /admin/certificates (operacje w step-ca).",
@@ -247,6 +249,7 @@ export const CMS_CONTENT_SPECS: CollectionSpec[] = [
   // === Blokady IP — read-only mirror mp_blocked_ips ===
   {
     collection: "mp_blocked_ips_cms",
+    group: "mp_folder_system",
     meta: {
       icon: "block",
       note: "Zablokowane IP (Wazuh AR + ręczne). Mirror. Akcje block/unblock w /admin/infrastructure?tab=blocks.",
@@ -355,6 +358,7 @@ export const CMS_CONTENT_SPECS: CollectionSpec[] = [
   // === OVH config — bez secrets ===
   {
     collection: "mp_ovh_config_cms",
+    group: "mp_folder_system",
     meta: {
       icon: "cloud",
       note: "OVH API config metadata (endpoint + appKey prefix). BEZ secrets — appSecret/consumerKey w env. Edytuj w /admin/email > OVH.",

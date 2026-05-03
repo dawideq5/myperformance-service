@@ -9,6 +9,7 @@ import type { CollectionSpec } from "../types";
 export const CMS_MIRRORS_SPECS: CollectionSpec[] = [
   {
     collection: "mp_branding_cms",
+    group: "mp_folder_email",
     meta: {
       icon: "palette",
       note: "Branding stack-wide (logo, accent, footer). Edytuj w dashboardzie /admin/email.",
@@ -66,10 +67,12 @@ export const CMS_MIRRORS_SPECS: CollectionSpec[] = [
   },
   {
     collection: "mp_email_templates_cms",
+    group: "mp_folder_email",
     meta: {
       icon: "mail",
-      note: "Read-only mirror szablonów Keycloak. Edytuj w dashboardzie /admin/email.",
-      display_template: "{{kind}} — {{subject}}",
+      note: "Read-only mirror szablonów emaili (action_key z mp_email_templates). Edytuj w dashboardzie /admin/email.",
+      // Pole `kind` w mirrorze odpowiada `action_key` w canonical mp_email_templates.
+      display_template: "{{kind}}: {{subject}}",
       sort_field: "kind",
     },
     fields: [
@@ -124,6 +127,7 @@ export const CMS_MIRRORS_SPECS: CollectionSpec[] = [
   // Dashboard ma fallback hardcoded TILES jeśli Directus niedostępny.
   {
     collection: "mp_app_catalog",
+    group: "mp_folder_dashboard",
     meta: {
       icon: "apps",
       note: "Katalog kafelków/sub-views z tagami. Admin uzupełnia tagi (CSV) w tej zakładce — wyszukiwarka Cmd+K matchuje po nich.",
@@ -214,6 +218,7 @@ export const CMS_MIRRORS_SPECS: CollectionSpec[] = [
   // bieżący stan żeby admin widział strukturę uprawnień bez czytania kodu.
   {
     collection: "mp_areas_registry",
+    group: "mp_folder_system",
     meta: {
       icon: "shield",
       note: "READ-ONLY mirror obszarów uprawnień (AREAS w kodzie). Edycja w lib/permissions/areas.ts wymaga deployu. Tu widzisz bieżący stan.",
@@ -307,6 +312,7 @@ export const CMS_MIRRORS_SPECS: CollectionSpec[] = [
   // === Notif events catalog — mirror z lib/preferences.ts NOTIF_EVENTS ===
   {
     collection: "mp_notif_events_registry",
+    group: "mp_folder_system",
     meta: {
       icon: "notifications",
       note: "READ-ONLY katalog typów powiadomień. Defaults i requiresArea są w kodzie (lib/preferences.ts). Tu listing dla orientacji.",
@@ -381,6 +387,7 @@ export const CMS_MIRRORS_SPECS: CollectionSpec[] = [
   // === Email layouts — mirror z mp_email_layouts ===
   {
     collection: "mp_email_layouts_cms",
+    group: "mp_folder_email",
     meta: {
       icon: "view_quilt",
       note: "Layouty (header/footer wrapper dla emaili). Edytuj w /admin/email > Layouts. Tu read-only mirror.",
@@ -431,6 +438,7 @@ export const CMS_MIRRORS_SPECS: CollectionSpec[] = [
   // === SMTP configs — mirror BEZ secrets ===
   {
     collection: "mp_smtp_configs_cms",
+    group: "mp_folder_email",
     meta: {
       icon: "mail_outline",
       note: "Konfiguracje SMTP (alias, host, port, from). BEZ haseł — secrets pozostają w lokalnej DB. Edytuj w /admin/email > SMTP.",
