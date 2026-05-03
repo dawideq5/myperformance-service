@@ -28,7 +28,7 @@ function pushScript(
  * only consume from `queryScript` for non-DDL queries.
  */
 function isSchemaQuery(sql: string): boolean {
-  return /CREATE TABLE|CREATE INDEX|CREATE UNIQUE INDEX/i.test(sql);
+  return /CREATE TABLE|CREATE INDEX|CREATE UNIQUE INDEX|ALTER TABLE/i.test(sql);
 }
 
 vi.mock("@/lib/db", () => ({
@@ -59,6 +59,7 @@ import {
   LiveKitSessionConflictError,
   createSession,
   endSession,
+  listActiveSessions,
   listActiveSessionsByUser,
   markSessionActive,
 } from "@/lib/livekit-rooms";
@@ -88,6 +89,7 @@ describe("createSession", () => {
         expect(call.values).toEqual([
           "mp-service-svc1-abc",
           "svc1",
+          null,
           "tech@mp.pl",
         ]);
         return {
@@ -308,5 +310,85 @@ describe("listActiveSessionsByUser", () => {
     pushScript(() => ({ rows: [] }));
     const sessions = await listActiveSessionsByUser("nobody@mp.pl");
     expect(sessions).toEqual([]);
+  });
+});
+
+describe("listActiveSessions (admin oversight, Wave 23)", () => {
+  it("returns all non-ended sessions across users", async () => {
+    pushScript((call) => {
+      expect(call.sql).toMatch(/SELECT[\s\S]*FROM mp_livekit_sessions/);
+      expect(call.sql).toMatch(/status IN \('waiting', 'active'\)/);
+      return {
+        rows: [
+          {
+            id: "id1",
+            room_name: "mp-consultation-aaa",
+            service_id: null,
+            chatwoot_conversation_id: 42,
+            requested_by_email: "sales@mp.pl",
+            status: "active",
+            created_at: "2026-05-03T10:00:00.000Z",
+            started_at: "2026-05-03T10:00:01.000Z",
+            ended_at: null,
+            duration_sec: null,
+          },
+          {
+            id: "id2",
+            room_name: "mp-consultation-bbb",
+            service_id: "svc1",
+            chatwoot_conversation_id: null,
+            requested_by_email: "sales2@mp.pl",
+            status: "waiting",
+            created_at: "2026-05-03T10:01:00.000Z",
+            started_at: null,
+            ended_at: null,
+            duration_sec: null,
+          },
+        ],
+      };
+    });
+
+    const sessions = await listActiveSessions();
+    expect(sessions).toHaveLength(2);
+    expect(sessions[0].chatwootConversationId).toBe(42);
+    expect(sessions[0].serviceId).toBeNull();
+    expect(sessions[1].serviceId).toBe("svc1");
+  });
+});
+
+describe("createSession (Wave 23)", () => {
+  it("accepts null serviceId + chatwootConversationId", async () => {
+    pushScript((call) => {
+      expect(call.values).toEqual([
+        "mp-consultation-zzz",
+        null,
+        77,
+        "sales@mp.pl",
+      ]);
+      return {
+        rows: [
+          {
+            id: "uuid",
+            room_name: "mp-consultation-zzz",
+            service_id: null,
+            chatwoot_conversation_id: 77,
+            requested_by_email: "sales@mp.pl",
+            status: "waiting",
+            created_at: "2026-05-03T10:00:00.000Z",
+            started_at: null,
+            ended_at: null,
+            duration_sec: null,
+          },
+        ],
+      };
+    });
+
+    const session = await createSession({
+      roomName: "mp-consultation-zzz",
+      chatwootConversationId: 77,
+      requestedByEmail: "sales@mp.pl",
+    });
+    expect(session.serviceId).toBeNull();
+    expect(session.chatwootConversationId).toBe(77);
   });
 });

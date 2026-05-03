@@ -321,6 +321,19 @@ export const DASHBOARD_TILES: TileConfig[] = [
     visibility: { areaId: "infrastructure", min: 90 },
   },
   {
+    id: "livekit",
+    label: "LiveKit",
+    description:
+      "Aktywne konsultacje video — podgląd, dołączenie, zakończenie",
+    href: "/admin/livekit",
+    icon: "Video",
+    category: "admin",
+    iconBgClass: "bg-rose-500/10",
+    iconColorClass: "text-rose-500",
+    tourId: "livekit",
+    visibility: { areaId: "infrastructure", min: 90 },
+  },
+  {
     id: "keycloak",
     label: "Keycloak (konsola IdP)",
     description:

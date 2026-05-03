@@ -185,19 +185,25 @@ export async function POST(req: Request) {
         await recordWebhookHit("livekit", "ok", eventName, "redelivery");
         return NextResponse.json({ ok: true, action: "already_ended" });
       }
-      void logServiceAction({
-        serviceId: session.serviceId,
-        action: "live_view_ended",
-        actor: { email: session.requestedByEmail },
-        summary: "Zakończono live view (kamera mobile)",
-        payload: {
-          roomName,
-          durationSec: session.durationSec ?? 0,
-          startedAt: session.startedAt,
-          endedAt: session.endedAt,
-          numDropped: event.numDropped ?? 0,
-        },
-      });
+      // Wave 23 — sprzedawca może rozpocząć konsultację BEZ ticketu
+      // (intake form jeszcze nie zapisany). Wtedy session.serviceId jest
+      // null → pomijamy mp_service_actions log (nie ma do czego anchorować).
+      if (session.serviceId) {
+        void logServiceAction({
+          serviceId: session.serviceId,
+          action: "live_view_ended",
+          actor: { email: session.requestedByEmail },
+          summary: "Zakończono konsultację video",
+          payload: {
+            roomName,
+            durationSec: session.durationSec ?? 0,
+            startedAt: session.startedAt,
+            endedAt: session.endedAt,
+            numDropped: event.numDropped ?? 0,
+            chatwootConversationId: session.chatwootConversationId,
+          },
+        });
+      }
       logger.info("livekit room finished", {
         roomName,
         serviceId: session.serviceId,

@@ -29,6 +29,7 @@ import { ImeiField } from "./ImeiField";
 import { ColorPicker, NAMED_COLORS } from "./ColorPicker";
 import { LockSection } from "./LockSection";
 import { PhoneInputWithFlags } from "./PhoneInputWithFlags";
+import { ConsultationVideoSection } from "./ConsultationVideoSection";
 // ChecklistSection — pytania przeniesione do konfiguratora 3D (P21).
 import {
   PhoneConfigurator3D,
@@ -161,6 +162,9 @@ export function AddServiceForm({
   const [lastCreated, setLastCreated] = useState<{
     id: string;
     handover: { choice: "none" | "items"; items: string };
+    /** Wave 23 — propagowane do ConsultationVideoSection (auto-inject
+     *  link konsultacji w wiadomości Chatwoot dla tego ticketu). */
+    chatwootConversationId: number | null;
   } | null>(null);
   // Aktualne pozycje wyceny (z mp_pricelist po wybranych repair_types) —
   // ustawiane przez QuotePreview onLines, przekazywane do konfiguratora 3D
@@ -954,6 +958,17 @@ export function AddServiceForm({
           </div>
         </Section>
         </div>
+
+        {/* Wave 23 — Konsultacja video sprzedawca→Chatwoot. Tylko sales,
+            tylko gdy wypełnione minimum (klient + urządzenie). */}
+        {isSales && customerComplete && deviceComplete && (
+          <div data-section="consultation">
+            <ConsultationVideoSection
+              serviceId={editingServiceId ?? lastCreated?.id ?? null}
+              chatwootConversationId={lastCreated?.chatwootConversationId ?? null}
+            />
+          </div>
+        )}
 
         {/* Punkt serwisowy — sales-only. Serwisant *jest* punktem serwisowym,
             backend mappuje destination automatycznie po locationId. */}

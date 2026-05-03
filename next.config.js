@@ -324,10 +324,57 @@ const nextConfig = {
     return config;
   },
   async headers() {
+    // Wave 23 — per-route overrides:
+    //  - /konsultacja/* needs camera + microphone (publisher) AND camera +
+    //    microphone subscribe; Permissions-Policy default blocks both with
+    //    `camera=(), microphone=()`. Override to `=(self)`.
+    //  - /chatwoot-app/* embedded as iframe inside chat.myperformance.pl;
+    //    default `frame-ancestors 'none'` + `X-Frame-Options DENY` block
+    //    embedding. Allow chatwoot origin only.
+    const chatwootOriginForFrame = process.env.NEXT_PUBLIC_CHATWOOT_URL?.trim().replace(/\/$/, "")
+      || process.env.CHATWOOT_URL?.trim().replace(/\/$/, "")
+      || "https://chat.myperformance.pl";
+    const consultationPermissionsPolicy = [
+      "camera=(self)",
+      "microphone=(self)",
+      "geolocation=()",
+      "fullscreen=(self)",
+      "display-capture=()",
+      "autoplay=(self)",
+      "payment=()",
+      "usb=()",
+      "midi=()",
+    ].join(", ");
+    const chatwootAppHeaders = securityHeaders
+      .filter((h) => h.key !== "X-Frame-Options" && h.key !== "Content-Security-Policy")
+      .concat([
+        // Don't send X-Frame-Options here; CSP frame-ancestors is the modern
+        // mechanism. We allow only the configured Chatwoot origin.
+        {
+          key: "Content-Security-Policy",
+          value: cspDirectives
+            .filter((d) => !d.startsWith("frame-ancestors"))
+            .concat([`frame-ancestors 'self' ${chatwootOriginForFrame}`])
+            .join("; "),
+        },
+      ]);
+    const consultationHeaders = securityHeaders.map((h) =>
+      h.key === "Permissions-Policy"
+        ? { key: "Permissions-Policy", value: consultationPermissionsPolicy }
+        : h,
+    );
     return [
       {
         source: "/(.*)",
         headers: securityHeaders,
+      },
+      {
+        source: "/konsultacja/:path*",
+        headers: consultationHeaders,
+      },
+      {
+        source: "/chatwoot-app/:path*",
+        headers: chatwootAppHeaders,
       },
       {
         source: "/api/(.*)",

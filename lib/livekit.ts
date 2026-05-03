@@ -346,3 +346,267 @@ export async function getRoomInfo(roomName: string): Promise<RoomInfo> {
     })),
   };
 }
+
+/**
+ * Wave 23 — browser publisher token.
+ *
+ * Sprzedawca otwiera konsultację video w intake formularzu — kamera +
+ * mikrofon laptopa. W odróżnieniu od mobilnego publishera (F16c, usuniętego
+ * w Wave 23) browser publisher TEŻ subskrybuje (żeby zobaczyć zwrotny
+ * stream agenta Chatwoot, gdy ten włączy własną kamerę). Stąd
+ * `canPublish=true` AND `canSubscribe=true`.
+ */
+export async function createBrowserPublisherToken(
+  opts: IssueTokenOptions,
+): Promise<string> {
+  const { identity, roomName } = validateTokenOpts(opts);
+  const cfg = loadConfig();
+  const ttl = opts.ttlSec ?? DEFAULT_TOKEN_TTL_SEC;
+
+  const token = new AccessToken(cfg.apiKey, cfg.apiSecret, {
+    identity,
+    ttl,
+    name: opts.name,
+    metadata: opts.metadata,
+  });
+  const grant: VideoGrant = {
+    roomJoin: true,
+    room: roomName,
+    canPublish: true,
+    canSubscribe: true,
+    canPublishData: true,
+  };
+  token.addGrant(grant);
+
+  const jwt = await token.toJwt();
+  logger.info("browser publisher token issued", {
+    identity,
+    roomName,
+    ttlSec: ttl,
+  });
+  return jwt;
+}
+
+/**
+ * Wave 23 (overlay) — mobile publisher token.
+ *
+ * Sprzedawca generuje QR z URL'em do mobile publisher PWA
+ * (`apps/upload-bridge/livestream`). Mobile po skanowaniu otwiera URL
+ * z `?room=X&token=Y`, łączy się jako publisher (kamera tylna domyślnie,
+ * `canPublish=true, canSubscribe=false` — mobile nie podgląda agenta).
+ *
+ * Identity = `mobile-<rand>` (nie email klienta — anonimizacja). TTL 30 min
+ * pokrywa typowe okno czasu między wystawieniem QR a faktycznym dołączeniem.
+ */
+export async function createMobilePublisherToken(
+  opts: IssueTokenOptions,
+): Promise<string> {
+  const { identity, roomName } = validateTokenOpts(opts);
+  const cfg = loadConfig();
+  const ttl = opts.ttlSec ?? DEFAULT_TOKEN_TTL_SEC;
+
+  const token = new AccessToken(cfg.apiKey, cfg.apiSecret, {
+    identity,
+    ttl,
+    name: opts.name,
+    metadata: opts.metadata,
+  });
+  const grant: VideoGrant = {
+    roomJoin: true,
+    room: roomName,
+    canPublish: true,
+    canSubscribe: false,
+    canPublishData: true,
+  };
+  token.addGrant(grant);
+
+  const jwt = await token.toJwt();
+  logger.info("mobile publisher token issued", {
+    identity,
+    roomName,
+    ttlSec: ttl,
+  });
+  return jwt;
+}
+
+/**
+ * Wave 23 — signed join URL helper.
+ *
+ * Wystawiamy krótki HS256 token (TTL 30 min domyślnie), który wkleimy
+ * w link wysłany do rozmowy Chatwoot. Agent klika → `/konsultacja/<room>?token=...`,
+ * tam server-side weryfikujemy podpis i wystawiamy subscriber token LiveKit
+ * (kanał oddzielny od MyPerformance KC SSO — agent nie loguje się tam).
+ *
+ * Klucz: `LIVEKIT_API_SECRET` (już używany do podpisu LiveKit access tokens).
+ * Audience: `mp-consultation-join` żeby ten sam secret nie pomylił się
+ * z innymi tokenami.
+ */
+export interface JoinTokenClaims {
+  /** LiveKit room name. */
+  room: string;
+  /** Display identity (np. "Konsultant serwisowy" — pokazane w viewer UI). */
+  identity: string;
+  /** Issued-at (sec since epoch). */
+  iat: number;
+  /** Expiry (sec since epoch). */
+  exp: number;
+  /** Audience guard. */
+  aud: "mp-consultation-join";
+}
+
+const JOIN_TOKEN_AUDIENCE = "mp-consultation-join";
+const JOIN_TOKEN_DEFAULT_TTL_SEC = 30 * 60;
+
+export interface SignJoinTokenOptions {
+  roomName: string;
+  identity: string;
+  ttlSec?: number;
+}
+
+export async function signJoinToken(opts: SignJoinTokenOptions): Promise<string> {
+  const cfg = loadConfig();
+  const room = opts.roomName?.trim();
+  const identity = opts.identity?.trim();
+  if (!room) throw new Error("roomName is required");
+  if (!identity) throw new Error("identity is required");
+  const { SignJWT } = await import("jose");
+  const ttl = opts.ttlSec ?? JOIN_TOKEN_DEFAULT_TTL_SEC;
+  const now = Math.floor(Date.now() / 1000);
+  const secret = new TextEncoder().encode(cfg.apiSecret);
+  return new SignJWT({ room, identity })
+    .setProtectedHeader({ alg: "HS256" })
+    .setAudience(JOIN_TOKEN_AUDIENCE)
+    .setIssuedAt(now)
+    .setExpirationTime(now + ttl)
+    .sign(secret);
+}
+
+export async function verifyJoinToken(token: string): Promise<JoinTokenClaims> {
+  const cfg = loadConfig();
+  const { jwtVerify } = await import("jose");
+  const secret = new TextEncoder().encode(cfg.apiSecret);
+  const { payload } = await jwtVerify(token, secret, {
+    audience: JOIN_TOKEN_AUDIENCE,
+    algorithms: ["HS256"],
+  });
+  if (typeof payload.room !== "string" || typeof payload.identity !== "string") {
+    throw new Error("malformed join token");
+  }
+  return {
+    room: payload.room,
+    identity: payload.identity,
+    iat: typeof payload.iat === "number" ? payload.iat : 0,
+    exp: typeof payload.exp === "number" ? payload.exp : 0,
+    aud: JOIN_TOKEN_AUDIENCE,
+  };
+}
+
+/**
+ * Wave 23 (overlay) — Chatwoot agent initiate token.
+ *
+ * Wystawiany przy GET /api/livekit/intake-snapshot (gdy iframe ładuje
+ * podgląd intake'u dla konkretnego service_id). Krótki TTL = 5 min,
+ * audience `mp-chatwoot-initiate`. Konsumowany przez
+ * /api/livekit/start-from-chatwoot-agent — jedyna autoryzacja dla
+ * publicznego endpointu który tworzy nowy LiveKit room.
+ *
+ * Claim `service_id` jest twardo związany z requestem — agent nie może
+ * podstawić innego service_id niż widzi w iframe.
+ */
+const CHATWOOT_INITIATE_AUDIENCE = "mp-chatwoot-initiate";
+const CHATWOOT_INITIATE_DEFAULT_TTL_SEC = 5 * 60;
+
+export interface ChatwootInitiateClaims {
+  serviceId: string;
+  iat: number;
+  exp: number;
+  aud: "mp-chatwoot-initiate";
+}
+
+export async function signChatwootInitiateToken(opts: {
+  serviceId: string;
+  ttlSec?: number;
+}): Promise<string> {
+  const cfg = loadConfig();
+  const serviceId = opts.serviceId?.trim();
+  if (!serviceId) throw new Error("serviceId is required");
+  const { SignJWT } = await import("jose");
+  const ttl = opts.ttlSec ?? CHATWOOT_INITIATE_DEFAULT_TTL_SEC;
+  const now = Math.floor(Date.now() / 1000);
+  const secret = new TextEncoder().encode(cfg.apiSecret);
+  return new SignJWT({ serviceId })
+    .setProtectedHeader({ alg: "HS256" })
+    .setAudience(CHATWOOT_INITIATE_AUDIENCE)
+    .setIssuedAt(now)
+    .setExpirationTime(now + ttl)
+    .sign(secret);
+}
+
+export async function verifyChatwootInitiateToken(
+  token: string,
+): Promise<ChatwootInitiateClaims> {
+  const cfg = loadConfig();
+  const { jwtVerify } = await import("jose");
+  const secret = new TextEncoder().encode(cfg.apiSecret);
+  const { payload } = await jwtVerify(token, secret, {
+    audience: CHATWOOT_INITIATE_AUDIENCE,
+    algorithms: ["HS256"],
+  });
+  if (typeof payload.serviceId !== "string") {
+    throw new Error("malformed chatwoot initiate token");
+  }
+  return {
+    serviceId: payload.serviceId,
+    iat: typeof payload.iat === "number" ? payload.iat : 0,
+    exp: typeof payload.exp === "number" ? payload.exp : 0,
+    aud: CHATWOOT_INITIATE_AUDIENCE,
+  };
+}
+
+/**
+ * Wave 23 — pełen URL który wysyłamy do Chatwoot conversation. Trzymamy
+ * helper tu (a nie w route handlerze) żeby ujednolicić format.
+ */
+export function buildJoinUrl(baseUrl: string, roomName: string, joinToken: string): string {
+  const base = baseUrl.replace(/\/$/, "");
+  return `${base}/konsultacja/${encodeURIComponent(roomName)}?token=${encodeURIComponent(joinToken)}`;
+}
+
+/**
+ * Wave 23 — Force-end room (admin oversight + sprzedawca self-end).
+ * Triggers LiveKit `room_finished` webhook automatically.
+ */
+export async function deleteRoom(roomName: string): Promise<void> {
+  const name = roomName?.trim();
+  if (!name) throw new Error("roomName is required");
+  const cfg = loadConfig();
+  const client = new RoomServiceClient(
+    toHttpUrl(cfg.url),
+    cfg.apiKey,
+    cfg.apiSecret,
+  );
+  try {
+    await client.deleteRoom(name);
+    logger.info("room deleted", { roomName: name });
+  } catch (err) {
+    logger.error("deleteRoom failed", {
+      roomName: name,
+      err: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
+  }
+}
+
+/**
+ * Wave 23 — list ALL rooms on the LiveKit server. Used by /admin/livekit
+ * to count live participants per room (DB sessions table doesn't track that).
+ */
+export async function listAllRooms(): Promise<Room[]> {
+  const cfg = loadConfig();
+  const client = new RoomServiceClient(
+    toHttpUrl(cfg.url),
+    cfg.apiKey,
+    cfg.apiSecret,
+  );
+  return client.listRooms();
+}
