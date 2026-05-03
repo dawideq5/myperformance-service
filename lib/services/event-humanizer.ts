@@ -300,6 +300,89 @@ export function humanizeAction(
         description: safeSummary || "Zlecenie transportu anulowane.",
       };
 
+    case "transport_status_changed": {
+      const fromStatus = pickString(payload, "fromStatus");
+      const toStatus = pickString(payload, "toStatus");
+      const jobNumber = pickString(payload, "jobNumber");
+      const STATUS_LABELS: Record<string, string> = {
+        queued: "W kolejce",
+        assigned: "Przypisane",
+        in_transit: "Rozpoczęto transport",
+        delivered: "Dostarczone",
+        cancelled: "Anulowane",
+      };
+      const toLabel = toStatus ? (STATUS_LABELS[toStatus] ?? toStatus) : null;
+      const ref = jobNumber ? `Transport #${jobNumber}` : "Transport";
+      return {
+        label: `${ref}${toLabel ? `: ${toLabel}` : ""}`,
+        description: safeSummary || "",
+      };
+    }
+
+    case "transport_status_changed": {
+      const fromStatus = pickString(payload, "fromStatus");
+      const toStatus = pickString(payload, "toStatus");
+      const jobNumber = pickString(payload, "jobNumber");
+      const hasSignature =
+        payload && typeof payload === "object" && "hasSignature" in payload
+          ? Boolean((payload as Record<string, unknown>).hasSignature)
+          : false;
+      const STATUS_LABELS: Record<string, string> = {
+        queued: "W kolejce",
+        assigned: "Przypisane",
+        in_transit: "Rozpoczęto transport",
+        delivered: "Dostarczone",
+        cancelled: "Anulowane",
+      };
+      const toLabel = toStatus ? (STATUS_LABELS[toStatus] ?? toStatus) : null;
+      const fromLabel = fromStatus
+        ? (STATUS_LABELS[fromStatus] ?? fromStatus)
+        : null;
+      const ref = jobNumber ? `Transport #${jobNumber}` : "Transport";
+      const transition =
+        toLabel && fromLabel
+          ? `${fromLabel} → ${toLabel}`
+          : (toLabel ?? safeSummary);
+      const sigSuffix = hasSignature ? " (z podpisem odbiorcy)" : "";
+      return {
+        label: `${ref}: ${transition}${sigSuffix}`,
+        description:
+          safeSummary && safeSummary !== transition ? safeSummary : "",
+      };
+    }
+
+    case "transport_status_changed": {
+      const fromStatus = pickString(payload, "fromStatus");
+      const toStatus = pickString(payload, "toStatus");
+      const jobNumber = pickString(payload, "jobNumber");
+      const hasSignature =
+        payload && typeof payload === "object" && "hasSignature" in payload
+          ? Boolean((payload as Record<string, unknown>).hasSignature)
+          : false;
+      const STATUS_LABELS: Record<string, string> = {
+        queued: "W kolejce",
+        assigned: "Przypisane",
+        in_transit: "Rozpoczęto transport",
+        delivered: "Dostarczone",
+        cancelled: "Anulowane",
+      };
+      const toLabel = toStatus ? (STATUS_LABELS[toStatus] ?? toStatus) : null;
+      const fromLabel = fromStatus
+        ? (STATUS_LABELS[fromStatus] ?? fromStatus)
+        : null;
+      const ref = jobNumber ? `Transport #${jobNumber}` : "Transport";
+      const transition =
+        toLabel && fromLabel
+          ? `${fromLabel} → ${toLabel}`
+          : (toLabel ?? safeSummary);
+      const sigSuffix = hasSignature ? " (z podpisem odbiorcy)" : "";
+      return {
+        label: `${ref}: ${transition}${sigSuffix}`,
+        description:
+          safeSummary && safeSummary !== transition ? safeSummary : "",
+      };
+    }
+
     case "release_code_generated": {
       const channel = pickString(payload, "channel");
       const channelLabel = channel
