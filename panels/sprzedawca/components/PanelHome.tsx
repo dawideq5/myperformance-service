@@ -40,6 +40,7 @@ import { PricelistTab } from "./tabs/PricelistTab";
 import { DeliveryTab } from "./tabs/DeliveryTab";
 import { ToastProvider } from "./ToastProvider";
 import { SignatureSetup } from "./SignatureSetup";
+import { BackToDashboardButton } from "./BackToDashboardButton";
 
 const STORAGE_KEY = "panel-sprzedawca:selected-location";
 const TAB_STORAGE_KEY = "panel-sprzedawca:active-tab";
@@ -353,15 +354,6 @@ export function PanelHome({
       >
         <div className="mx-auto max-w-7xl px-4 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
-            <a
-              href={DASHBOARD_HOME_URL}
-              className="flex-shrink-0 p-2 rounded-lg"
-              style={{ color: "var(--text-muted)" }}
-              aria-label="Wróć do dashboardu"
-              title="Powrót do dashboardu"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </a>
             <div className="min-w-0">
               <p
                 className="font-bold text-base sm:text-lg truncate"
@@ -403,6 +395,7 @@ export function PanelHome({
                 <span>{userLabel}</span>
               </div>
             )}
+            <BackToDashboardButton />
             <button
               type="button"
               onClick={() => signOut({ callbackUrl: "/login" })}
