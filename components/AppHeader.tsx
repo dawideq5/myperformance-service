@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { ArrowLeft, LogOut, Search, Settings, User as UserIcon } from "lucide-react";
-import { Button, PageHeader, ThemeToggle } from "@/components/ui";
+import { Breadcrumbs, Button, PageHeader, ThemeToggle, type Crumb } from "@/components/ui";
 import { NotificationBell } from "@/components/NotificationBell";
 import { useAuthRedirect } from "@/hooks/useAuthRedirect";
 import { usePlatform } from "@/hooks/usePlatform";
@@ -13,10 +13,22 @@ export interface AppHeaderProps {
   userLabel?: string;
   userSubLabel?: string;
   showAccountLink?: boolean;
-  /** When set, renders a back link on the left followed by the title. */
+  /**
+   * Cel "smart back" — gdy nie ma sensownej historii sesji, link „Powrót"
+   * cofnie do tego URL. W obecności breadcrumbs (parentHref) najczęściej
+   * to po prostu rodzic, ale wolno ustawić niezależnie (np. `/dashboard`).
+   */
   backHref?: string;
   /** Optional section title shown next to the back link. */
   title?: string;
+  /**
+   * Element nadrzędny w hierarchii (np. `/admin/config` → "Konfiguracja").
+   * Gdy podany razem z `parentLabel` i `title`, w nagłówku pojawia się
+   * breadcrumb: Dashboard / Konfiguracja / Typy napraw. Strzałka „Powrót"
+   * zostaje (smart back z historii) — breadcrumb to dodatkowa, jawna ścieżka.
+   */
+  parentHref?: string;
+  parentLabel?: string;
   /** Extra controls rendered just before the user badge on the right. */
   rightExtras?: ReactNode;
 }
@@ -29,6 +41,8 @@ export function AppHeader({
   showAccountLink = true,
   backHref,
   title,
+  parentHref,
+  parentLabel,
   rightExtras,
 }: AppHeaderProps) {
   const { fullLogout } = useAuthRedirect();
@@ -52,23 +66,42 @@ export function AppHeader({
     // else: zostawiamy default <Link href={backHref}> behavior
   };
 
+  // Breadcrumbs (Dashboard / Parent / Title) renderujemy tylko jeśli mamy
+  // pełen łańcuch: parentHref + parentLabel + title. Komponent `Breadcrumbs`
+  // sam dodaje element "Dashboard" jako Home na początku, więc lista to
+  // [parent, current].
+  const showBreadcrumbs = Boolean(parentHref && parentLabel && title);
+  const crumbs: Crumb[] = showBreadcrumbs
+    ? [
+        { label: parentLabel as string, href: parentHref },
+        { label: title as string },
+      ]
+    : [];
+
   const left = backHref ? (
-    <>
+    <div className="flex items-center gap-3 sm:gap-4 min-w-0">
       <Link
         href={backHref}
         onClick={handleBack}
-        className="flex items-center gap-2 text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors"
+        className="flex items-center gap-2 text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors flex-shrink-0"
       >
         <ArrowLeft className="w-5 h-5" aria-hidden="true" />
-        <span className="text-sm font-medium">Powrót</span>
+        <span className="text-sm font-medium hidden sm:inline">Powrót</span>
       </Link>
       {title && (
         <>
-          <div className="h-6 w-px bg-[var(--border-subtle)]" aria-hidden="true" />
-          <h1 className="text-xl font-bold text-[var(--text-main)]">{title}</h1>
+          <div className="h-6 w-px bg-[var(--border-subtle)] flex-shrink-0" aria-hidden="true" />
+          <div className="flex flex-col min-w-0">
+            <h1 className="text-base sm:text-xl font-bold text-[var(--text-main)] truncate">
+              {title}
+            </h1>
+            {showBreadcrumbs && (
+              <Breadcrumbs items={crumbs} className="hidden sm:flex" />
+            )}
+          </div>
         </>
       )}
-    </>
+    </div>
   ) : (
     <Link
       href="/dashboard"

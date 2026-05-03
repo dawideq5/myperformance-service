@@ -234,6 +234,8 @@ export function AnnouncementsAdminClient({
         <AppHeader
           title="Komunikaty"
           backHref="/admin/config"
+          parentHref="/admin/config"
+          parentLabel="Konfiguracja"
           userLabel={userLabel}
           userSubLabel={userEmail}
         />
