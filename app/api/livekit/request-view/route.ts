@@ -12,6 +12,11 @@ import {
   createRoom,
   getLiveKitUrl,
 } from "@/lib/livekit";
+import {
+  LiveKitSessionConflictError,
+  createSession,
+  listActiveSessionsByUser,
+} from "@/lib/livekit-rooms";
 import { log } from "@/lib/logger";
 import { PANEL_CORS_HEADERS, getPanelUserFromRequest } from "@/lib/panel-auth";
 import { rateLimit } from "@/lib/rate-limit";
@@ -141,6 +146,30 @@ export async function POST(req: Request) {
     );
   }
 
+  // Hard limit: max 1 non-ended LiveKit session per serwisant. The friendly
+  // pre-check covers the common case; the partial unique index in
+  // `mp_livekit_sessions` is the actual race-safe gate (see livekit-rooms.ts).
+  // Without this a sloppy double-click would burn 2 LiveKit rooms (and 2
+  // 30-min idle slots until the empty-timeout fires).
+  try {
+    const activeSessions = await listActiveSessionsByUser(user.email);
+    if (activeSessions.length > 0) {
+      return NextResponse.json(
+        {
+          error:
+            "Masz już aktywną rozmowę. Zakończ ją przed rozpoczęciem nowej.",
+        },
+        { status: 429, headers: PANEL_CORS_HEADERS },
+      );
+    }
+  } catch (err) {
+    // DB hiccup → don't fail-closed (LiveKit room creation isn't reversible),
+    // log + continue. The unique index will still gate concurrent creates.
+    logger.warn("listActiveSessionsByUser failed (continuing)", {
+      err: err instanceof Error ? err.message : String(err),
+    });
+  }
+
   // Room name encodes the service id so subscribers can verify the binding
   // server-side without a separate lookup table. Random suffix prevents
   // accidental cross-call subscription if a serwisant clicks twice.
@@ -191,6 +220,43 @@ export async function POST(req: Request) {
       { error: "Nie udało się uruchomić live view." },
       { status: 502, headers: PANEL_CORS_HEADERS },
     );
+  }
+
+  // Persist the lifecycle row. This is what the webhook handler joins
+  // against to compute duration on `room_finished`. The unique index
+  // re-enforces "max 1 active per user" against any race that slipped
+  // past the pre-check above.
+  try {
+    await createSession({
+      roomName,
+      serviceId,
+      requestedByEmail: user.email,
+    });
+  } catch (err) {
+    if (err instanceof LiveKitSessionConflictError) {
+      // Race won by a sibling request — return the same friendly 429.
+      // The LiveKit room is already created; it will auto-close in 30 min
+      // (`emptyTimeoutSec`) since neither side has joined yet.
+      logger.info("livekit session conflict (race after pre-check)", {
+        email: user.email,
+        roomName,
+      });
+      return NextResponse.json(
+        {
+          error:
+            "Masz już aktywną rozmowę. Zakończ ją przed rozpoczęciem nowej.",
+        },
+        { status: 429, headers: PANEL_CORS_HEADERS },
+      );
+    }
+    // Any other DB error: log + continue. Webhook handler will still log
+    // `live_view_ended` if it can find the row by room_name; if not, the
+    // server-side LiveKit auto-close handles the resource. Better to ship
+    // the QR than to leak a created room and a 502.
+    logger.warn("createSession failed (continuing without persistence)", {
+      roomName,
+      err: err instanceof Error ? err.message : String(err),
+    });
   }
 
   const publisherUrl = buildPublisherUrl(roomName, publisherToken);
