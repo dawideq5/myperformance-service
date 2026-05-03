@@ -36,12 +36,16 @@ export async function GET(req: Request) {
       phone: l.phone,
     }));
   // Lookup wszystkich lokalizacji (id→nazwa+typ) — używane przez frontend
-  // do resolvowania UUID-ów w karcie Dostawa i Historii edycji.
+  // do resolvowania UUID-ów w karcie Dostawa, Historii edycji oraz
+  // (Wave 22 / F10) w drawer'ze transportu serwisanta — lat/lng pozwala
+  // wyliczyć dystans między source/destination.
   const lookup = allLocations.map((l) => ({
     id: l.id,
     name: l.name,
     type: l.type,
     address: l.address,
+    lat: l.lat,
+    lng: l.lng,
   }));
 
   let defaultServiceId: string | null = null;
