@@ -1,0 +1,83 @@
+# turn.myperformance.pl — coturn (TURN/STUN server dla LiveKit)
+#
+# Cel (Wave 22 / F16): NAT traversal dla klientów WebRTC za symmetric NAT-em.
+# LiveKit SFU używa zewnętrznego coturna (built-in TURN w livekit.yaml jest
+# wyłączony) — credentials współdzielone przez env LIVEKIT_TURN_USER /
+# LIVEKIT_TURN_PASSWORD.
+#
+# Architektura:
+#   - STUN/TURN UDP+TCP: 3478
+#   - TURN over TLS:     5349  (cert TLS z Let's Encrypt — patrz README.md)
+#   - Relay range UDP:   49160-49200  (host network, ~40 portów na ~20 sesji)
+#
+# UWAGA — `network_mode: host`:
+# coturn relay'uje pakiety UDP między klientem a peerem, otwierając krótko-
+# trwałe sockety na losowych portach z zakresu min-port/max-port. Bridge
+# networking + per-port mapowanie nie działa poprawnie dla TURN-a (Docker
+# nie odwzorowuje source ports), więc używamy `network_mode: host` —
+# kontener dzieli stos sieciowy z hostem.
+#
+# Konsekwencje:
+#   - porty 3478/5349/49160-49200 muszą być WOLNE na VPS-ie
+#   - firewall (iptables/ufw): ALLOW 3478/udp+tcp, 5349/tcp, 49160-49200/udp
+#   - certyfikaty Let's Encrypt: generowane osobno przez certbot DNS-01 lub
+#     scopiowane z Traefika (patrz README.md → "TLS dla turn.")
+#
+# DNS prerequisite (OVH):
+#   A  turn.myperformance.pl  → <VPS public IP>
+
+services:
+  coturn:
+    image: 'coturn/coturn:4.6.2-alpine'
+    restart: unless-stopped
+    network_mode: host
+
+    # Konfiguracja jako bind mount — łatwiej audytować i edytować bez restartu
+    # obrazu. turnserver.conf jest read-only (coturn re-czyta config tylko
+    # przy SIGHUP / restart).
+    volumes:
+      - './turnserver.conf:/etc/turnserver.conf:ro'
+      # Certyfikat TLS dla turn.myperformance.pl (port 5349/tls).
+      # Kopiowany z Let's Encrypt (Traefik) lub z step-ca — patrz README.md.
+      - '/opt/myperformance/coturn/certs:/etc/coturn/certs:ro'
+      # Persistent volume na user database (lt-cred mech z plikiem userdb)
+      # i logi.
+      - 'coturn-data:/var/lib/coturn'
+
+    environment:
+      # Dla compose env-substitution w turnserver.conf — coturn 4.6+ czyta
+      # zmienne `$$VAR` z env (alpine-based image ma envsubst).
+      # UWAGA: `turnserver.conf` w tym repo ma już wartości statyczne
+      # i komentarze; produkcja nadpisuje przez COOLIFY_ env-vars w UI
+      # (kopia configu na bind-mount path /opt/myperformance/coturn/turnserver.conf).
+      - 'TURN_REALM=${TURN_REALM:-myperformance.pl}'
+      - 'TURN_EXTERNAL_IP=${LIVEKIT_NODE_IP:-}'
+      - 'TURN_USER=${LIVEKIT_TURN_USER}'
+      - 'TURN_PASSWORD=${LIVEKIT_TURN_PASSWORD}'
+
+    healthcheck:
+      # `turnutils_uclient` nie ma w obrazie alpine, więc używamy `pidof` —
+      # coturn proces musi być żywy. (Pełny health-check wymagałby zewnętrznego
+      # klienta TURN; sprawdzaj manualnie po deployu — patrz README.md.)
+      test: ['CMD-SHELL', 'pidof turnserver >/dev/null 2>&1 || exit 1']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"
+          memory: "512M"
+        reservations:
+          cpus: "0.25"
+          memory: "128M"
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+        window: 120s
+
+volumes:
+  coturn-data:

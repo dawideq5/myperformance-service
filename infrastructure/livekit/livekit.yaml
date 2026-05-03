@@ -1,0 +1,95 @@
+# LiveKit Server config — myperformance.pl
+#
+# Reference: https://docs.livekit.io/realtime/self-hosting/deployment/
+#
+# Wszystkie sekrety są wstrzykiwane przez env (Coolify Service env-vars):
+#   LIVEKIT_API_KEY / LIVEKIT_API_SECRET — keypair do JWT (32+ chars)
+#   LIVEKIT_TURN_DOMAIN / LIVEKIT_TURN_USER / LIVEKIT_TURN_PASSWORD — coturn
+#   LIVEKIT_NODE_IP — public IP VPS-a (do SDP candidate)
+#
+# Format: LiveKit supportuje ${VAR} interpolation w wartościach stringowych
+# od v1.5+. Lista (np. `keys:`) wymaga jednej pary klucz/sekret w env.
+
+# === Signaling / REST API port ===
+port: 7880
+
+# === Media (WebRTC) ===
+rtc:
+  # UDP range musi się zgadzać z `ports:` w docker-compose.yml.
+  port_range_start: 50000
+  port_range_end: 60000
+
+  # TCP fallback dla klientów za firewallem blokującym UDP.
+  tcp_port: 7881
+
+  # UDP signaling fallback (LiveKit-specific, opcjonalnie).
+  udp_port: 7882
+
+  # Public IP wstawiany w ICE candidates. Bez tego klienci próbują
+  # łączyć się do docker bridge IP (nie działa).
+  # `use_external_ip: true` = LiveKit auto-detekuje przez STUN Google'a.
+  # Override ręczny: ustaw env LIVEKIT_RTC_NODE_IP=<vps_public_ip>
+  # (LiveKit mapuje LIVEKIT_RTC_NODE_IP → rtc.node_ip automatycznie).
+  use_external_ip: true
+
+# === API keys ===
+# CELOWO POMINIĘTE w tym pliku. LiveKit nie podstawia ${VAR} w YAML keys
+# (substitution działa tylko w wartościach, w sekcjach v1.5+). Zamiast tego
+# używamy env-vara LIVEKIT_KEYS="APIxxx: secretxxx" (compose interpoluje
+# go z ${LIVEKIT_API_KEY}/${LIVEKIT_API_SECRET}). Patrz docker-compose.yml.
+#
+# Reference: https://docs.livekit.io/realtime/self-hosting/deployment/#env-vars
+
+# === TURN server (zewnętrzny coturn) ===
+# LiveKit nie hostuje własnego TURN-a w tej konfiguracji — używa coturna
+# z osobnego serwisu. Klienci dostają TURN credentials w access tokenie
+# (REST API /twirp/livekit.RoomService/CreateRoom z roomConfig).
+turn:
+  enabled: false   # built-in TURN wyłączony — używamy zewnętrznego coturna
+
+# === Room defaults ===
+room:
+  # Maksymalna liczba uczestników w 1 room. Dla device view: 2-3 (mobile
+  # publisher + 1-2 serwisanci subscriberzy + opcjonalnie admin watcher).
+  # Limit 10 daje margines na przyszłe scenariusze (training, multi-watcher).
+  max_participants: 10
+
+  # Idle timeout — auto-close room po 30 min braku ruchu (po stronie
+  # publisher'a). Trzymanie roomu otwartego = niepotrzebne CPU + pamięć.
+  empty_timeout: 1800
+
+  # Maksymalny czas trwania roomu (1h). Po nim wymuszony close —
+  # device view nie powinien trwać godzinami; jeśli trwa, coś jest nie tak.
+  departure_timeout: 20
+
+# === Logging ===
+logging:
+  level: info
+  json: true
+  # sample: 100   # 1/100 sampling dla DEBUG (gdy włączymy debug-level)
+
+# === Observability ===
+# Prometheus metrics endpoint. Scrape z Wazuh/Prometheus przez
+# http://livekit:6789/metrics (wewnątrz docker network).
+prometheus_port: 6789
+
+# === Webhooks ===
+# (Faza późniejsza — F16d/F16e). LiveKit może wysyłać HTTP POST przy
+# room_started / room_finished / participant_joined / track_published.
+# Endpoint w dashboardzie /api/webhooks/livekit weryfikuje podpis HS256
+# nagłówkiem `Authorization: <jwt>` (LiveKit signing scheme).
+#
+# webhook:
+#   api_key: ${LIVEKIT_API_KEY}
+#   urls:
+#     - https://myperformance.pl/api/webhooks/livekit
+
+# === Audio (defaults — niewykorzystywane w device view, ale safe defaults) ===
+audio:
+  active_level: 35
+  min_percentile: 40
+  update_interval: 400
+  smooth_intervals: 2
+
+# === Region (informacyjne, nieobowiązkowe) ===
+region: eu-pl-tychy
