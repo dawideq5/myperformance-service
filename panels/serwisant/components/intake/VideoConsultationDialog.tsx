@@ -54,6 +54,9 @@ interface StartResponse {
   joinToken: string;
   chatwootMessageSent: boolean;
   expiresAt: string;
+  /** Wave 24 — gdy 429 z powodu istniejącej sesji, backend dodaje
+   *  `activeRoomName` żeby UI mogło ją auto-zamknąć i retry'ować. */
+  activeRoomName?: string;
   error?: string;
 }
 
@@ -115,7 +118,7 @@ export function VideoConsultationDialog({
     setError(null);
 
     void (async () => {
-      try {
+      const tryStart = async (): Promise<StartResponse> => {
         const r = await fetch(`/api/relay/livekit/start-publisher`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -124,8 +127,42 @@ export function VideoConsultationDialog({
             serviceId: serviceId ?? undefined,
           }),
         });
-        const body = (await r.json()) as StartResponse;
-        if (!r.ok) throw new Error(body.error ?? `HTTP ${r.status}`);
+        const data = (await r.json()) as StartResponse;
+        if (!r.ok) {
+          // 429 z `activeRoomName` = stale sesja sprzedawcy. Auto-end +
+          // retry: wystarcza, bo `listActiveSessionsByUser` po stronie
+          // backend filtruje >30min, a fresh stale (np. <30min)
+          // zamykamy explicite.
+          if (r.status === 429 && data.activeRoomName) {
+            try {
+              await fetch(`/api/relay/livekit/end-room`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ roomName: data.activeRoomName }),
+              });
+            } catch {
+              // continue — backoff handled w retry catch
+            }
+            const r2 = await fetch(`/api/relay/livekit/start-publisher`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                chatwootConversationId: conversationId,
+                serviceId: serviceId ?? undefined,
+              }),
+            });
+            const data2 = (await r2.json()) as StartResponse;
+            if (!r2.ok) {
+              throw new Error(data2.error ?? `HTTP ${r2.status}`);
+            }
+            return data2;
+          }
+          throw new Error(data.error ?? `HTTP ${r.status}`);
+        }
+        return data;
+      };
+      try {
+        const body = await tryStart();
         if (cancelled) return;
         setPhase({
           kind: "active",
@@ -146,6 +183,10 @@ export function VideoConsultationDialog({
             : "Nie udało się rozpocząć rozmowy.",
         );
         setPhase({ kind: "idle" });
+        // Pozwól użytkownikowi spróbować ponownie z nowego klika —
+        // bez resetu ref'a kolejne otwarcia tego samego modala
+        // pomijają fetch.
+        startInFlightRef.current = false;
       }
     })();
 

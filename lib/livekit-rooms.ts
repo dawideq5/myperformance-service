@@ -264,6 +264,23 @@ export async function listActiveSessionsByUser(
   email: string,
 ): Promise<LiveKitSession[]> {
   await ensureSchema();
+  // Wave 24 — auto-expire wierszy starszych niż 30 min (LiveKit
+  // emptyTimeoutSec = 30 min, więc room po stronie LiveKit już nie
+  // istnieje). Bez tego stale sesje z testów blokują nowy start
+  // ("Masz już aktywną konsultację"). UPDATE jest idempotentne i
+  // bezpieczne (filter na status + created_at).
+  await withClient(async (c) => {
+    await c.query(
+      `UPDATE mp_livekit_sessions
+          SET status = 'ended',
+              ended_at = now(),
+              duration_sec = COALESCE(
+                EXTRACT(EPOCH FROM (now() - COALESCE(started_at, created_at)))::int,
+                0)
+        WHERE status IN ('waiting', 'active')
+          AND created_at < now() - INTERVAL '30 minutes'`,
+    );
+  });
   const r = await withClient((c) =>
     c.query<Row>(
       `SELECT id, room_name, service_id, chatwoot_conversation_id,
