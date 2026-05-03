@@ -74,7 +74,12 @@ export async function POST(req: Request) {
       adminEmail,
     });
 
-    return createSuccessResponse({ joinUrl, roomName, ttlSec: 30 * 60 });
+    return createSuccessResponse({
+      joinUrl,
+      joinToken,
+      roomName,
+      ttlSec: 30 * 60,
+    });
   } catch (err) {
     return handleApiError(err);
   }

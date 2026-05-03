@@ -36,7 +36,8 @@ const ALLOWED_PANEL_PREFIXES = new Set([
 const ALLOWED_ACCOUNT_PREFIXES = new Set(["inbox"]);
 // Wave 23 — top-level mounts mapped 1:1 to /api/<segment>/...
 //   livekit: panel uses /api/livekit/start-publisher + /api/livekit/end-room
-//            to initiate / end consultation video sessions during intake.
+//            + /api/livekit/room-status (Wave 23 overlay polling) to
+//            initiate / end / poll consultation video sessions during intake.
 const ALLOWED_ROOT_PREFIXES = new Set(["livekit"]);
 
 async function handle(

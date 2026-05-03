@@ -8,11 +8,12 @@ import { getOptionalEnv } from "@/lib/env";
 import {
   LiveKitNotConfiguredError,
   buildJoinUrl,
-  createBrowserPublisherToken,
+  createMobilePublisherToken,
   createRoom,
   getLiveKitUrl,
   signJoinToken,
 } from "@/lib/livekit";
+import { buildMobilePublisherUrl, generateQrDataUrl } from "@/lib/livekit-mobile";
 import {
   LiveKitSessionConflictError,
   createSession,
@@ -48,23 +49,26 @@ interface StartPublisherBody {
 /**
  * POST /api/livekit/start-publisher
  *
- * Wave 23 — sprzedawca rozpoczyna konsultację video w intake formularzu.
- * Może to zrobić ZANIM zapisał ticket (`serviceId` opcjonalne — wtedy
- * sesja LiveKit nie jest powiązana z żadnym service'em w DB).
+ * Wave 23 (overlay) — sprzedawca rozpoczyna konsultację video poprzez
+ * wygenerowanie QR. Mobile publisher (telefon klienta lub sprzedawcy)
+ * skanuje kod i staje się publisherem. Browser camera laptopa NIE jest
+ * używana.
  *
  * Flow:
  *   1. Tworzymy LiveKit room `mp-consultation-<rand>`.
- *   2. Wystawiamy publisher token sprzedawcy (publish+subscribe — laptop
- *      camera; subscribe żeby zobaczył agenta gdy ten włączy kamerę).
- *   3. Podpisujemy join URL do `/konsultacja/<room>?token=...` (HS256
- *      audience-scoped do `mp-consultation-join`, TTL 30 min).
- *   4. Jeśli `chatwootConversationId` jest podany (lub można go wyciągnąć
- *      z service'u), wstrzykujemy link w wiadomość Chatwoot — agent
- *      kliknie i dołączy jako subscriber.
+ *   2. Wystawiamy MOBILE publisher token (canPublish=true, canSubscribe=false,
+ *      identity = `mobile-<rand>`).
+ *   3. Budujemy mobile publisher URL → upload-bridge PWA z `?room=X&token=Y`.
+ *   4. Generujemy QR data URL (PNG base64, 256px) z mobilePublisherUrl.
+ *   5. Podpisujemy join URL do `/konsultacja/<room>?token=...` (HS256
+ *      audience-scoped do `mp-consultation-join`, TTL 30 min) — link dla
+ *      agenta Chatwoot (subscriber).
+ *   6. Jeśli `chatwootConversationId` jest podany, wstrzykujemy link w
+ *      Chatwoot conversation jako PRIVATE NOTE.
  *
  * Body: { serviceId?: string, chatwootConversationId?: number }
- * Response: { roomName, publisherToken, livekitUrl, joinUrl, joinToken,
- *             expiresAt, chatwootMessageSent }
+ * Response: { roomName, mobilePublisherUrl, qrCodeDataUrl, joinUrl,
+ *             joinToken, livekitUrl, expiresAt, chatwootMessageSent }
  */
 export async function POST(req: Request) {
   const user = await getPanelUserFromRequest(req);
@@ -154,8 +158,11 @@ export async function POST(req: Request) {
   }
 
   const roomName = `mp-consultation-${shortId(6)}`;
+  const mobileIdentity = `mobile-${shortId(4)}`;
 
-  let publisherToken: string;
+  let mobilePublisherToken: string;
+  let mobilePublisherUrl: string;
+  let qrCodeDataUrl: string;
   let joinToken: string;
   let livekitUrl: string;
   try {
@@ -171,16 +178,18 @@ export async function POST(req: Request) {
         createdAt: new Date().toISOString(),
       }),
     });
-    publisherToken = await createBrowserPublisherToken({
-      identity: user.email,
+    mobilePublisherToken = await createMobilePublisherToken({
+      identity: mobileIdentity,
       roomName,
       ttlSec: 30 * 60,
-      name:
-        user.name?.trim() ||
-        user.preferred_username ||
-        user.email,
-      metadata: JSON.stringify({ role: "publisher", serviceId }),
+      name: "Mobile (klient)",
+      metadata: JSON.stringify({ role: "mobile-publisher", serviceId }),
     });
+    mobilePublisherUrl = buildMobilePublisherUrl(
+      roomName,
+      mobilePublisherToken,
+    );
+    qrCodeDataUrl = await generateQrDataUrl(mobilePublisherUrl);
     joinToken = await signJoinToken({
       roomName,
       identity: "Konsultant Chatwoot",
@@ -278,7 +287,8 @@ export async function POST(req: Request) {
   return NextResponse.json(
     {
       roomName,
-      publisherToken,
+      mobilePublisherUrl,
+      qrCodeDataUrl,
       livekitUrl,
       joinUrl,
       joinToken,

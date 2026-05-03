@@ -388,6 +388,48 @@ export async function createBrowserPublisherToken(
 }
 
 /**
+ * Wave 23 (overlay) — mobile publisher token.
+ *
+ * Sprzedawca generuje QR z URL'em do mobile publisher PWA
+ * (`apps/upload-bridge/livestream`). Mobile po skanowaniu otwiera URL
+ * z `?room=X&token=Y`, łączy się jako publisher (kamera tylna domyślnie,
+ * `canPublish=true, canSubscribe=false` — mobile nie podgląda agenta).
+ *
+ * Identity = `mobile-<rand>` (nie email klienta — anonimizacja). TTL 30 min
+ * pokrywa typowe okno czasu między wystawieniem QR a faktycznym dołączeniem.
+ */
+export async function createMobilePublisherToken(
+  opts: IssueTokenOptions,
+): Promise<string> {
+  const { identity, roomName } = validateTokenOpts(opts);
+  const cfg = loadConfig();
+  const ttl = opts.ttlSec ?? DEFAULT_TOKEN_TTL_SEC;
+
+  const token = new AccessToken(cfg.apiKey, cfg.apiSecret, {
+    identity,
+    ttl,
+    name: opts.name,
+    metadata: opts.metadata,
+  });
+  const grant: VideoGrant = {
+    roomJoin: true,
+    room: roomName,
+    canPublish: true,
+    canSubscribe: false,
+    canPublishData: true,
+  };
+  token.addGrant(grant);
+
+  const jwt = await token.toJwt();
+  logger.info("mobile publisher token issued", {
+    identity,
+    roomName,
+    ttlSec: ttl,
+  });
+  return jwt;
+}
+
+/**
  * Wave 23 — signed join URL helper.
  *
  * Wystawiamy krótki HS256 token (TTL 30 min domyślnie), który wkleimy
@@ -456,6 +498,68 @@ export async function verifyJoinToken(token: string): Promise<JoinTokenClaims> {
     iat: typeof payload.iat === "number" ? payload.iat : 0,
     exp: typeof payload.exp === "number" ? payload.exp : 0,
     aud: JOIN_TOKEN_AUDIENCE,
+  };
+}
+
+/**
+ * Wave 23 (overlay) — Chatwoot agent initiate token.
+ *
+ * Wystawiany przy GET /api/livekit/intake-snapshot (gdy iframe ładuje
+ * podgląd intake'u dla konkretnego service_id). Krótki TTL = 5 min,
+ * audience `mp-chatwoot-initiate`. Konsumowany przez
+ * /api/livekit/start-from-chatwoot-agent — jedyna autoryzacja dla
+ * publicznego endpointu który tworzy nowy LiveKit room.
+ *
+ * Claim `service_id` jest twardo związany z requestem — agent nie może
+ * podstawić innego service_id niż widzi w iframe.
+ */
+const CHATWOOT_INITIATE_AUDIENCE = "mp-chatwoot-initiate";
+const CHATWOOT_INITIATE_DEFAULT_TTL_SEC = 5 * 60;
+
+export interface ChatwootInitiateClaims {
+  serviceId: string;
+  iat: number;
+  exp: number;
+  aud: "mp-chatwoot-initiate";
+}
+
+export async function signChatwootInitiateToken(opts: {
+  serviceId: string;
+  ttlSec?: number;
+}): Promise<string> {
+  const cfg = loadConfig();
+  const serviceId = opts.serviceId?.trim();
+  if (!serviceId) throw new Error("serviceId is required");
+  const { SignJWT } = await import("jose");
+  const ttl = opts.ttlSec ?? CHATWOOT_INITIATE_DEFAULT_TTL_SEC;
+  const now = Math.floor(Date.now() / 1000);
+  const secret = new TextEncoder().encode(cfg.apiSecret);
+  return new SignJWT({ serviceId })
+    .setProtectedHeader({ alg: "HS256" })
+    .setAudience(CHATWOOT_INITIATE_AUDIENCE)
+    .setIssuedAt(now)
+    .setExpirationTime(now + ttl)
+    .sign(secret);
+}
+
+export async function verifyChatwootInitiateToken(
+  token: string,
+): Promise<ChatwootInitiateClaims> {
+  const cfg = loadConfig();
+  const { jwtVerify } = await import("jose");
+  const secret = new TextEncoder().encode(cfg.apiSecret);
+  const { payload } = await jwtVerify(token, secret, {
+    audience: CHATWOOT_INITIATE_AUDIENCE,
+    algorithms: ["HS256"],
+  });
+  if (typeof payload.serviceId !== "string") {
+    throw new Error("malformed chatwoot initiate token");
+  }
+  return {
+    serviceId: payload.serviceId,
+    iat: typeof payload.iat === "number" ? payload.iat : 0,
+    exp: typeof payload.exp === "number" ? payload.exp : 0,
+    aud: CHATWOOT_INITIATE_AUDIENCE,
   };
 }
 

@@ -3,6 +3,10 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 
+import {
+  LiveKitNotConfiguredError,
+  signChatwootInitiateToken,
+} from "@/lib/livekit";
 import { log } from "@/lib/logger";
 import { rateLimit } from "@/lib/rate-limit";
 import { getService } from "@/lib/services";
@@ -91,15 +95,38 @@ export async function GET(req: Request) {
     intakeChecklist: service.intakeChecklist,
   };
 
+  // Wave 23 (overlay) — issue short-lived initiate token tak żeby Chatwoot
+  // iframe mógł zainicjować nowy LiveKit room przez
+  // /api/livekit/start-from-chatwoot-agent. Bez tokenu = read-only podgląd.
+  // LiveKit może być nieskonfigurowany w dev — wtedy initiate token = null
+  // i UI ukrywa przycisk "Rozpocznij konsultację".
+  let initiateToken: string | null = null;
+  try {
+    initiateToken = await signChatwootInitiateToken({
+      serviceId,
+      ttlSec: 5 * 60,
+    });
+  } catch (err) {
+    if (!(err instanceof LiveKitNotConfiguredError)) {
+      logger.warn("signChatwootInitiateToken failed (continuing)", {
+        err: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   logger.info("intake snapshot served", {
     serviceId,
     ticketNumber: service.ticketNumber,
+    initiateToken: initiateToken ? "issued" : "skipped",
   });
 
-  return new NextResponse(JSON.stringify({ service: sanitized }), {
-    status: 200,
-    headers: corsHeaders,
-  });
+  return new NextResponse(
+    JSON.stringify({ service: sanitized, initiateToken }),
+    {
+      status: 200,
+      headers: corsHeaders,
+    },
+  );
 }
 
 export async function OPTIONS() {
