@@ -88,6 +88,41 @@ export function PanelHome({
     }
   }, []);
 
+  // Wave 24 — Chatwoot dymek czatu pokazuj TYLKO w zakładce "Dodaj serwis"
+  // i ukryj gdy konfigurator 3D jest otwarty. Konfigurator emituje custom
+  // event `mp:configurator` z detail.open=true/false.
+  const [configuratorOpen, setConfiguratorOpen] = useState(false);
+  useEffect(() => {
+    const onConfigurator = (event: Event) => {
+      const ce = event as CustomEvent<{ open?: boolean }>;
+      setConfiguratorOpen(Boolean(ce.detail?.open));
+    };
+    window.addEventListener("mp:configurator", onConfigurator);
+    return () => window.removeEventListener("mp:configurator", onConfigurator);
+  }, []);
+
+  useEffect(() => {
+    const widgetVisible =
+      activeTab === "services-add" && !configuratorOpen;
+    const apply = () => {
+      try {
+        window.$chatwoot?.toggleBubbleVisibility(
+          widgetVisible ? "show" : "hide",
+        );
+      } catch {
+        /* SDK może być nie załadowany jeszcze — ChatwootWidget retry */
+      }
+    };
+    if (window.$chatwoot?.hasLoaded) {
+      apply();
+    } else {
+      const handler = () => apply();
+      window.addEventListener("chatwoot:ready", handler, { once: true });
+      return () =>
+        window.removeEventListener("chatwoot:ready", handler);
+    }
+  }, [activeTab, configuratorOpen]);
+
   // Auto-select gdy 1 punkt; przywróć z localStorage gdy >1 i user już
   // wcześniej wybrał (zapamiętujemy żeby nie pytać przy każdym odświeżeniu).
   useEffect(() => {

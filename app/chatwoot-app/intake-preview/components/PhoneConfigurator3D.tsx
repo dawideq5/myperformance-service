@@ -284,6 +284,20 @@ export function PhoneConfigurator3D({
   );
   const [closing, setClosing] = useState(false);
 
+  // Wave 24 — emituj custom event mount/unmount żeby PanelHome ukrył dymek
+  // Chatwoota podczas pełnoekranowego konfiguratora 3D.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.dispatchEvent(
+      new CustomEvent("mp:configurator", { detail: { open: true } }),
+    );
+    return () => {
+      window.dispatchEvent(
+        new CustomEvent("mp:configurator", { detail: { open: false } }),
+      );
+    };
+  }, []);
+
   // Damage markers — kliknięcie w model NATYCHMIAST tworzy marker (bez
   // dodatkowego "Zapisz" buttona). User może potem edytować opis w panelu
   // bocznym albo usunąć krzyżykiem.

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 
 /**
@@ -16,9 +17,15 @@ import { useSession } from "next-auth/react";
  */
 export function ChatwootWidget() {
   const { status } = useSession();
+  const pathname = usePathname();
   const initialized = useRef(false);
 
+  // Wave 24 — `/chatwoot-app/*` to iframe Dashboard App ładowany z poziomu
+  // Chatwoota; mountowanie tam SDK powodowało duplikat dymka czatu.
+  const suppressed = pathname?.startsWith("/chatwoot-app") ?? false;
+
   useEffect(() => {
+    if (suppressed) return;
     if (status !== "authenticated" || initialized.current) return;
     initialized.current = true;
 
@@ -108,7 +115,7 @@ export function ChatwootWidget() {
     return () => {
       cancelled = true;
     };
-  }, [status]);
+  }, [status, suppressed]);
 
   return null;
 }

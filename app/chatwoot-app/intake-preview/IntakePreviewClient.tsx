@@ -35,6 +35,7 @@ interface ConversationSnapshotResponse {
   conversationId: number;
   kind: "draft" | "service" | "merged" | "empty";
   snapshot: SnapshotShape | null;
+  repairTypeLabels?: Record<string, string>;
   initiateToken?: string | null;
   error?: string;
 }
@@ -242,6 +243,9 @@ export function IntakePreviewClient({
   >({});
   const [initiating, setInitiating] = useState<boolean>(false);
   const [streamConnected, setStreamConnected] = useState<boolean>(false);
+  const [repairTypeLabels, setRepairTypeLabels] = useState<
+    Record<string, string>
+  >({});
   const prevDataRef = useRef<SnapshotShape | null>(null);
 
   const refetchSnapshot = useCallback(async (): Promise<void> => {
@@ -251,6 +255,7 @@ export function IntakePreviewClient({
         snapshot: SnapshotShape | null;
         kind: ConversationSnapshotResponse["kind"];
         initiateToken?: string | null;
+        repairTypeLabels?: Record<string, string>;
       };
       if (conversationId != null) {
         const r = await fetch(
@@ -263,6 +268,7 @@ export function IntakePreviewClient({
           snapshot: json.snapshot,
           kind: json.kind,
           initiateToken: json.initiateToken,
+          repairTypeLabels: json.repairTypeLabels,
         };
       } else {
         const r = await fetch(
@@ -284,6 +290,9 @@ export function IntakePreviewClient({
         };
       }
       setSnapshotKind(body.kind);
+      if (body.repairTypeLabels) {
+        setRepairTypeLabels(body.repairTypeLabels);
+      }
       if (body.snapshot) {
         const next = body.snapshot;
         const prev = prevDataRef.current;
@@ -385,40 +394,60 @@ export function IntakePreviewClient({
     };
   }, [resolvedServiceId, conversationId]);
 
-  useEffect(() => {
-    if (!initiateToken || rooms.length === 0) return;
-    let cancelled = false;
-    const missing = rooms.filter(
-      (r) => r.status !== "ended" && !perRoomJoin[r.roomName],
-    );
-    void (async () => {
-      for (const room of missing) {
-        if (cancelled) break;
-        try {
-          const r = await fetch(`/api/livekit/agent-join-token`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ initiateToken, roomName: room.roomName }),
-          });
-          const body = (await r.json()) as {
-            joinToken?: string;
-            error?: string;
-          };
-          if (!r.ok || !body.joinToken) continue;
-          if (cancelled) break;
-          setPerRoomJoin((prev) => ({
-            ...prev,
-            [room.roomName]: { joinToken: body.joinToken! },
-          }));
-        } catch {
-          // best-effort
-        }
+  // Wave 24 — token on-demand. Auto-generation usunięte, agent musi
+  // explicit kliknąć "Dołącz do rozmowy" żeby zminty token + załadować
+  // LiveKit subscriber view. Bez tego widok zawiesza się na "Generowanie
+  // tokenu…" gdy room istnieje ale agent-join-token zwraca błąd.
+  const [joiningRoom, setJoiningRoom] = useState<string | null>(null);
+  const [joinErrorByRoom, setJoinErrorByRoom] = useState<
+    Record<string, string>
+  >({});
+  const requestJoinToken = useCallback(
+    async (roomName: string) => {
+      if (!initiateToken) {
+        setJoinErrorByRoom((prev) => ({
+          ...prev,
+          [roomName]: "Brak tokenu inicjacji — odśwież widok.",
+        }));
+        return;
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [rooms, initiateToken, perRoomJoin]);
+      setJoiningRoom(roomName);
+      setJoinErrorByRoom((prev) => {
+        const next = { ...prev };
+        delete next[roomName];
+        return next;
+      });
+      try {
+        const r = await fetch(`/api/livekit/agent-join-token`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ initiateToken, roomName }),
+        });
+        const body = (await r.json()) as {
+          joinToken?: string;
+          error?: string;
+        };
+        if (!r.ok || !body.joinToken) {
+          throw new Error(body.error ?? `HTTP ${r.status}`);
+        }
+        setPerRoomJoin((prev) => ({
+          ...prev,
+          [roomName]: { joinToken: body.joinToken! },
+        }));
+      } catch (err) {
+        setJoinErrorByRoom((prev) => ({
+          ...prev,
+          [roomName]:
+            err instanceof Error
+              ? err.message
+              : "Nie udało się dołączyć do rozmowy.",
+        }));
+      } finally {
+        setJoiningRoom((curr) => (curr === roomName ? null : curr));
+      }
+    },
+    [initiateToken],
+  );
 
   const initiate = useCallback(async () => {
     if (!initiateToken) {
@@ -562,7 +591,6 @@ export function IntakePreviewClient({
         >
           Rozpocznij rozmowę video
         </PrimaryButton>
-        <ConnectionBadge connected={streamConnected} />
       </main>
     );
   }
@@ -581,12 +609,6 @@ export function IntakePreviewClient({
     [data.customerFirstName, data.customerLastName]
       .filter((s) => s && String(s).trim())
       .join(" ") || "—";
-  const isDraft = snapshotKind === "draft" || snapshotKind === "empty";
-  const statusLabel =
-    data.status && STATUS_LABELS[data.status]
-      ? STATUS_LABELS[data.status]
-      : data.status ?? "—";
-
   const visualCondition =
     (data.visualCondition as Record<string, unknown> | null) ?? null;
   const damageMarkers = Array.isArray(visualCondition?.damage_markers)
@@ -597,37 +619,6 @@ export function IntakePreviewClient({
 
   return (
     <main style={SHELL_STYLE}>
-      <header
-        style={{
-          paddingBottom: 12,
-          marginBottom: 12,
-          borderBottom: "1px solid var(--border-subtle)",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <Radio
-            className="w-3.5 h-3.5 animate-pulse"
-            style={{ color: isDraft ? "#f59e0b" : "var(--accent)" }}
-            aria-hidden="true"
-          />
-          <h1 style={{ fontSize: 13, fontWeight: 600, margin: 0 }}>
-            {isDraft
-              ? "Wersja robocza intake (live)"
-              : `Konsultacja serwisowa #${data.ticketNumber}`}
-          </h1>
-        </div>
-        <p
-          style={{
-            color: "var(--text-muted)",
-            margin: "4px 0 0 0",
-            fontSize: 11,
-          }}
-        >
-          Status: <strong style={{ color: "var(--text-main)" }}>{statusLabel}</strong>
-          {data.receivedBy ? <> · Przyjął: {data.receivedBy}</> : null}
-        </p>
-      </header>
-
       {/* Klient */}
       <section style={SECTION_STYLE}>
         <h2 style={SECTION_TITLE}>Klient</h2>
@@ -768,22 +759,26 @@ export function IntakePreviewClient({
               gap: 4,
             }}
           >
-            {data.repairTypes.map((code) => (
-              <span
-                key={code}
-                style={{
-                  padding: "2px 8px",
-                  borderRadius: 12,
-                  background: "var(--accent-soft)",
-                  border: "1px solid var(--accent-border)",
-                  color: "var(--accent)",
-                  fontSize: 10,
-                  fontWeight: 500,
-                }}
-              >
-                {code}
-              </span>
-            ))}
+            {data.repairTypes.map((code) => {
+              const label = repairTypeLabels[code] ?? code;
+              return (
+                <span
+                  key={code}
+                  style={{
+                    padding: "2px 8px",
+                    borderRadius: 12,
+                    background: "var(--accent-soft)",
+                    border: "1px solid var(--accent-border)",
+                    color: "var(--accent)",
+                    fontSize: 10,
+                    fontWeight: 500,
+                  }}
+                  title={label !== code ? code : undefined}
+                >
+                  {label}
+                </span>
+              );
+            })}
           </div>
         )}
       </section>
@@ -975,22 +970,78 @@ export function IntakePreviewClient({
                       compact
                       publisherMode="publisher"
                     />
+                  ) : joinErrorByRoom[r.roomName] ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      <div
+                        role="alert"
+                        style={{
+                          fontSize: 10,
+                          color: "#fca5a5",
+                          background: "rgba(239, 68, 68, 0.12)",
+                          border: "1px solid rgba(239, 68, 68, 0.35)",
+                          padding: "4px 6px",
+                          borderRadius: 4,
+                        }}
+                      >
+                        {joinErrorByRoom[r.roomName]}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void requestJoinToken(r.roomName)}
+                        style={{
+                          fontSize: 10,
+                          padding: "4px 8px",
+                          borderRadius: 4,
+                          background: "rgba(255,255,255,0.05)",
+                          color: "var(--text-main)",
+                          border: "none",
+                          cursor: "pointer",
+                        }}
+                      >
+                        Spróbuj ponownie
+                      </button>
+                    </div>
                   ) : (
-                    <div
+                    <button
+                      type="button"
+                      onClick={() => void requestJoinToken(r.roomName)}
+                      disabled={joiningRoom === r.roomName || !initiateToken}
                       style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 6,
+                        width: "100%",
+                        padding: "6px 10px",
+                        borderRadius: 4,
+                        background: "var(--accent)",
+                        color: "#fff",
                         fontSize: 10,
-                        color: "var(--text-muted)",
+                        fontWeight: 500,
+                        border: "none",
+                        cursor:
+                          joiningRoom === r.roomName ? "wait" : "pointer",
+                        opacity: joiningRoom === r.roomName ? 0.6 : 1,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: 4,
                       }}
                     >
-                      <Loader2
-                        className="w-3 h-3 animate-spin"
-                        aria-hidden="true"
-                      />
-                      Generowanie tokenu dołączenia…
-                    </div>
+                      {joiningRoom === r.roomName ? (
+                        <>
+                          <Loader2
+                            className="w-3 h-3 animate-spin"
+                            aria-hidden="true"
+                          />
+                          Łączenie…
+                        </>
+                      ) : (
+                        <>
+                          <Video
+                            className="w-3 h-3"
+                            aria-hidden="true"
+                          />
+                          Dołącz do rozmowy
+                        </>
+                      )}
+                    </button>
                   )}
                 </div>
               );
@@ -999,7 +1050,6 @@ export function IntakePreviewClient({
         )}
       </section>
 
-      <ConnectionBadge connected={streamConnected} />
     </main>
   );
 }
@@ -1055,68 +1105,230 @@ function RatingsList({
   visualCondition: Record<string, unknown> | null;
 }) {
   if (!visualCondition) return null;
-  const ratings: Array<[string, unknown, string]> = [
-    ["display", visualCondition.display, "Ekran"],
-    ["back", visualCondition.back, "Tył"],
-    ["frames", visualCondition.frames, "Ramki"],
-    ["camera", visualCondition.camera, "Aparat"],
-    ["battery", visualCondition.battery, "Bateria"],
+  const v = visualCondition;
+  // Ratings 1-10 (zgodnie z VisualConditionState w PhoneConfigurator3D).
+  const ratings: Array<[string, number, string, string | undefined]> = [];
+  const r = (key: string, label: string, notesKey?: string) => {
+    const val = v[key];
+    const notes = notesKey ? v[notesKey] : undefined;
+    if (typeof val === "number") {
+      ratings.push([
+        key,
+        val,
+        label,
+        typeof notes === "string" && notes.trim() ? notes.trim() : undefined,
+      ]);
+    }
+  };
+  r("display_rating", "Ekran", "display_notes");
+  r("back_rating", "Tył", "back_notes");
+  r("frames_rating", "Ramki", "frames_notes");
+  r("camera_rating", "Aparat", "camera_notes");
+
+  // Pytania tak/nie + tri-state.
+  type Tri = boolean | string | undefined;
+  const tri = (val: unknown): Tri => {
+    if (typeof val === "boolean") return val;
+    if (typeof val === "string") return val;
+    return undefined;
+  };
+  const TRI_LABELS: Record<string, string> = {
+    yes: "Tak",
+    no: "Nie",
+    unknown: "Nie wiadomo",
+    vibrates: "Tylko wibruje",
+  };
+  const checks: Array<[string, string, Tri]> = [
+    ["powers_on", "Czy się włącza?", tri(v.powers_on)],
+    ["cracked_front", "Pęknięty ekran?", tri(v.cracked_front)],
+    ["cracked_back", "Pęknięty tył?", tri(v.cracked_back)],
+    ["bent", "Wygięta obudowa?", tri(v.bent)],
+    ["face_touch_id", "Face ID / Touch ID działa?", tri(v.face_touch_id)],
+    ["water_damage", "Zalane?", tri(v.water_damage)],
   ];
-  const items = ratings.filter(([, v]) => typeof v === "number");
-  const flags: Array<[string, unknown, string]> = [
-    ["charging_works", visualCondition.charging_works, "Ładowanie"],
-    ["fingerprint_works", visualCondition.fingerprint_works, "Odcisk palca"],
-    ["faceid_works", visualCondition.faceid_works, "Face ID"],
-  ];
-  const flagItems = flags.filter(([, v]) => v != null);
-  if (items.length === 0 && flagItems.length === 0) return null;
+  const checkItems = checks.filter(([, , val]) => val !== undefined);
+
+  const chargingCurrent =
+    typeof v.charging_current === "number" ? v.charging_current : null;
+  const additionalNotes =
+    typeof v.additional_notes === "string" && v.additional_notes.trim()
+      ? v.additional_notes.trim()
+      : null;
+
+  if (
+    ratings.length === 0 &&
+    checkItems.length === 0 &&
+    chargingCurrent == null &&
+    !additionalNotes
+  ) {
+    return (
+      <p
+        style={{
+          marginTop: 8,
+          fontSize: 10,
+          color: "var(--text-muted)",
+          textAlign: "center",
+        }}
+      >
+        Sprzedawca jeszcze nie wypełnił stanu urządzenia.
+      </p>
+    );
+  }
+
+  const formatTri = (val: Tri): string => {
+    if (typeof val === "boolean") return val ? "Tak" : "Nie";
+    if (typeof val === "string")
+      return TRI_LABELS[val] ?? val;
+    return "—";
+  };
+  const triColor = (val: Tri): string => {
+    if (val === true || val === "yes" || val === "vibrates") return "#fca5a5";
+    if (val === false || val === "no") return "#10b981";
+    return "var(--text-muted)";
+  };
+
   return (
-    <div
-      style={{
-        marginTop: 8,
-        display: "grid",
-        gridTemplateColumns: "1fr 1fr",
-        gap: 4,
-        fontSize: 10,
-      }}
-    >
-      {items.map(([key, value, label]) => (
-        <div
-          key={key}
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            color: "var(--text-muted)",
-            padding: "2px 6px",
-          }}
-        >
-          <span>{label}</span>
-          <span style={{ color: "var(--text-main)", fontFamily: "monospace" }}>
-            {value as number}/5
-          </span>
-        </div>
-      ))}
-      {flagItems.map(([key, value, label]) => (
-        <div
-          key={key}
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            color: "var(--text-muted)",
-            padding: "2px 6px",
-          }}
-        >
-          <span>{label}</span>
-          <span
+    <div style={{ marginTop: 8, fontSize: 10 }}>
+      {ratings.length > 0 && (
+        <div style={{ marginBottom: 8 }}>
+          <p
             style={{
-              color: value ? "#10b981" : "#fca5a5",
-              fontFamily: "monospace",
+              color: "var(--text-muted)",
+              fontSize: 9,
+              textTransform: "uppercase",
+              letterSpacing: 0.8,
+              marginBottom: 4,
             }}
           >
-            {value ? "OK" : "—"}
-          </span>
+            Oceny (1-10)
+          </p>
+          <div style={{ display: "grid", gap: 2 }}>
+            {ratings.map(([key, val, label, notes]) => (
+              <div key={key}>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    padding: "2px 6px",
+                    color: "var(--text-muted)",
+                  }}
+                >
+                  <span>{label}</span>
+                  <span
+                    style={{
+                      color:
+                        val >= 8
+                          ? "#10b981"
+                          : val >= 5
+                            ? "#f59e0b"
+                            : "#fca5a5",
+                      fontFamily: "monospace",
+                      fontWeight: 600,
+                    }}
+                  >
+                    {val}/10
+                  </span>
+                </div>
+                {notes && (
+                  <div
+                    style={{
+                      padding: "0 6px 2px 6px",
+                      fontSize: 9,
+                      color: "var(--text-muted)",
+                      fontStyle: "italic",
+                    }}
+                  >
+                    {notes}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
-      ))}
+      )}
+
+      {(checkItems.length > 0 || chargingCurrent != null) && (
+        <div style={{ marginBottom: 8 }}>
+          <p
+            style={{
+              color: "var(--text-muted)",
+              fontSize: 9,
+              textTransform: "uppercase",
+              letterSpacing: 0.8,
+              marginBottom: 4,
+            }}
+          >
+            Diagnostyka
+          </p>
+          <div style={{ display: "grid", gap: 2 }}>
+            {checkItems.map(([key, label, val]) => (
+              <div
+                key={key}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  padding: "2px 6px",
+                  color: "var(--text-muted)",
+                }}
+              >
+                <span>{label}</span>
+                <span style={{ color: triColor(val), fontWeight: 500 }}>
+                  {formatTri(val)}
+                </span>
+              </div>
+            ))}
+            {chargingCurrent != null && (
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  padding: "2px 6px",
+                  color: "var(--text-muted)",
+                }}
+              >
+                <span>Prąd ładowania</span>
+                <span
+                  style={{
+                    color: "var(--text-main)",
+                    fontFamily: "monospace",
+                    fontWeight: 600,
+                  }}
+                >
+                  {chargingCurrent.toFixed(2)} A
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {additionalNotes && (
+        <div style={{ marginBottom: 4 }}>
+          <p
+            style={{
+              color: "var(--text-muted)",
+              fontSize: 9,
+              textTransform: "uppercase",
+              letterSpacing: 0.8,
+              marginBottom: 4,
+            }}
+          >
+            Uwagi sprzedawcy
+          </p>
+          <p
+            style={{
+              padding: "4px 6px",
+              fontSize: 11,
+              color: "var(--text-main)",
+              whiteSpace: "pre-wrap",
+              background: "var(--bg-surface)",
+              borderRadius: 4,
+            }}
+          >
+            {additionalNotes}
+          </p>
+        </div>
+      )}
     </div>
   );
 }

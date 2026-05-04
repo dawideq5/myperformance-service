@@ -10,6 +10,7 @@ import {
 } from "@/lib/livekit";
 import { log } from "@/lib/logger";
 import { rateLimit } from "@/lib/rate-limit";
+import { listRepairTypes } from "@/lib/repair-types";
 import { getService } from "@/lib/services";
 
 const logger = log.child({ module: "livekit-conversation-snapshot" });
@@ -119,6 +120,24 @@ export async function GET(req: Request) {
 
   const snapshot = mergeSnapshot(draft, liveService);
 
+  // Wave 24 — resolveuj kody repair types na czytelne labels (sprzedawca
+  // publishuje kody jak "SIM_SD_SLOT", agent w iframe potrzebuje "Slot SIM/SD").
+  // Best-effort: bez Directus → puste labels (UI fallback do code).
+  const repairTypeLabels: Record<string, string> = {};
+  if (snapshot.repairTypes && snapshot.repairTypes.length > 0) {
+    try {
+      const all = await listRepairTypes({ activeOnly: false });
+      const codes = new Set(snapshot.repairTypes);
+      for (const t of all) {
+        if (codes.has(t.code)) repairTypeLabels[t.code] = t.label;
+      }
+    } catch (err) {
+      logger.warn("listRepairTypes failed (continuing)", {
+        err: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   let initiateToken: string | null = null;
   try {
     // Anchor: jeśli serwis już istnieje, używamy serviceId (matchuje
@@ -148,6 +167,7 @@ export async function GET(req: Request) {
       conversationId,
       kind: liveService ? "service" : "draft",
       snapshot,
+      repairTypeLabels,
       initiateToken,
     },
     { status: 200, headers: CORS_HEADERS },
