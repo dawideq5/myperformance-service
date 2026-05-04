@@ -13,6 +13,7 @@ import {
 import { log } from "@/lib/logger";
 import { rateLimit } from "@/lib/rate-limit";
 import { logServiceAction } from "@/lib/service-actions";
+import { publish } from "@/lib/sse-bus";
 import { recordWebhookHit } from "@/lib/webhooks/health";
 
 const logger = log.child({ module: "livekit-webhook" });
@@ -204,6 +205,22 @@ export async function POST(req: Request) {
           },
         });
       }
+      // Wave 24 — push event do panelu sprzedawcy (modal popup zamyka się,
+      // pozwala rozpocząć kolejną rozmowę). Filtrowany po conversationId
+      // w SSE stream endpoint.
+      if (session.chatwootConversationId != null) {
+        publish({
+          type: "livekit_room_ended",
+          serviceId: session.serviceId,
+          payload: {
+            conversationId: session.chatwootConversationId,
+            serviceId: session.serviceId,
+            roomName,
+            durationSec: session.durationSec ?? 0,
+          },
+        });
+      }
+
       logger.info("livekit room finished", {
         roomName,
         serviceId: session.serviceId,

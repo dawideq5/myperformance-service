@@ -8,6 +8,7 @@ import { getSessionByRoom } from "@/lib/livekit-rooms";
 import { log } from "@/lib/logger";
 import { PANEL_CORS_HEADERS, getPanelUserFromRequest } from "@/lib/panel-auth";
 import { rateLimit } from "@/lib/rate-limit";
+import { publish } from "@/lib/sse-bus";
 
 const logger = log.child({ module: "livekit-end-room" });
 
@@ -76,7 +77,18 @@ export async function POST(req: Request) {
       { status: 404, headers: PANEL_CORS_HEADERS },
     );
   }
-  if (session.requestedByEmail !== user.email) {
+  // Wave 24 — sprzedawca może zakończyć:
+  //   * własną sesję (`requestedByEmail === user.email`), LUB
+  //   * sesję inicjowaną przez agenta Chatwoot (`chatwoot:conv:N`) gdy
+  //     conversation należy do jego intake'u (czyli ma ten sam conv id
+  //     co dane z Chatwoot widget). Tu wystarczy że sprzedawca jest
+  //     zalogowany — agent flow nie ma KC sesji, więc nie ma co weryfikować
+  //     ownership po email; zamknięcie pokoju którego nie zna jest tanie
+  //     (best-effort), a SSE i tak filtruje po conv id.
+  const isOwnSession = session.requestedByEmail === user.email;
+  const isChatwootSession =
+    session.requestedByEmail.startsWith("chatwoot:conv:");
+  if (!isOwnSession && !isChatwootSession) {
     return NextResponse.json(
       { error: "Forbidden" },
       { status: 403, headers: PANEL_CORS_HEADERS },
@@ -102,9 +114,27 @@ export async function POST(req: Request) {
     );
   }
 
-  logger.info("consultation ended (sprzedawca self-end)", {
+  // Wave 24 — natychmiastowy event do panelu sprzedawcy (modal zamyka się
+  // bez czekania na webhook room_finished, który dochodzi 1-3 s później).
+  // Webhook potem znowu publishuje livekit_room_ended — drugi push jest
+  // idempotent (modal i tak jest zamknięty).
+  if (session.chatwootConversationId != null) {
+    publish({
+      type: "livekit_room_ended",
+      serviceId: session.serviceId,
+      payload: {
+        conversationId: session.chatwootConversationId,
+        serviceId: session.serviceId,
+        roomName,
+        durationSec: session.durationSec ?? 0,
+      },
+    });
+  }
+
+  logger.info("consultation ended (manual)", {
     roomName,
     requestedBy: user.email,
+    sessionOwner: session.requestedByEmail,
   });
 
   return NextResponse.json(

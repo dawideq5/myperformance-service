@@ -30,6 +30,8 @@ import { ColorPicker, NAMED_COLORS } from "./ColorPicker";
 import { LockSection } from "./LockSection";
 import { PhoneInputWithFlags } from "./PhoneInputWithFlags";
 import { useChatwootConversation } from "../../hooks/useChatwootConversation";
+import { useLiveKitInvite } from "../../hooks/useLiveKitInvite";
+import { IncomingVideoCallDialog } from "./IncomingVideoCallDialog";
 // ChecklistSection — pytania przeniesione do konfiguratora 3D (P21).
 import {
   PhoneConfigurator3D,
@@ -188,11 +190,14 @@ export function AddServiceForm({
     ticketNumber: string;
   } | null>(null);
 
-  // Wave 24 — Chatwoot conversation tracking dla draft publish. Hook
-  // nasłuchuje `chatwoot:on-message` events + cookies żeby wykryć conv id.
-  // Inicjacja rozmowy video jest po stronie agenta Chatwoot (Dashboard App),
-  // sprzedawca nie ma własnego przycisku.
+  // Wave 24 — Chatwoot conversation tracking dla draft publish + invite.
+  // Hook nasłuchuje `chatwoot:on-message` events + cookies żeby wykryć
+  // conv id. Inicjacja rozmowy video jest po stronie agenta Chatwoot;
+  // panel sprzedawcy nasłuchuje SSE i pokazuje modal popup z QR.
   const chatwootConv = useChatwootConversation();
+  const { invite, clear: clearInvite } = useLiveKitInvite(
+    chatwootConv.conversationId,
+  );
 
   // Punkt serwisowy: lista wszystkich service-locations + auto-prefill
   // domyślnego (powiązanego z punktem sprzedaży locationId).
@@ -1260,6 +1265,11 @@ export function AddServiceForm({
         </div>
       </form>
 
+      {/* Wave 24 — Modal popup gdy agent Chatwoot inicjuje rozmowę video.
+          SSE invite event filtrowany po conversationId (z chatwoot widget).
+          Modal zamyka się automatycznie po livekit_room_ended event lub
+          manualnym Zakończ rozmowę. */}
+      <IncomingVideoCallDialog invite={invite} onClose={clearInvite} />
 
       {showConfigurator && (
         <PhoneConfigurator3D

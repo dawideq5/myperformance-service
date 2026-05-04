@@ -92,7 +92,17 @@ export async function GET(req: Request): Promise<Response> {
 
       try {
         unsub = subscribe((event: SseEvent) => {
-          if (event.type !== "intake_draft_changed") return;
+          // Wave 24 — przepuszczamy 3 typy filtrowane po conversationId:
+          //   * intake_draft_changed (sprzedawca pisze litery)
+          //   * livekit_invite (agent inicjuje rozmowę → modal popup)
+          //   * livekit_room_ended (room_finished webhook → zamknij modal)
+          if (
+            event.type !== "intake_draft_changed" &&
+            event.type !== "livekit_invite" &&
+            event.type !== "livekit_room_ended"
+          ) {
+            return;
+          }
           const eventConvId =
             typeof event.payload?.conversationId === "number"
               ? event.payload.conversationId

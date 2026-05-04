@@ -75,7 +75,14 @@ export type SseEventType =
   // Sprzedawca pisze litery → POST /api/panel/intake-drafts → publish.
   // Iframe agenta dostaje przez /api/livekit/conversation-snapshot/stream
   // (filtrowany po payload.conversationId).
-  | "intake_draft_changed";
+  | "intake_draft_changed"
+  // Wave 24 — agent Chatwoot inicjuje rozmowę video → SSE event do panelu
+  // sprzedawcy → modal popup z QR + nazwą agenta. Payload: conversationId,
+  // roomName, mobilePublisherUrl, qrCodeDataUrl, agentName, expiresAt.
+  | "livekit_invite"
+  // Wave 24 — room_finished webhook → SSE event → panel zamyka modal,
+  // pozwala rozpocząć kolejną rozmowę. Payload: conversationId, roomName.
+  | "livekit_room_ended";
 
 export interface SseEvent {
   /** Random UUID — używane przez klientów do dedup. */

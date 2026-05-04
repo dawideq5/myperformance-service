@@ -24,6 +24,7 @@ import { log } from "@/lib/logger";
 import { rateLimit } from "@/lib/rate-limit";
 import { logServiceAction } from "@/lib/service-actions";
 import { getService } from "@/lib/services";
+import { publish } from "@/lib/sse-bus";
 
 const logger = log.child({ module: "livekit-start-from-chatwoot-agent" });
 
@@ -293,6 +294,27 @@ export async function POST(req: Request) {
   }
 
   const expiresAt = new Date(Date.now() + 30 * 60_000).toISOString();
+
+  // Wave 24 — push real-time invite do panelu sprzedawcy. Sprzedawca panel
+  // (cross-origin EventSource) nasłuchuje conversation-snapshot/stream
+  // filtrowanego po conversationId; modal popup z QR otwiera się od razu.
+  if (effectiveConvId != null) {
+    publish({
+      type: "livekit_invite",
+      serviceId: service?.id ?? null,
+      payload: {
+        conversationId: effectiveConvId,
+        serviceId: service?.id ?? null,
+        roomName,
+        mobilePublisherUrl,
+        qrCodeDataUrl,
+        joinUrl,
+        joinToken,
+        agentName: agentEmail ?? null,
+        expiresAt,
+      },
+    });
+  }
 
   logger.info("consultation started from chatwoot agent", {
     roomName,
