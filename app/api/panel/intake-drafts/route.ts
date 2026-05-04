@@ -10,6 +10,7 @@ import {
 } from "@/lib/intake-drafts";
 import { log } from "@/lib/logger";
 import { rateLimit } from "@/lib/rate-limit";
+import { publish } from "@/lib/sse-bus";
 
 const logger = log.child({ module: "api-panel-intake-drafts" });
 
@@ -48,9 +49,11 @@ export async function POST(req: Request) {
     );
   }
 
+  // Real-time draft publish — sprzedawca strzela ~co 200ms (debounce w UI).
+  // Capacity 600/min daje 10 req/s — wystarcza na real-time pisanie liter.
   const rl = rateLimit(`intake-draft:${user.email}`, {
-    capacity: 60,
-    refillPerSec: 60 / 60,
+    capacity: 600,
+    refillPerSec: 10,
   });
   if (!rl.allowed) {
     return NextResponse.json(
@@ -114,6 +117,18 @@ export async function POST(req: Request) {
       salesEmail: user.email,
       serviceId,
     });
+    // Wave 24 — real-time push do Dashboard App (Chatwoot iframe).
+    // Bus filtruje subscriberów po payload.conversationId. Bez tego
+    // iframe musiałby pollować — z tym widzi pisanie literek na żywo.
+    publish({
+      type: "intake_draft_changed",
+      serviceId: draft.serviceId,
+      payload: {
+        conversationId: draft.conversationId,
+        serviceId: draft.serviceId,
+        updatedAt: draft.updatedAt,
+      },
+    });
     return NextResponse.json(
       {
         conversationId: draft.conversationId,
@@ -146,10 +161,18 @@ const ALLOWED_KEYS: ReadonlyArray<keyof IntakeDraftPayload> = [
   "contactPhone",
   "contactEmail",
   "repairTypes",
+  "visualCondition",
+  "visualCompleted",
+  "handoverChoice",
+  "handoverItems",
+  "priceLines",
   "readyToSubmit",
   "serviceId",
   "ticketNumber",
 ];
+
+const VISUAL_CONDITION_MAX_BYTES = 10_000;
+const PRICE_LINES_MAX_ITEMS = 32;
 
 function sanitizePayload(input: unknown): IntakeDraftPayload {
   if (input == null || typeof input !== "object") return {};
@@ -161,11 +184,39 @@ function sanitizePayload(input: unknown): IntakeDraftPayload {
     if (key === "amountEstimate") {
       out.amountEstimate =
         typeof v === "number" && Number.isFinite(v) ? v : null;
-    } else if (key === "readyToSubmit") {
-      out.readyToSubmit = Boolean(v);
+    } else if (key === "readyToSubmit" || key === "visualCompleted") {
+      (out as Record<string, unknown>)[key] = v == null ? null : Boolean(v);
+    } else if (key === "handoverChoice") {
+      out.handoverChoice =
+        v === "none" || v === "items" ? v : null;
     } else if (key === "repairTypes") {
       out.repairTypes = Array.isArray(v)
         ? v.filter((s): s is string => typeof s === "string").slice(0, 32)
+        : null;
+    } else if (key === "visualCondition") {
+      // Defensive size cap — visual condition jest object z kilkunastoma
+      // ratingami + damages; 10KB starczy z zapasem na nadchodzące pola.
+      if (v == null || typeof v !== "object") {
+        out.visualCondition = null;
+      } else {
+        try {
+          const json = JSON.stringify(v);
+          if (json.length > VISUAL_CONDITION_MAX_BYTES) {
+            out.visualCondition = null;
+          } else {
+            out.visualCondition = JSON.parse(json) as Record<string, unknown>;
+          }
+        } catch {
+          out.visualCondition = null;
+        }
+      }
+    } else if (key === "priceLines") {
+      out.priceLines = Array.isArray(v)
+        ? v
+            .filter((x): x is Record<string, unknown> =>
+              typeof x === "object" && x !== null,
+            )
+            .slice(0, PRICE_LINES_MAX_ITEMS)
         : null;
     } else {
       const s =

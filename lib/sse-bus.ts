@@ -70,7 +70,12 @@ export type SseEventType =
   //   editor_disconnected — explicit teardown lub server-side timeout (30s)
   | "service.field_changed"
   | "service.editor_heartbeat"
-  | "service.editor_disconnected";
+  | "service.editor_disconnected"
+  // Wave 24 — real-time intake draft co-edit dla Chatwoot Dashboard App.
+  // Sprzedawca pisze litery → POST /api/panel/intake-drafts → publish.
+  // Iframe agenta dostaje przez /api/livekit/conversation-snapshot/stream
+  // (filtrowany po payload.conversationId).
+  | "intake_draft_changed";
 
 export interface SseEvent {
   /** Random UUID — używane przez klientów do dedup. */

@@ -1,25 +1,56 @@
 "use client";
 
 /**
- * Wave 23 — IntakePreviewClient
+ * Wave 24 — IntakePreviewClient (real-time + dark theme + pełen widok).
  *
- * Embedded w iframe wewnątrz Chatwoot Dashboard App. Polling co 4s
- * `/api/livekit/intake-snapshot?service_id=…`. Każda zmiana pola → 1.5s
- * zielony highlight (wzór z F15 LiveServicePreview).
+ * Embedded jako iframe w Chatwoot Dashboard App. Kontekst (conv id +
+ * service_id custom attribute) przychodzi przez `postMessage` z parent
+ * window — Chatwoot Frame.vue NIE robi template substitution w URL.
  *
- * Bez SSE bo agent Chatwoot nie ma KC sesji (SSE bus wymaga auth).
- * 4s polling jest "almost live" w UX — można dodać SSE w follow-up.
+ * Real-time updates przez SSE — każdy POST /api/panel/intake-drafts po
+ * stronie sprzedawcy publikuje "intake_draft_changed" do bus, my
+ * nasłuchujemy przez EventSource('/api/livekit/conversation-snapshot/stream').
+ * Sprzedawca pisze literkę → 200ms debounce → POST → bus → SSE → refetch
+ * → user widzi literkę w Chatwoocie w ~150 ms.
+ *
+ * Pełen widok zlecenia (Wave 24/B):
+ *  - Klient (imię, nazwisko, telefon, email)
+ *  - Urządzenie (marka, model, IMEI, kolor, blokada)
+ *  - Stan urządzenia (DevicePreview3D z markerami uszkodzeń + ratings text)
+ *  - Opis usterki + repair types
+ *  - Wycena (priceLines + total)
+ *  - Status zlecenia (gdy serviceId istnieje)
+ *  - Konsultacja video (JoinModeSelector)
+ *
+ * Inicjacja rozmowy video — TYLKO po stronie agenta Chatwoot.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Radio, Video } from "lucide-react";
 
 import { JoinModeSelector } from "@/components/livekit/JoinModeSelector";
+import { DevicePreview3D } from "./components/DevicePreview3D";
 
-interface ServiceSnapshot {
-  id: string;
-  ticketNumber: string;
-  status: string;
+interface ConversationSnapshotResponse {
+  conversationId: number;
+  kind: "draft" | "service" | "merged" | "empty";
+  snapshot: SnapshotShape | null;
+  initiateToken?: string | null;
+  error?: string;
+}
+
+interface PriceLine {
+  code?: string;
+  label?: string;
+  amount?: number | null;
+  amountGross?: number | null;
+  [k: string]: unknown;
+}
+
+interface SnapshotShape {
+  serviceId: string | null;
+  ticketNumber: string | null;
+  status: string | null;
   brand: string | null;
   model: string | null;
   imei: string | null;
@@ -34,46 +65,16 @@ interface ServiceSnapshot {
   contactPhone: string | null;
   contactEmail: string | null;
   receivedBy: string | null;
-  chatwootConversationId: number | null;
+  readyToSubmit: boolean;
+  visualCondition: Record<string, unknown> | null;
+  visualCompleted: boolean;
+  intakeChecklist: Record<string, unknown> | null;
+  repairTypes: string[] | null;
+  priceLines: PriceLine[] | null;
+  handoverChoice: "none" | "items" | null;
+  handoverItems: string | null;
   updatedAt: string | null;
-  createdAt: string | null;
-}
-
-interface SnapshotResponse {
-  service?: ServiceSnapshot;
-  /** Wave 23 (overlay) — short-lived token żeby agent mógł zainicjować rozmowę. */
-  initiateToken?: string | null;
-  error?: string;
-}
-
-/** Wave 24 — response shape z /api/livekit/conversation-snapshot. */
-interface ConversationSnapshotResponse {
-  conversationId: number;
-  kind: "draft" | "service" | "merged" | "empty";
-  snapshot: {
-    serviceId: string | null;
-    ticketNumber: string | null;
-    status: string | null;
-    brand: string | null;
-    model: string | null;
-    imei: string | null;
-    color: string | null;
-    lockType: string | null;
-    description: string | null;
-    diagnosis: string | null;
-    amountEstimate: number | null;
-    amountFinal: number | null;
-    customerFirstName: string | null;
-    customerLastName: string | null;
-    contactPhone: string | null;
-    contactEmail: string | null;
-    receivedBy: string | null;
-    readyToSubmit: boolean;
-    updatedAt: string | null;
-    source: "draft" | "service" | "merged";
-  } | null;
-  initiateToken?: string | null;
-  error?: string;
+  source: "draft" | "service" | "merged";
 }
 
 interface RoomRow {
@@ -84,14 +85,10 @@ interface RoomRow {
   requestedByEmail: string;
   status: "waiting" | "active" | "ended";
   createdAt: string;
-  startedAt: string | null;
-  endedAt: string | null;
-  durationSec: number | null;
 }
 
-interface RoomsForServiceResponse {
+interface RoomsResponse {
   rooms: RoomRow[];
-  timestamp: string;
   error?: string;
 }
 
@@ -102,60 +99,81 @@ interface InitiateResponse {
   livekitUrl: string;
   joinUrl: string;
   joinToken: string;
-  chatwootMessageSent: boolean;
-  expiresAt: string;
   error?: string;
 }
 
-const POLL_MS = 4_000;
 const HIGHLIGHT_MS = 1_500;
 
-const FIELD_LABELS: Record<keyof ServiceSnapshot, string> = {
-  id: "ID",
-  ticketNumber: "Nr zlecenia",
-  status: "Status",
-  brand: "Marka",
-  model: "Model",
-  imei: "IMEI",
-  color: "Kolor",
-  lockType: "Blokada",
-  description: "Opis usterki",
-  diagnosis: "Diagnoza",
-  amountEstimate: "Wycena",
-  amountFinal: "Kwota końcowa",
-  customerFirstName: "Imię klienta",
-  customerLastName: "Nazwisko klienta",
-  contactPhone: "Telefon",
-  contactEmail: "Email",
-  receivedBy: "Przyjął",
-  chatwootConversationId: "Chatwoot conv.",
-  updatedAt: "Zaktualizowano",
-  createdAt: "Utworzono",
+const STATUS_LABELS: Record<string, string> = {
+  draft: "Wersja robocza",
+  received: "Przyjęty",
+  diagnosing: "Diagnoza",
+  awaiting_quote: "Oczekuje wyceny",
+  awaiting_parts: "Oczekuje części",
+  repairing: "W naprawie",
+  testing: "Testy",
+  ready: "Gotowy do odbioru",
+  delivered: "Wydany",
+  on_hold: "Wstrzymany",
+  rejected_by_customer: "Odrzucony przez klienta",
+  returned_no_repair: "Zwrot bez naprawy",
+  closed: "Zamknięty",
+  cancelled: "Anulowany",
+  archived: "Zarchiwizowany",
 };
 
-const VISIBLE_FIELDS: Array<keyof ServiceSnapshot> = [
-  "ticketNumber",
-  "status",
-  "customerFirstName",
-  "customerLastName",
-  "contactPhone",
-  "contactEmail",
-  "brand",
-  "model",
-  "imei",
-  "color",
-  "lockType",
-  "description",
-  "amountEstimate",
-];
+const LOCK_LABELS: Record<string, string> = {
+  none: "Brak",
+  pin: "PIN",
+  pattern: "Wzór",
+  password: "Hasło",
+  fingerprint: "Odcisk palca",
+  faceid: "Face ID",
+};
 
-function formatValue(field: keyof ServiceSnapshot, value: unknown): string {
-  if (value == null || value === "") return "—";
-  if (field === "amountEstimate" || field === "amountFinal") {
-    if (typeof value === "number") return `${value.toFixed(2)} zł`;
-  }
-  return String(value);
+function formatAmount(value: number | null | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  return `${value.toFixed(2)} zł`;
 }
+
+function brandColorFor(brand: string | null): string {
+  // Best-effort fallback — brand-specific color w pełnym katalogu jest po
+  // stronie BrandPicker w panelu, tu wystarczy cool tint.
+  if (!brand) return "#6366f1";
+  const lc = brand.toLowerCase();
+  if (lc.includes("apple")) return "#0f0f17";
+  if (lc.includes("samsung")) return "#1428a0";
+  if (lc.includes("xiaomi")) return "#ff6900";
+  if (lc.includes("huawei")) return "#cc0000";
+  if (lc.includes("oneplus")) return "#eb0028";
+  return "#6366f1";
+}
+
+const SHELL_STYLE: React.CSSProperties = {
+  minHeight: "100vh",
+  padding: 12,
+  background: "var(--bg-main)",
+  color: "var(--text-main)",
+  fontFamily: "system-ui, -apple-system, sans-serif",
+  fontSize: 12,
+};
+
+const SECTION_STYLE: React.CSSProperties = {
+  background: "var(--bg-card)",
+  border: "1px solid var(--border-subtle)",
+  borderRadius: 8,
+  padding: 12,
+  marginBottom: 8,
+};
+
+const SECTION_TITLE: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: 600,
+  textTransform: "uppercase",
+  letterSpacing: 1,
+  color: "var(--text-muted)",
+  marginBottom: 8,
+};
 
 export function IntakePreviewClient({
   serviceId: serviceIdFromQuery,
@@ -164,20 +182,14 @@ export function IntakePreviewClient({
   serviceId: string;
   conversationId: number | null;
 }) {
-  // Wave 24 — Chatwoot Dashboard App nie robi template substitution w URL.
-  // Iframe ładuje się z literalnymi `{{conversation.id}}` (więc query parsing
-  // daje nulle), a kontekst przychodzi przez `postMessage({event:"appContext",
-  // data:{conversation, contact, currentAgent}})` z parent window. Trzymamy
-  // query-parsed wartości jako fallback (np. dla deep linków/testów),
-  // ale głównym źródłem prawdy są wartości z postMessage.
   const [conversationId, setConversationId] = useState<number | null>(
     conversationIdFromQuery,
   );
   const [serviceId, setServiceId] = useState<string>(serviceIdFromQuery);
 
+  // PostMessage listener — Chatwoot Frame.vue postMessages appContext po @load.
   useEffect(() => {
     const onMessage = (event: MessageEvent): void => {
-      // Chatwoot postMessage payload jest JSON-stringified.
       let parsed: unknown;
       try {
         parsed =
@@ -190,7 +202,10 @@ export function IntakePreviewClient({
       if (p.event !== "appContext") return;
       const ctx = p.data as
         | {
-            conversation?: { id?: unknown; custom_attributes?: { service_id?: unknown } };
+            conversation?: {
+              id?: unknown;
+              custom_attributes?: { service_id?: unknown };
+            };
           }
         | undefined;
       const convId = ctx?.conversation?.id;
@@ -203,40 +218,121 @@ export function IntakePreviewClient({
       }
     };
     window.addEventListener("message", onMessage);
-    // Sygnalizujemy parent window że jesteśmy gotowi — Frame.vue słucha
-    // 'chatwoot-dashboard-app:fetch-info' i odpowiada appContextem.
     try {
       window.parent.postMessage("chatwoot-dashboard-app:fetch-info", "*");
     } catch {
-      // standalone load (no parent) — query-string fallback i tak działa
+      // standalone mode
     }
     return () => window.removeEventListener("message", onMessage);
   }, []);
 
-  const [data, setData] = useState<ServiceSnapshot | null>(null);
+  const [data, setData] = useState<SnapshotShape | null>(null);
+  const [snapshotKind, setSnapshotKind] = useState<
+    "draft" | "service" | "merged" | "empty" | null
+  >(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [highlights, setHighlights] = useState<Record<string, number>>({});
   const [initiateToken, setInitiateToken] = useState<string | null>(null);
+  const [resolvedServiceId, setResolvedServiceId] =
+    useState<string>(serviceIdFromQuery);
   const [rooms, setRooms] = useState<RoomRow[]>([]);
   const [perRoomJoin, setPerRoomJoin] = useState<
-    Record<string, { joinToken: string; mobileUrl: string; qrDataUrl: string }>
+    Record<string, { joinToken: string }>
   >({});
   const [initiating, setInitiating] = useState<boolean>(false);
-  /** Wave 24 — gdy iframe dostał tylko conversation_id, snapshot odkryje
-   *  bound serviceId po draft → service binding. Trzymamy go w state żeby
-   *  rooms polling i agent-join-token mogły z niego korzystać po fakcie. */
-  const [resolvedServiceId, setResolvedServiceId] = useState<string>(serviceId);
-  const [snapshotKind, setSnapshotKind] = useState<
-    "draft" | "service" | "merged" | "empty" | "service-only"
-  >("service-only");
-  const prevDataRef = useRef<ServiceSnapshot | null>(null);
+  const [streamConnected, setStreamConnected] = useState<boolean>(false);
+  const prevDataRef = useRef<SnapshotShape | null>(null);
+
+  const refetchSnapshot = useCallback(async (): Promise<void> => {
+    if (conversationId == null && !serviceId) return;
+    try {
+      let body: {
+        snapshot: SnapshotShape | null;
+        kind: ConversationSnapshotResponse["kind"];
+        initiateToken?: string | null;
+      };
+      if (conversationId != null) {
+        const r = await fetch(
+          `/api/livekit/conversation-snapshot?conversation_id=${conversationId}`,
+          { cache: "no-store" },
+        );
+        const json = (await r.json()) as ConversationSnapshotResponse;
+        if (!r.ok) throw new Error(json.error ?? `HTTP ${r.status}`);
+        body = {
+          snapshot: json.snapshot,
+          kind: json.kind,
+          initiateToken: json.initiateToken,
+        };
+      } else {
+        const r = await fetch(
+          `/api/livekit/intake-snapshot?service_id=${encodeURIComponent(serviceId)}`,
+          { cache: "no-store" },
+        );
+        const json = (await r.json()) as {
+          service?: SnapshotShape & { id: string };
+          initiateToken?: string | null;
+          error?: string;
+        };
+        if (!r.ok || !json.service) {
+          throw new Error(json.error ?? `HTTP ${r.status}`);
+        }
+        body = {
+          snapshot: json.service,
+          kind: "service",
+          initiateToken: json.initiateToken,
+        };
+      }
+      setSnapshotKind(body.kind);
+      if (body.snapshot) {
+        const next = body.snapshot;
+        const prev = prevDataRef.current;
+        if (prev) {
+          const changed: Record<string, number> = {};
+          const keys: Array<keyof SnapshotShape> = [
+            "ticketNumber",
+            "status",
+            "brand",
+            "model",
+            "imei",
+            "color",
+            "lockType",
+            "description",
+            "amountEstimate",
+            "customerFirstName",
+            "customerLastName",
+            "contactPhone",
+            "contactEmail",
+          ];
+          for (const k of keys) {
+            if (prev[k] !== next[k]) changed[k as string] = Date.now();
+          }
+          if (Object.keys(changed).length > 0) {
+            setHighlights((p) => ({ ...p, ...changed }));
+          }
+        }
+        prevDataRef.current = next;
+        setData(next);
+        if (next.serviceId) setResolvedServiceId(next.serviceId);
+      } else {
+        setData(null);
+        prevDataRef.current = null;
+      }
+      if (typeof body.initiateToken === "string" && body.initiateToken) {
+        setInitiateToken(body.initiateToken);
+      }
+      setError(null);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Nie udało się pobrać podglądu.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [conversationId, serviceId]);
 
   useEffect(() => {
-    if (!serviceId && conversationId == null) {
-      // Czekamy na postMessage z parent (Chatwoot Frame.vue) — nie
-      // wyświetlamy błędu od razu. Jeśli po 5s nadal brak kontekstu,
-      // odpalamy komunikat (np. iframe załadowany standalone).
+    if (conversationId == null && !serviceId) {
       const id = window.setTimeout(() => {
         setError(
           "Brak kontekstu konwersacji. Otwórz tę aplikację z poziomu rozmowy w Chatwoocie.",
@@ -246,119 +342,21 @@ export function IntakePreviewClient({
       return () => window.clearTimeout(id);
     }
 
-    let cancelled = false;
-    let timer: number | null = null;
+    void refetchSnapshot();
 
-    const fetchByConversation = async (): Promise<void> => {
-      const r = await fetch(
-        `/api/livekit/conversation-snapshot?conversation_id=${conversationId}`,
-        { cache: "no-store" },
-      );
-      const body = (await r.json()) as ConversationSnapshotResponse;
-      if (!r.ok) throw new Error(body.error ?? `HTTP ${r.status}`);
-      if (cancelled) return;
-      setSnapshotKind(body.kind);
-      if (body.snapshot) {
-        const s = body.snapshot;
-        const next: ServiceSnapshot = {
-          id: s.serviceId ?? "draft",
-          ticketNumber: s.ticketNumber ?? "—",
-          status: s.status ?? "draft",
-          brand: s.brand,
-          model: s.model,
-          imei: s.imei,
-          color: s.color,
-          lockType: s.lockType,
-          description: s.description,
-          diagnosis: s.diagnosis,
-          amountEstimate: s.amountEstimate,
-          amountFinal: s.amountFinal,
-          customerFirstName: s.customerFirstName,
-          customerLastName: s.customerLastName,
-          contactPhone: s.contactPhone,
-          contactEmail: s.contactEmail,
-          receivedBy: s.receivedBy,
-          chatwootConversationId: body.conversationId,
-          updatedAt: s.updatedAt,
-          createdAt: null,
-        };
-        if (s.serviceId) setResolvedServiceId(s.serviceId);
-        const prev = prevDataRef.current;
-        if (prev) {
-          const changed: Record<string, number> = {};
-          for (const k of VISIBLE_FIELDS) {
-            if (prev[k] !== next[k]) changed[k] = Date.now();
-          }
-          if (Object.keys(changed).length > 0) {
-            setHighlights((p) => ({ ...p, ...changed }));
-          }
-        }
-        prevDataRef.current = next;
-        setData(next);
-      }
-      if (typeof body.initiateToken === "string" && body.initiateToken) {
-        setInitiateToken(body.initiateToken);
-      }
-      setError(null);
-    };
+    if (conversationId == null) return;
+    const es = new EventSource(
+      `/api/livekit/conversation-snapshot/stream?conversation_id=${conversationId}`,
+    );
+    es.addEventListener("open", () => setStreamConnected(true));
+    es.addEventListener("error", () => setStreamConnected(false));
+    es.addEventListener("intake_draft_changed", () => {
+      void refetchSnapshot();
+    });
+    return () => es.close();
+  }, [conversationId, serviceId, refetchSnapshot]);
 
-    const fetchByService = async (): Promise<void> => {
-      const r = await fetch(
-        `/api/livekit/intake-snapshot?service_id=${encodeURIComponent(serviceId)}`,
-        { cache: "no-store" },
-      );
-      const body = (await r.json()) as SnapshotResponse;
-      if (!r.ok || !body.service) {
-        throw new Error(body.error ?? `HTTP ${r.status}`);
-      }
-      if (cancelled) return;
-      const next = body.service;
-      const prev = prevDataRef.current;
-      if (prev) {
-        const changed: Record<string, number> = {};
-        for (const k of VISIBLE_FIELDS) {
-          if (prev[k] !== next[k]) changed[k] = Date.now();
-        }
-        if (Object.keys(changed).length > 0) {
-          setHighlights((p) => ({ ...p, ...changed }));
-        }
-      }
-      prevDataRef.current = next;
-      setData(next);
-      if (typeof body.initiateToken === "string" && body.initiateToken) {
-        setInitiateToken(body.initiateToken);
-      }
-      setError(null);
-    };
-
-    const fetchOnce = async () => {
-      try {
-        if (conversationId != null) {
-          await fetchByConversation();
-        } else {
-          await fetchByService();
-        }
-      } catch (err) {
-        if (cancelled) return;
-        setError(
-          err instanceof Error ? err.message : "Nie udało się pobrać podglądu.",
-        );
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-
-    void fetchOnce();
-    timer = window.setInterval(() => void fetchOnce(), POLL_MS);
-    return () => {
-      cancelled = true;
-      if (timer != null) window.clearInterval(timer);
-    };
-  }, [serviceId, conversationId]);
-
-  // Wave 23 (overlay) — polling aktywnych pokoi konsultacji video. Wave 24:
-  // gdy mamy conversationId, używamy go zamiast serviceId — działa też zanim
-  // sprzedawca zapisze ticket.
+  // Polling pokoi LiveKit — 5 s.
   useEffect(() => {
     if (!resolvedServiceId && conversationId == null) return;
     let cancelled = false;
@@ -368,16 +366,15 @@ export function IntakePreviewClient({
           conversationId != null
             ? `conversation_id=${conversationId}`
             : `service_id=${encodeURIComponent(resolvedServiceId)}`;
-        const r = await fetch(
-          `/api/livekit/rooms-for-service?${param}`,
-          { cache: "no-store" },
-        );
-        const body = (await r.json()) as RoomsForServiceResponse;
-        if (!r.ok) throw new Error(body.error ?? `HTTP ${r.status}`);
+        const r = await fetch(`/api/livekit/rooms-for-service?${param}`, {
+          cache: "no-store",
+        });
+        const body = (await r.json()) as RoomsResponse;
+        if (!r.ok) return;
         if (cancelled) return;
         setRooms(body.rooms);
       } catch {
-        // ignore — polling jest best-effort.
+        // best-effort
       }
     };
     void tick();
@@ -388,13 +385,6 @@ export function IntakePreviewClient({
     };
   }, [resolvedServiceId, conversationId]);
 
-  /**
-   * Wave 23 (overlay) — gdy pojawia się nowy pokój a my nie mamy jeszcze
-   * jego joinTokena (np. sprzedawca rozpoczął konsultację, agent dopiero
-   * otworzył iframe), mintujemy go przez /api/livekit/agent-join-token.
-   * Endpoint waliduje że `roomName` należy do tego samego service_id co
-   * `initiateToken` (cross-service guard).
-   */
   useEffect(() => {
     if (!initiateToken || rooms.length === 0) return;
     let cancelled = false;
@@ -408,31 +398,20 @@ export function IntakePreviewClient({
           const r = await fetch(`/api/livekit/agent-join-token`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              initiateToken,
-              roomName: room.roomName,
-            }),
+            body: JSON.stringify({ initiateToken, roomName: room.roomName }),
           });
           const body = (await r.json()) as {
             joinToken?: string;
             error?: string;
           };
-          if (!r.ok || !body.joinToken) {
-            // Cross-service room (403) lub ended (410) — pomijamy bez
-            // głośnego błędu, polling odświeży listę.
-            continue;
-          }
+          if (!r.ok || !body.joinToken) continue;
           if (cancelled) break;
           setPerRoomJoin((prev) => ({
             ...prev,
-            [room.roomName]: {
-              joinToken: body.joinToken!,
-              mobileUrl: "",
-              qrDataUrl: "",
-            },
+            [room.roomName]: { joinToken: body.joinToken! },
           }));
         } catch {
-          // best-effort; polling spróbuje ponownie
+          // best-effort
         }
       }
     })();
@@ -441,15 +420,9 @@ export function IntakePreviewClient({
     };
   }, [rooms, initiateToken, perRoomJoin]);
 
-  const effectiveConvId =
-    conversationId ??
-    (typeof data?.chatwootConversationId === "number"
-      ? data.chatwootConversationId
-      : null);
-
   const initiate = useCallback(async () => {
     if (!initiateToken) {
-      setError("Brak tokenu inicjacji — odśwież iframe.");
+      setError("Brak tokenu inicjacji — odśwież widok.");
       return;
     }
     setInitiating(true);
@@ -459,33 +432,26 @@ export function IntakePreviewClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           initiateToken,
-          conversationId: effectiveConvId,
+          conversationId,
         }),
       });
       const body = (await r.json()) as InitiateResponse;
       if (!r.ok) throw new Error(body.error ?? `HTTP ${r.status}`);
-      // Rejestrujemy join data w cache per-room, żeby JoinModeSelector
-      // mógł od razu pokazać UI bez ponownego fetcha.
       setPerRoomJoin((prev) => ({
         ...prev,
-        [body.roomName]: {
-          joinToken: body.joinToken,
-          mobileUrl: body.mobilePublisherUrl,
-          qrDataUrl: body.qrCodeDataUrl,
-        },
+        [body.roomName]: { joinToken: body.joinToken },
       }));
     } catch (err) {
       setError(
         err instanceof Error
           ? err.message
-          : "Nie udało się rozpocząć konsultacji.",
+          : "Nie udało się rozpocząć rozmowy.",
       );
     } finally {
       setInitiating(false);
     }
-  }, [initiateToken, effectiveConvId]);
+  }, [initiateToken, conversationId]);
 
-  // Highlight cleanup tick — refresh every 500ms żeby fade-out działał.
   const [, forceTick] = useState(0);
   useEffect(() => {
     const id = window.setInterval(() => forceTick((t) => t + 1), 500);
@@ -501,129 +467,440 @@ export function IntakePreviewClient({
     return live;
   }, [highlights]);
 
+  // Total wyceny — useMemo MUSI być wołany przed early returns (rules of hooks).
+  const totalEstimate = useMemo(() => {
+    const lines = data?.priceLines;
+    const fallback = data?.amountEstimate ?? null;
+    if (!lines || lines.length === 0) return fallback;
+    let total = 0;
+    let any = false;
+    for (const line of lines) {
+      const v =
+        typeof line.amountGross === "number"
+          ? line.amountGross
+          : typeof line.amount === "number"
+            ? line.amount
+            : null;
+      if (typeof v === "number" && Number.isFinite(v)) {
+        total += v;
+        any = true;
+      }
+    }
+    return any ? total : fallback;
+  }, [data?.priceLines, data?.amountEstimate]);
+
   if (loading) {
     return (
-      <main className="min-h-screen flex items-center justify-center text-sm text-gray-500">
-        <Loader2 className="w-5 h-5 animate-spin mr-2" aria-hidden="true" />
-        Łączenie z podglądem…
+      <main style={SHELL_STYLE}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            minHeight: 200,
+            color: "var(--text-muted)",
+            gap: 8,
+          }}
+        >
+          <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+          Łączenie z podglądem…
+        </div>
       </main>
     );
   }
 
-  if (error) {
+  if (error && !data) {
     return (
-      <main className="min-h-screen flex items-center justify-center text-sm text-red-500 p-4 text-center">
-        {error}
+      <main style={SHELL_STYLE}>
+        <div
+          role="alert"
+          style={{
+            padding: 12,
+            borderRadius: 8,
+            background: "rgba(239, 68, 68, 0.12)",
+            border: "1px solid rgba(239, 68, 68, 0.35)",
+            color: "#fca5a5",
+          }}
+        >
+          {error}
+        </div>
+      </main>
+    );
+  }
+
+  if (!data && conversationId != null) {
+    return (
+      <main style={SHELL_STYLE}>
+        <header
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            paddingBottom: 12,
+            marginBottom: 12,
+            borderBottom: "1px solid var(--border-subtle)",
+          }}
+        >
+          <Radio
+            className="w-3.5 h-3.5 animate-pulse"
+            style={{ color: "var(--accent)" }}
+            aria-hidden="true"
+          />
+          <h1 style={{ fontSize: 13, fontWeight: 600, margin: 0 }}>
+            Oczekiwanie na sprzedawcę
+          </h1>
+        </header>
+        <p style={{ color: "var(--text-muted)", marginBottom: 12 }}>
+          Sprzedawca jeszcze nie zaczął wypełniać formularza intake.
+          Możesz zainicjować rozmowę video już teraz.
+        </p>
+        <PrimaryButton
+          onClick={() => void initiate()}
+          disabled={initiating || !initiateToken}
+          loading={initiating}
+          icon={<Video className="w-3.5 h-3.5" aria-hidden="true" />}
+        >
+          Rozpocznij rozmowę video
+        </PrimaryButton>
+        <ConnectionBadge connected={streamConnected} />
       </main>
     );
   }
 
   if (!data) {
-    // Wave 24 — pusty draft (sprzedawca jeszcze nie napisał ani jednego pola).
-    // Pokazujemy "ready to start" UI z przyciskiem inicjacji rozmowy video,
-    // żeby agent mógł zainicjować rozmowę nawet gdy formularz jeszcze pusty.
-    if (conversationId != null) {
-      return (
-        <main className="min-h-screen p-4 bg-white text-gray-900">
-          <header className="mb-3 pb-3 border-b border-gray-200">
-            <div className="flex items-center gap-2">
-              <Radio
-                className="w-3.5 h-3.5 text-amber-500 animate-pulse"
-                aria-hidden="true"
-              />
-              <h1 className="text-sm font-semibold">
-                Oczekiwanie na sprzedawcę
-              </h1>
-            </div>
-            <p className="text-xs text-gray-500 mt-0.5">
-              Sprzedawca jeszcze nie zaczął wypełniać formularza intake.
-            </p>
-          </header>
-          <section className="mt-4">
-            <button
-              type="button"
-              onClick={() => void initiate()}
-              disabled={initiating || !initiateToken}
-              className="w-full px-2.5 py-1.5 rounded-lg text-xs font-medium inline-flex items-center justify-center gap-1.5 disabled:opacity-50"
-              style={{ background: "#4f46e5", color: "#fff" }}
-            >
-              {initiating ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
-              ) : (
-                <Video className="w-3.5 h-3.5" aria-hidden="true" />
-              )}
-              Rozpocznij rozmowę wideo
-            </button>
-          </section>
-        </main>
-      );
-    }
     return (
-      <main className="min-h-screen flex items-center justify-center text-sm text-gray-500">
-        Brak danych dla service_id={serviceId}.
+      <main style={SHELL_STYLE}>
+        <div style={{ color: "var(--text-muted)", textAlign: "center" }}>
+          Brak danych.
+        </div>
       </main>
     );
   }
 
   const customerName =
     [data.customerFirstName, data.customerLastName]
-      .filter((s) => s && s.trim())
+      .filter((s) => s && String(s).trim())
       .join(" ") || "—";
-
-  // Badge dla draft state — agent wie że ogląda live podgląd jeszcze
-  // nie zapisanego ticketu.
   const isDraft = snapshotKind === "draft" || snapshotKind === "empty";
+  const statusLabel =
+    data.status && STATUS_LABELS[data.status]
+      ? STATUS_LABELS[data.status]
+      : data.status ?? "—";
+
+  const visualCondition =
+    (data.visualCondition as Record<string, unknown> | null) ?? null;
+  const damageMarkers = Array.isArray(visualCondition?.damage_markers)
+    ? (visualCondition!.damage_markers as Array<{ description?: string }>).filter(
+        (m) => m && typeof m === "object",
+      )
+    : [];
 
   return (
-    <main className="min-h-screen p-4 bg-white text-gray-900">
-      <header className="mb-3 pb-3 border-b border-gray-200">
-        <div className="flex items-center gap-2">
+    <main style={SHELL_STYLE}>
+      <header
+        style={{
+          paddingBottom: 12,
+          marginBottom: 12,
+          borderBottom: "1px solid var(--border-subtle)",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <Radio
-            className={`w-3.5 h-3.5 animate-pulse ${isDraft ? "text-amber-500" : "text-emerald-500"}`}
+            className="w-3.5 h-3.5 animate-pulse"
+            style={{ color: isDraft ? "#f59e0b" : "var(--accent)" }}
             aria-hidden="true"
           />
-          <h1 className="text-sm font-semibold">
+          <h1 style={{ fontSize: 13, fontWeight: 600, margin: 0 }}>
             {isDraft
               ? "Wersja robocza intake (live)"
               : `Konsultacja serwisowa #${data.ticketNumber}`}
           </h1>
         </div>
-        <p className="text-xs text-gray-500 mt-0.5">
-          Klient: {customerName}{" "}
-          {data.receivedBy && <>· Przyjął: {data.receivedBy}</>}
+        <p
+          style={{
+            color: "var(--text-muted)",
+            margin: "4px 0 0 0",
+            fontSize: 11,
+          }}
+        >
+          Status: <strong style={{ color: "var(--text-main)" }}>{statusLabel}</strong>
+          {data.receivedBy ? <> · Przyjął: {data.receivedBy}</> : null}
         </p>
       </header>
 
-      <dl className="space-y-1.5 text-xs">
-        {VISIBLE_FIELDS.map((k) => {
-          const isHighlighted = activeHighlights[k];
-          return (
-            <div
-              key={k}
-              className="flex items-baseline justify-between gap-3 px-1.5 py-1 rounded transition-colors"
+      {/* Klient */}
+      <section style={SECTION_STYLE}>
+        <h2 style={SECTION_TITLE}>Klient</h2>
+        <FieldRow
+          label="Imię i nazwisko"
+          value={customerName}
+          highlighted={
+            activeHighlights.customerFirstName ||
+            activeHighlights.customerLastName
+          }
+        />
+        <FieldRow
+          label="Telefon"
+          value={data.contactPhone ?? "—"}
+          highlighted={activeHighlights.contactPhone}
+        />
+        <FieldRow
+          label="Email"
+          value={data.contactEmail ?? "—"}
+          highlighted={activeHighlights.contactEmail}
+        />
+      </section>
+
+      {/* Urządzenie */}
+      <section style={SECTION_STYLE}>
+        <h2 style={SECTION_TITLE}>Urządzenie</h2>
+        <FieldRow
+          label="Marka"
+          value={data.brand ?? "—"}
+          highlighted={activeHighlights.brand}
+        />
+        <FieldRow
+          label="Model"
+          value={data.model ?? "—"}
+          highlighted={activeHighlights.model}
+        />
+        <FieldRow
+          label="IMEI"
+          value={data.imei ?? "—"}
+          mono
+          highlighted={activeHighlights.imei}
+        />
+        <FieldRow
+          label="Kolor"
+          value={data.color ?? "—"}
+          highlighted={activeHighlights.color}
+        />
+        <FieldRow
+          label="Blokada"
+          value={
+            data.lockType
+              ? LOCK_LABELS[data.lockType] ?? data.lockType
+              : "—"
+          }
+          highlighted={activeHighlights.lockType}
+        />
+      </section>
+
+      {/* Stan urządzenia 3D */}
+      <section style={SECTION_STYLE}>
+        <h2 style={SECTION_TITLE}>
+          Stan urządzenia
+          {damageMarkers.length > 0 ? (
+            <span
               style={{
-                background: isHighlighted ? "rgba(16, 185, 129, 0.15)" : "transparent",
+                marginLeft: 6,
+                background: "rgba(239, 68, 68, 0.15)",
+                color: "#fca5a5",
+                padding: "1px 6px",
+                borderRadius: 4,
+                fontSize: 9,
               }}
             >
-              <dt className="text-gray-500 flex-shrink-0">
-                {FIELD_LABELS[k]}
-              </dt>
-              <dd className="font-medium text-right truncate">
-                {formatValue(k, (data as unknown as Record<string, unknown>)[k as string])}
-              </dd>
-            </div>
-          );
-        })}
-      </dl>
+              {damageMarkers.length}{" "}
+              {damageMarkers.length === 1 ? "uszkodzenie" : "uszkodzeń"}
+            </span>
+          ) : null}
+        </h2>
+        <DevicePreview3D
+          brandColorHex={brandColorFor(data.brand)}
+          visualCondition={visualCondition}
+        />
+        {damageMarkers.length > 0 && (
+          <ul
+            style={{
+              marginTop: 8,
+              padding: 0,
+              listStyle: "none",
+              fontSize: 11,
+              color: "var(--text-muted)",
+            }}
+          >
+            {damageMarkers.map((m, i) => (
+              <li
+                key={i}
+                style={{
+                  padding: "2px 0",
+                  borderBottom:
+                    i < damageMarkers.length - 1
+                      ? "1px dashed var(--border-subtle)"
+                      : "none",
+                }}
+              >
+                <span style={{ color: "#fca5a5" }}>●</span>{" "}
+                {m.description?.trim() || "Bez opisu"}
+              </li>
+            ))}
+          </ul>
+        )}
+        <RatingsList visualCondition={visualCondition} />
+      </section>
 
-      {/* Wave 23 (overlay) — Konsultacja video */}
-      <section className="mt-4 pt-3 border-t border-gray-200">
-        <div className="flex items-center justify-between mb-2">
-          <h2 className="text-xs font-semibold flex items-center gap-1.5">
-            <Video className="w-3.5 h-3.5 text-rose-500" aria-hidden="true" />
-            Konsultacja video
+      {/* Opis usterki + repair types */}
+      <section style={SECTION_STYLE}>
+        <h2 style={SECTION_TITLE}>Opis usterki</h2>
+        <p
+          style={{
+            margin: 0,
+            fontSize: 12,
+            color: "var(--text-main)",
+            whiteSpace: "pre-wrap",
+            background: activeHighlights.description
+              ? "var(--accent-soft)"
+              : "transparent",
+            padding: 6,
+            borderRadius: 4,
+            transition: "background 200ms ease",
+          }}
+        >
+          {data.description?.trim() || "—"}
+        </p>
+        {data.repairTypes && data.repairTypes.length > 0 && (
+          <div
+            style={{
+              marginTop: 8,
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 4,
+            }}
+          >
+            {data.repairTypes.map((code) => (
+              <span
+                key={code}
+                style={{
+                  padding: "2px 8px",
+                  borderRadius: 12,
+                  background: "var(--accent-soft)",
+                  border: "1px solid var(--accent-border)",
+                  color: "var(--accent)",
+                  fontSize: 10,
+                  fontWeight: 500,
+                }}
+              >
+                {code}
+              </span>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* Wycena */}
+      <section style={SECTION_STYLE}>
+        <h2 style={SECTION_TITLE}>Wycena</h2>
+        {data.priceLines && data.priceLines.length > 0 ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {data.priceLines.map((line, i) => (
+              <div
+                key={i}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  fontSize: 11,
+                  color: "var(--text-main)",
+                }}
+              >
+                <span>
+                  {String(line.label ?? line.code ?? "Pozycja")}
+                </span>
+                <span style={{ fontFamily: "monospace" }}>
+                  {formatAmount(
+                    typeof line.amountGross === "number"
+                      ? line.amountGross
+                      : typeof line.amount === "number"
+                        ? line.amount
+                        : null,
+                  )}
+                </span>
+              </div>
+            ))}
+            <div
+              style={{
+                marginTop: 4,
+                paddingTop: 4,
+                borderTop: "1px solid var(--border-subtle)",
+                display: "flex",
+                justifyContent: "space-between",
+                fontSize: 12,
+                fontWeight: 600,
+              }}
+            >
+              <span>Razem</span>
+              <span style={{ fontFamily: "monospace", color: "var(--accent)" }}>
+                {formatAmount(totalEstimate)}
+              </span>
+            </div>
+          </div>
+        ) : (
+          <FieldRow
+            label="Wycena szacunkowa"
+            value={formatAmount(data.amountEstimate)}
+            highlighted={activeHighlights.amountEstimate}
+            mono
+          />
+        )}
+        {data.amountFinal != null && (
+          <FieldRow label="Kwota końcowa" value={formatAmount(data.amountFinal)} mono />
+        )}
+      </section>
+
+      {/* Handover */}
+      {data.handoverChoice && (
+        <section style={SECTION_STYLE}>
+          <h2 style={SECTION_TITLE}>Potwierdzenie odbioru</h2>
+          {data.handoverChoice === "none" ? (
+            <p style={{ margin: 0, fontSize: 11, color: "var(--text-muted)" }}>
+              Sprzedawca potwierdził: brak SIM, karty SD, etui w urządzeniu.
+            </p>
+          ) : (
+            <p
+              style={{
+                margin: 0,
+                fontSize: 11,
+                color: "var(--text-main)",
+                whiteSpace: "pre-wrap",
+              }}
+            >
+              {data.handoverItems?.trim() || "Pobrane przedmioty (brak opisu)"}
+            </p>
+          )}
+        </section>
+      )}
+
+      {/* Konsultacja video */}
+      <section style={SECTION_STYLE}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: 8,
+          }}
+        >
+          <h2
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              textTransform: "uppercase",
+              letterSpacing: 1,
+              color: "var(--text-muted)",
+              margin: 0,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            <Video
+              className="w-3.5 h-3.5"
+              style={{ color: "var(--accent)" }}
+              aria-hidden="true"
+            />
+            Rozmowa video
           </h2>
-          <span className="text-[10px] text-gray-400">
+          <span style={{ fontSize: 9, color: "var(--text-muted)" }}>
             {rooms.length === 0
               ? "Brak aktywnych"
               : `${rooms.length} aktywna${rooms.length > 1 ? "/-e" : ""}`}
@@ -631,51 +908,61 @@ export function IntakePreviewClient({
         </div>
 
         {rooms.length === 0 && (
-          <button
-            type="button"
+          <PrimaryButton
             onClick={() => void initiate()}
             disabled={initiating || !initiateToken}
-            className="w-full px-2.5 py-1.5 rounded-lg text-xs font-medium inline-flex items-center justify-center gap-1.5 disabled:opacity-50"
-            style={{
-              background: "#4f46e5",
-              color: "#fff",
-            }}
+            loading={initiating}
+            icon={<Video className="w-3.5 h-3.5" aria-hidden="true" />}
           >
-            {initiating ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
-            ) : (
-              <Video className="w-3.5 h-3.5" aria-hidden="true" />
-            )}
-            Rozpocznij konsultację
-          </button>
+            Rozpocznij rozmowę video
+          </PrimaryButton>
         )}
 
         {rooms.length > 0 && (
-          <div className="space-y-2">
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {rooms.map((r) => {
               const cached = perRoomJoin[r.roomName];
               return (
                 <div
                   key={r.id}
-                  className="rounded-lg p-2 text-[11px]"
                   style={{
-                    background: "rgba(0,0,0,0.03)",
-                    border: "1px solid rgba(0,0,0,0.08)",
+                    background: "var(--bg-surface)",
+                    border: "1px solid var(--border-subtle)",
+                    borderRadius: 6,
+                    padding: 8,
                   }}
                 >
-                  <div className="flex items-center justify-between gap-2 mb-1.5">
-                    <span className="font-mono text-[10px] truncate">
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      marginBottom: 6,
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontFamily: "monospace",
+                        fontSize: 10,
+                        color: "var(--text-muted)",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
                       {r.roomName}
                     </span>
                     <span
-                      className="px-1.5 py-0.5 rounded text-[9px] uppercase tracking-wider"
                       style={{
+                        padding: "2px 6px",
+                        borderRadius: 4,
+                        fontSize: 9,
+                        textTransform: "uppercase",
+                        letterSpacing: 1,
                         background:
                           r.status === "active"
                             ? "rgba(16, 185, 129, 0.15)"
                             : "rgba(245, 158, 11, 0.15)",
-                        color:
-                          r.status === "active" ? "#10b981" : "#f59e0b",
+                        color: r.status === "active" ? "#10b981" : "#f59e0b",
                       }}
                     >
                       {r.status === "active" ? "TRWA" : "OCZEKUJE"}
@@ -689,8 +976,19 @@ export function IntakePreviewClient({
                       publisherMode="publisher"
                     />
                   ) : (
-                    <div className="flex items-center gap-1.5 text-[10px] text-gray-500">
-                      <Loader2 className="w-3 h-3 animate-spin" aria-hidden="true" />
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                        fontSize: 10,
+                        color: "var(--text-muted)",
+                      }}
+                    >
+                      <Loader2
+                        className="w-3 h-3 animate-spin"
+                        aria-hidden="true"
+                      />
                       Generowanie tokenu dołączenia…
                     </div>
                   )}
@@ -701,11 +999,206 @@ export function IntakePreviewClient({
         )}
       </section>
 
-      <footer className="mt-4 pt-3 border-t border-gray-200">
-        <p className="text-[10px] text-gray-400 text-center">
-          myperformance.pl · live preview · auto-refresh co 4 s
-        </p>
-      </footer>
+      <ConnectionBadge connected={streamConnected} />
     </main>
   );
 }
+
+function FieldRow({
+  label,
+  value,
+  highlighted,
+  mono,
+}: {
+  label: string;
+  value: string;
+  highlighted?: boolean;
+  mono?: boolean;
+}) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "baseline",
+        justifyContent: "space-between",
+        gap: 12,
+        padding: "4px 6px",
+        borderRadius: 4,
+        background: highlighted ? "var(--accent-soft)" : "transparent",
+        transition: "background 200ms ease",
+        fontSize: 11,
+      }}
+    >
+      <dt style={{ color: "var(--text-muted)", flexShrink: 0 }}>{label}</dt>
+      <dd
+        style={{
+          fontWeight: 500,
+          textAlign: "right",
+          margin: 0,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+          maxWidth: "60%",
+          fontFamily: mono ? "monospace" : "inherit",
+        }}
+        title={value}
+      >
+        {value}
+      </dd>
+    </div>
+  );
+}
+
+function RatingsList({
+  visualCondition,
+}: {
+  visualCondition: Record<string, unknown> | null;
+}) {
+  if (!visualCondition) return null;
+  const ratings: Array<[string, unknown, string]> = [
+    ["display", visualCondition.display, "Ekran"],
+    ["back", visualCondition.back, "Tył"],
+    ["frames", visualCondition.frames, "Ramki"],
+    ["camera", visualCondition.camera, "Aparat"],
+    ["battery", visualCondition.battery, "Bateria"],
+  ];
+  const items = ratings.filter(([, v]) => typeof v === "number");
+  const flags: Array<[string, unknown, string]> = [
+    ["charging_works", visualCondition.charging_works, "Ładowanie"],
+    ["fingerprint_works", visualCondition.fingerprint_works, "Odcisk palca"],
+    ["faceid_works", visualCondition.faceid_works, "Face ID"],
+  ];
+  const flagItems = flags.filter(([, v]) => v != null);
+  if (items.length === 0 && flagItems.length === 0) return null;
+  return (
+    <div
+      style={{
+        marginTop: 8,
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr",
+        gap: 4,
+        fontSize: 10,
+      }}
+    >
+      {items.map(([key, value, label]) => (
+        <div
+          key={key}
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            color: "var(--text-muted)",
+            padding: "2px 6px",
+          }}
+        >
+          <span>{label}</span>
+          <span style={{ color: "var(--text-main)", fontFamily: "monospace" }}>
+            {value as number}/5
+          </span>
+        </div>
+      ))}
+      {flagItems.map(([key, value, label]) => (
+        <div
+          key={key}
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            color: "var(--text-muted)",
+            padding: "2px 6px",
+          }}
+        >
+          <span>{label}</span>
+          <span
+            style={{
+              color: value ? "#10b981" : "#fca5a5",
+              fontFamily: "monospace",
+            }}
+          >
+            {value ? "OK" : "—"}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PrimaryButton({
+  onClick,
+  disabled,
+  loading,
+  icon,
+  children,
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+  loading?: boolean;
+  icon?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        width: "100%",
+        padding: "8px 12px",
+        borderRadius: 8,
+        background: "var(--accent)",
+        color: "#fff",
+        fontWeight: 500,
+        fontSize: 12,
+        border: "none",
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.5 : 1,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 6,
+      }}
+    >
+      {loading ? (
+        <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
+      ) : (
+        icon
+      )}
+      {children}
+    </button>
+  );
+}
+
+function ConnectionBadge({ connected }: { connected: boolean }) {
+  return (
+    <footer
+      style={{
+        marginTop: 16,
+        paddingTop: 12,
+        borderTop: "1px solid var(--border-subtle)",
+        textAlign: "center",
+        fontSize: 10,
+        color: "var(--text-muted)",
+      }}
+    >
+      <span
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 4,
+        }}
+      >
+        <span
+          style={{
+            display: "inline-block",
+            width: 6,
+            height: 6,
+            borderRadius: "50%",
+            background: connected ? "#10b981" : "#6b6b7b",
+          }}
+          aria-hidden="true"
+        />
+        myperformance.pl ·{" "}
+        {connected ? "real-time" : "łączenie…"}
+      </span>
+    </footer>
+  );
+}
+

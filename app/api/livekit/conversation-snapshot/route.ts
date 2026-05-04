@@ -173,6 +173,16 @@ interface MergedSnapshot {
   contactEmail: string | null;
   receivedBy: string | null;
   readyToSubmit: boolean;
+  /** Wave 24 — pełen widok dla Dashboard App: stan wizualny urządzenia
+   *  (wycieki z konfiguratora 3D), checklist wstępny, lista repair types
+   *  z wycenami, handover wybór. Wszystkie pola sanitized — bez lock_code. */
+  visualCondition: Record<string, unknown> | null;
+  visualCompleted: boolean;
+  intakeChecklist: Record<string, unknown> | null;
+  repairTypes: string[] | null;
+  priceLines: Array<Record<string, unknown>> | null;
+  handoverChoice: "none" | "items" | null;
+  handoverItems: string | null;
   updatedAt: string | null;
   source: "draft" | "service" | "merged";
 }
@@ -185,25 +195,44 @@ function mergeSnapshot(
 ): MergedSnapshot {
   const p = draft?.payload ?? {};
   if (service) {
+    // Service istnieje w mp_services — bierzemy z niego stan kanoniczny.
+    // Draft nadal może mieć świeższe wartości w toku edycji (między
+    // submit-render-redirect), więc tam gdzie service ma null/empty,
+    // fallback na draft. visualCondition/intakeChecklist są obiektami
+    // bezpiecznymi do exposure.
     return {
       serviceId: service.id,
       ticketNumber: service.ticketNumber,
       status: service.status,
-      brand: service.brand ?? null,
-      model: service.model ?? null,
-      imei: service.imei ?? null,
-      color: service.color ?? null,
-      lockType: service.lockType ?? null,
-      description: service.description ?? null,
+      brand: service.brand ?? p.brand ?? null,
+      model: service.model ?? p.model ?? null,
+      imei: service.imei ?? p.imei ?? null,
+      color: service.color ?? p.color ?? null,
+      lockType: service.lockType ?? p.lockType ?? null,
+      description: service.description ?? p.description ?? null,
       diagnosis: service.diagnosis ?? null,
-      amountEstimate: service.amountEstimate ?? null,
+      amountEstimate: service.amountEstimate ?? p.amountEstimate ?? null,
       amountFinal: service.amountFinal ?? null,
-      customerFirstName: service.customerFirstName ?? null,
-      customerLastName: service.customerLastName ?? null,
-      contactPhone: service.contactPhone ?? null,
-      contactEmail: service.contactEmail ?? null,
+      customerFirstName:
+        service.customerFirstName ?? p.customerFirstName ?? null,
+      customerLastName:
+        service.customerLastName ?? p.customerLastName ?? null,
+      contactPhone: service.contactPhone ?? p.contactPhone ?? null,
+      contactEmail: service.contactEmail ?? p.contactEmail ?? null,
       receivedBy: service.receivedBy ?? null,
       readyToSubmit: true,
+      visualCondition:
+        (service.visualCondition as Record<string, unknown> | null) ??
+        p.visualCondition ??
+        null,
+      visualCompleted: Boolean(p.visualCompleted ?? service.visualCondition),
+      intakeChecklist:
+        (service.intakeChecklist as Record<string, unknown> | null) ?? null,
+      // ServiceTicket nie ma direct repairTypes field — bierzemy z draft.
+      repairTypes: p.repairTypes ?? null,
+      priceLines: p.priceLines ?? null,
+      handoverChoice: p.handoverChoice ?? null,
+      handoverItems: p.handoverItems ?? null,
       updatedAt: service.updatedAt ?? null,
       source: draft ? "merged" : "service",
     };
@@ -227,6 +256,13 @@ function mergeSnapshot(
     contactEmail: p.contactEmail ?? null,
     receivedBy: draft?.salesEmail ?? null,
     readyToSubmit: !!p.readyToSubmit,
+    visualCondition: p.visualCondition ?? null,
+    visualCompleted: Boolean(p.visualCompleted),
+    intakeChecklist: null,
+    repairTypes: p.repairTypes ?? null,
+    priceLines: p.priceLines ?? null,
+    handoverChoice: p.handoverChoice ?? null,
+    handoverItems: p.handoverItems ?? null,
     updatedAt: draft?.updatedAt ?? null,
     source: "draft",
   };

@@ -22,7 +22,6 @@ import {
   Smartphone,
   Sparkles,
   User as UserIcon,
-  Video,
   Wrench,
 } from "lucide-react";
 import { BrandPicker, BRANDS } from "./BrandPicker";
@@ -30,7 +29,6 @@ import { ImeiField } from "./ImeiField";
 import { ColorPicker, NAMED_COLORS } from "./ColorPicker";
 import { LockSection } from "./LockSection";
 import { PhoneInputWithFlags } from "./PhoneInputWithFlags";
-import { VideoConsultationDialog } from "./VideoConsultationDialog";
 import { useChatwootConversation } from "../../hooks/useChatwootConversation";
 // ChecklistSection — pytania przeniesione do konfiguratora 3D (P21).
 import {
@@ -190,11 +188,11 @@ export function AddServiceForm({
     ticketNumber: string;
   } | null>(null);
 
-  // Wave 24 — Chatwoot conversation tracking dla przycisku "Rozmowa wideo
-  // z serwisantem". Hook nasłuchuje `chatwoot:on-message` events + cookies
-  // żeby wykryć conversationId. Przycisk jest disabled gdy null.
+  // Wave 24 — Chatwoot conversation tracking dla draft publish. Hook
+  // nasłuchuje `chatwoot:on-message` events + cookies żeby wykryć conv id.
+  // Inicjacja rozmowy video jest po stronie agenta Chatwoot (Dashboard App),
+  // sprzedawca nie ma własnego przycisku.
   const chatwootConv = useChatwootConversation();
-  const [videoDialogOpen, setVideoDialogOpen] = useState(false);
 
   // Punkt serwisowy: lista wszystkich service-locations + auto-prefill
   // domyślnego (powiązanego z punktem sprzedaży locationId).
@@ -420,10 +418,10 @@ export function AddServiceForm({
       serviceComplete &&
       handoverComplete;
 
-  // Wave 24 — draft publishing dla Dashboard App. Debounced (1.5 s) publish
-  // stanu formularza po conversationId. Endpoint sanitizuje payload — nigdy
-  // nie wysyłamy lockCode. Skip gdy brak conversationId (cron purge zostawia
-  // stale wiersze przez 24 h, więc prywatność OK).
+  // Wave 24 — real-time draft publishing dla Chatwoot Dashboard App.
+  // Debounce 200 ms — agent widzi pisanie literek na żywo (SSE bus pushuje
+  // po każdym upsert). Endpoint sanitizuje payload — NIGDY lockCode.
+  // Skip gdy brak conversationId.
   useEffect(() => {
     if (!isSales) return;
     const conversationId = chatwootConv.conversationId;
@@ -451,6 +449,12 @@ export function AddServiceForm({
             contactPhone: contactPhone || null,
             contactEmail: contactEmail || null,
             repairTypes: repairTypes.length ? repairTypes : null,
+            // Wave 24 — pełen snapshot intake'u dla agenta:
+            visualCondition,
+            visualCompleted,
+            handoverChoice,
+            handoverItems: handoverItems || null,
+            priceLines,
             readyToSubmit: allComplete,
             serviceId: editingServiceId ?? lastCreated?.id ?? null,
           },
@@ -458,7 +462,7 @@ export function AddServiceForm({
       }).catch(() => {
         // best-effort — draft to ephemeral co-edit log, nie blokujemy UX
       });
-    }, 1500);
+    }, 200);
     return () => window.clearTimeout(id);
   }, [
     isSales,
@@ -478,6 +482,11 @@ export function AddServiceForm({
     contactPhone,
     contactEmail,
     repairTypes,
+    visualCondition,
+    visualCompleted,
+    handoverChoice,
+    handoverItems,
+    priceLines,
     allComplete,
   ]);
 
@@ -1221,38 +1230,6 @@ export function AddServiceForm({
             {editingServiceId ? "Anuluj" : "Wyczyść"}
           </button>
 
-          {/* Wave 24 — przycisk obok submita. Aktywny tylko gdy hook
-              wykrył conversationId z aktywnej rozmowy Chatwoot (sprzedawca
-              musi mieć otwarty czat z serwisantem). */}
-          {isSales && (
-            <button
-              type="button"
-              onClick={() => setVideoDialogOpen(true)}
-              disabled={!chatwootConv.hasConversation || saving}
-              title={
-                !chatwootConv.hasConversation
-                  ? "Otwórz rozmowę z serwisantem w czacie aby uruchomić rozmowę wideo"
-                  : "Rozpocznij rozmowę wideo w aktualnej rozmowie Chatwoot"
-              }
-              className="px-3 py-2 rounded-xl text-sm font-medium border transition-all inline-flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-              style={{
-                background: chatwootConv.hasConversation
-                  ? "rgba(99, 102, 241, 0.12)"
-                  : "transparent",
-                borderColor: chatwootConv.hasConversation
-                  ? "rgba(99, 102, 241, 0.4)"
-                  : "var(--border-subtle)",
-                color: chatwootConv.hasConversation
-                  ? "#6366f1"
-                  : "var(--text-muted)",
-              }}
-            >
-              <Video className="w-4 h-4" aria-hidden="true" />
-              <span className="hidden sm:inline">Rozmowa wideo z serwisantem</span>
-              <span className="sm:hidden">Wideo</span>
-            </button>
-          )}
-
           <button
             type="submit"
             disabled={saving || !allComplete}
@@ -1283,14 +1260,6 @@ export function AddServiceForm({
         </div>
       </form>
 
-      {/* Wave 24 — modal rozmowy video. Render warunkowy + wewnątrz auto-start
-          jak tylko open=true. */}
-      <VideoConsultationDialog
-        open={videoDialogOpen}
-        onClose={() => setVideoDialogOpen(false)}
-        conversationId={chatwootConv.conversationId}
-        serviceId={editingServiceId ?? lastCreated?.id ?? null}
-      />
 
       {showConfigurator && (
         <PhoneConfigurator3D

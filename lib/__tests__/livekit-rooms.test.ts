@@ -278,7 +278,15 @@ describe("endSession", () => {
 
 describe("listActiveSessionsByUser", () => {
   it("filters by email + status IN (waiting, active)", async () => {
+    // Wave 24 — najpierw idempotent auto-expire UPDATE (>30 min stale rooms),
+    // potem właściwy SELECT.
     pushScript(
+      (call) => {
+        expect(call.sql).toMatch(/UPDATE mp_livekit_sessions/);
+        expect(call.sql).toMatch(/SET status\s*=\s*'ended'/);
+        expect(call.sql).toMatch(/INTERVAL\s+'30 minutes'/);
+        return { rows: [] };
+      },
       (call) => {
         expect(call.sql).toMatch(/requested_by_email\s*=\s*\$1/);
         expect(call.sql).toMatch(/status IN \('waiting', 'active'\)/);
@@ -307,7 +315,12 @@ describe("listActiveSessionsByUser", () => {
   });
 
   it("returns [] when user has no active sessions", async () => {
-    pushScript(() => ({ rows: [] }));
+    pushScript(
+      // auto-expire UPDATE
+      () => ({ rows: [] }),
+      // SELECT returns nothing
+      () => ({ rows: [] }),
+    );
     const sessions = await listActiveSessionsByUser("nobody@mp.pl");
     expect(sessions).toEqual([]);
   });

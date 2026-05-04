@@ -32,6 +32,9 @@ const logger = log.child({ module: "intake-drafts" });
  * Sanitized payload — pola bezpieczne do pokazania agentowi Chatwoota.
  * NIGDY nie wkładamy tu `lockCode`, `patternLock`, ani innych wrażliwych.
  * AddServiceForm filtruje na serializacji.
+ *
+ * Wave 24 — pełen widok intake'u w Dashboard App: dodajemy `visualCondition`
+ * (3D readonly), `intakeChecklist`, `priceLines` (wycena), `handover` flagi.
  */
 export interface IntakeDraftPayload {
   brand?: string | null;
@@ -46,6 +49,14 @@ export interface IntakeDraftPayload {
   contactPhone?: string | null;
   contactEmail?: string | null;
   repairTypes?: string[] | null;
+  /** VisualConditionState z konfiguratora 3D — surface ratings + damages. */
+  visualCondition?: Record<string, unknown> | null;
+  /** True gdy sprzedawca przeszedł cały flow konfiguratora 3D. */
+  visualCompleted?: boolean | null;
+  handoverChoice?: "none" | "items" | null;
+  handoverItems?: string | null;
+  /** Linie wyceny z mp_pricelist (kod, label, kwota brutto). */
+  priceLines?: Array<Record<string, unknown>> | null;
   /** Display flag — true gdy formularz spełnia walidację submit. */
   readyToSubmit?: boolean;
   /** Po zapisie ticketu — link do already-saved service. */
